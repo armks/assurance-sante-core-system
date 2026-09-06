@@ -1,0 +1,15 @@
+{
+  "name": "assurance-sante-core-system",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Core System Assurance Santé Collective (Côte d'Ivoire) — monorepo Next.js + NestJS + Supabase",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "api:dev": "npm run start:dev --workspace apps/api",
+    "api:build": "npm run build --workspace apps/api",
+    "web:dev": "npm run dev --workspace apps/web",
+    "web:build": "npm run build --workspace apps/web"
+  }
+}

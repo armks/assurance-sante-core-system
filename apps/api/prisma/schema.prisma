@@ -1,0 +1,117 @@
+// Prisma schema — apps/api
+// ---------------------------------------------------------------------------
+// Synchronisé avec la base Supabase existante via `npx prisma db pull`
+// (2026-09-06). Les colonnes ci-dessous reflètent la base RÉELLE (public),
+// pas une supposition. Modèles renommés en PascalCase + `@@map` vers les tables
+// snake_case pour un code TypeScript idiomatique.
+//
+// Schéma `auth` (Supabase GoTrue) : NON modélisé ici. `profils.id` référence
+// `auth.users(id)` en base (FK réelle conservée), mais on ne modélise pas la
+// table `auth.users` côté Prisma — l'email/identité provient du JWT vérifié.
+// Pour ré-introspecter : ajouter `schemas = ["auth", "public"]` au datasource,
+// lancer `npx prisma db pull --force`, puis retirer les modèles/enums du schéma
+// `auth` et l'entrée `schemas` (le client TS n'en a pas besoin).
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// organisations — tenant racine (compagnie d'assurance / mutuelle). v9 §0.1.
+model Organisation {
+  id               String    @id @db.Uuid
+  nom              String
+  raisonSociale    String?   @map("raison_sociale")
+  type             String
+  pays             String
+  devise           String    @default("XOF")
+  emailContact     String?   @map("email_contact")
+  telephoneContact String?   @map("telephone_contact")
+  statut           String    @default("ACTIVE")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  profils   Profil[]
+  auditLogs AuditLog[]
+
+  @@map("organisations")
+}
+
+/// audit_log — journal d'audit unique (alimenté par log_audit(), v9 §1.6).
+model AuditLog {
+  id               String   @id @db.Uuid
+  organisationId   String?  @map("organisation_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  action           String
+  tableCible       String   @map("table_cible")
+  enregistrementId String?  @map("enregistrement_id") @db.Uuid
+  details          Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id])
+
+  @@map("audit_log")
+}
+
+/// entites_metier — entité métier d'affichage (SUPERADMIN, ASSUREUR,
+/// SOCIETE_AFFILIEE, ADHERENT, CENTRE_MEDICAL, PHARMACIE). v9 §2.
+model EntiteMetier {
+  code    String @id
+  libelle String
+
+  sousRoles SousRole[]
+
+  @@map("entites_metier")
+}
+
+/// sous_roles — dictionnaire des 25 sous-rôles avec héritage (role_parent_code).
+/// v9 addendum A. `ASSUREUR_MEDECIN_SOUSCRIPTEUR` distinct de
+/// `ASSUREUR_MEDECIN_CONSEIL` (v9 §1.4 / v10 §3).
+model SousRole {
+  code           String  @id
+  entiteCode     String  @map("entite_code")
+  libelle        String
+  roleParentCode String? @map("role_parent_code")
+  niveauAcces    String  @map("niveau_acces") // LECTURE_SEULE | MODIFICATION | ADMIN | ADMIN_PLATEFORME
+  peutValider    Boolean @default(false) @map("peut_valider")
+  dashboardRoute String  @map("dashboard_route")
+
+  entite       EntiteMetier @relation(fields: [entiteCode], references: [code])
+  roleParent   SousRole?    @relation("HierarchieSousRole", fields: [roleParentCode], references: [code])
+  rolesEnfants SousRole[]   @relation("HierarchieSousRole")
+  profils      Profil[]
+
+  @@map("sous_roles")
+}
+
+/// profils — profil applicatif d'un utilisateur. `id` = auth.users.id (Supabase).
+/// `role` référence sous_roles.code (nullable : compte créé mais rôle pas encore
+/// assigné). `numero_ordre_medecin` : un même numéro ne peut détenir qu'un seul
+/// rôle médical actif à la fois (index unique partiel côté Postgres, v10 §2.2).
+model Profil {
+  id                 String    @id @db.Uuid
+  organisationId     String?   @map("organisation_id") @db.Uuid
+  role               String?
+  societeId          String?   @map("societe_id") @db.Uuid
+  etablissementId    String?   @map("etablissement_id") @db.Uuid
+  pharmacieId        String?   @map("pharmacie_id") @db.Uuid
+  adherentId         String?   @map("adherent_id") @db.Uuid
+  mfaActive          Boolean?  @default(false) @map("mfa_active")
+  methodeConnexion   String?   @map("methode_connexion")
+  numeroOrdreMedecin String?   @map("numero_ordre_medecin")
+  createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sousRole     SousRole?     @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("profils")
+}

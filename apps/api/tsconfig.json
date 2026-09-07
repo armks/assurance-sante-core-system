@@ -11,6 +11,10 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "incremental": true,
+    // Placé dans outDir pour que `deleteOutDir` (nest-cli.json) le supprime aussi :
+    // sinon un cache d'incrémental périmé fait sauter l'émission des .js après un
+    // nettoyage de dist/ (=> "Cannot find module dist/main").
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "skipLibCheck": true,
     "strictNullChecks": true,
     "noImplicitAny": true,

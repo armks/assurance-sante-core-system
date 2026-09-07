@@ -346,8 +346,19 @@ insert into sous_roles (code, entite_code, libelle, role_parent_code, niveau_acc
 
 ### B. Vérification JWT via JWKS, pas de secret partagé
 Le projet utilise les nouvelles clés Supabase (sb_publishable_/sb_secret_) avec signature
-JWT asymétrique (ECC P-256). Utiliser SUPABASE_JWKS_URL (https://<project-ref>.supabase.co/auth/v1/jwks),
+JWT asymétrique (ECC P-256). Utiliser
+`SUPABASE_JWKS_URL=https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json`,
 jamais SUPABASE_JWT_SECRET — cette variable n'existe pas dans ce projet.
+
+> **Correction (vérifié le 2026-09-06, projet untipyycbhllqxwpucml).** L'ancienne valeur
+> indiquée ici, `https://<project-ref>.supabase.co/auth/v1/jwks`, est **fausse** :
+> - `GET /auth/v1/jwks` sans `apikey` → **HTTP 401** (rejet par la gateway avant routage) ;
+> - `GET /auth/v1/jwks` avec `apikey` → **HTTP 404** (l'endpoint n'existe pas à ce chemin).
+>
+> Le bon endpoint est `/auth/v1/.well-known/jwks.json` : **public** (HTTP 200 sans `apikey`),
+> renvoie `{ "keys": [ { "alg": "ES256", "kid": "...", ... } ] }`. Le guard NestJS
+> (`jwks-rsa`) doit pointer là ; sinon toute requête authentifiée échoue en 401 avec
+> `error in secret or public key callback: Unauthorized` côté serveur.
 
 ### C. Next.js 16, pas 14
 Next.js 14 est en fin de vie (EOL) depuis le 26/10/2025, plus aucun correctif de sécurité.

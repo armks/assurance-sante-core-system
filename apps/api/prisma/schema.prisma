@@ -49,6 +49,7 @@ model Organisation {
   pharmacies        Pharmacie[]
   referentielActes  ReferentielActe[]
   medicaments       Medicament[]
+  dossiersSoins     DossierSoins[]
 
   @@map("organisations")
 }
@@ -125,6 +126,8 @@ model Profil {
   invitationsEmises     Invitation[]
   actesHomologues       ReferentielActe[]
   medicamentsHomologues Medicament[]
+  dossiersClotures      DossierSoins[]
+  consultations         ConsultationDossier[]
 
   @@map("profils")
 }
@@ -245,7 +248,8 @@ model Garantie {
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  produit Produit @relation(fields: [produitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  produit       Produit        @relation(fields: [produitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dossiersSoins DossierSoins[]
 
   @@index([produitId])
   @@map("garanties")
@@ -271,6 +275,7 @@ model Police {
   avenants      Avenant[]
   cotisations   Cotisation[]
   tarifications TarificationIndividuelle[]
+  dossiersSoins DossierSoins[]
 
   @@index([organisationId])
   @@index([souscripteurId])
@@ -480,7 +485,9 @@ model EtablissementSante {
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organisation       Organisation   @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossiers           DossierSoins[] @relation("DossierEtablissement")
+  dossiersTransferes DossierSoins[] @relation("DossierTransfereVers")
 
   @@index([organisationId])
   @@index([statut])
@@ -581,4 +588,77 @@ model Medicament {
   @@index([organisationId])
   @@index([statutHomologation])
   @@map("medicaments")
+}
+
+/// dossiers_soins — Dossier de Soins + Numéro de Traitement (v1 §15). Ouverture
+/// pilotée par le MoteurOuvertureDossier (CareEpisodeService). prisma/sql/011.
+model DossierSoins {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId     String    @map("organisation_id") @db.Uuid
+  numeroTraitement   String    @unique @default(dbgenerated("(((('TRT-'::text || to_char(now(), 'YYYY-MM'::text)) || '-'::text) || lpad((nextval('dossiers_soins_numero_seq'::regclass))::text, 6, '0'::text)))")) @map("numero_traitement")
+  adherentId         String?   @map("adherent_id") @db.Uuid
+  beneficiaireId     String?   @map("beneficiaire_id") @db.Uuid
+  etablissementId    String    @map("etablissement_id") @db.Uuid
+  policeId           String    @map("police_id") @db.Uuid
+  planCouvertureId   String?   @map("plan_couverture_id") @db.Uuid
+  statut             String    @default("OUVERT") // OUVERT | SUSPENDU | TRANSFERE | CLOTURE | FORCE_CLOS
+  dateOuverture      DateTime  @default(now()) @map("date_ouverture") @db.Timestamptz(6)
+  dateCloture        DateTime? @map("date_cloture") @db.Timestamptz(6)
+  motifConsultation  String?   @map("motif_consultation")
+  diagnosticEntree   String?   @map("diagnostic_entree")
+  codeCim10          String?   @map("code_cim10")
+  carteValide        Boolean?  @map("carte_valide")
+  adherentEligible   Boolean?  @map("adherent_eligible")
+  aucunDossierOuvert Boolean?  @map("aucun_dossier_ouvert")
+  horsDelaiCarence   Boolean?  @map("hors_delai_carence")
+  blocageRaison      String?   @map("blocage_raison")
+  cloturePar         String?   @map("cloture_par") @db.Uuid
+  clotureMotif       String?   @map("cloture_motif")
+  clotureType        String?   @map("cloture_type") // NORMALE | FORCEE
+  transfereVers      String?   @map("transfere_vers") @db.Uuid
+  dossierOrigine     String?   @map("dossier_origine") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation      Organisation          @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  etablissement     EtablissementSante    @relation("DossierEtablissement", fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  police            Police                @relation(fields: [policeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  planCouverture    Garantie?             @relation(fields: [planCouvertureId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  clotureParProfil  Profil?               @relation(fields: [cloturePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  transfereVersEtab EtablissementSante?   @relation("DossierTransfereVers", fields: [transfereVers], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  origine           DossierSoins?         @relation("DossierDerive", fields: [dossierOrigine], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  derives           DossierSoins[]        @relation("DossierDerive")
+  consultations     ConsultationDossier[]
+
+  @@index([organisationId])
+  @@index([etablissementId])
+  @@index([statut])
+  @@map("dossiers_soins")
+}
+
+/// consultations_dossier — passages médicaux d'un dossier. `medecinId` DOIT être
+/// un CENTRE_MEDICAL_MEDECIN du même établissement (v10 §1) — vérifié par trigger
+/// + policy RLS + CareEpisodeService. prisma/sql/011.
+model ConsultationDossier {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  numeroConsultation String    @unique @default(dbgenerated("(((('CST-'::text || to_char(now(), 'YYYY-MM'::text)) || '-'::text) || lpad((nextval('consultations_dossier_numero_seq'::regclass))::text, 6, '0'::text)))")) @map("numero_consultation")
+  dossierSoinsId     String    @map("dossier_soins_id") @db.Uuid
+  medecinId          String    @map("medecin_id") @db.Uuid
+  dateConsultation   DateTime  @default(now()) @map("date_consultation") @db.Timestamptz(6)
+  motif              String?
+  observations       String?
+  diagnostic         String?
+  codeCim10          String?   @map("code_cim10")
+  statut             String    @default("EN_COURS") // EN_COURS | TERMINEE | ANNULEE
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  dossier DossierSoins @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  medecin Profil       @relation(fields: [medecinId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([dossierSoinsId])
+  @@index([medecinId])
+  @@map("consultations_dossier")
 }

@@ -724,3 +724,65 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - ⚠️ **Donnée de test conservée** : `pharmacien.conseil.test@exemple.ci` +
   profil `ASSUREUR_PHARMACIEN_CONSEIL` (comme `medecin.conseil.test@` et
   `superadmin.test@` — à retirer avant prod).
+
+## 2026-09-09 — PROMPT 17 — Dossier de Soins + Numéro de Traitement (module care-episode)
+- **Supabase** (`prisma/sql/011_prompt17_care_episode.sql`) :
+  - Table `dossiers_soins` (v1 §15.1) : `numero_traitement` unique généré par séquence
+    au format **TRT-YYYY-MM-NNNNNN**, `adherent_id`/`beneficiaire_id` nullables (CHECK :
+    au moins un), `etablissement_id` FK etablissements_sante, `police_id` FK polices,
+    `plan_couverture_id` FK garanties, `statut`
+    OUVERT/SUSPENDU/TRANSFERE/CLOTURE/FORCE_CLOS, flags d'éligibilité (`carte_valide`,
+    `adherent_eligible`, `aucun_dossier_ouvert`, `hors_delai_carence`), `blocage_raison`,
+    `cloture_par`/`cloture_motif`/`cloture_type` (NORMALE|FORCEE), `transfere_vers`,
+    `dossier_origine` (self-FK). **Index unique partiel** : un seul dossier OUVERT par
+    patient (garde-fou du MoteurOuvertureDossier).
+  - Table `consultations_dossier` : `numero_consultation` unique généré (CST-YYYY-MM-NNNNNN),
+    `dossier_soins_id` FK, `medecin_id` FK profils, `statut` EN_COURS/TERMINEE/ANNULEE.
+  - **Intégrité du médecin traitant (v10 §1.2)** — `medecin_id` DOIT référencer un compte
+    `CENTRE_MEDICAL_MEDECIN` du **même établissement** que le dossier : vérifié par un
+    **TRIGGER** `verifier_medecin_traitant()` (s'applique à tout le monde, y compris le
+    rôle `postgres` du pooler) **ET** une **policy RLS** d'insertion — pas de confiance
+    dans la valeur envoyée par le client.
+  - RLS : lecture ouverte à l'organisation ; écriture (`profil_a_role`) réservée aux rôles
+    `CENTRE_MEDICAL_*` + `ASSUREUR_EXPLOITATION` + `ASSUREUR_INFORMATIQUE`.
+- **Prisma** : modèles `DossierSoins` + `ConsultationDossier` (22 → 24 modèles),
+  `numeroTraitement`/`numeroConsultation` en `@default(dbgenerated(...))`, `prisma generate`.
+- **apps/api** — module `care-episode/` :
+  - `CareEpisodeService.ouvrirDossier` = **MoteurOuvertureDossier** (v1 §15.4) : évalue
+    établissement ACTIF dans le réseau + carte valide (police ACTIVE couvrant la date du
+    jour) + aucun dossier déjà OUVERT pour ce patient + hors délai de carence (via
+    `garanties.delai_carence_jours` de la garantie CONSULTATION). En cas de refus →
+    **409 avec la liste précise des blocages** + l'état des 4 conditions, jamais un
+    message générique.
+  - `ajouterConsultation` : garde applicative « médecin du même établissement » (en plus
+    du trigger et de la RLS).
+  - `clotureNormale` (rôles de gestion) ; `clotureForcee` (**réservée à
+    `ASSUREUR_EXPLOITATION`**, `motif` obligatoire) → statut FORCE_CLOS ; les consultations
+    EN_COURS passent TERMINEE à la clôture.
+  - `CareEpisodeController` : `/api/v1/care-episode/dossiers` (ouvrir/lister/obtenir),
+    `/:id/consultations`, `/:id/cloturer`, `/:id/cloture-forcee`.
+  - `care-episode.service.spec.ts` : **8 cas** (ouverture OK ; refus si dossier déjà
+    ouvert → blocage précis ; refus si police non ACTIVE → `carteValide=false` ; refus
+    consultation médecin d'un autre établissement ; consultation OK bon établissement ;
+    clôture forcée refusée hors EXPLOITATION ; clôture forcée EXPLOITATION → FORCE_CLOS ;
+    ouverture refusée à un rôle non autorisé) → **jest 74/74**.
+- **Test HTTP réel — 11/11** (2 établissements ACTIF + 2 comptes `CENTRE_MEDICAL_MEDECIN`
+  provisionnés via le module invitations, police réelle `POL-2026-000004` ACTIVE et
+  `POL-2026-000001` RÉSILIÉE) :
+  - Ouverture d'un vrai dossier → 201, **Numéro de Traitement `TRT-2026-09-000001`**,
+    `carte_valide=true`.
+  - 2ᵉ ouverture pour le même patient → **409** + blocage
+    « Un dossier de soins est déjà ouvert pour ce patient (TRT-…) ».
+  - Ouverture avec police RÉSILIÉE → **409** + blocage « Carte non valide : la police
+    n'est pas active (statut : RESILIEE) ».
+  - Consultation avec le médecin de l'établissement du dossier → 201, `CST-2026-09-000001`.
+  - Consultation avec un médecin d'un **autre** établissement → **403** « Le médecin
+    n'appartient pas à l'établissement du dossier de soins ».
+  - **Trigger Postgres** vérifié : insertion directe (hors NestJS) d'une consultation avec
+    un médecin du mauvais établissement → **rejetée** par `verifier_medecin_traitant()`.
+  - Clôture forcée par `ASSUREUR_INFORMATIQUE` → **403** (réservée EXPLOITATION) ; clôture
+    normale → CLOTURE ; ré-ouverture du même patient ensuite → 201.
+  - `audit_log` : OUVERTURE_DOSSIER_SOINS, AJOUT_CONSULTATION_DOSSIER, CLOTURE_DOSSIER_SOINS.
+- **Vérifs** : build API ✅ ; `jest` **74/74** ✅. Données de test du parcours e2e
+  supprimées (dossiers, consultations, établissements, profils + comptes Supabase des
+  2 médecins, invitations) ; serveur arrêté. Aucun changement frontend ce prompt.

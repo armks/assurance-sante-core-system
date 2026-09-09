@@ -1,17 +1,14 @@
 // Prisma schema — apps/api
 // ---------------------------------------------------------------------------
 // Synchronisé avec la base Supabase existante via `npx prisma db pull`
-// (dernière synchro : 2026-09-09, après PROMPT 11). Les colonnes ci-dessous
-// reflètent la base RÉELLE (schéma `public`), pas une supposition. Modèles
-// renommés en PascalCase + `@@map` vers les tables snake_case pour un code
-// TypeScript idiomatique. `@updatedAt` est géré côté app (aucun trigger en base).
+// (dernière synchro : 2026-09-09, après PROMPT 10). Les colonnes ci-dessous
+// reflètent la base RÉELLE (schéma `public`). Modèles renommés en PascalCase +
+// `@@map` vers les tables snake_case. `@updatedAt` géré côté app (aucun trigger).
 //
-// Schéma `auth` (Supabase GoTrue) : NON modélisé ici. `profils.id` référence
-// `auth.users(id)` en base (FK réelle conservée), mais on ne modélise pas la
-// table `auth.users` côté Prisma — l'email/identité provient du JWT vérifié.
-// Pour ré-introspecter : ajouter `schemas = ["auth", "public"]` au datasource,
-// lancer `npx prisma db pull --force`, puis retirer les modèles/enums du schéma
-// `auth` et l'entrée `schemas` (le client TS n'en a pas besoin).
+// Schéma `auth` (Supabase GoTrue) : NON modélisé. `profils.id` référence
+// `auth.users(id)` en base ; l'email/identité provient du JWT vérifié.
+// Ré-introspecter : ajouter `schemas = ["auth", "public"]`, `db pull --force`,
+// puis retirer les modèles/enums `auth` et l'entrée `schemas`.
 //
 // DDL manuel appliqué (pas de `prisma migrate`) : voir prisma/sql/.
 // ---------------------------------------------------------------------------
@@ -51,9 +48,7 @@ model Organisation {
   @@map("organisations")
 }
 
-/// audit_log — journal d'audit unique (alimenté par log_audit(), v9 §1.6).
-/// Append-only : pas de updated_at. `id` : défaut ajouté en base au PROMPT 4
-/// (voir prisma/sql/002) — sans lui log_audit() échouait en not-null.
+/// audit_log — journal d'audit unique (alimenté par log_audit(), v9 §1.6). Append-only.
 model AuditLog {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId   String?  @map("organisation_id") @db.Uuid
@@ -69,8 +64,7 @@ model AuditLog {
   @@map("audit_log")
 }
 
-/// entites_metier — entité métier d'affichage (SUPERADMIN, ASSUREUR,
-/// SOCIETE_AFFILIEE, ADHERENT, CENTRE_MEDICAL, PHARMACIE). v9 §2.
+/// entites_metier — entité métier d'affichage. v9 §2.
 model EntiteMetier {
   code    String @id
   libelle String
@@ -80,8 +74,7 @@ model EntiteMetier {
   @@map("entites_metier")
 }
 
-/// sous_roles — dictionnaire des 25 sous-rôles avec héritage (role_parent_code).
-/// v9 addendum A.
+/// sous_roles — dictionnaire des 25 sous-rôles avec héritage (role_parent_code). v9 addendum A.
 model SousRole {
   code           String  @id
   entiteCode     String  @map("entite_code")
@@ -103,8 +96,7 @@ model SousRole {
   @@map("sous_roles")
 }
 
-/// profils — profil applicatif d'un utilisateur. `id` = auth.users.id (Supabase).
-/// RLS INSERT : policy `profils_insert_provisioning` (PROMPT 5, prisma/sql/003).
+/// profils — profil applicatif. `id` = auth.users.id. RLS INSERT : prisma/sql/003.
 model Profil {
   id                 String    @id @db.Uuid
   organisationId     String?   @map("organisation_id") @db.Uuid
@@ -120,15 +112,16 @@ model Profil {
   updatedAt          DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation  Organisation?         @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  sousRole      SousRole?             @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
-  membresComite MembreComiteGestion[]
-  avenantsCrees Avenant[]
+  organisation         Organisation?           @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sousRole             SousRole?               @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  membresComite        MembreComiteGestion[]
+  avenantsCrees        Avenant[]
+  questionnairesValides QuestionnaireMedical[]
 
   @@map("profils")
 }
 
-/// souscripteurs — table unifiée des souscripteurs, 3 segments (v9 §1.2).
+/// souscripteurs — table unifiée, 3 segments (v9 §1.2).
 model Souscripteur {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId         String    @map("organisation_id") @db.Uuid
@@ -143,15 +136,16 @@ model Souscripteur {
   numeroPieceIdentite    String?   @map("numero_piece_identite")
   questionnaireMedicalId String?   @map("questionnaire_medical_id") @db.Uuid
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt             DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt             DateTime?  @map("deleted_at") @db.Timestamptz(6)
 
-  organisation      Organisation                @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  membresComite     MembreComiteGestion[]
-  polices           Police[]
-  grillesTarifaires GrilleTarifaire[]
-  planPaiement      PlanPaiementCollectivite[]
-  cotisations       Cotisation[]
+  organisation           Organisation                @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  membresComite          MembreComiteGestion[]
+  polices                Police[]
+  grillesTarifaires      GrilleTarifaire[]
+  planPaiement           PlanPaiementCollectivite[]
+  cotisations            Cotisation[]
+  questionnairesMedicaux QuestionnaireMedical[]
 
   @@index([organisationId])
   @@index([type])
@@ -159,7 +153,7 @@ model Souscripteur {
   @@map("souscripteurs")
 }
 
-/// membres_comite_gestion — gouvernance à plusieurs titulaires des collectivités (v9 §1.3).
+/// membres_comite_gestion — gouvernance des collectivités (v9 §1.3).
 model MembreComiteGestion {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   souscripteurId  String    @map("souscripteur_id") @db.Uuid
@@ -179,7 +173,7 @@ model MembreComiteGestion {
   @@map("membres_comite_gestion")
 }
 
-/// regles_provisioning — qui peut créer/proposer quel sous-rôle (v9 §1.4 / §1.5). Voir prisma/sql/003.
+/// regles_provisioning — qui peut créer/proposer quel sous-rôle (v9 §1.4 / §1.5). prisma/sql/003.
 model RegleProvisioning {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   roleCreateur   String    @map("role_createur")
@@ -201,7 +195,7 @@ model RegleProvisioning {
   @@map("regles_provisioning")
 }
 
-/// produits — formule d'assurance VERSIONNÉE (v9 phase 2.1 / v3 §2). Voir prisma/sql/004.
+/// produits — formule d'assurance VERSIONNÉE (v9 phase 2.1 / v3 §2). prisma/sql/004.
 model Produit {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId  String    @map("organisation_id") @db.Uuid
@@ -249,8 +243,7 @@ model Garantie {
   @@map("garanties")
 }
 
-/// polices — contrat de souscription. Machine à états stricte (PolicyService).
-/// `produit_id` DOIT référencer un produit PUBLIE (trigger + PolicyService). Voir prisma/sql/005.
+/// polices — contrat. Machine à états stricte (PolicyService). Produit PUBLIE requis. prisma/sql/005.
 model Police {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId String    @map("organisation_id") @db.Uuid
@@ -264,11 +257,12 @@ model Police {
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  produit      Produit      @relation(fields: [produitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  avenants     Avenant[]
-  cotisations  Cotisation[]
+  organisation  Organisation                @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  souscripteur  Souscripteur                @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  produit       Produit                     @relation(fields: [produitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  avenants      Avenant[]
+  cotisations   Cotisation[]
+  tarifications TarificationIndividuelle[]
 
   @@index([organisationId])
   @@index([souscripteurId])
@@ -278,7 +272,7 @@ model Police {
   @@map("polices")
 }
 
-/// avenants — modifications contractuelles d'une police. Voir prisma/sql/005.
+/// avenants — modifications contractuelles d'une police. prisma/sql/005.
 model Avenant {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   policeId               String    @map("police_id") @db.Uuid
@@ -301,10 +295,8 @@ model Avenant {
   @@map("avenants")
 }
 
-/// grilles_tarifaires — tarif par tranche d'âge (v9 phase 2.6). `souscripteur_id`
-/// null = tarif STANDARD du produit ; renseigné = tarif NÉGOCIÉ (prioritaire).
-/// RLS : lecture = personnel ASSUREUR de l'org ; écriture = ASSUREUR_COMPTABLE /
-/// ASSUREUR_INFORMATIQUE. Voir prisma/sql/006.
+/// grilles_tarifaires — tarif par tranche d'âge (v9 phase 2.6). souscripteur_id null =
+/// STANDARD, renseigné = NÉGOCIÉ (prioritaire). prisma/sql/006.
 model GrilleTarifaire {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId String    @map("organisation_id") @db.Uuid
@@ -326,9 +318,7 @@ model GrilleTarifaire {
   @@map("grilles_tarifaires")
 }
 
-/// plan_paiement_collectivite — modalités de paiement d'une COLLECTIVITE (v9 §2.2).
-/// `part_membre_pourcent` + `part_subvention_pourcent` = 100. Trigger : souscripteur
-/// obligatoirement de type COLLECTIVITE. Voir prisma/sql/006.
+/// plan_paiement_collectivite — modalités de paiement d'une COLLECTIVITE (v9 §2.2). prisma/sql/006.
 model PlanPaiementCollectivite {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   souscripteurId         String    @map("souscripteur_id") @db.Uuid
@@ -345,9 +335,7 @@ model PlanPaiementCollectivite {
   @@map("plan_paiement_collectivite")
 }
 
-/// cotisations — appels de cotisation. `adherent_id` XOR `societe_id` (CHECK).
-/// Montants en Decimal. RLS : lecture élargie au souscripteur ; écriture =
-/// ASSUREUR_COMPTABLE / ASSUREUR_INFORMATIQUE. Voir prisma/sql/006.
+/// cotisations — appels de cotisation. adherent_id XOR societe_id (CHECK). prisma/sql/006.
 model Cotisation {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   policeId          String    @map("police_id") @db.Uuid
@@ -370,4 +358,52 @@ model Cotisation {
   @@index([statut])
   @@index([dateEcheance])
   @@map("cotisations")
+}
+
+/// questionnaires_medicaux — évaluation médicale à la souscription INDIVIDUELLE
+/// (v4 §3.1, v10 §3). SÉPARATION STRICTE : décision réservée à
+/// ASSUREUR_MEDECIN_SOUSCRIPTEUR ; ASSUREUR_MEDECIN_CONSEIL n'a AUCUN accès.
+/// `decision` null tant que non traité. prisma/sql/007.
+model QuestionnaireMedical {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  souscripteurId        String    @map("souscripteur_id") @db.Uuid
+  reponses              Json      @default("{}")
+  antecedentsDeclares   String[]  @default([]) @map("antecedents_declares")
+  dateSoumission        DateTime? @map("date_soumission") @db.Timestamptz(6)
+  decision              String? // ACCEPTE | ACCEPTE_AVEC_EXCLUSION | ACCEPTE_SURPRIME | REFUSE
+  exclusionsSpecifiques String[]  @default([]) @map("exclusions_specifiques")
+  surprimePourcent      Decimal   @default(0) @map("surprime_pourcent") @db.Decimal(6, 2)
+  validePar             String?   @map("valide_par") @db.Uuid
+  dateDecision          DateTime? @map("date_decision") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  souscripteur  Souscripteur              @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  validateur    Profil?                   @relation(fields: [validePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tarifications TarificationIndividuelle[]
+
+  @@index([souscripteurId])
+  @@index([decision])
+  @@map("questionnaires_medicaux")
+}
+
+/// tarification_individuelle — prime individuelle = prime_base + surprime_medicale
+/// (colonne `prime_finale` GENERATED ALWAYS AS ... STORED — ne pas écrire). prisma/sql/007.
+model TarificationIndividuelle {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  policeId               String   @map("police_id") @db.Uuid
+  questionnaireMedicalId String   @map("questionnaire_medical_id") @db.Uuid
+  ageASubscription       Int      @map("age_a_souscription")
+  primeBase              Decimal  @map("prime_base") @db.Decimal(14, 2)
+  surprimeMedicale       Decimal  @default(0) @map("surprime_medicale") @db.Decimal(14, 2)
+  primeFinale            Decimal? @map("prime_finale") @db.Decimal(14, 2) // GENERATED — lecture seule
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  police        Police               @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  questionnaire QuestionnaireMedical @relation(fields: [questionnaireMedicalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([policeId])
+  @@index([questionnaireMedicalId], map: "tarification_individuelle_questionnaire_id_idx")
+  @@map("tarification_individuelle")
 }

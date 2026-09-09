@@ -423,3 +423,61 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - Note technique : sur cette machine, ne pas lancer `npm run build` pendant que `start:dev`
   (watch) tourne — course entre `deleteOutDir` et le watcher → `MODULE_NOT_FOUND` sur `dist/main`.
   Utiliser `start:prod` après un build propre pour les tests, ou arrêter le watch avant.
+
+## 2026-09-09 — PROMPT 10 (ORIGINAL) : module underwriting/ — rattrapé après le PROMPT 11
+> C'est le **PROMPT 10** de la séquence (questionnaire médical + tarification individuelle),
+> traité APRÈS le PROMPT 11 (billing) faute d'ordre strict. Il n'y avait pas de dépendance
+> bloquante : `underwriting` ré-utilise `grilles_tarifaires` (créée au PROMPT 11) pour la
+> prime de base — c'est la seule raison pour laquelle l'inversion a fonctionné sans accroc.
+
+- **Base Supabase** (`apps/api/prisma/sql/007_prompt10_underwriting.sql`) :
+  - `questionnaires_medicaux` : souscripteur_id (FK), reponses jsonb, antecedents_declares text[],
+    date_soumission, `decision` NULLABLE CHECK (ACCEPTE / ACCEPTE_AVEC_EXCLUSION / ACCEPTE_SURPRIME
+    / REFUSE), exclusions_specifiques text[], surprime_pourcent numeric, valide_par (FK profils),
+    date_decision. CHECK `decision ⟺ (valide_par + date_decision)`. **Trigger** : souscripteur
+    obligatoirement de type INDIVIDUEL. Unique 1 questionnaire actif / souscripteur.
+  - `tarification_individuelle` : police_id / questionnaire_medical_id (FK), age_a_souscription,
+    prime_base + surprime_medicale numeric, **`prime_finale` GENERATED ALWAYS AS
+    (prime_base + surprime_medicale) STORED**.
+  - **RLS — SÉPARATION STRICTE (v10 §3)** :
+    - `questionnaires_medicaux` : SELECT / UPDATE / DELETE via `profil_a_role(..., ['ASSUREUR_MEDECIN_SOUSCRIPTEUR'])`
+      **uniquement** (INSERT aussi ouvert au souscripteur lui-même). `ASSUREUR_MEDECIN_CONSEIL`
+      n'apparaît dans **aucune** liste et n'a **aucune parenté** avec SOUSCRIPTEUR → `profil_a_role`
+      renvoie `false` pour lui → **AUCUN accès, ni lecture ni écriture**.
+    - `tarification_individuelle` : lecture ASSUREUR org + souscripteur ; écriture DIRECTION /
+      EXPLOITATION / MEDECIN_SOUSCRIPTEUR.
+- **Prisma** : `db pull --force` puis schéma ré-écrit — **17 modèles** (ajout `QuestionnaireMedical`,
+  `TarificationIndividuelle` ; `primeFinale` marquée lecture seule — colonne GENERATED).
+- **apps/api** — module `underwriting/` :
+  - `UnderwritingService` : `soumettreQuestionnaire` (par le souscripteur ou le médecin
+    souscripteur ; souscripteur INDIVIDUEL requis), `evaluerQuestionnaire` (**garde centrale
+    `assertMedecinSouscripteur` → 403 pour tout autre rôle, CONSEIL inclus**),
+    `calculerPrime` (prime_base depuis grille STANDARD par âge + surprime `× surprime_pourcent`
+    via **decimal.js** ; refuse si questionnaire non évalué ou REFUSE), `obtenir` / `lister`
+    (médecin souscripteur OU souscripteur concerné, sinon 403).
+  - `UnderwritingController` : 5 routes `/api/v1/underwriting`.
+  - `underwriting.service.spec.ts` : **7 cas**, dont **LE test exigé** : un `ASSUREUR_MEDECIN_CONSEIL`
+    qui tente d'évaluer → **403** (+ ne peut même pas charger le questionnaire), + il ne peut pas
+    lire, + le SOUSCRIPTEUR peut évaluer, + soumission par le souscripteur, + refus ACCEPTE_SURPRIME
+    sans surprime, + calcul de prime (10000 → surprime 20 % → 2000).
+- **Vérifs** : build ✅ ; tests **44/44** ✅.
+- **Test HTTP réel — DEUX profils Supabase distincts** :
+  - 2ᵉ utilisateur créé via l'API Admin (`medecin.conseil.test@exemple.ci`) + profil
+    `ASSUREUR_MEDECIN_CONSEIL` ; profil principal `6fc93835-…` repositionné en `ASSUREUR_MEDECIN_SOUSCRIPTEUR`.
+    (Note : l'API Admin Supabase refuse la clé `sb_secret_` avec `Invoke-RestMethod` — « secret key
+    in browser » — utilisée via `curl.exe`.)
+  - **SOUSCRIPTEUR** : `POST /underwriting/questionnaires` → **201** ; `POST /:id/evaluer`
+    (ACCEPTE_SURPRIME 20 %) → **201**, `validePar` = son uid ; relit → **200** voit la décision ;
+    `POST /underwriting/tarifications` (âge 40) → **201**, primeBase 12000, surprime **2400**,
+    **primeFinale 14400** (colonne GENERATED)
+  - **CONSEIL** : `POST /:id/evaluer` → **403** ; `GET /:id` → **403** ; `GET /questionnaires`
+    (liste) → **403** ; `POST /underwriting/tarifications` → **403**
+  - RLS `profil_a_role()` (jwt.claims simulé) : user CONSEIL + `['ASSUREUR_MEDECIN_SOUSCRIPTEUR']`
+    → **false** ; user SOUSCRIPTEUR → **true**
+  - `audit_log` : 3 entrées (SOUMISSION_QUESTIONNAIRE, DECISION_QUESTIONNAIRE, CALCUL_PRIME_INDIVIDUELLE)
+- Serveur arrêté. Profil de test remis à `ASSUREUR_INFORMATIQUE`.
+- Correctif annexe : `decimal.js` (ajouté au PROMPT 9) n'avait pas été committé dans
+  `package-lock.json` (le `git add apps/api` manquait la racine) — corrigé dans ce commit.
+- ⚠️ **Données de test en base à supprimer avant prod** (en plus des précédentes) : utilisateur
+  Supabase `medecin.conseil.test@exemple.ci` + son profil, souscripteur INDIVIDUEL `50c1a1a1-…1111`
+  + police `50c1a1a1-…2222`, questionnaire + tarification associés, + lignes `audit_log`.

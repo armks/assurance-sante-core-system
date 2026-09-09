@@ -7,6 +7,7 @@ import { PlanModule } from './plan/plan.module';
 import { PolicyModule } from './policy/policy.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { TenantModule } from './tenant/tenant.module';
+import { UnderwritingModule } from './underwriting/underwriting.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { TenantModule } from './tenant/tenant.module';
     PlanModule,
     PolicyModule,
     BillingModule,
+    UnderwritingModule,
   ],
 })
 export class AppModule {}

@@ -244,3 +244,30 @@
     `/dashboard-assureur/informatique`, email header, bouton déconnexion, CSS Tailwind chargé.
   - Chaîne prouvée : navigateur → Supabase Auth (cookie) → Next server component → NestJS (JWKS) → Prisma → Postgres.
 - **Vérifs** : `npm run build --workspace apps/web` ✅ ; tests apps/api toujours ✅ 17/17. Serveurs arrêtés.
+
+---
+
+## 🎯 JALON — 2026-09-09 — Première connexion réelle : chaîne complète confirmée de bout en bout
+
+Pour la première fois, une **session utilisateur authentifiée** traverse toute la pile et
+affiche des données métier réelles :
+
+**Auth Supabase (cookie de session) → Next.js 16 (server component `/dashboard`) →
+NestJS `GET /api/v1/identity/me` (JWT vérifié via JWKS) → Prisma → Postgres → retour rendu.**
+
+- Utilisateur `armelk01@yahoo.fr`, profil `6fc93835-…`, **rôle `ASSUREUR_INFORMATIQUE`
+  affiché correctement** avec son libellé « Assurance Informatique », l'entité `ASSUREUR`,
+  le niveau d'accès `ADMIN`, `peutValider`, la `dashboardRoute`, et le périmètre org.
+- Redirection `/dashboard` → `/login` opérationnelle quand il n'y a pas de session.
+- Contexte du test : serveurs `apps/api` + `apps/web` lancés en local, connexion via une
+  vraie session Supabase, requêtes HTTP réelles vers le serveur Next.js (pas un clic dans
+  un navigateur graphique, mais l'intégralité du chemin d'exécution runtime).
+
+**Décision de stack actée à ce jalon** : `apps/web` utilise **Tailwind CSS v3** (et non v4).
+Cause : Smart App Control (Windows 11) bloque le binaire natif `@tailwindcss/oxide` de la
+v4, qui n'a pas de fallback WASM automatique. v3 est 100 % JavaScript. Analyse complète,
+autres contournements SAC (git → SSH, Next SWC → WASM, build → Webpack) et conditions de
+réexamen : **`SECURITY.md`**.
+
+Prochaines étapes possibles : PROMPT 6 (invitations sécurisées) puis PROMPT 7 (interface de
+gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).

@@ -38,17 +38,17 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims()
   const user = data?.claims
 
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth')
-  ) {
+  const pathname = request.nextUrl.pathname
+  const estPublic =
+    pathname === '/' ||
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/auth')
+
+  if (!user && !estPublic) {
     // pas de session : redirection vers /login, en conservant la cible dans ?next
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    if (request.nextUrl.pathname !== '/') {
-      url.searchParams.set('next', request.nextUrl.pathname)
-    }
+    url.searchParams.set('next', pathname)
     return NextResponse.redirect(url)
   }
 

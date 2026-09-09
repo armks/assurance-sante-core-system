@@ -481,3 +481,53 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - ⚠️ **Données de test en base à supprimer avant prod** (en plus des précédentes) : utilisateur
   Supabase `medecin.conseil.test@exemple.ci` + son profil, souscripteur INDIVIDUEL `50c1a1a1-…1111`
   + police `50c1a1a1-…2222`, questionnaire + tarification associés, + lignes `audit_log`.
+
+## 2026-09-09 — Frontend : structure de navigation d'`apps/web`
+- Objectif : coquille de navigation générale (landing publique + dispatch de dashboard +
+  layout `/dashboard-assureur/*` filtré par permissions). Pas de logique métier, pages vides.
+- Note : la skill `frontend-design` demandée n'est pas disponible dans cet environnement —
+  rendu réalisé avec les primitives shadcn déjà installées et le composant `Brand`.
+- **Créé :**
+  - `apps/web/lib/identity.ts` — chargeur d'identité serveur mutualisé (`React.cache`) :
+    `chargerIdentiteBrut` (getUser → getSession → `GET /api/v1/identity/me`), états
+    `anonyme | ok | non-provisionne | erreur` ; `exigerIdentite(cible)` (redirige `/login?next=`),
+    `aUneSession()`. Type `IdentityMeProvisionne` (permissions non-null garanti).
+  - `apps/web/lib/dashboard-nav.ts` — modèle de nav : `NavItem` (label, href, icône lucide,
+    `minNiveau`, `requiertValidation`, `bientot`), `NAV_PAR_DASHBOARD` (INFORMATIQUE :
+    Vue d'ensemble / Souscripteurs / Produits / Polices / Cotisations / Utilisateurs),
+    `navPourDashboard(route)`, `RANG_NIVEAU`.
+  - `apps/web/components/ecran-message.tsx` — écran pleine page brandé (tonalités
+    neutre / attention / erreur) + déconnexion + retour accueil.
+  - `apps/web/components/page-titre.tsx`, `apps/web/components/section-vide.tsx` — en-tête
+    de page + placeholder pointillé pour les sections non implémentées.
+  - `apps/web/components/dashboard/shell.tsx` (`'use client'`) — sidebar : `Brand`, carte
+    rôle (libellé + badge entité + badge niveau d'accès + badge « Validation » si `peutValider`),
+    nav filtrée (`niveauAcces` vs `minNiveau`, `peutValider` vs `requiertValidation`,
+    liens `bientot` non cliquables), déconnexion ; en-tête avec e-mail ; nav mobile horizontale.
+  - `apps/web/app/page.tsx` — landing minimaliste : `Brand`, badge « Plateforme métier —
+    Côte d'Ivoire », titre court, bouton « Se connecter » → `/login`. Redirige vers `/dashboard`
+    si session active.
+  - `apps/web/app/dashboard/page.tsx` — devient un dispatcher : `non-provisionne` →
+    écran « Votre compte n'a pas encore de rôle assigné, contactez votre administrateur » ;
+    `erreur` → écran d'erreur lisible ; sinon `redirect(dashboardRoute)`.
+  - `apps/web/app/dashboard-assureur/layout.tsx` — layout partagé (garde `entite === 'ASSUREUR'`,
+    monte le `DashboardShell` avec les permissions d'`identity/me`).
+  - `apps/web/app/dashboard-assureur/informatique/layout.tsx` + `page.tsx` (Vue d'ensemble,
+    cartes de sections) + 5 sous-pages vides : `souscripteurs`, `produits`, `polices`,
+    `cotisations`, `utilisateurs` (lien actif mais page « bientôt » — PROMPT 7 pas fait).
+  - `apps/web/lib/middleware.ts` — `/` ajouté aux routes publiques.
+- **Test navigateur réel** (serveurs `next start` + `nest` en mode prod, login
+  `armelk01@yahoo.fr` via `@supabase/ssr`, cookies réels) :
+  - `GET /` anonyme → 200, landing rendue (titre + « Se connecter »).
+  - `GET /dashboard` anonyme → 307 `/login?next=%2Fdashboard`.
+  - `GET /dashboard` authentifié → 307 `/dashboard-assureur/informatique`.
+  - `GET /dashboard-assureur/informatique` → 200 : libellé rôle « Assurance Informatique »,
+    badge entité `ASSUREUR`, badge niveau « Administration », badge « Validation »,
+    nav Souscripteurs / Produits / Polices / Cotisations, Utilisateurs marqué « bientôt »,
+    lien « Se déconnecter », titre « Vue d'ensemble », sous-pages `souscripteurs` /
+    `utilisateurs` → 200.
+  - Écran non-provisionné : rôle du profil de test mis à `null` en base → `GET /dashboard`
+    rend « …pas encore de rôle… contactez votre administrateur » (200, pas d'erreur brute) ;
+    rôle restauré à `ASSUREUR_INFORMATIQUE` ensuite.
+- **Vérifs** : `next build --webpack` ✅ (toutes les routes présentes). Serveurs arrêtés,
+  profil de test remis à `ASSUREUR_INFORMATIQUE`.

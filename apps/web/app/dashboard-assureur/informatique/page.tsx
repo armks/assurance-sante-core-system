@@ -1,5 +1,12 @@
 import Link from 'next/link';
-import { Building2, FileText, Package, Wallet } from 'lucide-react';
+import {
+  Building2,
+  FileText,
+  HeartPulse,
+  Package,
+  Pill,
+  Wallet,
+} from 'lucide-react';
 
 import { PageTitre } from '@/components/page-titre';
 import {
@@ -35,6 +42,18 @@ const SECTIONS = [
     icon: Wallet,
     titre: 'Cotisations',
     desc: 'Grilles tarifaires, appels de cotisation et paiements.',
+  },
+  {
+    href: `${RACINE}/etablissements`,
+    icon: HeartPulse,
+    titre: 'Établissements',
+    desc: 'Réseau de soins conventionné et recherche géolocalisée.',
+  },
+  {
+    href: `${RACINE}/pharmacies`,
+    icon: Pill,
+    titre: 'Pharmacies',
+    desc: 'Officines conventionnées du réseau.',
   },
 ];
 

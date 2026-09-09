@@ -45,6 +45,8 @@ model Organisation {
   polices           Police[]
   grillesTarifaires GrilleTarifaire[]
   invitations       Invitation[]
+  etablissements    EtablissementSante[]
+  pharmacies        Pharmacie[]
 
   @@map("organisations")
 }
@@ -443,4 +445,73 @@ model Invitation {
   @@index([invitePar])
   @@index([statut])
   @@map("invitations")
+}
+
+/// etablissements_sante — réseau de soins (entité d'affichage CENTRE_MEDICAL,
+/// v9 §1.1). Écriture réservée à ASSUREUR_INFORMATIQUE. prisma/sql/009.
+model EtablissementSante {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId     String    @map("organisation_id") @db.Uuid
+  nom                String
+  code               String    @unique
+  typeEtablissement  String    @map("type_etablissement") // HOPITAL_PUBLIC | CLINIQUE_PRIVEE | CABINET_MEDICAL | CENTRE_SANTE | LABORATOIRE | CENTRE_IMAGERIE | OPTICIEN | DENTISTE | MATERNITE
+  pays               String    @default("Côte d'Ivoire")
+  ville              String?
+  commune            String?
+  quartier           String?
+  adresseComplete    String?   @map("adresse_complete")
+  latitude           Float?
+  longitude          Float?
+  telephone          String?
+  telephoneUrgence   String?   @map("telephone_urgence")
+  email              String?
+  statut             String    @default("EN_ATTENTE_VALIDATION") // ACTIF | SUSPENDU | EN_ATTENTE_VALIDATION | RESILIE
+  dateConvention     DateTime? @map("date_convention") @db.Date
+  dateFinConvention  DateTime? @map("date_fin_convention") @db.Date
+  gardeWeekend       Boolean   @default(false) @map("garde_weekend")
+  horairesGarde      Json?     @map("horaires_garde")
+  horairesSemaine    Json?     @map("horaires_semaine")
+  tiersPayant        Boolean   @default(true) @map("tiers_payant")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([statut])
+  @@map("etablissements_sante")
+}
+
+/// pharmacies — réseau de soins (entité PHARMACIE). Écriture réservée à
+/// ASSUREUR_INFORMATIQUE. prisma/sql/009.
+model Pharmacie {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId    String    @map("organisation_id") @db.Uuid
+  nom               String
+  code              String    @unique
+  pays              String    @default("Côte d'Ivoire")
+  ville             String?
+  commune           String?
+  quartier          String?
+  adresseComplete   String?   @map("adresse_complete")
+  latitude          Float?
+  longitude         Float?
+  telephone         String?
+  email             String?
+  statut            String    @default("ACTIVE") // ACTIVE | SUSPENDUE | RESILIEE
+  gardeWeekend      Boolean   @default(false) @map("garde_weekend")
+  horairesGarde     Json?     @map("horaires_garde")
+  tiersPayant       Boolean   @default(true) @map("tiers_payant")
+  dateConvention    DateTime? @map("date_convention") @db.Date
+  dateFinConvention DateTime? @map("date_fin_convention") @db.Date
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([statut])
+  @@map("pharmacies")
 }

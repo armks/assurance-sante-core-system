@@ -1,9 +1,11 @@
 import {
   Building2,
   FileText,
+  HeartPulse,
   LayoutDashboard,
   type LucideIcon,
   Package,
+  Pill,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -61,6 +63,18 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Cotisations',
       href: `${INFORMATIQUE}/cotisations`,
       icon: Wallet,
+      minNiveau: 'LECTURE_SEULE',
+    },
+    {
+      label: 'Établissements',
+      href: `${INFORMATIQUE}/etablissements`,
+      icon: HeartPulse,
+      minNiveau: 'LECTURE_SEULE',
+    },
+    {
+      label: 'Pharmacies',
+      href: `${INFORMATIQUE}/pharmacies`,
+      icon: Pill,
       minNiveau: 'LECTURE_SEULE',
     },
     {

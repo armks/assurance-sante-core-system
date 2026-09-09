@@ -7,6 +7,7 @@ import { InvitationsModule } from './invitations/invitations.module';
 import { PlanModule } from './plan/plan.module';
 import { PolicyModule } from './policy/policy.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProviderModule } from './provider/provider.module';
 import { TenantModule } from './tenant/tenant.module';
 import { UnderwritingModule } from './underwriting/underwriting.module';
 
@@ -22,6 +23,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     PolicyModule,
     BillingModule,
     UnderwritingModule,
+    ProviderModule,
   ],
 })
 export class AppModule {}

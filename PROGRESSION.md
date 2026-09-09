@@ -606,3 +606,58 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   profil `SUPERADMIN_PRINCIPAL` (à retirer avant prod).
 - Le mode PROPOSITION (pharmacien → caissière) est couvert par les tests unitaires ; pas
   encore de parcours e2e HTTP (nécessite un profil PHARMACIE_PHARMACIEN scopé).
+
+## 2026-09-09 — PROMPT 14 — Module provider (réseau de soins) + mode PROPOSITION validé de bout en bout
+- **Supabase** (`prisma/sql/009_prompt14_provider.sql`) :
+  - Table `etablissements_sante` (25 colonnes : `type_etablissement`
+    HOPITAL_PUBLIC/CLINIQUE_PRIVEE/CABINET_MEDICAL/CENTRE_SANTE/LABORATOIRE/CENTRE_IMAGERIE/
+    OPTICIEN/DENTISTE/MATERNITE, `code` unique, `pays` défaut « Côte d'Ivoire »,
+    lat/lng `double precision` bornées, `statut`
+    ACTIF/SUSPENDU/EN_ATTENTE_VALIDATION/RESILIE défaut EN_ATTENTE_VALIDATION,
+    `garde_weekend`, `horaires_garde`/`horaires_semaine` jsonb, `tiers_payant` défaut true,
+    `date_convention`/`date_fin_convention`).
+  - Table `pharmacies` (22 colonnes : mêmes colonnes pertinentes, `statut`
+    ACTIVE/SUSPENDUE/RESILIEE défaut ACTIVE, pas de `type_etablissement` ni
+    `telephone_urgence` ni `horaires_semaine`).
+  - RLS `profil_a_role()` (pattern PROMPT 8) : **écriture réservée à
+    `ASSUREUR_INFORMATIQUE`** (v9 §2.2 — l'Informatique gère aussi le réseau de
+    prestataires) ; lecture ouverte à toute personne de l'organisation.
+  - Lecture publique **limitée** via deux vues (`etablissements_sante_public`,
+    `pharmacies_public`) — colonnes réduites (nom, ville, commune, statut, garde_weekend,
+    lat/lng), seules les lignes ACTIF/ACTIVE, `grant select to anon, authenticated`
+    (pour la future recherche par les adhérents).
+- **Prisma** : modèles `EtablissementSante` + `Pharmacie` (18 → 20 modèles), `prisma generate`.
+- **apps/api** — module `provider/` :
+  - `ProviderService` : CRUD `etablissements_sante` + `pharmacies` (soft-delete, audit
+    `log_audit()` dans une transaction, `assertGestion` → `ASSUREUR_INFORMATIQUE` seul,
+    `code` unique), `rechercheGeolocalisee` — **formule de Haversine** en mémoire :
+    filtre par rayon, tri par distance croissante, `distanceKm` à 2 décimales, cible
+    ETABLISSEMENTS/PHARMACIES/TOUS.
+  - `ProviderController` : `/api/v1/provider/recherche` + `/etablissements` + `/pharmacies`
+    (POST/GET/GET:id/PATCH/DELETE).
+  - `provider.service.spec.ts` : 5 cas (création établissement ; refus par rôle non
+    autorisé → 403 ; refus sans organisation ; recherche géo triée par distance + hors
+    rayon exclu ; cible ETABLISSEMENTS n'interroge pas les pharmacies) → **jest 57/57**.
+- **apps/web** :
+  - `/dashboard-assureur/informatique/etablissements` et `/pharmacies` : liste (table) +
+    formulaire de création (server actions `creerEtablissement` / `creerPharmacie`).
+    Entrées de nav + cartes ajoutées à la vue d'ensemble.
+- **Test HTTP réel — 16/16 OK** (serveurs prod) :
+  - `POST /provider/etablissements` + `/pharmacies` (ASSUREUR_INFORMATIQUE) → 201.
+  - `POST /provider/etablissements` par `ASSUREUR_MEDECIN_CONSEIL` → **403**.
+  - Recherche géo depuis (5.32, -4.02), rayon 20 km : Bouaké (~300 km) exclu, Cocody
+    (5,54 km) **avant** Yopougon (7,01 km), `distanceKm` croissant.
+  - Pages `/etablissements` et `/pharmacies` rendues (200), entrées visibles.
+  - **Mode PROPOSITION enfin validé de bout en bout** :
+    - `ASSUREUR_INFORMATIQUE` invite un `PHARMACIE_PHARMACIEN` scopé à une pharmacie de
+      test → 201 EN_ATTENTE ; acceptation → profil créé avec `pharmacieId` renseigné.
+    - Le `PHARMACIE_PHARMACIEN` propose une `PHARMACIE_CAISSIERE` (`POST /invitations`) →
+      statut **`EN_ATTENTE_VALIDATION_INFORMATIQUE`** (mode PROPOSITION), **pas** ACCEPTEE
+      ni EN_ATTENTE ; `roleValidateur = ASSUREUR_INFORMATIQUE` ; token pas encore
+      acceptable.
+    - Reconnexion en `ASSUREUR_INFORMATIQUE` : la proposition apparaît dans
+      `GET /invitations` ; `POST /invitations/:id/valider` → statut **`EN_ATTENTE`**,
+      e-mail d'invitation envoyé.
+- **Vérifs** : build API ✅ ; `jest` **57/57** ✅ ; `next build --webpack` ✅ (22 routes).
+  Données de test du parcours e2e supprimées (établissements, pharmacie, profil + compte
+  Supabase du pharmacien, invitations) ; serveurs arrêtés.

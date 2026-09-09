@@ -112,3 +112,56 @@
 - Contournement : remote passé en SSH (`git@github.com:armks/assurance-sante-core-system.git`).
   `ssh.exe` est un composant Windows signé, non bloqué. push/fetch/pull OK via SSH.
 - HTTPS git reste inutilisable tant que SAC est actif (désactivation SAC = irréversible, non faite).
+
+## 2026-09-09 — PROMPT 4 : module tenant + souscripteurs / membres_comite_gestion
+- **Base Supabase** (DDL via `prisma db execute`, trace dans `apps/api/prisma/sql/001_prompt4_souscripteurs.sql`) :
+  - Table `souscripteurs` : colonnes du prompt (v9 §1.2), CHECK `type in (ENTREPRISE,COLLECTIVITE,INDIVIDUEL)`,
+    FK `organisation_id → organisations`, `questionnaire_medical_id` = uuid sans FK (table PROMPT 10),
+    index (organisation_id, type, deleted_at). RLS activée + policies `souscripteurs_select`
+    (lecture : entité ASSUREUR, même org) / `souscripteurs_modif` (écriture : rôles
+    DIRECTION / EXPLOITATION / INFORMATIQUE, héritage via `coalesce(role_parent_code, code)`).
+  - Table `membres_comite_gestion` (v9 §1.3) : id + timestamps + `deleted_at` ajoutés (règle
+    transverse), FK `souscripteur_id` (cascade) et `user_id → profils`, CHECK cohérence des
+    dates de mandat, index unique partiel (1 mandat actif max par (souscripteur, user)).
+    RLS activée + policies alignées sur la visibilité du souscripteur parent.
+  - NB : NestJS se connecte via le rôle `postgres` (pooler) et CONTOURNE la RLS ; les policies
+    protègent l'accès direct client Supabase. L'enforcement du chemin NestJS est dans TenantService.
+- **Prisma** : `db pull --force` (schémas auth+public) puis schéma ré-écrit proprement à la
+  main — 7 modèles PascalCase (ajout `Souscripteur`, `MembreComiteGestion`), `@updatedAt`
+  ajouté aux modèles concernés, schéma `auth` non modélisé (comme PROMPT 3). `prisma generate` OK.
+- **apps/api** — module `tenant/` :
+  - `TenantService` : CRUD souscripteurs + comité, **strictement scopé par `organisation_id`**.
+    Autorisation via `IdentityService.getMe` (org de l'appelant + `roleChain` hérité).
+    Lecture = entité ASSUREUR ; écriture = DIRECTION / EXPLOITATION / INFORMATIQUE.
+    Soft-delete. Audit via `log_audit()` (SELECT en transaction). Accès cross-org → 404
+    (ne révèle pas l'existence). Comité réservé aux COLLECTIVITE.
+  - `TenantController` : 8 routes REST sous `/api/v1/tenant/souscripteurs` (+ `/:id/membres-comite`),
+    `@UseGuards(SupabaseAuthGuard)`, `ParseUUIDPipe`.
+  - Tests : `tenant.service.spec.ts` — 7 cas dont les 3 exigés (création ENTREPRISE ;
+    création COLLECTIVITE + membre comité ; refus cross-org) + refus rôle insuffisant /
+    hors entité ASSUREUR / sans organisation / membresComite hors COLLECTIVITE.
+- **Vérifs** : `npm run build --workspace apps/api` ✅ ; `npm test` ✅ 11/11 ;
+  bootstrap OK (8 routes tenant mappées, DI TenantModule initialisé).
+
+## 2026-09-09 — PROMPT 4 : test HTTP réel de bout en bout ✅ + correctif audit_log
+- **Bug découvert et corrigé** : `audit_log.id` créé (PROMPT 1) SANS `default gen_random_uuid()`,
+  alors que `log_audit()` (skill §1.6) n'insère pas d'`id` → tout appel échouait en 23502.
+  L'audit n'avait jamais fonctionné (aucun chemin d'écriture ne l'exerçait avant tenant/).
+  Fix : `alter table audit_log alter column id set default gen_random_uuid()`
+  (`apps/api/prisma/sql/002_fix_audit_log_id_default.sql`) + `@default(dbgenerated(...))` dans le schéma Prisma.
+- **Jeu de données de test** (à nettoyer avant prod, `scratchpad/prompt4_test_setup.sql`) :
+  - `organisations` : `aaaaaaaa-…0001` (Assureur Test A), `bbbbbbbb-…0002` (Assureur Test B)
+  - profil de test `6fc93835-…` repositionné : `organisation_id = …0001`, `role = ASSUREUR_INFORMATIQUE`
+  - souscripteur `cccccccc-…0003` (« Client confidentiel de B ») dans l'org B
+- **Résultats API réels** (serveur lancé, JWT password grant frais) :
+  - `POST /api/v1/tenant/souscripteurs` ENTREPRISE → **201**, `organisationId` = org A (forcé côté service)
+  - `POST` COLLECTIVITE + `membresComite:[{userId, fonction:PRESIDENT}]` → **201**, membre imbriqué créé
+  - `GET /api/v1/tenant/souscripteurs` → **200**, 2 résultats (org A uniquement) ; le souscripteur
+    de l'org B **absent** de la liste
+  - `GET /…/{souscripteur de l'org B}` → **404** (cross-org, conditions réelles) ; `PATCH` idem **404**
+  - `GET /…/{collectivité}/membres-comite` → **200**, le PRESIDENT
+  - `audit_log` : 2 lignes `CREATION_SOUSCRIPTEUR` avec `organisation_id` auto-résolu + `details` JSON
+- Serveur arrêté ensuite.
+- ⚠️ **Données de test en base** (en plus du profil `6fc93835-…`) : 2 organisations `aaaa…/bbbb…`,
+  3 souscripteurs (ACME BTP `76d6d833…`, Mutuelle Bouaké `a43b89a6…`, Client B `cccc…0003`),
+  1 membre de comité. **À SUPPRIMER avant mise en production.**

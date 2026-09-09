@@ -1,9 +1,10 @@
 // Prisma schema — apps/api
 // ---------------------------------------------------------------------------
 // Synchronisé avec la base Supabase existante via `npx prisma db pull`
-// (2026-09-06). Les colonnes ci-dessous reflètent la base RÉELLE (public),
-// pas une supposition. Modèles renommés en PascalCase + `@@map` vers les tables
-// snake_case pour un code TypeScript idiomatique.
+// (dernière synchro : 2026-09-06, après PROMPT 4). Les colonnes ci-dessous
+// reflètent la base RÉELLE (schéma `public`), pas une supposition. Modèles
+// renommés en PascalCase + `@@map` vers les tables snake_case pour un code
+// TypeScript idiomatique. `@updatedAt` est géré côté app (aucun trigger en base).
 //
 // Schéma `auth` (Supabase GoTrue) : NON modélisé ici. `profils.id` référence
 // `auth.users(id)` en base (FK réelle conservée), mais on ne modélise pas la
@@ -11,6 +12,8 @@
 // Pour ré-introspecter : ajouter `schemas = ["auth", "public"]` au datasource,
 // lancer `npx prisma db pull --force`, puis retirer les modèles/enums du schéma
 // `auth` et l'entrée `schemas` (le client TS n'en a pas besoin).
+//
+// DDL manuel appliqué (pas de `prisma migrate`) : voir prisma/sql/.
 // ---------------------------------------------------------------------------
 
 generator client {
@@ -28,25 +31,28 @@ model Organisation {
   id               String    @id @db.Uuid
   nom              String
   raisonSociale    String?   @map("raison_sociale")
-  type             String
+  type             String // ASSUREUR | MUTUELLE
   pays             String
   devise           String    @default("XOF")
   emailContact     String?   @map("email_contact")
   telephoneContact String?   @map("telephone_contact")
-  statut           String    @default("ACTIVE")
+  statut           String    @default("ACTIVE") // ACTIVE | SUSPENDUE | ARCHIVEE
   createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @default(now()) @map("updated_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  profils   Profil[]
-  auditLogs AuditLog[]
+  profils       Profil[]
+  auditLogs     AuditLog[]
+  souscripteurs Souscripteur[]
 
   @@map("organisations")
 }
 
 /// audit_log — journal d'audit unique (alimenté par log_audit(), v9 §1.6).
+/// Append-only : pas de updated_at. `id` : défaut ajouté en base au PROMPT 4
+/// (voir prisma/sql/002) — sans lui log_audit() échouait en not-null.
 model AuditLog {
-  id               String   @id @db.Uuid
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId   String?  @map("organisation_id") @db.Uuid
   userId           String   @map("user_id") @db.Uuid
   action           String
@@ -79,7 +85,7 @@ model SousRole {
   entiteCode     String  @map("entite_code")
   libelle        String
   roleParentCode String? @map("role_parent_code")
-  niveauAcces    String  @map("niveau_acces") // LECTURE_SEULE | MODIFICATION | ADMIN | ADMIN_PLATEFORME
+  niveauAcces    String  @map("niveau_acces") // LECTURE_SEULE | MODIFICATION | ADMIN
   peutValider    Boolean @default(false) @map("peut_valider")
   dashboardRoute String  @map("dashboard_route")
 
@@ -104,14 +110,69 @@ model Profil {
   pharmacieId        String?   @map("pharmacie_id") @db.Uuid
   adherentId         String?   @map("adherent_id") @db.Uuid
   mfaActive          Boolean?  @default(false) @map("mfa_active")
-  methodeConnexion   String?   @map("methode_connexion")
+  methodeConnexion   String?   @map("methode_connexion") // EMAIL_MDP | SSO_GOOGLE | SSO_MICROSOFT | OTP_SMS
   numeroOrdreMedecin String?   @map("numero_ordre_medecin")
   createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt          DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  sousRole     SousRole?     @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  organisation  Organisation?         @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sousRole      SousRole?             @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  membresComite MembreComiteGestion[]
 
   @@map("profils")
+}
+
+/// souscripteurs — table unifiée des souscripteurs, 3 segments (v9 §1.2).
+/// `societes_clientes` est abandonnée. `SOCIETE_AFFILIEE` = nom d'affichage pour
+/// les types ENTREPRISE et COLLECTIVITE ; INDIVIDUEL relève de l'entité ADHERENT.
+model Souscripteur {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId         String    @map("organisation_id") @db.Uuid
+  type                   String // ENTREPRISE | COLLECTIVITE | INDIVIDUEL
+  nom                    String
+  // segment ENTREPRISE
+  secteurActivite        String?   @map("secteur_activite")
+  effectifDeclare        Int?      @map("effectif_declare")
+  // segment COLLECTIVITE
+  typeCollectivite       String?   @map("type_collectivite")
+  organeGouvernance      String?   @map("organe_gouvernance")
+  subventionExterne      Boolean   @default(false) @map("subvention_externe")
+  bailleurSubvention     String?   @map("bailleur_subvention")
+  // segment INDIVIDUEL
+  numeroPieceIdentite    String?   @map("numero_piece_identite")
+  questionnaireMedicalId String?   @map("questionnaire_medical_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation  Organisation          @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  membresComite MembreComiteGestion[]
+
+  @@index([organisationId])
+  @@index([type])
+  @@index([deletedAt])
+  @@map("souscripteurs")
+}
+
+/// membres_comite_gestion — gouvernance à plusieurs titulaires des collectivités
+/// (v9 §1.3). Plusieurs comptes SOCIETE_ADMINISTRATION peuvent coexister sur un
+/// même souscripteur, chacun rattaché à une ligne ici (Président, Trésorier...).
+model MembreComiteGestion {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  souscripteurId  String    @map("souscripteur_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  fonction        String
+  dateDebutMandat DateTime  @default(dbgenerated("CURRENT_DATE")) @map("date_debut_mandat") @db.Date
+  dateFinMandat   DateTime? @map("date_fin_mandat") @db.Date
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  profil       Profil       @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([souscripteurId])
+  @@index([userId])
+  @@map("membres_comite_gestion")
 }

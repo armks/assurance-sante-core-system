@@ -2,7 +2,10 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Assurance Santé Collective',
+  title: {
+    default: 'Assurance Santé — Core System',
+    template: '%s',
+  },
   description: 'Core System — assurance santé collective (Côte d’Ivoire)',
 };
 

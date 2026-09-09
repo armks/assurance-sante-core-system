@@ -208,3 +208,39 @@
     l'org de l'appelant ; les rôles non listés échouent.
   - Profil de test remis à `role = ASSUREUR_INFORMATIQUE` en fin de test.
 - Serveur arrêté ensuite.
+
+## 2026-09-09 — apps/web : premiers écrans réels /login + /dashboard
+- **Bloc d'auth Supabase UI** ajouté via `npx shadcn add https://supabase.com/ui/r/password-based-auth-nextjs.json`
+  (22 fichiers) : `components/{login,sign-up,forgot-password,update-password}-form`,
+  `components/{logout-button}`, `components/ui/{button,card,input,label}`, `app/auth/*`
+  (sign-up, forgot-password, update-password, confirm route, error), `proxy.ts`, `lib/{middleware,safe-next-path}`.
+- **Réconciliation** :
+  - Clients Supabase : `lib/supabase/client.ts` + `server.ts` conservés comme sources uniques
+    (orphelins `lib/client.ts` / `lib/server.ts` générés → supprimés). Le bloc importait déjà `@/lib/supabase/*`.
+  - Env standardisé sur `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (ex-`ANON_KEY`) + `API_URL`.
+  - Redirections : `/protected` → `/dashboard`, `/auth/login` → `/login` (middleware, forms, logout).
+  - `proxy.ts` corrigé pour Next 16 : `export function proxy` (ex-`middleware`).
+  - `components/ui/*` : import `cn` depuis `@/lib/utils` (pas le paquet `cn`) ; paquet `cn` retiré.
+  - Ajouts : `components/ui/badge.tsx`, `components/brand.tsx`.
+- **Écrans** :
+  - `app/login/page.tsx` : layout brandé (composant `Brand`, dégradé discret) + `<LoginForm/>`.
+  - `app/dashboard/page.tsx` : **server component** protégé. `getUser()` → redirect `/login` sinon ;
+    `getSession()` → token ; `fetch(API_URL + /api/v1/identity/me, Bearer)`. Rendu : rôle, libellé,
+    badge entité, permissions (niveau, peutValider, rôle médical, roleChain, dashboardRoute),
+    périmètre multi-tenant, `<details>` JSON brut. États 401 / 404 (profil non provisionné) / erreur réseau.
+  - `app/page.tsx` → `redirect('/dashboard')`.
+- **Tailwind : rétrogradé v4 → v3** (`^3.4.17`) — Smart App Control bloque le binaire natif
+  `@tailwindcss/oxide` (v4) et v4 n'a pas de fallback WASM auto. Ajout `tailwind.config.ts`
+  (tokens shadcn neutral HSL), `postcss.config.mjs` → `tailwindcss` + `autoprefixer`,
+  `globals.css` ré-écrit en syntaxe v3. `tailwindcss-animate` non ajouté (aucun composant
+  ne l'utilise encore). Détails + conditions de réexamen → `SECURITY.md`.
+- **Build : Webpack** (`next build/dev --webpack`) — Turbopack exige les bindings natifs SWC
+  que SAC bloque (fallback WASM insuffisant pour Turbopack, OK pour Webpack).
+- **Test HTTP réel de bout en bout** (api + web lancés, connexion Supabase via cookie jar) :
+  - `GET /login` → **200** (form + brand)
+  - `GET /dashboard` sans session → **307** → `/login?next=%2Fdashboard`
+  - login + `GET /dashboard` authentifié → **200**, rendu complet : `ASSUREUR_INFORMATIQUE`,
+    « Assurance Informatique », badge `ASSUREUR`, niveau `ADMIN`, `peutValider` oui,
+    `/dashboard-assureur/informatique`, email header, bouton déconnexion, CSS Tailwind chargé.
+  - Chaîne prouvée : navigateur → Supabase Auth (cookie) → Next server component → NestJS (JWKS) → Prisma → Postgres.
+- **Vérifs** : `npm run build --workspace apps/web` ✅ ; tests apps/api toujours ✅ 17/17. Serveurs arrêtés.

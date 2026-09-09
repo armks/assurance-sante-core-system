@@ -100,3 +100,51 @@ de version majeure.
 - `npm audit` : 3 high, 0 critical / moderate / low
 - Pas de fichier `prisma.config.ts` dans le dépôt
 - Pas de CI/CD configurée ; dépôt privé, pas de contributions externes
+
+---
+
+## 2026-09-09 — Smart App Control (Windows 11) bloque les binaires natifs — contournements
+
+### Contexte
+
+Sur la machine de dev, **Smart App Control** (SAC) est activé en mode *enforce*
+(`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy\VerifiedAndReputablePolicyState = 1`,
+Policy ID `{0283ac0f-fff1-49ae-ada1-8a933130cad6}`). SAC refuse de charger tout
+binaire natif (`.dll`, `.node`) non signé au niveau « Enterprise » / non réputé.
+
+Ça a cassé successivement, **en cours de développement** (SAC s'est durci après
+les premiers prompts) :
+
+| Binaire bloqué | Symptôme | Contournement retenu |
+|---|---|---|
+| `git-remote-https` → `libcurl-4.dll` | `git push/fetch` HTTPS en échec | Remote passé en **SSH** (`ssh.exe` est signé Microsoft) |
+| `@next/swc-win32-x64-msvc/*.node` | Next.js SWC natif | **Fallback WASM automatique** de Next (plus lent, warnings) |
+| `@tailwindcss/oxide-*/*.node` | Moteur Tailwind **v4** — pas de fallback WASM auto | **Rétrogradation `apps/web` en Tailwind v3** (100 % JS, zéro binaire natif) |
+
+### Décisions
+
+1. **git : transport SSH** — `git remote set-url origin git@github.com:...`.
+   HTTPS git reste inutilisable tant que SAC est actif.
+2. **`apps/web` : Tailwind CSS v3** (`^3.4.17`) au lieu de v4. `postcss.config.mjs`
+   utilise `tailwindcss` + `autoprefixer` ; `tailwind.config.ts` porte les tokens
+   shadcn (base neutral, HSL). shadcn/ui est né sur v3 → aucune perte.
+   Ne **pas** repasser en Tailwind v4 sur cette machine sans désactiver SAC.
+3. **`apps/web` : builds en Webpack** — `next build --webpack` / `next dev --webpack`
+   (Turbopack exige les bindings natifs ; le fallback WASM ne lui suffit pas).
+
+### Conditions de réexamen
+
+- **SAC désactivé** (Paramètres → Sécurité Windows → Contrôle des applications
+  et du navigateur — opération **irréversible** sans réinitialisation de Windows) :
+  alors on peut revenir à git HTTPS, Turbopack, et éventuellement Tailwind v4.
+- **Nouvelle machine de dev / CI Linux** : SAC ne s'applique pas ; les binaires
+  natifs se chargent normalement. Tailwind v3 reste toutefois un choix valide et
+  n'a pas besoin d'être annulé dans l'urgence.
+
+### État figé
+
+- git remote : SSH
+- `apps/web` : Next 16 (webpack), Tailwind 3.4.x, PostCSS + autoprefixer
+- `@next/swc` : fallback WASM (natif bloqué, non requis)
+- `apps/api` : non affecté (pas de binaire natif ; Prisma query engine = exécutable
+  séparé lancé en child process, pas un `.node` chargé en direct — fonctionne)

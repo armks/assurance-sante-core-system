@@ -47,6 +47,8 @@ model Organisation {
   invitations       Invitation[]
   etablissements    EtablissementSante[]
   pharmacies        Pharmacie[]
+  referentielActes  ReferentielActe[]
+  medicaments       Medicament[]
 
   @@map("organisations")
 }
@@ -121,6 +123,8 @@ model Profil {
   avenantsCrees        Avenant[]
   questionnairesValides QuestionnaireMedical[]
   invitationsEmises     Invitation[]
+  actesHomologues       ReferentielActe[]
+  medicamentsHomologues Medicament[]
 
   @@map("profils")
 }
@@ -514,4 +518,67 @@ model Pharmacie {
   @@index([organisationId])
   @@index([statut])
   @@map("pharmacies")
+}
+
+/// referentiel_actes — nomenclature des actes (v3 §9). Gouvernance d'homologation
+/// PROPOSE → HOMOLOGUE → SUSPENDU/RETIRE (v8 §10). Passage à HOMOLOGUE réservé à
+/// ASSUREUR_MEDECIN_CONSEIL. prisma/sql/010.
+model ReferentielActe {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId      String    @map("organisation_id") @db.Uuid
+  code                String    @unique
+  libelle             String
+  categorie           String?
+  versionNomenclature String?   @map("version_nomenclature")
+  statut              String    @default("PROPOSE") // PROPOSE | HOMOLOGUE | SUSPENDU | RETIRE
+  homologuePar        String?   @map("homologue_par") @db.Uuid
+  dateHomologation    DateTime? @map("date_homologation") @db.Timestamptz(6)
+  dateRetrait         DateTime? @map("date_retrait") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  homologateur Profil?      @relation(fields: [homologuePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([statut])
+  @@map("referentiel_actes")
+}
+
+/// medicaments — référentiel des médicaments (v3 §9). Passage à HOMOLOGUE réservé
+/// à ASSUREUR_PHARMACIEN_CONSEIL (v8 §10.2). prisma/sql/010.
+model Medicament {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId        String    @map("organisation_id") @db.Uuid
+  denominationCommune   String    @map("denomination_commune")
+  nomCommercial         String?   @map("nom_commercial")
+  codeEan               String?   @map("code_ean")
+  forme                 String?
+  dosage                String?
+  conditionnement       String?
+  classeTherapeutique   String?   @map("classe_therapeutique")
+  remboursable          Boolean   @default(false)
+  tauxRemboursementStd  Decimal?  @map("taux_remboursement_std") @db.Decimal(5, 2)
+  prixReferenceXof      Decimal?  @map("prix_reference_xof") @db.Decimal(14, 2)
+  prixMaxRemboursable   Decimal?  @map("prix_max_remboursable") @db.Decimal(14, 2)
+  medicamentEssentiel   Boolean   @default(false) @map("medicament_essentiel")
+  generiqueDisponible   Boolean?  @map("generique_disponible")
+  ordonnanceObligatoire Boolean   @default(true) @map("ordonnance_obligatoire")
+  medicamentControle    Boolean   @default(false) @map("medicament_controle")
+  usage                 String?   // AMBULATOIRE | HOSPITALIER | LES_DEUX
+  statutHomologation    String    @default("PROPOSE") @map("statut_homologation") // PROPOSE | HOMOLOGUE | SUSPENDU | RETIRE
+  homologuePar          String?   @map("homologue_par") @db.Uuid
+  dateHomologation      DateTime? @map("date_homologation") @db.Timestamptz(6)
+  dateRetrait           DateTime? @map("date_retrait") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  homologateur Profil?      @relation(fields: [homologuePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([statutHomologation])
+  @@map("medicaments")
 }

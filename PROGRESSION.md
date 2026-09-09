@@ -661,3 +661,66 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - **Vérifs** : build API ✅ ; `jest` **57/57** ✅ ; `next build --webpack` ✅ (22 routes).
   Données de test du parcours e2e supprimées (établissements, pharmacie, profil + compte
   Supabase du pharmacien, invitations) ; serveurs arrêtés.
+
+## 2026-09-09 — PROMPT 16 — Référentiels médicaux + gouvernance d'homologation (croisement des rôles conseil)
+- **Supabase** (`prisma/sql/010_prompt16_reference.sql`) :
+  - Table `referentiel_actes` (code unique, `statut` PROPOSE/HOMOLOGUE/SUSPENDU/RETIRE
+    défaut PROPOSE, `homologue_par` FK profils, `date_homologation`/`date_retrait`).
+  - Table `medicaments` (DCI, nom commercial, EAN, forme/dosage/conditionnement, classe
+    thérapeutique, `remboursable`, `taux_remboursement_std`, `prix_reference_xof`,
+    `prix_max_remboursable`, `medicament_essentiel`, `generique_disponible`,
+    `ordonnance_obligatoire`, `medicament_controle`, `usage`
+    AMBULATOIRE/HOSPITALIER/LES_DEUX, `statut_homologation` défaut PROPOSE, `homologue_par`).
+  - **RLS — gouvernance v8 §10.2** : lecture ouverte à l'organisation ; INSERT (statut
+    PROPOSE) réservé à `ASSUREUR_INFORMATIQUE` ; **deux policies UPDATE permissives** —
+    l'une « informatique » avec `WITH CHECK statut <> 'HOMOLOGUE'` (l'Informatique peut
+    tout sauf poser HOMOLOGUE), l'autre réservée au rôle conseil correspondant
+    (`ASSUREUR_MEDECIN_CONSEIL` pour les actes, `ASSUREUR_PHARMACIEN_CONSEIL` pour les
+    médicaments). Aucun autre rôle n'a de policy d'écriture → transition HOMOLOGUE
+    impossible pour lui, y compris le mauvais rôle conseil.
+  - **Pré-remplissage** : 16 médicaments essentiels de Côte d'Ivoire au statut PROPOSE
+    (antipaludéens : Artéméther+Luméfantrine, Artésunate, Sulfadoxine-Pyriméthamine ;
+    antibiotiques : Amoxicilline ±ac. clavulanique, Ceftriaxone, Métronidazole,
+    Cotrimoxazole ; antihypertenseurs : Amlodipine, Nifédipine LP, Hydrochlorothiazide,
+    Énalapril ; analgésiques : Paracétamol, Ibuprofène, Acide acétylsalicylique, Tramadol).
+- **Prisma** : modèles `ReferentielActe` + `Medicament` (20 → 22 modèles), `prisma generate`.
+- **apps/api** — module `reference/` :
+  - `ReferenceService` : `proposerActe`/`proposerMedicament` (garde `ASSUREUR_INFORMATIQUE`),
+    `homologuerActe` (**garde stricte `ASSUREUR_MEDECIN_CONSEIL`**),
+    `homologuerMedicament` (**garde stricte `ASSUREUR_PHARMACIEN_CONSEIL`**, renseigne
+    prix/taux via decimal.js), `suspendre*`, `retirer*` (rôle conseil), `reproposer*`
+    (informatique). **Machine à états** : `assertTransitionVersHomologue` → on n'homologue
+    QUE depuis PROPOSE (un élément SUSPENDU/RETIRE doit d'abord être re-proposé), même
+    logique que la machine à états des polices.
+  - `ReferenceController` : `/api/v1/reference/actes` + `/medicaments`
+    (proposer/lister/obtenir/homologuer/suspendre/retirer/reproposer).
+  - `reference.service.spec.ts` : **9 cas**, dont **LE croisement** :
+    `ASSUREUR_PHARMACIEN_CONSEIL` homologue un acte → 403 ; `ASSUREUR_MEDECIN_CONSEIL`
+    homologue un médicament → 403 ; `ASSUREUR_INFORMATIQUE` ne peut homologuer ni l'un ni
+    l'autre ; homologation depuis SUSPENDU/RETIRE → 409. → **jest 66/66**.
+- **apps/web** :
+  - `/dashboard-assureur/medecin-conseil` (+ `/actes-a-homologuer`) et
+    `/dashboard-assureur/pharmacien-conseil` (+ `/medicaments-a-homologuer`) — layout
+    gardé par `dashboardRoute`, `HomologationPanneau` (compteurs par statut, boutons
+    Homologuer / Suspendre / Re-proposer selon le statut). Entrées de nav ajoutées.
+- **Test HTTP réel — 16/16** (compte `pharmacien.conseil.test@exemple.ci` +
+  profil `ASSUREUR_PHARMACIEN_CONSEIL` créés) :
+  - `ASSUREUR_INFORMATIQUE` propose des actes (PROPOSE) ; `ASSUREUR_MEDECIN_CONSEIL`
+    homologue un acte → HOMOLOGUE.
+  - **CROISEMENT** : `ASSUREUR_PHARMACIEN_CONSEIL` homologue un acte → **403** ;
+    `ASSUREUR_MEDECIN_CONSEIL` homologue un médicament → **403** ; `ASSUREUR_INFORMATIQUE`
+    homologue (acte ou médicament) → **403**.
+  - `ASSUREUR_PHARMACIEN_CONSEIL` homologue un médicament → HOMOLOGUE + `remboursable`
+    + `taux_remboursement_std = 80.00` (vérifié en base).
+  - Machine à états : suspension d'un acte HOMOLOGUE → SUSPENDU ; ré-homologation directe
+    → **409** ; re-proposition par l'Informatique → PROPOSE ; ré-homologation → HOMOLOGUE.
+  - Pages web rendues (200) ; cloisonnement : le médecin conseil ne peut ouvrir le
+    dashboard pharmacien conseil (redirect 307).
+  - `audit_log` : PROPOSITION_ACTE, HOMOLOGATION_ACTE, SUSPENSION_ACTE, REPROPOSITION_ACTE,
+    HOMOLOGATION_MEDICAMENT.
+- **Vérifs** : build API ✅ ; `jest` **66/66** ✅ ; `next build --webpack` ✅ (26 routes).
+  Actes de test supprimés ; les 16 médicaments essentiels remis à PROPOSE (données de
+  démo « à homologuer ») ; serveurs arrêtés.
+- ⚠️ **Donnée de test conservée** : `pharmacien.conseil.test@exemple.ci` +
+  profil `ASSUREUR_PHARMACIEN_CONSEIL` (comme `medecin.conseil.test@` et
+  `superadmin.test@` — à retirer avant prod).

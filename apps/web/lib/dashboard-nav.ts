@@ -6,6 +6,7 @@ import {
   type LucideIcon,
   Package,
   Pill,
+  Stethoscope,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -37,8 +38,26 @@ export interface NavItem {
  * la RLS Postgres refuserait ensuite (règle transverse du skill).
  */
 const INFORMATIQUE = '/dashboard-assureur/informatique';
+const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
+const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 
 export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
+  [MEDECIN_CONSEIL]: [
+    { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard },
+    {
+      label: 'Actes à homologuer',
+      href: `${MEDECIN_CONSEIL}/actes-a-homologuer`,
+      icon: Stethoscope,
+    },
+  ],
+  [PHARMACIEN_CONSEIL]: [
+    { label: "Vue d'ensemble", href: PHARMACIEN_CONSEIL, icon: LayoutDashboard },
+    {
+      label: 'Médicaments à homologuer',
+      href: `${PHARMACIEN_CONSEIL}/medicaments-a-homologuer`,
+      icon: Pill,
+    },
+  ],
   [INFORMATIQUE]: [
     { label: "Vue d'ensemble", href: INFORMATIQUE, icon: LayoutDashboard },
     {

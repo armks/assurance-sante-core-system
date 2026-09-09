@@ -271,3 +271,53 @@ réexamen : **`SECURITY.md`**.
 
 Prochaines étapes possibles : PROMPT 6 (invitations sécurisées) puis PROMPT 7 (interface de
 gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
+
+## 2026-09-09 — PROMPT 8 : module plan/ + produits versionnés + garanties
+- **Base Supabase** (`apps/api/prisma/sql/004_prompt8_produits_garanties.sql`) :
+  - Table `produits` : id, organisation_id (FK), nom, version (int ≥ 1), statut
+    (CHECK `BROUILLON|PUBLIE|ARCHIVE`), date_publication, timestamps, deleted_at.
+    **UNIQUE (organisation_id, nom, version)** — une police référencera toujours une
+    (org, nom, version) FIGÉE. CHECK de cohérence statut↔date_publication.
+  - Table `garanties` : produit_id (FK cascade), categorie_acte, taux_couverture / plafonds
+    / franchise / ticket_moderateur en **`numeric` (Decimal, jamais float)** avec CHECK de
+    bornes (0–100 pour les %), delai_carence_jours, reseau_soins (CHECK
+    `CONVENTIONNE_SEUL|TOUT_RESEAU`), exclusions `text[]`, timestamps, deleted_at.
+  - Fonction `profil_a_role(organisation_id, roles[])` SECURITY DEFINER — **même pattern
+    que `peut_creer_role` (PROMPT 5)** : rôle de `auth.uid()` + parent (héritage adjoint),
+    membership dans la liste, même organisation.
+  - RLS : `produits_lecture` / `garanties_lecture` = toute personne de l'organisation
+    (produits PUBLIE largement visibles pour la souscription) ; `produits_ecriture` /
+    `garanties_ecriture` = `ASSUREUR_DIRECTION` / `ASSUREUR_INFORMATIQUE` via `profil_a_role`.
+    `garanties_ecriture` bloque aussi si le produit n'est plus `BROUILLON` (défense en profondeur).
+- **Prisma** : `db pull --force` puis schéma ré-écrit — 10 modèles (ajout `Produit`,
+  `Garantie` avec `Decimal`). `generate` OK.
+- **apps/api** — module `plan/` :
+  - `PlanService` : `creerProduit` (BROUILLON v1 ; refus si un produit actif du même nom
+    existe → `/nouvelle-version`), `ajouterGarantie`, `publier` (BROUILLON→PUBLIE, exige ≥ 1
+    garantie, pose `date_publication`), `archiver`, `creerNouvelleVersion` (clone produit +
+    garanties en BROUILLON v+1), `modifier/supprimerGarantie`, `modifierProduit`.
+    **Immutabilité** : toute écriture sur un produit non-BROUILLON → `ConflictException` (409).
+    Scope strict `organisation_id`, rôle via `roleChain` (comme tenant/), audit `log_audit()`
+    en transaction, cross-org → 404.
+  - `PlanController` : 10 routes REST sous `/api/v1/plan/produits`.
+  - `plan.service.spec.ts` : 7 cas dont les 3 exigés (création + publication ; refus de
+    modification d'un produit publié — garantie/produit/ajout ; refus de publication par un
+    rôle non autorisé) + refus publication sans garantie / sans organisation / clone de version.
+- **Vérifs** : build ✅ ; tests **24/24** ✅.
+- **Test HTTP réel** (serveur lancé, JWT frais, profil `6fc93835-…` = ASSUREUR_INFORMATIQUE) :
+  - `POST /plan/produits` → **201** BROUILLON v1 ; 2× `POST /:id/garanties` → **201**
+    (Decimal, reseau_soins, exclusions[] persistés)
+  - `POST /:id/publier` → statut **PUBLIE** + `date_publication`
+  - **`PATCH /:id/garanties/:gid` sur produit PUBLIE → 409** (cas critique demandé) ;
+    `POST /:id/garanties` → **409** ; `PATCH /:id` (renommage) → **409**
+  - `POST /:id/nouvelle-version` → **201** BROUILLON **v2** avec 2 garanties clonées ;
+    `PATCH` d'une garantie de la v2 (BROUILLON) → **200**
+  - profil repositionné en `ASSUREUR_COMPTABLE` → `POST /plan/produits` → **403** ; puis remis
+  - RLS `profil_a_role()` (jwt.claims simulé) : rôle+org OK → true ; autre org → false ;
+    rôle hors liste → false
+  - `audit_log` : CREATION_PRODUIT×2, AJOUT_GARANTIE×2, PUBLICATION_PRODUIT, NOUVELLE_VERSION_PRODUIT,
+    MODIFICATION_GARANTIE — alimenté correctement
+- Serveur arrêté. Profil de test remis à `ASSUREUR_INFORMATIQUE`.
+- ⚠️ **Données de test ajoutées en base à supprimer avant prod** : produits « Formule
+  Essentielle » (v1 BROUILLON orpheline d'un 1er essai) et « Formule Essentielle NNNNN »
+  (v1 PUBLIE + v2 BROUILLON) avec leurs garanties, + lignes `audit_log` associées.

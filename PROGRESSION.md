@@ -321,3 +321,54 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - ⚠️ **Données de test ajoutées en base à supprimer avant prod** : produits « Formule
   Essentielle » (v1 BROUILLON orpheline d'un 1er essai) et « Formule Essentielle NNNNN »
   (v1 PUBLIE + v2 BROUILLON) avec leurs garanties, + lignes `audit_log` associées.
+
+## 2026-09-09 — PROMPT 9 : module policy/ + polices (machine à états) + avenants
+- **Base Supabase** (`apps/api/prisma/sql/005_prompt9_polices_avenants.sql`) :
+  - Séquence `polices_numero_seq` + colonne `numero_police` UNIQUE avec DEFAULT
+    `POL-YYYY-NNNNNN` (généré en base).
+  - Table `polices` : organisation_id / souscripteur_id / produit_id (FK), statut CHECK
+    (`DEVIS|EN_SOUSCRIPTION|ACTIVE|SUSPENDUE|RENOUVELEE|RESILIEE|NON_RENOUVELEE`),
+    date_debut / date_fin, CHECK période cohérente.
+  - **Trigger `polices_produit_publie`** (before insert / update of produit_id) : rejette
+    toute police dont le produit référencé n'est pas `PUBLIE` (défense en profondeur ;
+    PolicyService vérifie aussi).
+  - Table `avenants` : police_id (FK cascade), type CHECK (6 valeurs), date_effet,
+    date_creation, cree_par (FK profils), proratisation_appliquee bool, impact_cotisation
+    `numeric(14,2)`, statut CHECK (`BROUILLON|APPLIQUE|ANNULE`).
+  - RLS (**même `profil_a_role()` que PROMPTs 5 / 8**) : lecture = personnel ASSUREUR de
+    l'org **OU** le souscripteur concerné (`profils.societe_id = polices.souscripteur_id` —
+    un SOCIETE_ADMINISTRATION voit sa propre police) ; écriture = `ASSUREUR_DIRECTION` /
+    `ASSUREUR_EXPLOITATION` / `ASSUREUR_INFORMATIQUE`.
+- **Prisma** : `db pull --force` puis schéma ré-écrit — 12 modèles (ajout `Police`,
+  `Avenant`). Ajout dépendance `decimal.js` (calcul de proratisation). `generate` OK.
+- **apps/api** — module `policy/` :
+  - `policy.types.ts` : `TRANSITIONS_POLICE` = machine à états STRICTE
+    (DEVIS→EN_SOUSCRIPTION→ACTIVE ; ACTIVE→{SUSPENDUE,RENOUVELEE,RESILIEE,NON_RENOUVELEE} ;
+    SUSPENDUE→ACTIVE). Toute transition absente → `ConflictException`.
+  - `PolicyService` : `creerDevis` (vérifie produit **PUBLIE**), `souscrire`
+    (DEVIS→EN_SOUSCRIPTION→ACTIVE, chaque étape validée par la machine), `changerStatut`
+    (applique `TRANSITIONS_POLICE`), `creerAvenant` (proratisation via **decimal.js** :
+    `impact = tarif_mensuel × jours_restants / jours_total`, arrondi 2 déc.),
+    `appliquer/annulerAvenant`. Scope `organisation_id` + société pour la lecture, audit
+    `log_audit()` en transaction.
+  - `PolicyController` : 9 routes REST `/api/v1/policy/polices`.
+  - `policy.service.spec.ts` : 9 cas dont les 4 exigés (souscription DEVIS→ACTIVE ; refus
+    transition invalide DEVIS→ACTIVE direct ; refus devis sur produit BROUILLON ;
+    proratisation AJOUT_ADHERENT milieu de période = **5027.47**).
+- **Vérifs** : build ✅ ; tests **33/33** ✅.
+- **Test HTTP réel** (serveur lancé, JWT frais, profil = ASSUREUR_INFORMATIQUE) :
+  - `POST /policy/polices` (produit PUBLIE) → **201** DEVIS, `numero=POL-2026-000001`
+  - **`POST /:id/statut {ACTIVE}` sur DEVIS → 409** (cas critique : pas de saut d'étape)
+  - **`POST /policy/polices` avec produit BROUILLON → 400** (cas critique : produit non PUBLIE)
+  - `POST /:id/souscrire` → **ACTIVE** (via EN_SOUSCRIPTION), dates posées
+  - `ACTIVE→DEVIS` → **409** ; `ACTIVE→SUSPENDUE` → OK ; `SUSPENDUE→ACTIVE` (réactivation) → OK
+  - avenant AJOUT_ADHERENT (dateEffet 2026-07-01, tarif 10000) → `proratisationAppliquee=true`,
+    **`impactCotisation=5027.47`** ; appliquer → APPLIQUE ; annuler → ANNULE
+  - `ACTIVE→RESILIEE` → OK (date_fin posée) ; `RESILIEE→ACTIVE` → **409**
+  - profil → `ASSUREUR_COMPTABLE` → `POST /policy/polices` → **403** ; puis remis
+  - RLS `profil_a_role()` (jwt.claims simulé) : rôle+org OK → true ; autre org / rôle hors liste → false
+  - `audit_log` : 8 entrées policy (CREATION_DEVIS, SOUSCRIPTION_POLICE, CHANGEMENT_STATUT_POLICE×3,
+    CREATION_AVENANT, APPLICATION_AVENANT, ANNULATION_AVENANT)
+- Serveur arrêté. Profil de test remis à `ASSUREUR_INFORMATIQUE`.
+- ⚠️ **Données de test en base à supprimer avant prod** (en plus des précédentes) :
+  police `POL-2026-000001` (statut RESILIEE) + son avenant, + lignes `audit_log` associées.

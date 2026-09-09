@@ -1,11 +1,19 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
+import { CreerOrganisationDto } from './dto/organisation.dto';
 import { IdentityService } from './identity.service';
 import { IdentityMeResponse } from './identity.types';
+import { OrganisationsService } from './organisations.service';
 import { ProvisioningService } from './provisioning.service';
-import { RoleProposable } from './provisioning.types';
+import { CompteOrganisation, RoleProposable } from './provisioning.types';
 
 @Controller('identity')
 @UseGuards(SupabaseAuthGuard)
@@ -13,6 +21,7 @@ export class IdentityController {
   constructor(
     private readonly identityService: IdentityService,
     private readonly provisioningService: ProvisioningService,
+    private readonly organisationsService: OrganisationsService,
   ) {}
 
   /**
@@ -36,5 +45,35 @@ export class IdentityController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<RoleProposable[]> {
     return this.provisioningService.rolesProposables(user);
+  }
+
+  /**
+   * GET /api/v1/identity/comptes
+   * Comptes de l'organisation de l'appelant (page /utilisateurs).
+   */
+  @Get('comptes')
+  comptes(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<CompteOrganisation[]> {
+    return this.provisioningService.listerComptesOrganisation(user);
+  }
+
+  /**
+   * GET /api/v1/identity/organisations — liste des tenants (superadmin).
+   */
+  @Get('organisations')
+  listerOrganisations(@CurrentUser() user: AuthenticatedUser) {
+    return this.organisationsService.lister(user);
+  }
+
+  /**
+   * POST /api/v1/identity/organisations — création d'un tenant (superadmin).
+   */
+  @Post('organisations')
+  creerOrganisation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreerOrganisationDto,
+  ) {
+    return this.organisationsService.creer(user, dto);
   }
 }

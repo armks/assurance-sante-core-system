@@ -1,15 +1,45 @@
 import type { Metadata } from 'next';
 
-import { SectionVide } from '@/components/section-vide';
+import { PageTitre } from '@/components/page-titre';
+import {
+  UtilisateursPanneau,
+  type Compte,
+  type Invitation,
+  type RoleProposable,
+} from '@/components/dashboard/utilisateurs-panneau';
+import { apiFetch, messageErreur } from '@/lib/api';
 
-export const metadata: Metadata = { title: 'Utilisateurs — Assurance Informatique' };
+export const metadata: Metadata = {
+  title: 'Utilisateurs — Assurance Informatique',
+};
 
-export default function Utilisateurs() {
+async function json<T>(path: string): Promise<{ data: T; erreur: string | null }> {
+  const res = await apiFetch(path);
+  if (!res.ok) {
+    return { data: [] as unknown as T, erreur: await messageErreur(res) };
+  }
+  return { data: (await res.json()) as T, erreur: null };
+}
+
+export default async function Utilisateurs() {
+  const [roles, comptes, invitations] = await Promise.all([
+    json<RoleProposable[]>('/api/v1/identity/roles-proposables'),
+    json<Compte[]>('/api/v1/identity/comptes'),
+    json<Invitation[]>('/api/v1/invitations'),
+  ]);
+
   return (
-    <SectionVide
-      titre="Utilisateurs"
-      description="Provisioning des comptes et invitations."
-      note="Section prévue au PROMPT 7. Elle consommera GET /api/v1/identity/roles-proposables (déjà en place) pour n’exposer que les rôles réellement créables."
-    />
+    <div className="space-y-8">
+      <PageTitre
+        titre="Utilisateurs"
+        description="Comptes de l’organisation et invitations. Les rôles proposés sont ceux que votre rôle est réellement autorisé à créer (regles_provisioning)."
+      />
+      <UtilisateursPanneau
+        roles={roles.data}
+        comptes={comptes.data}
+        invitations={invitations.data}
+        erreur={comptes.erreur}
+      />
+    </div>
   );
 }

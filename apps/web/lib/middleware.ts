@@ -42,7 +42,8 @@ export async function updateSession(request: NextRequest) {
   const estPublic =
     pathname === '/' ||
     pathname.startsWith('/login') ||
-    pathname.startsWith('/auth')
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/accepter-invitation')
 
   if (!user && !estPublic) {
     // pas de session : redirection vers /login, en conservant la cible dans ?next

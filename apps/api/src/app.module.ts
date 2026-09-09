@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { IdentityModule } from './identity/identity.module';
+import { InvitationsModule } from './invitations/invitations.module';
 import { PlanModule } from './plan/plan.module';
 import { PolicyModule } from './policy/policy.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -15,6 +16,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     PrismaModule,
     AuthModule,
     IdentityModule,
+    InvitationsModule,
     TenantModule,
     PlanModule,
     PolicyModule,

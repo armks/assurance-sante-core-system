@@ -15,3 +15,12 @@ export interface RoleProposable {
   /** code du sous-rôle validateur (uniquement si mode = PROPOSITION) */
   roleValidateur: string | null;
 }
+
+/** Un compte de l'organisation — page /dashboard-assureur/informatique/utilisateurs. */
+export interface CompteOrganisation {
+  id: string;
+  role: string | null;
+  libelleRole: string | null;
+  email: string | null;
+  createdAt: Date;
+}

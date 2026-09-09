@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdentityService } from './identity.service';
-import { RoleProposable } from './provisioning.types';
+import { CompteOrganisation, RoleProposable } from './provisioning.types';
 
 /**
  * ProvisioningService — expose, pour l'utilisateur connecté, la liste des
@@ -54,5 +54,43 @@ export class ProvisioningService {
     }
 
     return [...parCode.values()];
+  }
+
+  /**
+   * Comptes de l'organisation de l'appelant (page /utilisateurs). Réservé aux
+   * rôles d'administration de l'assureur (informatique / direction). L'e-mail
+   * provient de `auth.users` — non modélisé côté Prisma, lu en SQL brut.
+   */
+  async listerComptesOrganisation(
+    user: AuthenticatedUser,
+  ): Promise<CompteOrganisation[]> {
+    const { profil, permissions } = await this.identity.getMe(user);
+    if (!profil.organisationId) {
+      throw new ForbiddenException(
+        "Votre compte n'est rattaché à aucune organisation.",
+      );
+    }
+    const roleChain = permissions?.roleChain ?? [];
+    const autorise = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_DIRECTION'].some((r) =>
+      roleChain.includes(r),
+    );
+    if (!autorise) {
+      throw new ForbiddenException(
+        'Rôle insuffisant pour consulter les comptes de l’organisation.',
+      );
+    }
+
+    return this.prisma.$queryRaw<CompteOrganisation[]>`
+      SELECT p.id,
+             p.role,
+             sr.libelle       AS "libelleRole",
+             u.email          AS email,
+             p.created_at     AS "createdAt"
+      FROM profils p
+      JOIN auth.users u ON u.id = p.id
+      LEFT JOIN sous_roles sr ON sr.code = p.role
+      WHERE p.organisation_id = ${profil.organisationId}::uuid
+        AND p.deleted_at IS NULL
+      ORDER BY p.created_at DESC`;
   }
 }

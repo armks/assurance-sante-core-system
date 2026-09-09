@@ -67,8 +67,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Utilisateurs',
       href: `${INFORMATIQUE}/utilisateurs`,
       icon: Users,
-      minNiveau: 'ADMIN', // provisioning de comptes — cf. PROMPT 5 / 7
-      bientot: true,
+      minNiveau: 'ADMIN', // provisioning de comptes — modules identity + invitations
     },
   ],
 };

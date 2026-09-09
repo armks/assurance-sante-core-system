@@ -531,3 +531,78 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
     rôle restauré à `ASSUREUR_INFORMATIQUE` ensuite.
 - **Vérifs** : `next build --webpack` ✅ (toutes les routes présentes). Serveurs arrêtés,
   profil de test remis à `ASSUREUR_INFORMATIQUE`.
+
+## 2026-09-09 — PROMPT 6 (rattrapage) — Invitations sécurisées + interface Super Admin
+- Contexte : le PROMPT 6 (module `invitations/`) avait été sauté. Rattrapé ici avec, dans la
+  foulée, l'interface Super Admin (PROMPT 7 partiel : page /utilisateurs branchée).
+- **Supabase** (`prisma/sql/008_prompt6_invitations.sql`) :
+  - Table `invitations` (email, telephone, role_propose FK sous_roles, organisation_id /
+    societe_id / etablissement_id / pharmacie_id / adherent_id, invite_par FK profils,
+    token unique, statut EN_ATTENTE_VALIDATION_INFORMATIQUE / EN_ATTENTE / ACCEPTEE /
+    REJETEE / EXPIREE / REVOQUEE, mode CREATION_DIRECTE / PROPOSITION, role_validateur,
+    auth_user_id, motif_rejet, `expire_le` défaut now()+72h, accepte_le). CHECK :
+    validateur ⟺ mode = PROPOSITION.
+  - Fonction `peut_inviter_role()` — même logique que `peut_creer_role` (héritage adjoint +
+    scope organisation_id / pharmacie_id) mais SANS filtrer sur le mode. RLS INSERT
+    (`invite_par = auth.uid()` + `peut_inviter_role`), SELECT (émetteur ou rôle validateur
+    d'une proposition en attente), UPDATE (validateur). Défense en profondeur — le module
+    NestJS passe par `postgres` (pooler) et contourne la RLS.
+  - `sous_roles.dashboard_route` de SUPERADMIN_PRINCIPAL / _UTILISATEUR_ADMIN → `/superadmin`.
+- **Prisma** : modèle `Invitation` ajouté à la main (17 → 18 modèles), `prisma generate`.
+- **apps/api** — module `invitations/` :
+  - `SupabaseAdminService` : appels `fetch` natifs (UA Node, pas « navigateur ») à l'API
+    Admin GoTrue. `inviterUtilisateur` = `inviteUserByEmail` (crée le compte + envoie
+    l'e-mail) avec repli sur `admin/users` si SMTP absent ; `definirMotDePasse` (PUT
+    `admin/users/:id`) posé au moment de l'acceptation ; `supprimerUtilisateur` (révocation).
+  - `InvitationsService` : `creerInvitation` (vérifie `regles_provisioning` AVANT tout appel
+    Supabase ; mode PROPOSITION → statut EN_ATTENTE_VALIDATION_INFORMATIQUE, aucun appel
+    externe), `validerProposition` / `rejeterProposition` (réservés au `roleValidateur`),
+    `revoquer`, `listerMesInvitations`, `consulterParToken` (public, aucun secret),
+    `accepterInvitation` (public — l'invité pose SON mot de passe, jamais généré ni stocké ;
+    création du profil applicatif + audit dans une transaction). Scoping du compte créé
+    dérivé de `scope_verifie`, jamais d'une valeur libre de l'appelant (sauf l'organisation
+    cible d'un superadmin).
+  - `InvitationsController` : `POST /invitations`, `GET /invitations`, `POST /:id/valider`,
+    `/:id/rejeter`, `/:id/revoquer` (guardés) ; `GET /invitations/token/:token` +
+    `POST /invitations/accepter` (PUBLICS — l'invité n'a pas encore de session).
+  - `invitations.service.spec.ts` : 8 cas (règle absente → 403 ; CREATION_DIRECTE vérifie la
+    règle AVANT l'API Admin ; PROPOSITION sans appel Admin ; validation refusée hors rôle
+    validateur ; validation OK ; acceptation expirée → 410 ; acceptation avant validation →
+    409 ; acceptation OK → mot de passe posé + profil créé + statut ACCEPTEE).
+- **apps/api** — `identity/` étendu :
+  - `OrganisationsService` (`GET`/`POST /identity/organisations`, réservé SUPERADMIN_PRINCIPAL).
+  - `ProvisioningService.listerComptesOrganisation` (`GET /identity/comptes`) — comptes de
+    l'organisation + e-mail via SQL brut sur `auth.users` (rôles ASSUREUR_INFORMATIQUE /
+    _DIRECTION uniquement).
+- **apps/web** :
+  - `lib/api.ts` (`apiFetch` avec Bearer session, `apiFetchPublic`, `messageErreur`).
+  - `/superadmin` : layout gardé SUPERADMIN_PRINCIPAL + `SuperadminShell` ; `/superadmin`
+    → redirect `/superadmin/societes` ; `/superadmin/societes` (liste des organisations +
+    formulaire de création + formulaire « inviter le premier compte » ASSUREUR_DIRECTION /
+    _INFORMATIQUE). Server actions `creerOrganisation` / `inviterPremierCompte`.
+  - `/accepter-invitation/[token]` (public, ajouté aux routes publiques du middleware) :
+    contexte via `GET /invitations/token/:token`, formulaire mot de passe + confirmation →
+    server action `accepterInvitation` → connexion auto + redirection dashboard.
+  - `/dashboard-assureur/informatique/utilisateurs` : vraie page (lien « bientôt » retiré) —
+    formulaire alimenté par `GET /identity/roles-proposables`, table des invitations en
+    cours (valider / révoquer), table des comptes de l'organisation.
+- **Test HTTP réel — parcours complet** (serveurs prod, compte `superadmin.test@exemple.ci`
+  créé + profil SUPERADMIN_PRINCIPAL) : 14/14 OK —
+  - Super Admin : `GET /superadmin` → 307 `/superadmin/societes` ; page rendue ;
+    `POST /identity/organisations` → 201, organisation listée.
+  - `POST /invitations` (ASSUREUR_INFORMATIQUE, `emailEnvoye=true`) → 201 statut EN_ATTENTE ;
+    `GET /invitations/token/:token` (public) → `acceptable=true` ;
+    `POST /invitations/accepter` → 200 `dashboardRoute=/dashboard-assureur/informatique` ;
+    rejeu → 409.
+  - Nouveau compte : `identity/me` → rôle ASSUREUR_INFORMATIQUE ; `GET /dashboard` → 307
+    `/dashboard-assureur/informatique` ; dashboard + page `/utilisateurs` rendus, le compte
+    apparaît dans la liste.
+  - Cloisonnement : un non-superadmin est redirigé hors de `/superadmin` et reçoit 403 sur
+    `GET /identity/organisations`.
+  - `audit_log` : CREATION_ORGANISATION, CREATION_INVITATION, ACCEPTATION_INVITATION.
+- **Vérifs** : build API ✅ ; `jest` **52/52** ✅ ; `next build --webpack` ✅ (20 routes).
+  Données de test du parcours e2e supprimées ; serveurs arrêtés.
+- ⚠️ **Donnée de test conservée** : utilisateur Supabase `superadmin.test@exemple.ci` +
+  profil `SUPERADMIN_PRINCIPAL` (à retirer avant prod).
+- Le mode PROPOSITION (pharmacien → caissière) est couvert par les tests unitaires ; pas
+  encore de parcours e2e HTTP (nécessite un profil PHARMACIE_PHARMACIEN scopé).

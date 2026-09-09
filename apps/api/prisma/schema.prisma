@@ -44,6 +44,7 @@ model Organisation {
   produits          Produit[]
   polices           Police[]
   grillesTarifaires GrilleTarifaire[]
+  invitations       Invitation[]
 
   @@map("organisations")
 }
@@ -117,6 +118,7 @@ model Profil {
   membresComite        MembreComiteGestion[]
   avenantsCrees        Avenant[]
   questionnairesValides QuestionnaireMedical[]
+  invitationsEmises     Invitation[]
 
   @@map("profils")
 }
@@ -406,4 +408,39 @@ model TarificationIndividuelle {
   @@index([policeId])
   @@index([questionnaireMedicalId], map: "tarification_individuelle_questionnaire_id_idx")
   @@map("tarification_individuelle")
+}
+
+/// invitations — flux d'invitation sécurisé (v5 §3, PROMPT 6). L'invité définit
+/// lui-même son mot de passe ; il n'est jamais généré ni vu côté serveur.
+/// mode = PROPOSITION → statut EN_ATTENTE_VALIDATION_INFORMATIQUE jusqu'à
+/// validation par `roleValidateur`. prisma/sql/008.
+model Invitation {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String
+  telephone       String?
+  rolePropose     String    @map("role_propose")
+  organisationId  String?   @map("organisation_id") @db.Uuid
+  societeId       String?   @map("societe_id") @db.Uuid
+  etablissementId String?   @map("etablissement_id") @db.Uuid
+  pharmacieId     String?   @map("pharmacie_id") @db.Uuid
+  adherentId      String?   @map("adherent_id") @db.Uuid
+  invitePar       String    @map("invite_par") @db.Uuid
+  token           String    @unique
+  statut          String    @default("EN_ATTENTE") // EN_ATTENTE_VALIDATION_INFORMATIQUE | EN_ATTENTE | ACCEPTEE | REJETEE | EXPIREE | REVOQUEE
+  mode            String    @default("CREATION_DIRECTE") // CREATION_DIRECTE | PROPOSITION
+  roleValidateur  String?   @map("role_validateur")
+  authUserId      String?   @map("auth_user_id") @db.Uuid
+  motifRejet      String?   @map("motif_rejet")
+  expireLe        DateTime  @default(dbgenerated("(now() + '72:00:00'::interval)")) @map("expire_le") @db.Timestamptz(6)
+  accepteLe       DateTime? @map("accepte_le") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  emetteur     Profil        @relation(fields: [invitePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([invitePar])
+  @@index([statut])
+  @@map("invitations")
 }

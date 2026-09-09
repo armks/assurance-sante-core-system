@@ -1,7 +1,7 @@
 // Prisma schema — apps/api
 // ---------------------------------------------------------------------------
 // Synchronisé avec la base Supabase existante via `npx prisma db pull`
-// (dernière synchro : 2026-09-09, après PROMPT 9). Les colonnes ci-dessous
+// (dernière synchro : 2026-09-09, après PROMPT 11). Les colonnes ci-dessous
 // reflètent la base RÉELLE (schéma `public`), pas une supposition. Modèles
 // renommés en PascalCase + `@@map` vers les tables snake_case pour un code
 // TypeScript idiomatique. `@updatedAt` est géré côté app (aucun trigger en base).
@@ -41,11 +41,12 @@ model Organisation {
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
-  profils       Profil[]
-  auditLogs     AuditLog[]
-  souscripteurs Souscripteur[]
-  produits      Produit[]
-  polices       Police[]
+  profils           Profil[]
+  auditLogs         AuditLog[]
+  souscripteurs     Souscripteur[]
+  produits          Produit[]
+  polices           Police[]
+  grillesTarifaires GrilleTarifaire[]
 
   @@map("organisations")
 }
@@ -80,8 +81,7 @@ model EntiteMetier {
 }
 
 /// sous_roles — dictionnaire des 25 sous-rôles avec héritage (role_parent_code).
-/// v9 addendum A. `ASSUREUR_MEDECIN_SOUSCRIPTEUR` distinct de
-/// `ASSUREUR_MEDECIN_CONSEIL` (v9 §1.4 / v10 §3).
+/// v9 addendum A.
 model SousRole {
   code           String  @id
   entiteCode     String  @map("entite_code")
@@ -104,9 +104,6 @@ model SousRole {
 }
 
 /// profils — profil applicatif d'un utilisateur. `id` = auth.users.id (Supabase).
-/// `role` référence sous_roles.code (nullable : compte créé mais rôle pas encore
-/// assigné). `numero_ordre_medecin` : un même numéro ne peut détenir qu'un seul
-/// rôle médical actif à la fois (index unique partiel côté Postgres, v10 §2.2).
 /// RLS INSERT : policy `profils_insert_provisioning` (PROMPT 5, prisma/sql/003).
 model Profil {
   id                 String    @id @db.Uuid
@@ -132,31 +129,29 @@ model Profil {
 }
 
 /// souscripteurs — table unifiée des souscripteurs, 3 segments (v9 §1.2).
-/// `societes_clientes` est abandonnée. `SOCIETE_AFFILIEE` = nom d'affichage pour
-/// les types ENTREPRISE et COLLECTIVITE ; INDIVIDUEL relève de l'entité ADHERENT.
 model Souscripteur {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId         String    @map("organisation_id") @db.Uuid
   type                   String // ENTREPRISE | COLLECTIVITE | INDIVIDUEL
   nom                    String
-  // segment ENTREPRISE
   secteurActivite        String?   @map("secteur_activite")
   effectifDeclare        Int?      @map("effectif_declare")
-  // segment COLLECTIVITE
   typeCollectivite       String?   @map("type_collectivite")
   organeGouvernance      String?   @map("organe_gouvernance")
   subventionExterne      Boolean   @default(false) @map("subvention_externe")
   bailleurSubvention     String?   @map("bailleur_subvention")
-  // segment INDIVIDUEL
   numeroPieceIdentite    String?   @map("numero_piece_identite")
   questionnaireMedicalId String?   @map("questionnaire_medical_id") @db.Uuid
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedAt             DateTime?  @map("deleted_at") @db.Timestamptz(6)
 
-  organisation  Organisation          @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  membresComite MembreComiteGestion[]
-  polices       Police[]
+  organisation      Organisation                @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  membresComite     MembreComiteGestion[]
+  polices           Police[]
+  grillesTarifaires GrilleTarifaire[]
+  planPaiement      PlanPaiementCollectivite[]
+  cotisations       Cotisation[]
 
   @@index([organisationId])
   @@index([type])
@@ -164,9 +159,7 @@ model Souscripteur {
   @@map("souscripteurs")
 }
 
-/// membres_comite_gestion — gouvernance à plusieurs titulaires des collectivités
-/// (v9 §1.3). Plusieurs comptes SOCIETE_ADMINISTRATION peuvent coexister sur un
-/// même souscripteur, chacun rattaché à une ligne ici (Président, Trésorier...).
+/// membres_comite_gestion — gouvernance à plusieurs titulaires des collectivités (v9 §1.3).
 model MembreComiteGestion {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   souscripteurId  String    @map("souscripteur_id") @db.Uuid
@@ -186,14 +179,12 @@ model MembreComiteGestion {
   @@map("membres_comite_gestion")
 }
 
-/// regles_provisioning — qui peut créer/proposer quel sous-rôle, et à quel scope
-/// (v9 §1.4 / §1.5). Lue dynamiquement par la policy RLS `profils_insert_provisioning`
-/// et par GET /api/v1/identity/roles-proposables. Voir prisma/sql/003.
+/// regles_provisioning — qui peut créer/proposer quel sous-rôle (v9 §1.4 / §1.5). Voir prisma/sql/003.
 model RegleProvisioning {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   roleCreateur   String    @map("role_createur")
   roleCree       String    @map("role_cree")
-  scopeVerifie   String?   @map("scope_verifie") // organisation_id | pharmacie_id | etablissement_id | null
+  scopeVerifie   String?   @map("scope_verifie")
   mode           String    @default("CREATION_DIRECTE") // CREATION_DIRECTE | PROPOSITION
   roleValidateur String?   @map("role_validateur")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -210,11 +201,7 @@ model RegleProvisioning {
   @@map("regles_provisioning")
 }
 
-/// produits — formule d'assurance VERSIONNÉE (v9 phase 2.1 / v3 §2). Une police
-/// référence toujours une (organisation, nom, version) FIGÉE. Une version PUBLIE
-/// est immuable : toute évolution crée une nouvelle version (BROUILLON).
-/// RLS : lecture = toute personne de l'organisation ; écriture = ASSUREUR_DIRECTION
-/// / ASSUREUR_INFORMATIQUE (fonction profil_a_role, prisma/sql/004).
+/// produits — formule d'assurance VERSIONNÉE (v9 phase 2.1 / v3 §2). Voir prisma/sql/004.
 model Produit {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId  String    @map("organisation_id") @db.Uuid
@@ -226,9 +213,10 @@ model Produit {
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  garanties    Garantie[]
-  polices      Police[]
+  organisation      Organisation      @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  garanties         Garantie[]
+  polices           Police[]
+  grillesTarifaires GrilleTarifaire[]
 
   @@unique([organisationId, nom, version], map: "produits_org_nom_version_unique")
   @@index([organisationId])
@@ -238,8 +226,7 @@ model Produit {
   @@map("produits")
 }
 
-/// garanties — lignes de couverture d'un produit. Montants en Decimal (jamais
-/// float). Figées avec la version du produit (cf. produits).
+/// garanties — lignes de couverture d'un produit. Montants en Decimal.
 model Garantie {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   produitId         String    @map("produit_id") @db.Uuid
@@ -262,12 +249,8 @@ model Garantie {
   @@map("garanties")
 }
 
-/// polices — contrat de souscription. Machine à états stricte gérée par
-/// PolicyService (v9 phase 2.2 / v3 §3). `numero_police` généré par séquence.
-/// `produit_id` DOIT référencer un produit PUBLIE (trigger `polices_produit_publie`
-/// + vérification PolicyService). Voir prisma/sql/005.
-/// RLS : lecture = personnel ASSUREUR de l'org OU le souscripteur concerné ;
-/// écriture = ASSUREUR_DIRECTION / ASSUREUR_EXPLOITATION / ASSUREUR_INFORMATIQUE.
+/// polices — contrat de souscription. Machine à états stricte (PolicyService).
+/// `produit_id` DOIT référencer un produit PUBLIE (trigger + PolicyService). Voir prisma/sql/005.
 model Police {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId String    @map("organisation_id") @db.Uuid
@@ -285,6 +268,7 @@ model Police {
   souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   produit      Produit      @relation(fields: [produitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   avenants     Avenant[]
+  cotisations  Cotisation[]
 
   @@index([organisationId])
   @@index([souscripteurId])
@@ -294,9 +278,7 @@ model Police {
   @@map("polices")
 }
 
-/// avenants — modifications contractuelles d'une police. `impact_cotisation`
-/// (Decimal) posé par PolicyService (proratisation simple ; calcul complet =
-/// module billing/). Statut BROUILLON | APPLIQUE | ANNULE.
+/// avenants — modifications contractuelles d'une police. Voir prisma/sql/005.
 model Avenant {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   policeId               String    @map("police_id") @db.Uuid
@@ -311,10 +293,81 @@ model Avenant {
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  police  Police  @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  police        Police  @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   creeParProfil Profil? @relation(fields: [creePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([policeId])
   @@index([statut])
   @@map("avenants")
+}
+
+/// grilles_tarifaires — tarif par tranche d'âge (v9 phase 2.6). `souscripteur_id`
+/// null = tarif STANDARD du produit ; renseigné = tarif NÉGOCIÉ (prioritaire).
+/// RLS : lecture = personnel ASSUREUR de l'org ; écriture = ASSUREUR_COMPTABLE /
+/// ASSUREUR_INFORMATIQUE. Voir prisma/sql/006.
+model GrilleTarifaire {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String    @map("organisation_id") @db.Uuid
+  produitId      String    @map("produit_id") @db.Uuid
+  trancheAgeMin  Int       @map("tranche_age_min")
+  trancheAgeMax  Int       @map("tranche_age_max")
+  souscripteurId String?   @map("souscripteur_id") @db.Uuid
+  montantMensuel Decimal   @map("montant_mensuel") @db.Decimal(14, 2)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  produit      Produit       @relation(fields: [produitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  souscripteur Souscripteur? @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([produitId])
+  @@index([souscripteurId])
+  @@map("grilles_tarifaires")
+}
+
+/// plan_paiement_collectivite — modalités de paiement d'une COLLECTIVITE (v9 §2.2).
+/// `part_membre_pourcent` + `part_subvention_pourcent` = 100. Trigger : souscripteur
+/// obligatoirement de type COLLECTIVITE. Voir prisma/sql/006.
+model PlanPaiementCollectivite {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  souscripteurId         String    @map("souscripteur_id") @db.Uuid
+  periodicite            String // MENSUELLE | TRIMESTRIELLE | SAISONNIERE | ANNUELLE
+  partMembrePourcent     Decimal   @default(100) @map("part_membre_pourcent") @db.Decimal(5, 2)
+  partSubventionPourcent Decimal   @default(0) @map("part_subvention_pourcent") @db.Decimal(5, 2)
+  echeances              Json?
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("plan_paiement_collectivite")
+}
+
+/// cotisations — appels de cotisation. `adherent_id` XOR `societe_id` (CHECK).
+/// Montants en Decimal. RLS : lecture élargie au souscripteur ; écriture =
+/// ASSUREUR_COMPTABLE / ASSUREUR_INFORMATIQUE. Voir prisma/sql/006.
+model Cotisation {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  policeId          String    @map("police_id") @db.Uuid
+  adherentId        String?   @map("adherent_id") @db.Uuid
+  societeId         String?   @map("societe_id") @db.Uuid
+  periode           DateTime  @db.Date
+  montantDu         Decimal   @map("montant_du") @db.Decimal(14, 2)
+  montantPaye       Decimal   @default(0) @map("montant_paye") @db.Decimal(14, 2)
+  dateEcheance      DateTime  @map("date_echeance") @db.Date
+  statut            String    @default("A_PAYER") // A_PAYER | PAYEE | EN_RETARD | ANNULEE
+  penaliteAppliquee Decimal   @default(0) @map("penalite_appliquee") @db.Decimal(14, 2)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  police  Police        @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  societe Souscripteur? @relation(fields: [societeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([policeId])
+  @@index([statut])
+  @@index([dateEcheance])
+  @@map("cotisations")
 }

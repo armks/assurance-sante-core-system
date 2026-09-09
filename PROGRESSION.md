@@ -372,3 +372,54 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - Serveur arrêté. Profil de test remis à `ASSUREUR_INFORMATIQUE`.
 - ⚠️ **Données de test en base à supprimer avant prod** (en plus des précédentes) :
   police `POL-2026-000001` (statut RESILIEE) + son avenant, + lignes `audit_log` associées.
+
+## 2026-09-09 — PROMPT 11 : module billing/ + tarification collective
+- **Base Supabase** (`apps/api/prisma/sql/006_prompt11_billing.sql`) :
+  - `grilles_tarifaires` : organisation_id / produit_id (FK), tranche_age_min/max,
+    `souscripteur_id` NULL = tarif STANDARD / renseigné = tarif NÉGOCIÉ, montant_mensuel
+    `numeric`. Index uniques partiels (1 standard par tranche, 1 négocié par (souscripteur, tranche)).
+  - `plan_paiement_collectivite` : periodicite CHECK (MENSUELLE/TRIMESTRIELLE/SAISONNIERE/
+    ANNUELLE), part_membre_pourcent + part_subvention_pourcent (CHECK = 100), echeances jsonb.
+    **Trigger** : souscripteur obligatoirement de type COLLECTIVITE. Unique 1 plan actif par souscripteur.
+  - `cotisations` : police_id (FK), `adherent_id` **XOR** `societe_id` (CHECK), periode, montant_du /
+    montant_paye / penalite_appliquee `numeric`, date_echeance, statut CHECK (A_PAYER/PAYEE/
+    EN_RETARD/ANNULEE). Index uniques partiels (police, cible, periode).
+  - RLS (**même `profil_a_role()` que PROMPTs 5/8/9**) : écriture = `ASSUREUR_COMPTABLE` /
+    `ASSUREUR_INFORMATIQUE` ; lecture cotisations élargie au souscripteur concerné (comme les polices).
+- **Prisma** : `db pull --force` puis schéma ré-écrit — **15 modèles** (ajout `GrilleTarifaire`,
+  `PlanPaiementCollectivite`, `Cotisation` en `Decimal`). `generate` OK.
+- **apps/api** — module `billing/` :
+  - `BillingService.calculerCotisation` : priorité **grille NÉGOCIÉE** (souscripteur) > grille
+    STANDARD (produit), par tranche d'âge ; applique `part_membre_pourcent` si COLLECTIVITE avec
+    plan subventionné. **Tous les calculs via decimal.js**, montants renvoyés en chaîne 2 décimales.
+  - `genererCotisationsPeriode` (1 ligne par adhérent, saute les doublons), `enregistrerPaiement`
+    (PAYEE si `montant_paye ≥ montant_du + pénalité`), `marquerEnRetard` (tâche : A_PAYER échues →
+    EN_RETARD + pénalité `montant_du × taux`, taux 0 par défaut — table `baremes_penalite`
+    pas encore créée, mécanisme en place, v14 §7). CRUD grilles (`creerGrille` / `listerGrilles`).
+  - `BillingController` : 8 routes `/api/v1/billing`.
+  - `billing.service.spec.ts` : 5 cas (dont les 4 exigés : tarif standard par tranche ; tarif
+    négocié qui prime ; subvention collectivité part_membre < 100 ; passage EN_RETARD).
+- **Vérifs** : build ✅ ; tests **38/38** ✅.
+- **Test HTTP réel** (serveur lancé, JWT frais, profil = ASSUREUR_INFORMATIQUE) :
+  - grille STANDARD (18-59 : 12000) créée ; re-création → **409** (message clair)
+  - `POST /billing/cotisations/calculer` (police ENTREPRISE, âge 35), **sans** grille négociée →
+    montantDu **12000.00**, source STANDARD
+  - grille NÉGOCIÉE ACME (18-59 : 9500) créée
+  - **`calculer` (même police, âge 35) → montantDu 9500.00, source NEGOCIE** — le tarif négocié
+    prend bien priorité en conditions réelles (cas critique demandé)
+  - `calculer` police COLLECTIVITE (plan 60/40, âge 35) → tarifBase 12000.00, **montantDu 7200.00**
+    (12000 × 60 %), partMembrePourcent 60
+  - `genererCotisationsPeriode` → cotisation montantDu 9500 (utilise le négocié), échéance +30 j
+  - `enregistrerPaiement` : +5000 → A_PAYER ; +4500 → **PAYEE**
+  - `marquerEnRetard` sur une cotisation échue → **misEnRetard: 1**, EN_RETARD, pénalité 0.00
+  - profil → `ASSUREUR_EXPLOITATION` → `POST /billing/grilles-tarifaires` → **403** ; puis remis
+  - RLS `profil_a_role()` (jwt.claims simulé) : rôle+org OK → true ; autre org / rôle hors liste → false
+  - `audit_log` : 7 entrées billing (CREATION_GRILLE_TARIFAIRE×2, GENERATION_COTISATION×2,
+    ENREGISTREMENT_PAIEMENT×2, PASSAGE_EN_RETARD)
+- Serveur arrêté. Profil de test remis à `ASSUREUR_INFORMATIQUE`.
+- ⚠️ **Données de test en base à supprimer avant prod** (en plus des précédentes) : 2 polices
+  `d1d1d1d1-…`/`d2d2d2d2-…` (ACTIVE), 1 `plan_paiement_collectivite` (Mutuelle 60/40),
+  2 grilles tarifaires, 2 cotisations, + lignes `audit_log` associées.
+- Note technique : sur cette machine, ne pas lancer `npm run build` pendant que `start:dev`
+  (watch) tourne — course entre `deleteOutDir` et le watcher → `MODULE_NOT_FOUND` sur `dist/main`.
+  Utiliser `start:prod` après un build propre pour les tests, ou arrêter le watch avant.

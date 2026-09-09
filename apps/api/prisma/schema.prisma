@@ -1,7 +1,7 @@
 // Prisma schema — apps/api
 // ---------------------------------------------------------------------------
 // Synchronisé avec la base Supabase existante via `npx prisma db pull`
-// (dernière synchro : 2026-09-06, après PROMPT 4). Les colonnes ci-dessous
+// (dernière synchro : 2026-09-09, après PROMPT 5). Les colonnes ci-dessous
 // reflètent la base RÉELLE (schéma `public`), pas une supposition. Modèles
 // renommés en PascalCase + `@@map` vers les tables snake_case pour un code
 // TypeScript idiomatique. `@updatedAt` est géré côté app (aucun trigger en base).
@@ -94,6 +94,10 @@ model SousRole {
   rolesEnfants SousRole[]   @relation("HierarchieSousRole")
   profils      Profil[]
 
+  reglesCommeCreateur   RegleProvisioning[] @relation("RegleCreateur")
+  reglesCommeCree       RegleProvisioning[] @relation("RegleCree")
+  reglesCommeValidateur RegleProvisioning[] @relation("RegleValidateur")
+
   @@map("sous_roles")
 }
 
@@ -101,6 +105,7 @@ model SousRole {
 /// `role` référence sous_roles.code (nullable : compte créé mais rôle pas encore
 /// assigné). `numero_ordre_medecin` : un même numéro ne peut détenir qu'un seul
 /// rôle médical actif à la fois (index unique partiel côté Postgres, v10 §2.2).
+/// RLS INSERT : policy `profils_insert_provisioning` (PROMPT 5, prisma/sql/003).
 model Profil {
   id                 String    @id @db.Uuid
   organisationId     String?   @map("organisation_id") @db.Uuid
@@ -175,4 +180,28 @@ model MembreComiteGestion {
   @@index([souscripteurId])
   @@index([userId])
   @@map("membres_comite_gestion")
+}
+
+/// regles_provisioning — qui peut créer/proposer quel sous-rôle, et à quel scope
+/// (v9 §1.4 / §1.5). Lue dynamiquement par la policy RLS `profils_insert_provisioning`
+/// et par GET /api/v1/identity/roles-proposables. Voir prisma/sql/003.
+model RegleProvisioning {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roleCreateur   String    @map("role_createur")
+  roleCree       String    @map("role_cree")
+  scopeVerifie   String?   @map("scope_verifie") // organisation_id | pharmacie_id | etablissement_id | null
+  mode           String    @default("CREATION_DIRECTE") // CREATION_DIRECTE | PROPOSITION
+  roleValidateur String?   @map("role_validateur")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  createur   SousRole  @relation("RegleCreateur", fields: [roleCreateur], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  cree       SousRole  @relation("RegleCree", fields: [roleCree], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  validateur SousRole? @relation("RegleValidateur", fields: [roleValidateur], references: [code], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([roleCreateur, roleCree], map: "regles_provisioning_unique")
+  @@index([roleCreateur])
+  @@index([roleCree])
+  @@map("regles_provisioning")
 }

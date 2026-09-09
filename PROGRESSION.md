@@ -165,3 +165,46 @@
 - ⚠️ **Données de test en base** (en plus du profil `6fc93835-…`) : 2 organisations `aaaa…/bbbb…`,
   3 souscripteurs (ACME BTP `76d6d833…`, Mutuelle Bouaké `a43b89a6…`, Client B `cccc…0003`),
   1 membre de comité. **À SUPPRIMER avant mise en production.**
+
+## 2026-09-09 — PROMPT 5 : regles_provisioning + RLS INSERT profils + endpoint roles-proposables
+- **Base Supabase** (`apps/api/prisma/sql/003_prompt5_regles_provisioning.sql`) :
+  - Table `regles_provisioning` (id, role_createur, role_cree, scope_verifie, mode, role_validateur
+    + timestamps/deleted_at). CHECK sur scope/mode, UNIQUE (role_createur, role_cree),
+    CHECK « validateur ⟺ mode = PROPOSITION ». RLS activée, lecture publique.
+  - **22 règles** exactes (v9 §1.4 / §1.5) :
+    - `SUPERADMIN_PRINCIPAL` → SUPERADMIN_UTILISATEUR_ADMIN / ASSUREUR_DIRECTION /
+      ASSUREUR_INFORMATIQUE — CREATION_DIRECTE, scope null (3)
+    - `ASSUREUR_INFORMATIQUE` → 18 sous-rôles ASSUREUR(8) / PHARMACIE(2 : pharmacien+comptable) /
+      CENTRE_MEDICAL(4) / SOCIETE_AFFILIEE(4) — CREATION_DIRECTE, scope organisation_id
+    - `PHARMACIE_PHARMACIEN` → PHARMACIE_CAISSIERE — **PROPOSITION**, scope pharmacie_id,
+      validateur ASSUREUR_INFORMATIQUE (1)
+    - Interprétation : PHARMACIE_CAISSIERE **uniquement** par la voie proposition (raison d'être
+      de la délégation) — pas de règle directe ASSUREUR_INFORMATIQUE → CAISSIERE.
+  - Fonction `peut_creer_role(role_cree, organisation_id, pharmacie_id)` (SECURITY DEFINER) :
+    résout le rôle de `auth.uid()` + son parent (héritage adjoint), cherche une règle
+    CREATION_DIRECTE correspondante et valide le scope.
+  - Policy RLS **INSERT** sur `profils` : `profils_insert_provisioning`
+    `with check (role is not null and peut_creer_role(role, organisation_id, pharmacie_id))`,
+    `to authenticated`. (NB : `profils` n'avait AUCUNE policy avant — RLS activée, 0 policy.)
+- **Prisma** : `db pull --force` puis schéma ré-écrit — 8 modèles (ajout `RegleProvisioning`,
+  relations `createur`/`cree`/`validateur` vers SousRole). `generate` OK.
+- **apps/api** — `identity/` étendu (pas de module séparé : couplage fort avec identité/rôles) :
+  - `ProvisioningService.rolesProposables(user)` : lit `regles_provisioning` filtré sur
+    `roleChain` (héritage inclus via IdentityService), dédoublonne, mappe. Renvoie `[]` si
+    aucun droit (jamais d'erreur).
+  - `GET /api/v1/identity/roles-proposables` ajouté à `IdentityController`.
+  - `provisioning.service.spec.ts` : 6 cas (liste normale, **liste vide sans erreur**,
+    compte sans rôle, héritage adjoint, dédoublonnage, mode PROPOSITION).
+- **Vérifs** : build ✅ ; tests ✅ 17/17.
+- **Test HTTP réel** (serveur lancé, JWT frais, profil `6fc93835-…` repositionné par rôle) :
+  - role `ASSUREUR_INFORMATIQUE` → **200**, 18 rôles (ASSUREUR 8 / CENTRE_MEDICAL 4 / PHARMACIE 2 / SOCIETE 4)
+  - role `ASSUREUR_COMPTABLE` → **200 + `[]`** (liste vide, PAS d'erreur — cas explicitement demandé)
+  - role `SUPERADMIN_PRINCIPAL` → **200**, 3 rôles, scope null
+  - role `PHARMACIE_PHARMACIEN` → **200**, 1 rôle PHARMACIE_CAISSIERE mode PROPOSITION
+  - RLS : `peut_creer_role()` testée avec `request.jwt.claims` simulé (profil = ASSUREUR_INFORMATIQUE) :
+    `ASSUREUR_COMPTABLE`+org propre → true ; +autre org → false ; scope null → false ;
+    `ASSUREUR_DIRECTION` (non autorisé) → false ; `PHARMACIE_CAISSIERE` (proposition) → false.
+  - **Cohérence formulaire ↔ RLS confirmée** : chaque rôle listé passe `peut_creer_role` avec
+    l'org de l'appelant ; les rôles non listés échouent.
+  - Profil de test remis à `role = ASSUREUR_INFORMATIQUE` en fin de test.
+- Serveur arrêté ensuite.

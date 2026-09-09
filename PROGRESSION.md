@@ -81,3 +81,34 @@
 - Analyse complète + conditions de réexamen explicites → `SECURITY.md`.
   Réexamen si : (1) Prisma 8 STABLE publié, OU (2) contributions externes / CI-CD exécutant
   prisma generate sur du code non approuvé au préalable.
+
+## 2026-09-06 — PROMPT 3 : ✅ TERMINÉ ET TESTÉ DE BOUT EN BOUT (HTTP réel)
+- `GET /api/v1/identity/me` testé sur le serveur lancé (`npm run start:dev --workspace apps/api`,
+  port 3001) avec un vrai JWT Supabase obtenu par password grant (`grant_type=password`).
+- Correctif en cours de test : `SUPABASE_JWKS_URL` doit être `/auth/v1/.well-known/jwks.json`
+  (le `/auth/v1/jwks` du skill renvoie 401 gateway / 404 avec apikey — n'existe pas).
+  → corrigé dans `apps/api/.env.example` et dans le skill `01-plan-directeur-v9.md` addendum B.
+- Correctif : `apps/api/tsconfig.json` → `tsBuildInfoFile` dans `./dist` (cache incrémental
+  périmé après `deleteOutDir` = "Cannot find module dist/main" au `start:dev`).
+- Résultats vérifiés :
+  - `role = null` → HTTP 200, `permissions: null` (compte non provisionné).
+  - `role = ASSUREUR_COMPTABLE_ADJOINT` → HTTP 200 avec héritage RBAC correct :
+    `roleChain = ["ASSUREUR_COMPTABLE_ADJOINT","ASSUREUR_COMPTABLE"]`, `niveauAcces = MODIFICATION`,
+    `peutValider = true` **hérité du parent** (l'adjoint a `peut_valider = false`),
+    `dashboardRoute = /dashboard-assureur/comptable-adjoint`, `estRoleMedical = false`.
+  - Sans token → 401 ; token invalide/expiré → 401 ; profil absent → 404.
+  - Chaîne complète prouvée : Supabase Auth → SupabaseAuthGuard (ES256/JWKS) → @CurrentUser()
+    → IdentityService → Prisma → Postgres.
+- Commits : `c90f275` (correctifs JWKS + tsconfig + skill), poussés sur origin/main via SSH
+  (voir entrée infra ci-dessous).
+- ⚠️ **Donnée de test laissée en base** : ligne `profils` id `6fc93835-10e0-4187-85d0-ba6b2bdcda30`
+  (user Supabase `armelk01@yahoo.fr`), actuellement `role = ASSUREUR_COMPTABLE_ADJOINT`.
+  Conservée comme référence de test. **À SUPPRIMER avant toute mise en production réelle.**
+
+## 2026-09-06 — Infra : push git bloqué par Smart App Control → bascule en SSH
+- `git push` HTTPS cassé en cours de session : Smart App Control (Windows 11, mode enforce)
+  bloque le chargement de `libcurl-4.dll` par `git-remote-https.exe`
+  (CodeIntegrity events 3077/3118, Policy ID {0283ac0f-fff1-49ae-ada1-8a933130cad6}).
+- Contournement : remote passé en SSH (`git@github.com:armks/assurance-sante-core-system.git`).
+  `ssh.exe` est un composant Windows signé, non bloqué. push/fetch/pull OK via SSH.
+- HTTPS git reste inutilisable tant que SAC est actif (désactivation SAC = irréversible, non faite).

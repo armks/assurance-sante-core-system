@@ -17,8 +17,10 @@ import {
 } from 'class-validator';
 import {
   CIBLES_RECHERCHE,
+  METHODES_VERIFICATION,
   STATUTS_ETABLISSEMENT,
   STATUTS_PHARMACIE,
+  STATUTS_VERIFICATION,
   TYPES_ETABLISSEMENT,
 } from '../provider.types';
 
@@ -134,4 +136,25 @@ export class RechercheGeoDto {
   @Min(1)
   @Max(200)
   limite?: number;
+}
+
+/** Enregistre une vérification terrain d'un établissement ou d'une pharmacie (v8 §9). */
+export class EnregistrerVerificationDto {
+  @IsIn(METHODES_VERIFICATION)
+  methode!: (typeof METHODES_VERIFICATION)[number];
+
+  @IsIn(STATUTS_VERIFICATION)
+  statutConfirme!: (typeof STATUTS_VERIFICATION)[number];
+
+  @IsOptional() @IsString() @MaxLength(500) commentaire?: string;
+}
+
+/** Marque « A_REVERIFIER » les entrées non vérifiées depuis plus de `moisMax` mois. */
+export class ReverifierObsoletesDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(60)
+  moisMax?: number;
 }

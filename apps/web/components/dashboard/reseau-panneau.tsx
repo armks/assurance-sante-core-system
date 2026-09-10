@@ -5,8 +5,10 @@ import { useState, useTransition } from 'react';
 import {
   creerEtablissement,
   creerPharmacie,
+  reverifierObsoletes,
   type ResultatReseau,
 } from '@/app/dashboard-assureur/informatique/reseau-actions';
+import { StatutBadge } from '@/components/dashboard/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +37,8 @@ export interface LieuReseau {
   gardeWeekend: boolean;
   latitude: number | null;
   longitude: number | null;
+  verificationStatut: string | null;
+  dateDerniereVerification: string | null;
 }
 
 function Message({ res }: { res: ResultatReseau | null }) {
@@ -70,10 +74,44 @@ export function ReseauPanneau({
 }) {
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatReseau | null>(null);
+  const [resVerif, setResVerif] = useState<ResultatReseau | null>(null);
   const estEtab = kind === 'etablissements';
+  const aReverifier = lieux.filter(
+    (l) => l.verificationStatut === 'A_REVERIFIER',
+  ).length;
 
   return (
     <div className="space-y-10">
+      {aReverifier > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-300/70 bg-amber-50/60 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/20">
+          <span className="text-amber-800 dark:text-amber-300">
+            {aReverifier} {estEtab ? 'établissement' : 'pharmacie'}
+            {aReverifier > 1 ? 's' : ''} à revérifier (non vérifié·e·s depuis plus
+            de 12 mois).
+          </span>
+        </div>
+      )}
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Vérification périodique du réseau
+          </h2>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={pending}
+            onClick={() =>
+              start(async () => setResVerif(await reverifierObsoletes()))
+            }
+          >
+            Marquer les entrées obsolètes
+          </Button>
+        </div>
+        <Message res={resVerif} />
+      </section>
+
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
           {estEtab ? 'Nouvel établissement' : 'Nouvelle pharmacie'}
@@ -89,6 +127,8 @@ export function ReseauPanneau({
               code: String(f.get('code') ?? ''),
               ville: String(f.get('ville') ?? '') || undefined,
               commune: String(f.get('commune') ?? '') || undefined,
+              adresseComplete:
+                String(f.get('adresseComplete') ?? '') || undefined,
               telephone: String(f.get('telephone') ?? '') || undefined,
               latitude: num(f.get('latitude')),
               longitude: num(f.get('longitude')),
@@ -143,13 +183,21 @@ export function ReseauPanneau({
             <Label htmlFor="commune">Commune</Label>
             <Input id="commune" name="commune" />
           </div>
+          <div className="grid gap-2 sm:col-span-3">
+            <Label htmlFor="adresseComplete">Adresse complète</Label>
+            <Input
+              id="adresseComplete"
+              name="adresseComplete"
+              placeholder="Rue / boulevard, repère… (géocodage automatique si latitude/longitude non fournies)"
+            />
+          </div>
           <div className="grid gap-2">
             <Label htmlFor="telephone">Téléphone</Label>
             <Input id="telephone" name="telephone" />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="latitude">Latitude</Label>
-            <Input id="latitude" name="latitude" inputMode="decimal" placeholder="5.35" />
+            <Input id="latitude" name="latitude" inputMode="decimal" placeholder="auto si vide" />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="longitude">Longitude</Label>
@@ -185,6 +233,7 @@ export function ReseauPanneau({
                   {estEtab && <th className="px-3 py-2 font-medium">Type</th>}
                   <th className="px-3 py-2 font-medium">Ville</th>
                   <th className="px-3 py-2 font-medium">Statut</th>
+                  <th className="px-3 py-2 font-medium">Vérif.</th>
                   <th className="px-3 py-2 font-medium">Géo</th>
                 </tr>
               </thead>
@@ -221,6 +270,27 @@ export function ReseauPanneau({
                         {l.statut}
                       </Badge>
                     </td>
+                    <td className="px-3 py-2">
+                      {l.verificationStatut === 'A_REVERIFIER' ? (
+                        <StatutBadge
+                          statut="A_REVERIFIER"
+                          ton="attention"
+                          libelle="À revérifier"
+                        />
+                      ) : l.verificationStatut ? (
+                        <StatutBadge
+                          statut={l.verificationStatut}
+                          ton={
+                            l.verificationStatut === 'ACTIF' ? 'succes' : 'danger'
+                          }
+                          libelle={l.verificationStatut.toLowerCase()}
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          jamais vérifié
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {l.latitude != null && l.longitude != null
                         ? `${l.latitude.toFixed(3)}, ${l.longitude.toFixed(3)}`
@@ -232,7 +302,7 @@ export function ReseauPanneau({
                   <tr className="border-t">
                     <td
                       className="px-3 py-6 text-center text-muted-foreground"
-                      colSpan={estEtab ? 6 : 5}
+                      colSpan={estEtab ? 7 : 6}
                     >
                       Aucune entrée.
                     </td>

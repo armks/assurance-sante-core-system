@@ -12,11 +12,20 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateEtablissementDto,
   CreatePharmacieDto,
+  EnregistrerVerificationDto,
   RechercheGeoDto,
+  ReverifierObsoletesDto,
   UpdateEtablissementDto,
   UpdatePharmacieDto,
 } from './dto/provider.dto';
-import { ContexteAppelant, ROLES_GESTION_RESEAU } from './provider.types';
+import { GeocodageService } from './geocodage.service';
+import {
+  Avertissement,
+  ContexteAppelant,
+  MOIS_REVERIFICATION_DEFAUT,
+  RAYON_DOUBLON_KM,
+  ROLES_GESTION_RESEAU,
+} from './provider.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -45,6 +54,7 @@ export class ProviderService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly geocodage: GeocodageService,
   ) {}
 
   // --- Établissements de santé ---------------------------------------
@@ -56,6 +66,18 @@ export class ProviderService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     await this.assertCodeLibre('etablissementSante', dto.code);
+
+    const { latitude, longitude, avertissements } = await this.resoudreCoords(
+      dto,
+    );
+    const doublon = await this.detecterDoublons(
+      'etablissementSante',
+      ctx.organisationId,
+      dto.nom,
+      latitude,
+      longitude,
+    );
+    if (doublon) avertissements.push(doublon);
 
     const id = await this.prisma.$transaction(async (tx) => {
       const e = await tx.etablissementSante.create({
@@ -69,8 +91,8 @@ export class ProviderService {
           commune: dto.commune ?? null,
           quartier: dto.quartier ?? null,
           adresseComplete: dto.adresseComplete ?? null,
-          latitude: dto.latitude ?? null,
-          longitude: dto.longitude ?? null,
+          latitude,
+          longitude,
           telephone: dto.telephone ?? null,
           telephoneUrgence: dto.telephoneUrgence ?? null,
           email: dto.email ?? null,
@@ -93,13 +115,21 @@ export class ProviderService {
         ctx.userId,
         'CREATION_ETABLISSEMENT',
         e.id,
-        { code: dto.code, type: dto.typeEtablissement },
+        {
+          code: dto.code,
+          type: dto.typeEtablissement,
+          geocodageAuto: avertissements.some((a) => a.type === 'GEOCODAGE_AUTO'),
+          doublonPossible: avertissements.some(
+            (a) => a.type === 'DOUBLON_POSSIBLE',
+          ),
+        },
         'etablissements_sante',
       );
       return e.id;
     });
 
-    return this.chargerEtablissement(ctx.organisationId, id);
+    const etablissement = await this.chargerEtablissement(ctx.organisationId, id);
+    return { ...etablissement, avertissements };
   }
 
   async listerEtablissements(
@@ -183,6 +213,18 @@ export class ProviderService {
     this.assertGestion(ctx);
     await this.assertCodeLibre('pharmacie', dto.code);
 
+    const { latitude, longitude, avertissements } = await this.resoudreCoords(
+      dto,
+    );
+    const doublon = await this.detecterDoublons(
+      'pharmacie',
+      ctx.organisationId,
+      dto.nom,
+      latitude,
+      longitude,
+    );
+    if (doublon) avertissements.push(doublon);
+
     const id = await this.prisma.$transaction(async (tx) => {
       const p = await tx.pharmacie.create({
         data: {
@@ -194,8 +236,8 @@ export class ProviderService {
           commune: dto.commune ?? null,
           quartier: dto.quartier ?? null,
           adresseComplete: dto.adresseComplete ?? null,
-          latitude: dto.latitude ?? null,
-          longitude: dto.longitude ?? null,
+          latitude,
+          longitude,
           telephone: dto.telephone ?? null,
           email: dto.email ?? null,
           ...(dto.statut ? { statut: dto.statut } : {}),
@@ -215,13 +257,20 @@ export class ProviderService {
         ctx.userId,
         'CREATION_PHARMACIE',
         p.id,
-        { code: dto.code },
+        {
+          code: dto.code,
+          geocodageAuto: avertissements.some((a) => a.type === 'GEOCODAGE_AUTO'),
+          doublonPossible: avertissements.some(
+            (a) => a.type === 'DOUBLON_POSSIBLE',
+          ),
+        },
         'pharmacies',
       );
       return p.id;
     });
 
-    return this.chargerPharmacie(ctx.organisationId, id);
+    const pharmacie = await this.chargerPharmacie(ctx.organisationId, id);
+    return { ...pharmacie, avertissements };
   }
 
   async listerPharmacies(
@@ -392,6 +441,308 @@ export class ProviderService {
       Math.sin(dLat / 2) ** 2 +
       Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // --- Automatisation : géocodage + doublons (v8 §9, PROMPT 15) -----
+
+  /**
+   * Coordonnées à insérer : celles fournies, sinon géocodage automatique
+   * (Nominatim) si l'adresse le permet. Renvoie les avertissements associés
+   * (géocodage auto réussi / échoué) — jamais bloquant.
+   */
+  private async resoudreCoords(dto: {
+    latitude?: number;
+    longitude?: number;
+    adresseComplete?: string;
+    quartier?: string;
+    commune?: string;
+    ville?: string;
+    pays?: string;
+  }): Promise<{
+    latitude: number | null;
+    longitude: number | null;
+    avertissements: Avertissement[];
+  }> {
+    const avertissements: Avertissement[] = [];
+
+    if (dto.latitude != null && dto.longitude != null) {
+      return { latitude: dto.latitude, longitude: dto.longitude, avertissements };
+    }
+
+    if (!GeocodageService.estGeocodable(dto)) {
+      return { latitude: null, longitude: null, avertissements };
+    }
+
+    const coords = await this.geocodage.geocoder(dto);
+    if (coords) {
+      avertissements.push({
+        type: 'GEOCODAGE_AUTO',
+        message: `Coordonnées résolues automatiquement (Nominatim) : ${coords.latitude.toFixed(
+          5,
+        )}, ${coords.longitude.toFixed(5)}. Vérifiez-les.`,
+      });
+      return { ...coords, avertissements };
+    }
+
+    avertissements.push({
+      type: 'GEOCODAGE_ECHOUE',
+      message:
+        "Géocodage automatique impossible (adresse introuvable). Saisissez la latitude / longitude à la main.",
+    });
+    return { latitude: null, longitude: null, avertissements };
+  }
+
+  /** Normalise un nom pour la comparaison (minuscule, sans accents ni mots vides). */
+  private normaliserNom(nom: string): string[] {
+    const vides = new Set([
+      'de',
+      'du',
+      'des',
+      'la',
+      'le',
+      'les',
+      'l',
+      'd',
+      'et',
+      'a',
+      'au',
+      'aux',
+      'clinique',
+      'cabinet',
+      'centre',
+      'hopital',
+      'hopitaux',
+      'pharmacie',
+      'polyclinique',
+      'medical',
+      'medicale',
+      'sante',
+      'dr',
+      'docteur',
+      'saint',
+      'ste',
+      'st',
+    ]);
+    return nom
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length > 1 && !vides.has(t));
+  }
+
+  /** Deux noms sont « similaires » si leurs jetons significatifs se recouvrent ≥ 50 %. */
+  private nomsSimilaires(a: string, b: string): boolean {
+    const ta = this.normaliserNom(a);
+    const tb = this.normaliserNom(b);
+    if (ta.length === 0 || tb.length === 0) return false;
+    const setB = new Set(tb);
+    const commun = ta.filter((t) => setB.has(t)).length;
+    const jaccard = commun / new Set([...ta, ...tb]).size;
+    return jaccard >= 0.5;
+  }
+
+  /**
+   * Cherche un établissement / une pharmacie de la même organisation, au nom
+   * similaire, dans un rayon de 200 m. Avertissement (jamais un blocage).
+   */
+  private async detecterDoublons(
+    modele: 'etablissementSante' | 'pharmacie',
+    organisationId: string,
+    nom: string,
+    latitude: number | null,
+    longitude: number | null,
+  ): Promise<Avertissement | null> {
+    if (latitude == null || longitude == null) return null;
+
+    const candidats =
+      modele === 'etablissementSante'
+        ? await this.prisma.etablissementSante.findMany({
+            where: {
+              organisationId,
+              deletedAt: null,
+              latitude: { not: null },
+              longitude: { not: null },
+            },
+            select: { id: true, nom: true, latitude: true, longitude: true },
+          })
+        : await this.prisma.pharmacie.findMany({
+            where: {
+              organisationId,
+              deletedAt: null,
+              latitude: { not: null },
+              longitude: { not: null },
+            },
+            select: { id: true, nom: true, latitude: true, longitude: true },
+          });
+
+    const proches = candidats
+      .map((c) => ({
+        id: c.id,
+        nom: c.nom,
+        distanceKm: this.distanceHaversineKm(
+          latitude,
+          longitude,
+          c.latitude as number,
+          c.longitude as number,
+        ),
+      }))
+      .filter(
+        (c) =>
+          c.distanceKm <= RAYON_DOUBLON_KM && this.nomsSimilaires(nom, c.nom),
+      )
+      .sort((a, b) => a.distanceKm - b.distanceKm)
+      .map((c) => ({ ...c, distanceKm: Number(c.distanceKm.toFixed(3)) }));
+
+    if (proches.length === 0) return null;
+
+    return {
+      type: 'DOUBLON_POSSIBLE',
+      message: `${proches.length} entrée(s) au nom proche à moins de 200 m — vérifiez qu'il ne s'agit pas d'un doublon.`,
+      details: proches,
+    };
+  }
+
+  // --- Vérification périodique (v8 §9, PROMPT 15) ------------------
+
+  async enregistrerVerification(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+    dto: EnregistrerVerificationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+
+    if (cible === 'etablissement') {
+      await this.assertEtablissementDansPerimetre(ctx.organisationId, id);
+    } else {
+      await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+    }
+
+    const maintenant = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.verificationEtablissement.create({
+        data: {
+          etablissementId: cible === 'etablissement' ? id : null,
+          pharmacieId: cible === 'pharmacie' ? id : null,
+          dateVerification: maintenant,
+          methode: dto.methode,
+          statutConfirme: dto.statutConfirme,
+          verifiePar: ctx.userId,
+        },
+      });
+      const data = {
+        verificationStatut: dto.statutConfirme,
+        dateDerniereVerification: maintenant,
+      };
+      if (cible === 'etablissement') {
+        await tx.etablissementSante.update({ where: { id }, data });
+      } else {
+        await tx.pharmacie.update({ where: { id }, data });
+      }
+      await this.audit(
+        tx,
+        ctx.userId,
+        'VERIFICATION_RESEAU',
+        id,
+        {
+          cible,
+          methode: dto.methode,
+          statutConfirme: dto.statutConfirme,
+          commentaire: dto.commentaire ?? null,
+        },
+        cible === 'etablissement' ? 'etablissements_sante' : 'pharmacies',
+      );
+    });
+
+    return cible === 'etablissement'
+      ? this.chargerEtablissement(ctx.organisationId, id)
+      : this.chargerPharmacie(ctx.organisationId, id);
+  }
+
+  async listerVerifications(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (cible === 'etablissement') {
+      await this.assertEtablissementDansPerimetre(ctx.organisationId, id);
+      return this.prisma.verificationEtablissement.findMany({
+        where: { etablissementId: id },
+        orderBy: { dateVerification: 'desc' },
+      });
+    }
+    await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+    return this.prisma.verificationEtablissement.findMany({
+      where: { pharmacieId: id },
+      orderBy: { dateVerification: 'desc' },
+    });
+  }
+
+  /**
+   * Tâche planifiée (déclenchable à la main pour l'instant) : marque
+   * `A_REVERIFIER` tout établissement / toute pharmacie de l'organisation non
+   * vérifié depuis plus de `moisMax` mois (défaut 12). **Aucune désactivation** —
+   * juste une alerte visible. Idempotent.
+   */
+  async reverifierObsoletes(
+    user: AuthenticatedUser,
+    dto: ReverifierObsoletesDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+
+    const mois = dto.moisMax ?? MOIS_REVERIFICATION_DEFAUT;
+    const seuil = new Date();
+    seuil.setMonth(seuil.getMonth() - mois);
+
+    // Règle métier : jamais vérifié, ou dernière vérification trop ancienne.
+    // On ne filtre PAS sur `verification_statut` (le `not` de Prisma exclut les
+    // NULL sur ce champ) : la tâche est idempotente — ré-appliquer `A_REVERIFIER`
+    // sur une entrée déjà marquée est sans effet, et `count` reflète alors le
+    // total d'entrées « à revérifier », ce qui reste l'information utile.
+    const conditionObsolete = {
+      organisationId: ctx.organisationId,
+      deletedAt: null,
+      OR: [
+        { dateDerniereVerification: null },
+        { dateDerniereVerification: { lt: seuil } },
+      ],
+    };
+
+    const [etabs, pharms] = await this.prisma.$transaction([
+      this.prisma.etablissementSante.updateMany({
+        where: conditionObsolete,
+        data: { verificationStatut: 'A_REVERIFIER' },
+      }),
+      this.prisma.pharmacie.updateMany({
+        where: conditionObsolete,
+        data: { verificationStatut: 'A_REVERIFIER' },
+      }),
+    ]);
+
+    await this.audit(
+      this.prisma,
+      ctx.userId,
+      'REVERIFICATION_RESEAU_OBSOLETES',
+      ctx.organisationId,
+      {
+        moisMax: mois,
+        etablissementsMarques: etabs.count,
+        pharmaciesMarquees: pharms.count,
+      },
+      'etablissements_sante',
+    );
+
+    return {
+      moisMax: mois,
+      seuil: seuil.toISOString().slice(0, 10),
+      etablissementsMarques: etabs.count,
+      pharmaciesMarquees: pharms.count,
+    };
   }
 
   // --- Autorisation / helpers ------------------------------------

@@ -19,12 +19,38 @@ function nettoyer(input: Record<string, unknown>) {
   return out;
 }
 
+interface Avertissement {
+  type: string;
+  message: string;
+}
+interface LieuCree {
+  nom: string;
+  statut: string;
+  latitude: number | null;
+  longitude: number | null;
+  avertissements?: Avertissement[];
+}
+
+function messageCreation(l: LieuCree, feminin: boolean): string {
+  const base = `« ${l.nom} » cré${feminin ? 'ée' : 'é'} (statut ${l.statut})`;
+  const geo =
+    l.latitude != null && l.longitude != null
+      ? ` — coordonnées ${l.latitude.toFixed(5)}, ${l.longitude.toFixed(5)}`
+      : '';
+  const av = (l.avertissements ?? [])
+    .filter((a) => a.type !== 'GEOCODAGE_AUTO')
+    .map((a) => ` ⚠ ${a.message}`)
+    .join('');
+  return `${base}${geo}.${av}`;
+}
+
 export async function creerEtablissement(input: {
   nom: string;
   code: string;
   typeEtablissement: string;
   ville?: string;
   commune?: string;
+  adresseComplete?: string;
   telephone?: string;
   latitude?: number;
   longitude?: number;
@@ -35,9 +61,9 @@ export async function creerEtablissement(input: {
     body: JSON.stringify(nettoyer(input)),
   });
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
-  const e = (await res.json()) as { nom: string; statut: string };
+  const e = (await res.json()) as LieuCree;
   revalidatePath(`${RACINE}/etablissements`);
-  return { ok: true, message: `« ${e.nom} » créé (statut ${e.statut}).` };
+  return { ok: true, message: messageCreation(e, false) };
 }
 
 export async function creerPharmacie(input: {
@@ -45,6 +71,7 @@ export async function creerPharmacie(input: {
   code: string;
   ville?: string;
   commune?: string;
+  adresseComplete?: string;
   telephone?: string;
   latitude?: number;
   longitude?: number;
@@ -55,7 +82,27 @@ export async function creerPharmacie(input: {
     body: JSON.stringify(nettoyer(input)),
   });
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
-  const p = (await res.json()) as { nom: string; statut: string };
+  const p = (await res.json()) as LieuCree;
   revalidatePath(`${RACINE}/pharmacies`);
-  return { ok: true, message: `« ${p.nom} » créée (statut ${p.statut}).` };
+  return { ok: true, message: messageCreation(p, true) };
+}
+
+/** Tâche déclenchable : marque « À revérifier » les entrées trop anciennes. */
+export async function reverifierObsoletes(): Promise<ResultatReseau> {
+  const res = await apiFetch('/api/v1/provider/verifications/reverifier-obsoletes', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const r = (await res.json()) as {
+    etablissementsMarques: number;
+    pharmaciesMarquees: number;
+    moisMax: number;
+  };
+  revalidatePath(`${RACINE}/etablissements`);
+  revalidatePath(`${RACINE}/pharmacies`);
+  return {
+    ok: true,
+    message: `${r.etablissementsMarques} établissement(s) et ${r.pharmaciesMarquees} pharmacie(s) marqués « À revérifier » (non vérifiés depuis > ${r.moisMax} mois).`,
+  };
 }

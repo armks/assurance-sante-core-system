@@ -17,7 +17,9 @@ import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   CreateEtablissementDto,
   CreatePharmacieDto,
+  EnregistrerVerificationDto,
   RechercheGeoDto,
+  ReverifierObsoletesDto,
   UpdateEtablissementDto,
   UpdatePharmacieDto,
 } from './dto/provider.dto';
@@ -89,6 +91,23 @@ export class ProviderController {
     return this.provider.supprimerEtablissement(user, id);
   }
 
+  @Post('etablissements/:id/verifications')
+  verifierEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EnregistrerVerificationDto,
+  ) {
+    return this.provider.enregistrerVerification(user, 'etablissement', id, dto);
+  }
+
+  @Get('etablissements/:id/verifications')
+  listerVerificationsEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.listerVerifications(user, 'etablissement', id);
+  }
+
   // --- Pharmacies -----------------------------------------------
 
   @Post('pharmacies')
@@ -132,5 +151,32 @@ export class ProviderController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.provider.supprimerPharmacie(user, id);
+  }
+
+  @Post('pharmacies/:id/verifications')
+  verifierPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: EnregistrerVerificationDto,
+  ) {
+    return this.provider.enregistrerVerification(user, 'pharmacie', id, dto);
+  }
+
+  @Get('pharmacies/:id/verifications')
+  listerVerificationsPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.listerVerifications(user, 'pharmacie', id);
+  }
+
+  // --- Tâche planifiée (déclenchée à la main) ---------------------
+
+  @Post('verifications/reverifier-obsoletes')
+  reverifierObsoletes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ReverifierObsoletesDto,
+  ) {
+    return this.provider.reverifierObsoletes(user, dto);
   }
 }

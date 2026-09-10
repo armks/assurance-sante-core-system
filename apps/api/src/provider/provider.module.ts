@@ -1,17 +1,19 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { GeocodageService } from './geocodage.service';
 import { ProviderController } from './provider.controller';
 import { ProviderService } from './provider.service';
 
 /**
  * Module `provider/` — un domaine métier strict (v18 §4) : réseau de soins
  * (établissements de santé + pharmacies) avec recherche géolocalisée
- * (v9 phase 4.1, PROMPT 14).
+ * (v9 phase 4.1, PROMPT 14) et automatisation (géocodage Nominatim, vérification
+ * périodique, détection de doublons — v8 §9, PROMPT 15).
  */
 @Module({
   imports: [IdentityModule],
   controllers: [ProviderController],
-  providers: [ProviderService],
+  providers: [ProviderService, GeocodageService],
   exports: [ProviderService],
 })
 export class ProviderModule {}

@@ -2169,3 +2169,66 @@ Phases 0–7 : backend **et** écrans en place.
 Chaîne complète testable de bout en bout : provisioning → souscription → adhérent/carte →
 code de consultation → dossier de soins → actes/ordonnance → facturation → réclamation →
 adjudication (auto / revue manuelle) → décision finale.
+
+## 2026-09-10 — PROMPT 15 : automatisation du réseau de soins (v8 §9) — Phase 4 close
+
+### Backend — `provider/`
+- **`prisma/sql/024`** : table `verifications_etablissement` (historique : établissement
+  XOR pharmacie, `methode` APPEL_TELEPHONIQUE/VISITE_TERRAIN/AUTO_DECLARATIF,
+  `statut_confirme` ACTIF/FERME/DEMENAGE/A_REVERIFIER, `verifie_par` FK profils) + RLS
+  (lecture org, écriture ASSUREUR_INFORMATIQUE). Colonnes `verification_statut` +
+  `date_derniere_verification` ajoutées sur `etablissements_sante` et `pharmacies`.
+- **`GeocodageService`** (nouveau) : résolution adresse → coordonnées via **Nominatim /
+  OpenStreetMap**. Politique d'usage respectée — **un seul appel** par création, jamais de
+  lot ; `User-Agent` obligatoire (`NOMINATIM_USER_AGENT`) ; timeout court ; **échec
+  silencieux** (best-effort, ne bloque jamais). Config `NOMINATIM_*` dans `.env.example`.
+- **`ProviderService`** :
+  - `creerEtablissement` / `creerPharmacie` → si latitude/longitude absentes mais
+    adresse présente : **géocodage automatique** avant l'insert. La réponse porte un
+    tableau `avertissements` (`GEOCODAGE_AUTO` / `GEOCODAGE_ECHOUE`).
+  - **détection de doublons** à la création : nom similaire (jetons significatifs,
+    Jaccard ≥ 0,5) dans un **rayon de 200 m** (Haversine) → avertissement
+    `DOUBLON_POSSIBLE` avec les candidats — **jamais un blocage**.
+  - `enregistrerVerification` (`POST /provider/{etablissements|pharmacies}/:id/verifications`)
+    → écrit la ligne d'historique + met à jour `verification_statut` /
+    `date_derniere_verification` de la cible + audit. `GET …/verifications` (historique).
+  - **`reverifierObsoletes`** (`POST /provider/verifications/reverifier-obsoletes`,
+    déclenchable à la main — le cron viendra au déploiement) : marque `A_REVERIFIER`
+    tout établissement / toute pharmacie **jamais vérifié ou non vérifié depuis > 12
+    mois** (paramétrable). **Aucune désactivation** — alerte seule. Idempotent.
+- Tests : **jest API 164/164** (+7 provider : géocodage auto réussi / échoué, doublon
+  détecté / pas de faux positif, `reverifierObsoletes`, `enregistrerVerification`, garde
+  de rôle). `tsc` + `nest build` OK.
+
+### Frontend — `apps/web`
+- `reseau-panneau.tsx` (écrans `/etablissements` et `/pharmacies`) :
+  - champ **« Adresse complète »** ajouté au formulaire (latitude/longitude laissées
+    vides → géocodage automatique, message de confirmation avec les coordonnées) ;
+  - colonne **« Vérif. »** : `StatutBadge` **warning « À revérifier »** pour les entrées
+    `A_REVERIFIER`, badge coloré pour le dernier état connu, « jamais vérifié » sinon ;
+  - bandeau d'alerte en tête quand ≥ 1 entrée est à revérifier ;
+  - bouton **« Marquer les entrées obsolètes »** (déclenche `reverifier-obsoletes`).
+- `reseau-actions.ts` : `creerEtablissement`/`creerPharmacie` surfacent les
+  `avertissements` (géocodage, doublon) ; `reverifierObsoletes` (nouveau).
+
+### Test — HTTP réel (compte `ASSUREUR_INFORMATIQUE` éphémère, Nominatim en vrai)
+1. création d'un établissement **sans coordonnées** (ville + commune + adresse) →
+   **géocodage automatique réussi** (`5.362581, -3.9973451`), avertissement `GEOCODAGE_AUTO` ;
+2. création d'un établissement **au nom très proche à ~44 m** → **avertissement
+   `DOUBLON_POSSIBLE`** pointant vers le premier, création **non bloquée** ;
+3. nom sans rapport dans la même zone → **aucun faux positif** ;
+4. `reverifier-obsoletes` → **3 établissements marqués `A_REVERIFIER`** ;
+5. vérification terrain (`APPEL_TELEPHONIQUE` → `ACTIF`) → `verification_statut` mis à
+   jour, historique enregistré ;
+6. écran `/etablissements` → **badge « À revérifier » visible**.
+Données e2e + compte supprimés, serveurs arrêtés.
+
+### 🎯 PHASE 4 (réseau de soins) — COMPLÈTEMENT CLOSE
+4.1 établissements/pharmacies + géolocalisation · 4.2 grilles tarifaires · 4.3
+**automatisation (géocodage, vérification périodique, doublons)** — fait.
+
+### 🎯 PALIER 1 (MVP) — COMPLET
+Toutes les phases 0–7 livrées (backend + écrans + automatisations prévues). Le dernier
+écart identifié par l'audit de consolidation (PROMPT 15) est comblé. Prochaine étape :
+« Fin du Palier 1 » de `07-sequence-prompts-EXECUTION-v19.md` → déploiement (AWS Amplify /
+ECS Fargate), puis Palier 2.

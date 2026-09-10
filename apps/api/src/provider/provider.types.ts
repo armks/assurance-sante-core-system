@@ -38,3 +38,33 @@ export interface ContexteAppelant {
 /** Cible de la recherche géolocalisée. */
 export const CIBLES_RECHERCHE = ['ETABLISSEMENTS', 'PHARMACIES', 'TOUS'] as const;
 export type CibleRecherche = (typeof CIBLES_RECHERCHE)[number];
+
+// --- Automatisation du réseau (v8 §9, PROMPT 15) ---------------------
+
+export const METHODES_VERIFICATION = [
+  'APPEL_TELEPHONIQUE',
+  'VISITE_TERRAIN',
+  'AUTO_DECLARATIF',
+] as const;
+export type MethodeVerification = (typeof METHODES_VERIFICATION)[number];
+
+export const STATUTS_VERIFICATION = [
+  'ACTIF',
+  'FERME',
+  'DEMENAGE',
+  'A_REVERIFIER',
+] as const;
+export type StatutVerification = (typeof STATUTS_VERIFICATION)[number];
+
+/** Une entrée non vérifiée depuis plus de ce délai est marquée `A_REVERIFIER`. */
+export const MOIS_REVERIFICATION_DEFAUT = 12;
+
+/** Rayon de recherche des doublons à la création (200 m). */
+export const RAYON_DOUBLON_KM = 0.2;
+
+/** Avertissement non bloquant renvoyé à la création (géocodage, doublon…). */
+export interface Avertissement {
+  type: 'GEOCODAGE_ECHOUE' | 'GEOCODAGE_AUTO' | 'DOUBLON_POSSIBLE';
+  message: string;
+  details?: unknown;
+}

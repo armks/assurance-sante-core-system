@@ -139,6 +139,7 @@ model Profil {
   ordonnancesPrescrites Ordonnance[]
   actesPrescrits        ActeDossier[]
   facturesReglees       FactureDossier[]
+  verificationsReseau   VerificationEtablissement[]
 
   @@map("profils")
 }
@@ -566,6 +567,8 @@ model EtablissementSante {
   horairesGarde     Json?     @map("horaires_garde")
   horairesSemaine   Json?     @map("horaires_semaine")
   tiersPayant       Boolean   @default(true) @map("tiers_payant")
+  verificationStatut       String?   @map("verification_statut") // ACTIF | FERME | DEMENAGE | A_REVERIFIER
+  dateDerniereVerification DateTime? @map("date_derniere_verification") @db.Timestamptz(6)
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -575,9 +578,11 @@ model EtablissementSante {
   dossiersTransferes DossierSoins[]     @relation("DossierTransfereVers")
   codesConsultation  CodeConsultation[]
   factures           FactureDossier[]
+  verifications      VerificationEtablissement[]
 
   @@index([organisationId])
   @@index([statut])
+  @@index([verificationStatut])
   @@map("etablissements_sante")
 }
 
@@ -603,16 +608,41 @@ model Pharmacie {
   tiersPayant       Boolean   @default(true) @map("tiers_payant")
   dateConvention    DateTime? @map("date_convention") @db.Date
   dateFinConvention DateTime? @map("date_fin_convention") @db.Date
+  verificationStatut       String?   @map("verification_statut") // ACTIF | FERME | DEMENAGE | A_REVERIFIER
+  dateDerniereVerification DateTime? @map("date_derniere_verification") @db.Timestamptz(6)
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   codesOrdonnance CodeOrdonnance[]
+  verifications   VerificationEtablissement[]
 
   @@index([organisationId])
   @@index([statut])
+  @@index([verificationStatut])
   @@map("pharmacies")
+}
+
+/// verifications_etablissement — historique des vérifications terrain d'un
+/// établissement OU d'une pharmacie (v8 §9, PROMPT 15). prisma/sql/024.
+model VerificationEtablissement {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  etablissementId  String?  @map("etablissement_id") @db.Uuid
+  pharmacieId      String?  @map("pharmacie_id") @db.Uuid
+  dateVerification DateTime @default(now()) @map("date_verification") @db.Timestamptz(6)
+  methode          String // APPEL_TELEPHONIQUE | VISITE_TERRAIN | AUTO_DECLARATIF
+  statutConfirme   String   @map("statut_confirme") // ACTIF | FERME | DEMENAGE | A_REVERIFIER
+  verifiePar       String?  @map("verifie_par") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  etablissement EtablissementSante? @relation(fields: [etablissementId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacie     Pharmacie?          @relation(fields: [pharmacieId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  verificateur  Profil?             @relation(fields: [verifiePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([etablissementId, dateVerification])
+  @@index([pharmacieId, dateVerification])
+  @@map("verifications_etablissement")
 }
 
 /// referentiel_actes — nomenclature des actes (v3 §9). Gouvernance d'homologation

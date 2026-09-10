@@ -1,0 +1,109 @@
+'use server';
+
+import { revalidatePath } from 'next/cache';
+
+import type { ResultatSoumission } from '@/components/dashboard/patterns';
+import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
+
+/** Toutes les routes qui affichent le fichier des membres (assureur + société). */
+const CIBLES = [
+  '/dashboard-assureur/informatique/adherents',
+  '/dashboard-societe/administration/adherents',
+];
+function revalider(suffixe = '') {
+  for (const c of CIBLES) revalidatePath(`${c}${suffixe}`);
+}
+
+export async function creerAdherent(input: {
+  souscripteurId: string;
+  policeId?: string;
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  sexe: string;
+  modePaiementPrefere?: string;
+}): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(
+    Object.entries(input).filter(([, v]) => v !== undefined && v !== ''),
+  );
+  const res = await apiFetch('/api/v1/member/adherents', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const a = (await res.json()) as { numeroAdherent: string };
+  revalider();
+  return { ok: true, message: `Adhérent ${a.numeroAdherent} créé.` };
+}
+
+export async function changerStatutAdherent(
+  id: string,
+  input: { statut: string; motif?: string },
+): Promise<{ ok: true; statut: string } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/adherents/${id}/statut`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const a = (await res.json()) as { statut: string };
+  revalider();
+  revalider(`/${id}`);
+  return { ok: true, statut: a.statut };
+}
+
+export async function ajouterBeneficiaire(
+  adherentId: string,
+  input: {
+    lienParente: string;
+    nom: string;
+    prenom: string;
+    dateNaissance: string;
+    sexe: string;
+  },
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(
+    `/api/v1/member/adherents/${adherentId}/beneficiaires`,
+    { method: 'POST', body: JSON.stringify(input) },
+  );
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalider(`/${adherentId}`);
+  return { ok: true, message: 'Bénéficiaire ajouté.' };
+}
+
+export async function changerStatutBeneficiaire(
+  adherentId: string,
+  beneficiaireId: string,
+  input: { statut: string; motif?: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(
+    `/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/statut`,
+    { method: 'PATCH', body: JSON.stringify(input) },
+  );
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider(`/${adherentId}`);
+  return { ok: true };
+}
+
+type ResultatCarte =
+  | { ok: true; url: string; numeroCarte: string; qrCode: string; expiresIn: number }
+  | { ok: false; error: string };
+
+export async function genererCarteAdherent(id: string): Promise<ResultatCarte> {
+  const res = await apiFetch(`/api/v1/member/adherents/${id}/carte`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  return { ok: true, ...(await res.json()) };
+}
+
+export async function genererCarteBeneficiaire(
+  adherentId: string,
+  beneficiaireId: string,
+): Promise<ResultatCarte> {
+  const res = await apiFetch(
+    `/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/carte`,
+    { method: 'POST' },
+  );
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  return { ok: true, ...(await res.json()) };
+}

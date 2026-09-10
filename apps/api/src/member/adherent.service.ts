@@ -135,6 +135,15 @@ export class AdherentService {
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
       include: {
         _count: { select: { beneficiaires: { where: { deletedAt: null } } } },
+        souscripteur: { select: { id: true, nom: true, type: true } },
+        police: {
+          select: {
+            id: true,
+            numeroPolice: true,
+            statut: true,
+            produit: { select: { nom: true, version: true } },
+          },
+        },
       },
     });
   }
@@ -468,6 +477,16 @@ export class AdherentService {
           orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
         },
         souscripteur: { select: { id: true, nom: true, type: true } },
+        police: {
+          select: {
+            id: true,
+            numeroPolice: true,
+            statut: true,
+            dateDebut: true,
+            dateFin: true,
+            produit: { select: { nom: true, version: true } },
+          },
+        },
       },
     });
     if (!adherent) {

@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PNG } from 'pngjs';
 import jsQR from 'jsqr';
@@ -51,6 +55,7 @@ const ADHERENT = {
       nom: 'Konan',
       prenom: 'Yao',
       lienParente: 'ENFANT',
+      statut: 'ACTIF',
     },
   ],
 };
@@ -171,5 +176,13 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
     const img = PNG.sync.read(qrBuf);
     const decoded = jsQR(Uint8ClampedArray.from(img.data), img.width, img.height);
     expect(decoded?.data).toBe('CM-0000000100');
+  });
+
+  it('carte indisponible pour un adhérent non ACTIF → 409, aucun téléversement', async () => {
+    prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT, statut: 'SUSPENDU' });
+    await expect(
+      service.genererCarteAdherent(USER, 'adh-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

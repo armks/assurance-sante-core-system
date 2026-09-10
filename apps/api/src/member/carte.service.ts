@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -73,6 +74,11 @@ export class MemberCarteService {
     const ctx = await this.contexteAppelant(user);
     const adherent = await this.chargerAdherentComplet(ctx, adherentId);
     this.assertGestion(ctx, adherent.souscripteurId);
+    if (adherent.statut !== 'ACTIF') {
+      throw new ConflictException(
+        `Carte indisponible : l'adhérent est « ${adherent.statut} ». Seul un adhérent ACTIF a une carte valide.`,
+      );
+    }
 
     const infos = this.infosDepuisAdherent(adherent);
     const qr = await qrEnPng(adherent.numeroCarte);
@@ -107,6 +113,13 @@ export class MemberCarteService {
     const benef = adherent.beneficiaires.find((b) => b.id === beneficiaireId);
     if (!benef) {
       throw new NotFoundException('Bénéficiaire introuvable.');
+    }
+    if (benef.statut !== 'ACTIF' || adherent.statut !== 'ACTIF') {
+      throw new ConflictException(
+        benef.statut !== 'ACTIF'
+          ? `Carte indisponible : le bénéficiaire est « ${benef.statut} ».`
+          : `Carte indisponible : l'adhérent titulaire est « ${adherent.statut} ».`,
+      );
     }
 
     const infos = this.infosDepuisBeneficiaire(adherent, benef);

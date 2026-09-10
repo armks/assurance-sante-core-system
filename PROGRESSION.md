@@ -2108,3 +2108,64 @@ Backend + microservice + écrans de réclamations complets (liste, détail, revu
   le module `member` et l'écran « générer les cartes » existent).
 Le parcours structurant assuré ↔ établissement ↔ adjudication ↔ réclamations est bouclé
 côté écrans.
+
+## 2026-09-10 — Écran de gestion des adhérents et bénéficiaires
+
+### Backend — `member/` (compléments)
+- `MemberCarteService.genererCarteAdherent` / `genererCarteBeneficiaire` : **refusent
+  (409)** si le membre (ou le titulaire) n'est pas `ACTIF` — « Carte indisponible : … ».
+  Cohérent avec `genererCartesSouscripteur` qui filtrait déjà sur `ACTIF`.
+- `AdherentService.listerAdherents` / `chargerAdherent` : includes enrichis
+  (`souscripteur {nom, type}`, `police {numeroPolice, statut, produit}`) pour la
+  DataTable et la vue détail.
+- Tests : +1 `carte.service.spec` (adhérent SUSPENDU → 409, aucun téléversement).
+  **jest API 157/157**, `tsc` + `nest build` OK.
+
+### Frontend — `apps/web`
+- `lib/member.ts` : statuts + tons + libellés + `LIENS_PARENTE` / `MODES_PAIEMENT` /
+  `SEXES` + `peutGererMembres()` (miroir de `member.types.ts`).
+- `app/dashboard-assureur/adherents-actions.ts` (partagé assureur + société) :
+  `creerAdherent`, `changerStatutAdherent`, `ajouterBeneficiaire`,
+  `changerStatutBeneficiaire`, `genererCarteAdherent` / `genererCarteBeneficiaire`.
+- **`/dashboard-assureur/informatique/adherents`** (`adherents-liste.tsx`) : DataTable
+  (n° adhérent, nom/prénom, souscripteur/police, `StatutBadge` ACTIF/SUSPENDU/RADIE,
+  n° carte, nb bénéficiaires) ; filtre par statut ; `FormulaireModal` « Nouvel adhérent »
+  (souscripteur → filtre les polices, nom, prénom, naissance, sexe, mode de paiement).
+- **`/adherents/[id]`** (`adherent-detail.tsx`) : informations ; **carte de membre**
+  (`carte-bouton.tsx` — génère + ouvre le PDF + aperçu QR ; **signalée indisponible** si
+  l'adhérent n'est pas ACTIF, bouton retiré) ; **changement de statut** ACTIF/SUSPENDU/
+  RADIE avec motif ; DataTable des bénéficiaires + « Ajouter un bénéficiaire » (lien de
+  parenté, nom, prénom, naissance, sexe) + carte par bénéficiaire + suspendre/réactiver.
+- **`/dashboard-societe/` (nouveau dashboard)** : `layout.tsx` (garde
+  `entite === SOCIETE_AFFILIEE`), `administration/adherents` (+ `/[id]`) réutilisant les
+  mêmes composants, souscripteur **verrouillé** sur celui de la société
+  (`SOCIETE_ADMINISTRATION` ne gère que ses propres adhérents — cohérent avec la RLS
+  `adherents_ecriture`). Nav `NAV_PAR_DASHBOARD['/dashboard-societe']`.
+- Nav : « Adhérents » ajouté à INFORMATIQUE.
+- Actions d'écriture retirées visuellement si le rôle connecté n'est pas habilité
+  (`peutGererMembres`) ; boutons de carte / statut pilotés par le statut réel.
+
+### Test — navigateur réel (`@supabase/ssr`, compte `ASSUREUR_INFORMATIQUE` éphémère)
+1. création d'un adhérent → `ADH-2026-…` / `CM-…` générés ;
+2. ajout de 2 bénéficiaires → cartes générées ;
+3. génération de la carte de l'adhérent (ACTIF) → URL signée + aperçu QR ;
+4. passage du statut à **SUSPENDU** (avec motif) ;
+5. nouvelle génération de carte → **409** « Carte indisponible : l'adhérent est
+   « SUSPENDU » » ;
+6. écrans rendus (session réelle) : liste (n° carte visible) + détail — la carte est
+   **signalée indisponible** et le bouton « Générer la carte » est retiré.
+Données e2e + objets Storage + compte éphémère supprimés, serveurs arrêtés.
+
+### 🎯 PALIER 1 (MVP) — fonctionnellement complet
+Phases 0–7 : backend **et** écrans en place.
+- 0–2 : fondations, provisioning, produit/souscription/cotisations.
+- 3 : module `member` + adhérents/bénéficiaires + cartes (PDF/QR) + **écran de gestion**.
+- 4 : réseau de soins (établissements/pharmacies). *Reste PROMPT 15 — géocodage
+  automatique + vérification périodique : enrichissement backend, pas un écran.*
+- 5 : référentiels actes/médicaments + homologation.
+- 6 : parcours de soins anti-fraude (4 codes) + **écrans côté établissement**.
+- 7 : réclamations + adjudication (microservice Java) + **écrans côté assureur** (liste,
+  détail, revue manuelle).
+Chaîne complète testable de bout en bout : provisioning → souscription → adhérent/carte →
+code de consultation → dossier de soins → actes/ordonnance → facturation → réclamation →
+adjudication (auto / revue manuelle) → décision finale.

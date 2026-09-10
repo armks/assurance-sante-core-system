@@ -44,8 +44,16 @@ const INFORMATIQUE = '/dashboard-assureur/informatique';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 const CENTRE_MEDICAL = '/dashboard-centre-medical';
+const SOCIETE = '/dashboard-societe';
 
 export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
+  [SOCIETE]: [
+    {
+      label: 'Adhérents',
+      href: `${SOCIETE}/administration/adherents`,
+      icon: Users,
+    },
+  ],
   // Parcours de soins côté établissement : nav commune aux 4 sous-rôles
   // CENTRE_MEDICAL. Chaque écran retire ensuite ses propres actions selon le
   // rôle connecté (l'API reste seule juge).
@@ -123,6 +131,12 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Pharmacies',
       href: `${INFORMATIQUE}/pharmacies`,
       icon: Pill,
+      minNiveau: 'LECTURE_SEULE',
+    },
+    {
+      label: 'Adhérents',
+      href: `${INFORMATIQUE}/adherents`,
+      icon: Users,
       minNiveau: 'LECTURE_SEULE',
     },
     {

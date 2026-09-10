@@ -16,26 +16,20 @@ import {
   AjouterConsultationDto,
   ClotureDto,
   ClotureForceeDto,
-  OuvrirDossierDto,
 } from './dto/care-episode.dto';
 
 /**
  * Endpoints REST du module care-episode — Dossier de Soins et Numéro de
- * Traitement (v1 §15). Lecture ouverte à l'organisation ; ouverture / consultation
- * / clôture gardées dans CareEpisodeService (+ trigger et RLS Postgres).
+ * Traitement (v1 §15).
+ *
+ * ⚠️ Il n'existe AUCUNE route d'ouverture de dossier : la seule voie de création
+ * est `POST /api/v1/preauthorization/codes-consultation/valider` (v8 §2). Ce
+ * contrôleur n'expose que la lecture, l'ajout de consultation et la clôture.
  */
 @Controller('care-episode/dossiers')
 @UseGuards(SupabaseAuthGuard)
 export class CareEpisodeController {
   constructor(private readonly careEpisode: CareEpisodeService) {}
-
-  @Post()
-  ouvrir(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: OuvrirDossierDto,
-  ) {
-    return this.careEpisode.ouvrirDossier(user, dto);
-  }
 
   @Get()
   lister(

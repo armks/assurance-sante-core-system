@@ -49,7 +49,18 @@ export class CareEpisodeService {
 
   // --- Ouverture -------------------------------------------------
 
-  async ouvrirDossier(user: AuthenticatedUser, dto: OuvrirDossierDto) {
+  /**
+   * Ouvre un dossier de soins. **Appel interne uniquement** — il n'existe plus de
+   * route publique : la seule voie d'ouverture est
+   * `PreauthorizationService.validerCodeConsultation` (v8 §2, checklist v19).
+   * `options.codeConsultationId` lie le code et le marque UTILISE_ETABLISSEMENT
+   * dans la même transaction.
+   */
+  async ouvrirDossier(
+    user: AuthenticatedUser,
+    dto: OuvrirDossierDto,
+    options: { codeConsultationId?: string } = {},
+  ) {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
 
@@ -79,12 +90,7 @@ export class CareEpisodeService {
       },
     });
 
-    const evaluation = await this.evaluerOuverture(
-      ctx,
-      dto,
-      etablissement,
-      police,
-    );
+    const evaluation = await this.evaluerOuverture(dto, etablissement, police);
 
     if (evaluation.blocages.length > 0) {
       // 409 avec le détail — jamais un message générique (v1 §15.4).
@@ -123,6 +129,15 @@ export class CareEpisodeService {
           horsDelaiCarence: true,
         },
       });
+      if (options.codeConsultationId) {
+        await tx.codeConsultation.update({
+          where: { id: options.codeConsultationId },
+          data: {
+            statut: 'UTILISE_ETABLISSEMENT',
+            dossierSoinsId: dossier.id,
+          },
+        });
+      }
       await this.audit(
         tx,
         ctx.userId,
@@ -132,6 +147,7 @@ export class CareEpisodeService {
           numeroTraitement: dossier.numeroTraitement,
           etablissementId: dto.etablissementId,
           policeId: dto.policeId,
+          codeConsultationId: options.codeConsultationId ?? null,
         },
       );
       return dossier.id;
@@ -140,10 +156,35 @@ export class CareEpisodeService {
     return this.chargerDossier(ctx.organisationId, id);
   }
 
+  /**
+   * Évaluation d'éligibilité (MoteurOuvertureDossier) SANS ouvrir le dossier —
+   * réutilisée par la génération d'un code de consultation (v8 §2).
+   */
+  async evaluerEligibilite(
+    organisationId: string,
+    params: {
+      adherentId?: string;
+      beneficiaireId?: string;
+      etablissementId: string;
+      policeId: string;
+    },
+  ): Promise<EvaluationOuverture> {
+    const etablissement = await this.prisma.etablissementSante.findFirst({
+      where: { id: params.etablissementId, organisationId, deletedAt: null },
+    });
+    const police = await this.prisma.police.findFirst({
+      where: { id: params.policeId, organisationId, deletedAt: null },
+    });
+    return this.evaluerOuverture(params, etablissement, police);
+  }
+
   /** Évaluation pure (MoteurOuvertureDossier) — testable et réutilisable. */
   private async evaluerOuverture(
-    ctx: ContexteAppelant,
-    dto: OuvrirDossierDto,
+    dto: {
+      adherentId?: string;
+      beneficiaireId?: string;
+      policeId: string;
+    },
     etablissement: { statut: string } | null,
     police: {
       statut: string;

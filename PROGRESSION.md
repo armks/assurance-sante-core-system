@@ -786,3 +786,64 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - **Vérifs** : build API ✅ ; `jest` **74/74** ✅. Données de test du parcours e2e
   supprimées (dossiers, consultations, établissements, profils + comptes Supabase des
   2 médecins, invitations) ; serveur arrêté. Aucun changement frontend ce prompt.
+
+## 2026-09-09 — PROMPT 18 — Code de Consultation (module preauthorization) + verrou d'ouverture du dossier
+- **Supabase** (`prisma/sql/012_prompt18_code_consultation.sql`) :
+  - Table `codes_consultation` (v8 §2) : `code` unique (CHECK `^[A-Z0-9]{6,8}$`),
+    `date_expiration` défaut `now()+48h`, `statut`
+    EMIS/CONFIRME_PATIENT/UTILISE_ETABLISSEMENT/EXPIRE/ANNULE, `canal_envoi text[]`
+    défaut `{APP,SMS}`, `dossier_soins_id` FK (rempli uniquement à la validation),
+    `police_id` FK (nécessaire au MoteurOuvertureDossier).
+  - RLS : **l'établissement n'a AUCUNE policy de lecture** sur cette table — le code
+    n'est jamais lisible de l'établissement ; SELECT réservé à l'adhérent concerné
+    (`adherent_id = profils.adherent_id`), INSERT aux rôles ADHERENT_TITULAIRE /
+    SOUSCRIPTEUR_INDIVIDUEL pour eux-mêmes.
+- **Prisma** : modèle `CodeConsultation` (24 → 25 modèles), `prisma generate`.
+- **apps/api** — nouveau module `preauthorization/` (choix cohérent avec v19, PROMPT 18 :
+  module `preauthorization/`) :
+  - `genererCodeConsultation` (adhérent) : vérifie d'abord l'éligibilité via
+    `CareEpisodeService.evaluerEligibilite` (**MoteurOuvertureDossier SANS ouvrir le
+    dossier** — nouvelle méthode publique extraite du service), génère un code
+    **`crypto.randomInt`** (jamais `Math.random`) sur un alphabet sans caractères
+    ambigus (30 symboles, 8 car. → 30⁸ combinaisons), l'enregistre en EMIS et **le
+    renvoie à l'adhérent uniquement** (jamais dans une réponse côté établissement).
+  - `validerCodeConsultation` (établissement) : code inconnu / autre organisation →
+    404 générique ; déjà UTILISE_ETABLISSEMENT → 409 ; ANNULE → 410 ; **expiré → passe
+    EXPIRE + 410** ; **établissement ≠ celui d'émission → 403** ; sinon appelle
+    `CareEpisodeService.ouvrirDossier(user, …, { codeConsultationId })` qui ouvre le
+    dossier ET marque le code UTILISE_ETABLISSEMENT + lie `dossier_soins_id` **dans la
+    même transaction**. La réponse ne contient jamais la valeur du code.
+  - `confirmerPresence` / `annulerCode` / `listerMesCodes` (adhérent).
+  - `PreauthorizationController` : `POST/GET /api/v1/preauthorization/codes-consultation`,
+    `/:id/confirmer`, `/:id/annuler` (adhérent) ; `/codes-consultation/valider`
+    (établissement).
+  - `preauthorization.service.spec.ts` : **7 cas** (génération refusée hors adhérent ;
+    refusée si éligibilité KO ; code sûr 8 car. + EMIS ; validation mauvais établissement
+    → 403 ; code expiré → 410 + statut EXPIRE ; code déjà utilisé → 409 ; validation OK →
+    `ouvrirDossier` appelé avec `codeConsultationId`, valeur du code absente de la
+    réponse). → **jest 81/81**.
+- **VERROU (checklist v19 : « un dossier ne peut être créé que via un code validé »)** :
+  la route `POST /api/v1/care-episode/dossiers` a été **supprimée**.
+  `CareEpisodeService.ouvrirDossier` est désormais un **appel interne uniquement**,
+  déclenché seulement par `validerCodeConsultation`.
+- **Test HTTP réel — 11/11** (compte `adherent.test@exemple.ci` + profil
+  `ADHERENT_TITULAIRE` avec `adherent_id`, 2 établissements ACTIF, compte
+  `CENTRE_MEDICAL_ACCUEIL` provisionné, police réelle `POL-2026-000004` ACTIVE) :
+  - L'adhérent génère un code → 201, `code` = 8 car. alphanum, statut EMIS, expiration +48 h.
+  - `GET /codes-consultation` côté établissement → **liste vide** (aucun accès aux codes).
+  - Validation avec le **MAUVAIS** établissement → **403** « Ce code n'a pas été émis pour
+    cet établissement ».
+  - Validation avec le **BON** établissement → 201, **dossier ouvert automatiquement**
+    (`TRT-2026-09-000003`), code passé UTILISE_ETABLISSEMENT ; **la valeur du code n'est
+    pas renvoyée**.
+  - Réutilisation du même code → **409** « déjà été utilisé ».
+  - Code expiré (`date_expiration` reculée en base) → **410** rejeté.
+  - `POST /api/v1/care-episode/dossiers` en direct → **404** (route supprimée — aucune
+    autre voie d'ouverture).
+  - `audit_log` : GENERATION_CODE_CONSULTATION, VALIDATION_CODE_CONSULTATION,
+    OUVERTURE_DOSSIER_SOINS.
+- **Vérifs** : build API ✅ ; `jest` **81/81** ✅. Données de test du parcours e2e
+  supprimées (codes, dossier, établissements, profil + compte Supabase du staff,
+  invitations) ; serveur arrêté. Aucun changement frontend ce prompt.
+- ⚠️ **Donnée de test conservée** : `adherent.test@exemple.ci` + profil
+  `ADHERENT_TITULAIRE` (`adherent_id` synthétique) — à retirer avant prod.

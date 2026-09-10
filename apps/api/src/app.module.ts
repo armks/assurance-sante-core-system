@@ -7,6 +7,7 @@ import { IdentityModule } from './identity/identity.module';
 import { InvitationsModule } from './invitations/invitations.module';
 import { PlanModule } from './plan/plan.module';
 import { PolicyModule } from './policy/policy.module';
+import { PreauthorizationModule } from './preauthorization/preauthorization.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProviderModule } from './provider/provider.module';
 import { ReferenceModule } from './reference/reference.module';
@@ -28,6 +29,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     ProviderModule,
     ReferenceModule,
     CareEpisodeModule,
+    PreauthorizationModule,
   ],
 })
 export class AppModule {}

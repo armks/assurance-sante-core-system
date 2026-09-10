@@ -1,14 +1,7 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { CreerOrganisationDto } from './dto/organisation.dto';
 import { IdentityService } from './identity.service';
 import { IdentityMeResponse } from './identity.types';
 import { OrganisationsService } from './organisations.service';
@@ -59,21 +52,11 @@ export class IdentityController {
   }
 
   /**
-   * GET /api/v1/identity/organisations — liste des tenants (superadmin).
+   * GET /api/v1/identity/organisations — liste des tenants + leur licence
+   * (superadmin). La création se fait via POST /api/v1/superadmin/organisations/initier.
    */
   @Get('organisations')
   listerOrganisations(@CurrentUser() user: AuthenticatedUser) {
     return this.organisationsService.lister(user);
-  }
-
-  /**
-   * POST /api/v1/identity/organisations — création d'un tenant (superadmin).
-   */
-  @Post('organisations')
-  creerOrganisation(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: CreerOrganisationDto,
-  ) {
-    return this.organisationsService.creer(user, dto);
   }
 }

@@ -1,12 +1,18 @@
 import { PageTitre } from '@/components/page-titre';
 import {
-  CreerSocieteForm,
-  InviterPremierCompteForm,
+  ActionsLicence,
+  CreerSocieteFlow,
 } from '@/components/superadmin/societes-forms';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, messageErreur } from '@/lib/api';
 
+interface Licence {
+  plan: string;
+  statut: string;
+  limiteAdherents: number | null;
+  dateFin: string | null;
+}
 interface Organisation {
   id: string;
   nom: string;
@@ -15,6 +21,7 @@ interface Organisation {
   devise: string;
   statut: string;
   createdAt: string;
+  licence: Licence | null;
 }
 
 export default async function Societes() {
@@ -26,7 +33,7 @@ export default async function Societes() {
     <div className="space-y-8">
       <PageTitre
         titre="Sociétés"
-        description="Organisations clientes (assureurs et mutuelles). Créez une organisation puis invitez son premier compte."
+        description="Organisations clientes et leurs licences. Toute action sensible (création, suspension, prolongation) se confirme en deux étapes avec un code envoyé par e-mail."
       />
 
       <Card>
@@ -34,7 +41,7 @@ export default async function Societes() {
           <CardTitle className="text-base">Nouvelle organisation</CardTitle>
         </CardHeader>
         <CardContent>
-          <CreerSocieteForm />
+          <CreerSocieteFlow />
         </CardContent>
       </Card>
 
@@ -53,13 +60,33 @@ export default async function Societes() {
                 <Badge variant="secondary">{org.type}</Badge>
                 <Badge variant="outline">{org.pays}</Badge>
                 <Badge variant="muted">{org.devise}</Badge>
+                {org.licence ? (
+                  <>
+                    <Badge variant="secondary">Plan {org.licence.plan}</Badge>
+                    <Badge
+                      variant={
+                        org.licence.statut === 'ACTIVE' ? 'success' : 'outline'
+                      }
+                    >
+                      Licence {org.licence.statut}
+                    </Badge>
+                    {org.licence.dateFin && (
+                      <Badge variant="muted">
+                        échéance{' '}
+                        {new Date(org.licence.dateFin).toLocaleDateString('fr-FR')}
+                      </Badge>
+                    )}
+                  </>
+                ) : (
+                  <Badge variant="outline">sans licence</Badge>
+                )}
                 {org.statut !== 'ACTIVE' && (
                   <Badge variant="outline">{org.statut}</Badge>
                 )}
               </div>
             </CardHeader>
             <CardContent>
-              <InviterPremierCompteForm
+              <ActionsLicence
                 organisationId={org.id}
                 organisationNom={org.nom}
               />

@@ -1090,3 +1090,81 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   provisionnés à la demande dans chaque parcours e2e puis supprimés.
 - **Prochaine phase — Phase 7** : adjudication (microservice Java, verrouillage optimiste
   des plafonds) + module `claims/` NestJS.
+
+---
+
+## 2026-09-10 — PROMPT 22 — Administration SaaS : licences + confirmation à deux temps des actions superadmin
+- **Dépendance** : `resend` ajoutée à `apps/api` (client HTTP pur, aucun binaire natif).
+  `apps/api/.env` : `RESEND_API_KEY` + `SUPERADMIN_EMAIL` (déjà ajoutés hors commit — `.env`
+  est gitignoré).
+- **apps/api — module `email/`** (`@Global`) : `EmailService.envoyerEmail(destinataire,
+  sujet, contenu)` — enveloppe **unique et générique** de l'envoi via Resend (expéditeur
+  provisoire `onboarding@resend.dev`), réutilisable par tous les besoins futurs. Si
+  `RESEND_API_KEY` est absent : journalisation sans envoi, `{ envoye: false }`, pas de crash.
+- **Supabase** (`prisma/sql/016_prompt22_licences_superadmin.sql`) :
+  - Table **`licences_organisation`** (v14 §5) : `organisation_id` PK FK, `plan`
+    STARTER/BUSINESS/ENTERPRISE, `limite_adherents`, `limite_appels_api_mois`, `date_debut`,
+    `date_fin`, `statut` ACTIVE/SUSPENDUE/EXPIREE.
+  - Table **`codes_validation_superadmin`** : `action`
+    CREATION_ORGANISATION/SUSPENSION_ORGANISATION/PROLONGATION_ORGANISATION, `payload jsonb`
+    (données de l'action en attente), `code` unique (8 car.), `date_expiration` défaut
+    `now()+15min`, `statut` EMIS/CONFIRME/EXPIRE/ANNULE.
+  - RLS : les deux tables sont **superadmin uniquement** en écriture ; `licences_organisation`
+    lisible aussi par les membres de l'organisation concernée.
+- **Prisma** : modèles `LicenceOrganisation` + `CodeValidationSuperadmin` (30 → 32 modèles).
+- **apps/api — module `superadmin/`** (`SuperadminActionsService`) — toutes les actions
+  sensibles du superadmin sont désormais **en deux temps** :
+  - `initierCreationOrganisation` / `initierSuspensionOrganisation` /
+    `initierProlongationOrganisation` : réservées à `SUPERADMIN_PRINCIPAL` ; **ne réalisent
+    RIEN** — stockent le payload dans `codes_validation_superadmin`, génèrent un code
+    (`crypto.randomInt`, 8 car., 15 min, usage unique) et l'envoient par e-mail à
+    **`process.env.SUPERADMIN_EMAIL`** (jamais en dur) via `EmailService`, avec un résumé
+    lisible de l'action. La réponse ne contient PAS le code.
+  - `confirmerAction(code)` : vérifie validité / non-expiration (→ 410, passe EXPIRE) /
+    non-réutilisation (→ 409 « déjà été confirmée ») / code inconnu (→ 404) ; puis
+    **exécute RÉELLEMENT** l'action stockée :
+    - CREATION → crée l'organisation + `licences_organisation` (limites par plan) + invite
+      le premier compte via `InvitationsService.creerInvitation` (comme avant) ; marque le
+      code CONFIRME dans la même transaction que la création.
+    - SUSPENSION → `organisations.statut = SUSPENDUE` + `licences_organisation.statut =
+      SUSPENDUE`.
+    - PROLONGATION → `licences_organisation.date_fin` (+ réactive si la licence était
+      EXPIREE).
+  - `listerActionsEnAttente` / `annulerAction`.
+  - **Route de création directe supprimée** : `POST /api/v1/identity/organisations` et
+    `OrganisationsService.creer` retirés — la seule voie de création est désormais
+    `initier` + `confirmer`. `GET /identity/organisations` renvoie chaque org avec sa
+    `licence`.
+  - `superadmin-actions.service.spec.ts` : **7 cas** (initier refusée hors superadmin ;
+    initier stocke payload + code + e-mail sans créer l'org ; confirmer code inconnu → 404 ;
+    code expiré → 410 + EXPIRE ; code déjà CONFIRME → 409 ; confirmer CREATION → crée
+    réellement org + licence + invitation + CONFIRME ; confirmer SUSPENSION → org + licence
+    SUSPENDUE). → **jest 111/111**.
+- **apps/web** : `/superadmin/societes` — le formulaire direct est remplacé par le **flux en
+  deux étapes** (`CreerSocieteFlow` : formulaire → panneau « Vérifiez votre e-mail, saisissez
+  le code » → confirmation). Chaque organisation affiche des badges plan / statut de licence /
+  échéance et des boutons **Suspendre** / **Prolonger** (eux aussi en deux temps).
+  `next build --webpack` ✅ (24 routes).
+- **Test HTTP réel** (compte `armelk01+superadmin@gmail.com` créé — SUPERADMIN_PRINCIPAL) :
+  - `initier` création → **201, `emailEnvoye: true`** — **e-mail réellement reçu dans la boîte
+    `armelk01@gmail.com`** (objet « [Assurance Santé] Code de confirmation — Création d'une
+    organisation », code à 8 caractères) ; **aucune organisation créée** à ce stade.
+  - `confirmer` avec un **faux code** (≠ celui reçu) → **404** « Code de confirmation
+    invalide », échec propre : l'action reste EMIS, aucune organisation créée.
+  - `confirmer` avec un **code expiré** (`date_expiration` reculée) → **410**.
+  - `confirmer` avec le **bon code** → **organisation RÉELLEMENT créée** + `licences_organisation`
+    (plan BUSINESS, limites, `date_fin` +1 an, statut ACTIVE) + **invitation du premier
+    compte envoyée** ; le code passe **CONFIRME**.
+  - **Réutilisation** : reconfirmer avec ce **même code déjà utilisé** → **409** « Cette
+    action a déjà été confirmée » ; **aucun doublon** d'organisation.
+  - Suspension en deux temps → `organisations.statut` **et** `licences_organisation.statut`
+    passent **SUSPENDUE**.
+  - `initier` par un `ASSUREUR_INFORMATIQUE` (non-superadmin) → **403**.
+  - `audit_log` : INITIATION_ACTION_SUPERADMIN, CONFIRMATION_ACTION_SUPERADMIN,
+    CREATION_ORGANISATION, SUSPENSION_ORGANISATION.
+- **Vérifs** : build API ✅ ; `jest` **111/111** ✅ ; `next build --webpack` ✅ (24 routes).
+  Données de test e2e supprimées (organisations, licences, codes de validation, invitations
+  + comptes Supabase des premiers comptes) ; serveur arrêté.
+- ⚠️ **Comptes de test permanents** désormais : `armelk01@yahoo.fr` (ASSUREUR_INFORMATIQUE),
+  `armelk01+adherent@gmail.com` (ADHERENT_TITULAIRE), **`armelk01+superadmin@gmail.com`
+  (SUPERADMIN_PRINCIPAL, mdp `Sante-Test-2026`)** — à retirer avant prod.

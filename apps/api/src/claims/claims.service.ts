@@ -1,16 +1,25 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  AdjudicationClientService,
+  AdjudicationInjoignableError,
+  AdjudicationRefusError,
+  type DecisionAdjudication,
+} from './adjudication-client.service';
 import { SoumettreReclamationDto } from './dto/claims.dto';
 import {
   CATEGORIE_VERS_TYPE,
@@ -21,18 +30,22 @@ import {
 type Db = PrismaService | Prisma.TransactionClient;
 
 /**
- * ClaimsService — réception des réclamations (v1 §16, PROMPT 24, partie 1 / 2).
+ * ClaimsService — réception + adjudication des réclamations (v1 §16, PROMPT 24).
  *
  * `soumettre` :
  *   1. construit la réclamation à partir de l'acte de dossier (une seule
  *      réclamation vivante par acte — index unique `reclamations_acte_dossier_unique`) ;
  *   2. la VERROUILLE : `SOUMISE → EN_ADJUDICATION` via un compare-and-swap atomique
  *      (`updateMany where statut = 'SOUMISE'`). Toute seconde soumission — séquentielle
- *      OU concurrente — échoue proprement (409) : soit la réclamation est déjà
- *      EN_ADJUDICATION ou au-delà, soit le CAS concurrent a renvoyé 0 ligne.
+ *      OU concurrente — échoue proprement (409) ;
+ *   3. **appelle le microservice Java** (`adjudication-service`, JWT de service HMAC),
+ *      applique la décision (`codes_rejet`, statut) et la renvoie complète à l'appelant.
  *
- * L'appel au microservice Java d'adjudication viendra au prompt suivant — ici on
- * s'arrête au verrouillage.
+ * Robustesse (§ « gestion d'erreur explicite ») : si le microservice est injoignable
+ * ou renvoie une erreur, la réclamation **ne reste pas bloquée à EN_ADJUDICATION** —
+ * elle repasse à `SOUMISE` (avec `codes_rejet = ['ADJ_ECHEC']` comme marqueur de
+ * reprise), l'erreur est journalisée (`ECHEC_ADJUDICATION`), et l'appelant reçoit
+ * un `503` / `502` explicite (jamais un `500` opaque).
  */
 @Injectable()
 export class ClaimsService {
@@ -41,6 +54,7 @@ export class ClaimsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly adjudication: AdjudicationClientService,
   ) {}
 
   async soumettre(user: AuthenticatedUser, dto: SoumettreReclamationDto) {
@@ -158,7 +172,102 @@ export class ClaimsService {
       { de: 'SOUMISE', vers: 'EN_ADJUDICATION' },
     );
 
-    return this.chargerReclamation(ctx, reclamation.id);
+    // 3. adjudication (microservice Java)
+    return this.adjuger(ctx, reclamation.id);
+  }
+
+  /**
+   * Appelle le microservice d'adjudication et applique la décision. En cas
+   * d'échec, remet la réclamation à SOUMISE et lève une erreur HTTP explicite.
+   */
+  private async adjuger(ctx: ContexteAppelant, reclamationId: string) {
+    let decision: DecisionAdjudication;
+    try {
+      decision = await this.adjudication.evaluer(reclamationId);
+    } catch (err) {
+      throw await this.traiterEchecAdjudication(ctx, reclamationId, err);
+    }
+
+    // succès : le microservice a déjà posé `reclamations.statut` = decision.decision
+    // (il n'a que le grant UPDATE(statut)) ; NestJS complète `codes_rejet` + audit.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reclamation.update({
+        where: { id: reclamationId },
+        data: {
+          statut: decision.decision,
+          codesRejet: decision.codes_rejet ?? [],
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        `ADJUDICATION_${decision.decision}`,
+        reclamationId,
+        {
+          montantRembourse: decision.montant_rembourse,
+          codesRejet: decision.codes_rejet ?? [],
+          plafondRestantApres: decision.plafond_restant_apres,
+          dureeTraitementMs: decision.duree_traitement_ms,
+        },
+      );
+    });
+
+    const reclamation = await this.chargerReclamation(ctx, reclamationId);
+    return { reclamation, adjudication: decision };
+  }
+
+  private async traiterEchecAdjudication(
+    ctx: ContexteAppelant,
+    reclamationId: string,
+    err: unknown,
+  ): Promise<HttpException> {
+    const detail =
+      err instanceof AdjudicationRefusError
+        ? `HTTP ${err.statut} — ${err.corps}`
+        : err instanceof Error
+          ? err.message
+          : String(err);
+
+    // Le microservice a-t-il quand même abouti (réponse HTTP perdue après commit) ?
+    const actuelle = await this.prisma.reclamation.findUnique({
+      where: { id: reclamationId },
+    });
+    if (actuelle && actuelle.statut !== 'EN_ADJUDICATION') {
+      await this.audit(
+        this.prisma,
+        ctx.userId,
+        'ADJUDICATION_REPONSE_PERDUE',
+        reclamationId,
+        { erreur: detail, statutConstate: actuelle.statut },
+      );
+      return new ServiceUnavailableException(
+        `L'appel d'adjudication a échoué (${detail}), mais la réclamation est déjà « ${actuelle.statut} » — vérifiez le remboursement avant de relancer.`,
+      );
+    }
+
+    // Échec franc : retour à SOUMISE pour une nouvelle tentative.
+    const { count } = await this.prisma.reclamation.updateMany({
+      where: { id: reclamationId, statut: 'EN_ADJUDICATION', deletedAt: null },
+      data: { statut: 'SOUMISE', codesRejet: ['ADJ_ECHEC'] },
+    });
+    await this.audit(
+      this.prisma,
+      ctx.userId,
+      'ECHEC_ADJUDICATION',
+      reclamationId,
+      { erreur: detail, remiseASoumise: count === 1 },
+    );
+    this.logger.error(
+      `Adjudication réclamation ${reclamationId} : ${detail} — remise à SOUMISE (${count} ligne).`,
+    );
+
+    return err instanceof AdjudicationInjoignableError
+      ? new ServiceUnavailableException(
+          `Service d'adjudication indisponible : ${detail}. Réclamation remise à « SOUMISE » pour une nouvelle tentative.`,
+        )
+      : new BadGatewayException(
+          `Le service d'adjudication a renvoyé une erreur : ${detail}. Réclamation remise à « SOUMISE » pour une nouvelle tentative.`,
+        );
   }
 
   async listerReclamations(

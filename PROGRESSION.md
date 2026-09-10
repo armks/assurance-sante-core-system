@@ -1726,3 +1726,68 @@ Edge Function `declencher-adjudication` (verrou `SOUMISE → EN_ADJUDICATION` d�
 - **Outils** : `winget` n'a pas de paquet Apache Maven → copie portable dans
   `~/tools/apache-maven-3.9.9` ; `Python.Python.3.12` + `git-filter-repo` installés pour la
   réécriture d'historique.
+
+## 2026-09-10 — PROMPT 24 (partie 3 / 3) — `claims/` ↔ microservice Java branchés → 🎯 FIN COMPLÈTE DE LA PHASE 7
+
+Le module `claims/` (NestJS) appelle désormais `adjudication-service` (Java) après le
+verrouillage. Boucle d'adjudication complète, testée les deux services tournant ensemble.
+
+### `apps/api/src/claims/`
+- **`AdjudicationClientService`** (nouveau) : client HTTP vers le microservice.
+  - Signe chaque requête d'un **JWT de service HS256** (`SERVICE_JWT_SECRET`, partagé via
+    variables d'env, aligné sur `adjudication-service/.env` — jamais en dur), `exp` 120 s,
+    `crypto` du runtime (aucune lib JWT).
+  - `POST ${ADJUDICATION_SERVICE_URL}/api/v1/adjudication/{reclamationId}/evaluer`, **timeout
+    dur** (`AbortController`, `ADJUDICATION_TIMEOUT_MS`, défaut 12 s).
+  - Erreurs typées : `AdjudicationInjoignableError` (réseau / timeout / secret absent) vs
+    `AdjudicationRefusError` (réponse HTTP 4xx/5xx, corps tronqué).
+- **`ClaimsService.soumettre`** — après le CAS `SOUMISE → EN_ADJUDICATION` :
+  - **succès** : le microservice a déjà posé `reclamations.statut` (grant `UPDATE(statut)`),
+    NestJS complète `codes_rejet`, journalise `ADJUDICATION_<decision>`, et **retourne la
+    décision complète** `{ reclamation, adjudication: { decision, montant_rembourse,
+    codes_rejet, plafond_restant_apres, duree_traitement_ms } }` à l'appelant NestJS ;
+  - **échec explicite** (`traiterEchecAdjudication`) : la réclamation **ne reste jamais
+    bloquée à `EN_ADJUDICATION`** — CAS `EN_ADJUDICATION → SOUMISE` + `codes_rejet =
+    ['ADJ_ECHEC']` (marqueur de reprise), audit `ECHEC_ADJUDICATION` (détail de l'erreur),
+    et l'appelant reçoit **`503`** (injoignable) ou **`502`** (erreur microservice) — jamais
+    un `500` opaque ;
+  - **cas limite** : si le microservice a abouti mais la réponse HTTP s'est perdue
+    (`statut` déjà avancé côté DB) → PAS de retour à `SOUMISE`, audit
+    `ADJUDICATION_REPONSE_PERDUE` + `503` invitant à vérifier le remboursement.
+- `claims.module.ts` : `AdjudicationClientService` ajouté aux providers.
+- `apps/api/.env` : `ADJUDICATION_SERVICE_URL` + `SERVICE_JWT_SECRET` (aligné) ;
+  `apps/api/.env.example` documenté.
+
+### Tests
+- **`jest` API 131/131** (+2) — `claims.service.spec.ts` étendu (`AdjudicationClientService`
+  mocké) : succès applique la décision + retour complet ; `REJETE` persiste `codes_rejet` ;
+  **microservice injoignable → retour `SOUMISE` + `503`** ; erreur HTTP → `SOUMISE` + `502` ;
+  réponse perdue mais réclamation avancée → pas de retour `SOUMISE` ; idempotence (409, pas
+  d'appel microservice) ; rôle non habilité (403, pas d'appel).
+- **Test HTTP réel bout-en-bout — 18/18** (les DEUX services lancés : NestJS `:3001` +
+  `adjudication-service` `:8899`, session `armelk01@yahoo.fr` `ASSUREUR_INFORMATIQUE`,
+  garantie taux 80 % / plafond annuel 500 000) :
+  - **A) nominal** : `POST /claims/reclamations/soumettre {acteDossierId}` → **201**,
+    `reclamation.statut = AUTO_ADJUDIQUE`, `adjudication = { decision: AUTO_ADJUDIQUE,
+    montant_rembourse: 20000 (25000 × 80 %), plafond_restant_apres: 480000,
+    duree_traitement_ms: 74 }` ; en base : `remboursements` (20000.00), audit
+    `SOUMISSION_RECLAMATION` + `ADJUDICATION_AUTO_ADJUDIQUE` (côté NestJS **et** côté Java) ;
+    `GET /claims/reclamations/:id` confirme la persistance ;
+  - **B) microservice Java tué pendant l'appel** → `POST /soumettre` renvoie **`503`**
+    (« Service d'adjudication indisponible : … fetch failed. Réclamation remise à SOUMISE … »),
+    **pas de `500`** ; en base : réclamation `SOUMISE`, `codes_rejet = ['ADJ_ECHEC']`, aucun
+    remboursement, audit `ECHEC_ADJUDICATION` ;
+  - **C) microservice redémarré** → re-soumission du même acte → **201**, `AUTO_ADJUDIQUE`,
+    `montant_rembourse: 14400` (18000 × 80 %), `plafond_restant_apres: 465600`
+    (**= 480000 − 14400** : le cumul annuel par adhérent est bien pris en compte via le
+    verrou pessimiste + `SUM` de l'année côté Java).
+  - Données e2e supprimées ; les deux services arrêtés.
+
+### 🎯 Jalon — Phase 7 (adjudication) terminée
+- `reclamations` + `remboursements` + rôle `svc_adjudication` (grants stricts) — PROMPT 24 §1.
+- `adjudication-service/` (Spring Boot, JWT de service, pipeline `BigDecimal`, une transaction
+  JDBC, `pg_advisory_xact_lock`) — PROMPT 24 §2.
+- **`claims/` ↔ `adjudication-service` branchés, avec gestion d'échec sans blocage** — PROMPT 24 §3.
+
+Backend Phases 1 → 7 complètes. Prochaine étape : Phase 8 (paiements / reversements) ou
+reprise de la séquence des prompts selon `07-sequence-prompts-EXECUTION-v19.md`.

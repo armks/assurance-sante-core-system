@@ -893,3 +893,71 @@ model CodeValidationSuperadmin {
   @@index([statut])
   @@map("codes_validation_superadmin")
 }
+
+/// parametres_plateforme — configuration globale de la plateforme (v1 §10.4,
+/// PROMPT 23). Devises, pays/villes, taux de taxe, langues. Lecture ET écriture
+/// EXCLUSIVEMENT SUPERADMIN_PRINCIPAL. prisma/sql/017.
+model ParametrePlateforme {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cle         String   @unique
+  valeur      Json
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("parametres_plateforme")
+}
+
+/// referentiel_national_actes — catalogue national partagé des actes (v1 §10.4,
+/// PROMPT 23). Mêmes colonnes que `referentiel_actes` SANS organisation_id.
+/// Maintenu EXCLUSIVEMENT par SUPERADMIN_PRINCIPAL ; ASSUREUR_INFORMATIQUE
+/// l'importe vers le référentiel de SON organisation au statut PROPOSE. prisma/sql/017.
+model ReferentielNationalActe {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                String    @unique
+  libelle             String
+  categorie           String?
+  versionNomenclature String?   @map("version_nomenclature")
+  statut              String    @default("HOMOLOGUE") // PROPOSE | HOMOLOGUE | SUSPENDU | RETIRE
+  homologuePar        String?   @map("homologue_par") @db.Uuid
+  dateHomologation    DateTime? @map("date_homologation") @db.Timestamptz(6)
+  dateRetrait         DateTime? @map("date_retrait") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([statut])
+  @@map("referentiel_national_actes")
+}
+
+/// referentiel_national_medicaments — catalogue national partagé des médicaments
+/// (v1 §10.4, PROMPT 23). Mêmes colonnes que `medicaments` SANS organisation_id.
+model ReferentielNationalMedicament {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  denominationCommune   String    @map("denomination_commune")
+  nomCommercial         String?   @map("nom_commercial")
+  codeEan               String?   @map("code_ean")
+  forme                 String?
+  dosage                String?
+  conditionnement       String?
+  classeTherapeutique   String?   @map("classe_therapeutique")
+  remboursable          Boolean   @default(false)
+  tauxRemboursementStd  Decimal?  @map("taux_remboursement_std") @db.Decimal(5, 2)
+  prixReferenceXof      Decimal?  @map("prix_reference_xof") @db.Decimal(14, 2)
+  prixMaxRemboursable   Decimal?  @map("prix_max_remboursable") @db.Decimal(14, 2)
+  medicamentEssentiel   Boolean   @default(false) @map("medicament_essentiel")
+  generiqueDisponible   Boolean?  @map("generique_disponible")
+  ordonnanceObligatoire Boolean   @default(true) @map("ordonnance_obligatoire")
+  medicamentControle    Boolean   @default(false) @map("medicament_controle")
+  usage                 String?
+  statutHomologation    String    @default("HOMOLOGUE") @map("statut_homologation")
+  homologuePar          String?   @map("homologue_par") @db.Uuid
+  dateHomologation      DateTime? @map("date_homologation") @db.Timestamptz(6)
+  dateRetrait           DateTime? @map("date_retrait") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([statutHomologation])
+  @@map("referentiel_national_medicaments")
+}

@@ -41,6 +41,8 @@ describe('ReferenceService — gouvernance d’homologation', () => {
         findMany: jest.fn(),
         update: jest.fn(),
       },
+      referentielNationalActe: { findFirst: jest.fn(), findMany: jest.fn() },
+      referentielNationalMedicament: { findFirst: jest.fn(), findMany: jest.fn() },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -172,5 +174,57 @@ describe('ReferenceService — gouvernance d’homologation', () => {
     await expect(
       service.proposerActe(USER, { code: 'C1', libelle: 'Consultation' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // --- Catalogue national partagé (PROMPT 23) --------------------
+
+  it('import catalogue national : ASSUREUR_INFORMATIQUE → copie au statut PROPOSE', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.referentielNationalActe.findFirst.mockResolvedValue({
+      id: 'nat1',
+      code: 'CI-CONS-GEN',
+      libelle: 'Consultation générale',
+      categorie: 'CONSULTATION',
+      versionNomenclature: 'CI-2026',
+      statut: 'HOMOLOGUE',
+    });
+    prisma.referentielActe.findFirst
+      .mockResolvedValueOnce(null) // pas déjà dans l'org
+      .mockResolvedValueOnce({ id: 'a-new', organisationId: 'org-1', code: 'CI-CONS-GEN', statut: 'PROPOSE' }); // chargerActe
+    prisma.referentielActe.findUnique.mockResolvedValue(null); // code libre
+    prisma.referentielActe.create.mockResolvedValue({ id: 'a-new' });
+
+    const res = await service.importerActeDepuisCatalogueNational(USER, 'nat1');
+
+    expect(prisma.referentielActe.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organisationId: 'org-1',
+        code: 'CI-CONS-GEN',
+        statut: 'PROPOSE',
+      }),
+    });
+    expect(res.statut).toBe('PROPOSE');
+  });
+
+  it('import catalogue national : refusé si le rôle n’est pas ASSUREUR_INFORMATIQUE (403)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+    await expect(
+      service.importerActeDepuisCatalogueNational(USER, 'nat1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.referentielNationalActe.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('import catalogue national : 409 si l’acte est déjà dans le référentiel de l’org', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.referentielNationalActe.findFirst.mockResolvedValue({
+      id: 'nat1', code: 'CI-CONS-GEN', libelle: 'X',
+    });
+    prisma.referentielActe.findFirst.mockResolvedValueOnce({
+      id: 'deja', organisationId: 'org-1', code: 'CI-CONS-GEN', statut: 'HOMOLOGUE',
+    });
+    await expect(
+      service.importerActeDepuisCatalogueNational(USER, 'nat1'),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.referentielActe.create).not.toHaveBeenCalled();
   });
 });

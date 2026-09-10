@@ -2,7 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Building2, ShieldCheck } from 'lucide-react';
+import {
+  Activity,
+  Building2,
+  Library,
+  ShieldCheck,
+  SlidersHorizontal,
+} from 'lucide-react';
 
 import { Brand } from '@/components/brand';
 import { LogoutButton } from '@/components/logout-button';
@@ -11,6 +17,13 @@ import { cn } from '@/lib/utils';
 
 const NAV = [
   { label: 'Sociétés', href: '/superadmin/societes', icon: Building2 },
+  { label: 'Santé système', href: '/superadmin/sante-systeme', icon: Activity },
+  { label: 'Paramètres', href: '/superadmin/parametres', icon: SlidersHorizontal },
+  {
+    label: 'Catalogue national',
+    href: '/superadmin/catalogue-national',
+    icon: Library,
+  },
 ];
 
 export function SuperadminShell({

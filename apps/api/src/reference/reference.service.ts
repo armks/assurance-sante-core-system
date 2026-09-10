@@ -362,6 +362,163 @@ export class ReferenceService {
     return this.chargerMedicament(ctx.organisationId, id);
   }
 
+  // --- Catalogue national partagé (v1 §10.4, PROMPT 23) ---------
+
+  /**
+   * Import d'un acte du catalogue national vers le référentiel de l'organisation
+   * de l'appelant, AU STATUT PROPOSE. Réservé à ASSUREUR_INFORMATIQUE — la règle
+   * d'homologation reste inchangée : seul ASSUREUR_MEDECIN_CONSEIL de cette
+   * organisation pourra ensuite l'homologuer.
+   */
+  async importerActeDepuisCatalogueNational(
+    user: AuthenticatedUser,
+    itemId: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertRole(ctx, ROLE_PROPOSITION, 'importer un acte du catalogue national');
+
+    const national = await this.prisma.referentielNationalActe.findFirst({
+      where: { id: itemId, deletedAt: null },
+    });
+    if (!national) {
+      throw new NotFoundException('Acte introuvable dans le catalogue national.');
+    }
+    const existe = await this.prisma.referentielActe.findFirst({
+      where: { organisationId: ctx.organisationId, code: national.code, deletedAt: null },
+    });
+    if (existe) {
+      throw new ConflictException(
+        `L'acte « ${national.code} » est déjà présent dans votre référentiel (statut ${existe.statut}).`,
+      );
+    }
+    // contrainte UNIQUE globale sur referentiel_actes.code
+    await this.assertCodeActeLibre(national.code);
+
+    const id = await this.prisma.$transaction(async (tx) => {
+      const acte = await tx.referentielActe.create({
+        data: {
+          organisationId: ctx.organisationId,
+          code: national.code,
+          libelle: national.libelle,
+          categorie: national.categorie,
+          versionNomenclature: national.versionNomenclature,
+          statut: 'PROPOSE',
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'IMPORT_ACTE_CATALOGUE_NATIONAL',
+        acte.id,
+        { code: national.code, catalogueNationalId: national.id },
+        'referentiel_actes',
+      );
+      return acte.id;
+    });
+    return this.chargerActe(ctx.organisationId, id);
+  }
+
+  /** Import d'un médicament du catalogue national → référentiel de l'organisation, statut PROPOSE. */
+  async importerMedicamentDepuisCatalogueNational(
+    user: AuthenticatedUser,
+    itemId: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertRole(
+      ctx,
+      ROLE_PROPOSITION,
+      'importer un médicament du catalogue national',
+    );
+
+    const national = await this.prisma.referentielNationalMedicament.findFirst({
+      where: { id: itemId, deletedAt: null },
+    });
+    if (!national) {
+      throw new NotFoundException(
+        'Médicament introuvable dans le catalogue national.',
+      );
+    }
+    const existe = await this.prisma.medicament.findFirst({
+      where: {
+        organisationId: ctx.organisationId,
+        denominationCommune: national.denominationCommune,
+        dosage: national.dosage,
+        deletedAt: null,
+      },
+    });
+    if (existe) {
+      throw new ConflictException(
+        `« ${national.denominationCommune}${national.dosage ? ` ${national.dosage}` : ''} » est déjà présent dans votre référentiel (statut ${existe.statutHomologation}).`,
+      );
+    }
+
+    const id = await this.prisma.$transaction(async (tx) => {
+      const m = await tx.medicament.create({
+        data: {
+          organisationId: ctx.organisationId,
+          denominationCommune: national.denominationCommune,
+          nomCommercial: national.nomCommercial,
+          codeEan: national.codeEan,
+          forme: national.forme,
+          dosage: national.dosage,
+          conditionnement: national.conditionnement,
+          classeTherapeutique: national.classeTherapeutique,
+          remboursable: national.remboursable,
+          tauxRemboursementStd: national.tauxRemboursementStd,
+          prixReferenceXof: national.prixReferenceXof,
+          prixMaxRemboursable: national.prixMaxRemboursable,
+          medicamentEssentiel: national.medicamentEssentiel,
+          generiqueDisponible: national.generiqueDisponible,
+          ordonnanceObligatoire: national.ordonnanceObligatoire,
+          medicamentControle: national.medicamentControle,
+          usage: national.usage,
+          statutHomologation: 'PROPOSE',
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'IMPORT_MEDICAMENT_CATALOGUE_NATIONAL',
+        m.id,
+        {
+          dci: national.denominationCommune,
+          catalogueNationalId: national.id,
+        },
+        'medicaments',
+      );
+      return m.id;
+    });
+    return this.chargerMedicament(ctx.organisationId, id);
+  }
+
+  async listerCatalogueNationalActes(
+    user: AuthenticatedUser,
+    filtres: { statut?: string } = {},
+  ) {
+    await this.contexteAppelant(user); // exige un profil rattaché à une organisation
+    return this.prisma.referentielNationalActe.findMany({
+      where: {
+        deletedAt: null,
+        ...(filtres.statut ? { statut: filtres.statut } : {}),
+      },
+      orderBy: [{ categorie: 'asc' }, { libelle: 'asc' }],
+    });
+  }
+
+  async listerCatalogueNationalMedicaments(
+    user: AuthenticatedUser,
+    filtres: { statut?: string } = {},
+  ) {
+    await this.contexteAppelant(user);
+    return this.prisma.referentielNationalMedicament.findMany({
+      where: {
+        deletedAt: null,
+        ...(filtres.statut ? { statutHomologation: filtres.statut } : {}),
+      },
+      orderBy: [{ classeTherapeutique: 'asc' }, { denominationCommune: 'asc' }],
+    });
+  }
+
   // --- Gardes / helpers ----------------------------------------
 
   private async contexteAppelant(

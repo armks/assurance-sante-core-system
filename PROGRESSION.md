@@ -1367,3 +1367,70 @@ bâtis sur les mêmes patterns réutilisables (`components/dashboard/patterns/`)
 Prochaine étape : reprendre la séquence des prompts backend (Phase 7+) — les écrans des
 autres rôles (médecin-conseil, pharmacien-conseil, établissements, pharmacies) et
 dashboards restants seront traités au fil des besoins.
+
+## 2026-09-10 — PROMPT 23 — Panneau de configuration Super Admin (paramètres, santé système, catalogue national)
+
+*(Entrée distincte du jalon Phase 2 ci-dessus — nouvelle étape après le bloc de rattrapage frontend.)*
+
+### 1. `parametres_plateforme` (v1 §10.4)
+- Table `parametres_plateforme (id, cle unique, valeur jsonb, description, created_at, updated_at)` —
+  `prisma/sql/017_prompt23_superadmin_config.sql`. Modèle Prisma `ParametrePlateforme`.
+- **RLS `parametres_plateforme_superadmin_only` — `for all`, lecture ET écriture
+  EXCLUSIVEMENT `SUPERADMIN_PRINCIPAL`.**
+- Seed : `devises_supportees`, `pays_villes`, `taux_taxe_par_pays`, `langues`.
+- Endpoints (`SuperadminConfigController`, `@Controller('superadmin')`) : `GET config/parametres`,
+  `GET config/parametres/:cle`, `PUT config/parametres/:cle` (`{ valeur, description? }`, upsert).
+  `SuperadminConfigService.assertSuperadmin` double la RLS (défense en profondeur).
+
+### 2. Tableau de bord santé du système
+- `GET /superadmin/sante-systeme` → `{ genereLe, resume, organisations[] }`.
+  - `resume` : `totalOrganisations`, `totalAdherentsRattaches`, `organisationsQuotaDepasse`,
+    `parStatutOrganisation` (depuis `organisations.statut`),
+    `parStatutLicence` (depuis `licences_organisation.statut`, + `SANS_LICENCE`).
+  - par organisation : `adherentsRattaches` (`profils` avec `adherent_id` non nul —
+    aucune table `adherents` n'existe encore, c'est la métrique disponible),
+    `limiteAdherents` (licence), `tauxUtilisationAdherents`, `quotaDepasse`,
+    `derniereActivite` (`max(audit_log.created_at)` par org).
+- Page `/superadmin/sante-systeme` : `GrilleCartes` + 2 cartes de répartition (`StatutBadge`) +
+  `DataTable` (organisation, statut, licence, **adhérents / limite** en rouge si dépassé, échéance,
+  dernière activité).
+
+### 3. Catalogue national partagé (v1 §10.4)
+- Tables `referentiel_national_actes` / `referentiel_national_medicaments` — **mêmes colonnes que
+  `referentiel_actes` / `medicaments` SANS `organisation_id`** ; modèles `ReferentielNationalActe`,
+  `ReferentielNationalMedicament`.
+- **RLS** : lecture `to authenticated using (true)` (catalogue consulté avant import) ;
+  écriture `for all` EXCLUSIVEMENT `SUPERADMIN_PRINCIPAL`.
+- Maintenance (superadmin) : `GET/POST/DELETE /superadmin/catalogue-national/{actes,medicaments}`
+  (`SuperadminConfigService`). Seed : 8 actes + 6 médicaments (statut HOMOLOGUE = validés nationalement).
+- **Import (`reference/`, réservé à `ASSUREUR_INFORMATIQUE`)** :
+  - `GET /reference/catalogue-national/{actes,medicaments}` — lecture par tout membre d'une org ;
+  - `POST /reference/catalogue-national/actes/:itemId/importer` (+ `.../medicaments/...`) →
+    `ReferenceService.importerActeDepuisCatalogueNational` : copie vers `referentiel_actes` de
+    **l'organisation de l'appelant AU STATUT `PROPOSE`**, audit `IMPORT_ACTE_CATALOGUE_NATIONAL`.
+    409 si déjà présent dans l'org. **La règle d'homologation est INCHANGÉE** : seuls
+    `ASSUREUR_MEDECIN_CONSEIL` / `ASSUREUR_PHARMACIEN_CONSEIL` de cette organisation peuvent
+    ensuite homologuer (le rôle `SUPERADMIN_PRINCIPAL` n'est dans aucune liste d'homologation).
+- Page `/superadmin/catalogue-national` : `GrilleCartes` + 2 `DataTable` (actes / médicaments),
+  `FormulaireModal` d'ajout, action « Retirer ». Nav `SuperadminShell` étendue :
+  Sociétés · **Santé système** · **Paramètres** · **Catalogue national**.
+
+### Tests
+- **`jest` API 124/124** (+8) : `superadmin-config.service.spec.ts` (403 non-superadmin sur
+  paramètres / catalogue, agrégation santé-système + quota dépassé, statut national par défaut
+  HOMOLOGUE) ; `reference.service.spec.ts` (import → statut `PROPOSE`, 403 hors
+  `ASSUREUR_INFORMATIQUE`, 409 si déjà importé).
+- **Test HTTP réel — 21/21** (serveurs prod ; comptes `armelk01+superadmin@gmail.com`
+  `SUPERADMIN_PRINCIPAL` + `armelk01@yahoo.fr` `ASSUREUR_INFORMATIQUE`) :
+  - un `ASSUREUR_INFORMATIQUE` sur `parametres_plateforme` → **403** en lecture ET écriture ;
+  - le superadmin modifie `langues` (valeur restaurée ensuite) ;
+  - `GET /superadmin/sante-systeme` → résumé + lignes (adhérents rattachés, dernière activité) ;
+    `ASSUREUR_INFORMATIQUE` sur cette route → **403** ;
+  - `ASSUREUR_INFORMATIQUE` importe un acte national (`CI-GLYC`) → **statut `PROPOSE`, pas
+    `HOMOLOGUE`**, copié dans son org ; réimport → **409** ;
+  - **[faille] le superadmin tente `POST /reference/actes/:id/homologuer` sur l'item de
+    l'organisation → 403** (« Ce compte n'est rattaché à aucune organisation » ; et le rôle
+    `SUPERADMIN_PRINCIPAL` n'ouvre aucune homologation) — la faille n'existe pas ;
+  - les 3 pages `/superadmin/{parametres,sante-systeme,catalogue-national}` rendent en 200.
+- **Vérifs** : `next build --webpack` ✅ (30 routes) ; `jest` API **124/124**.
+  Données de test e2e supprimées (1 acte importé) ; `langues` restauré ; serveurs arrêtés.

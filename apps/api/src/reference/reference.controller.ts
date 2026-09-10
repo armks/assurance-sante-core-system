@@ -30,6 +30,40 @@ import { ReferenceService } from './reference.service';
 export class ReferenceController {
   constructor(private readonly reference: ReferenceService) {}
 
+  // --- Catalogue national partagé (v1 §10.4, PROMPT 23) --------
+
+  @Get('catalogue-national/actes')
+  listerCatalogueNationalActes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('statut') statut?: string,
+  ) {
+    return this.reference.listerCatalogueNationalActes(user, { statut });
+  }
+
+  @Get('catalogue-national/medicaments')
+  listerCatalogueNationalMedicaments(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('statut') statut?: string,
+  ) {
+    return this.reference.listerCatalogueNationalMedicaments(user, { statut });
+  }
+
+  @Post('catalogue-national/actes/:itemId/importer')
+  importerActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+  ) {
+    return this.reference.importerActeDepuisCatalogueNational(user, itemId);
+  }
+
+  @Post('catalogue-national/medicaments/:itemId/importer')
+  importerMedicament(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+  ) {
+    return this.reference.importerMedicamentDepuisCatalogueNational(user, itemId);
+  }
+
   // --- Actes ---------------------------------------------------
 
   @Post('actes')

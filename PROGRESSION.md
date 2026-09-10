@@ -1313,3 +1313,57 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   page idem ; réactivation → ACTIVE.
 - **Vérifs** : `next build --webpack` ✅ (27 routes) ; `jest` API **116/116**.
   Données de test e2e supprimées (1 police + 1 avenant) ; serveurs arrêtés.
+
+## 2026-09-10 — Frontend : écran Cotisations → 🎯 FIN DU BLOC DE RATTRAPAGE FRONTEND PHASE 2
+
+- **API — `billing/`, includes de lecture** (aucun nouvel endpoint, la logique était en place) :
+  - `BillingService.listerCotisations` inclut `police { numeroPolice, souscripteur {nom,type}, produit {nom} }` ;
+  - `BillingService.listerGrilles` inclut `produit {nom,version}` et `souscripteur {nom,type}`.
+  - `jest` API inchangé **116/116**.
+- **`/dashboard-assureur/informatique/cotisations`** — `CotisationsEcran` (client) :
+  - `GrilleCartes` (total, à payer, en retard, **reste à encaisser** = Σ dû − payé) ;
+  - `DataTable` des cotisations (police + souscripteur, période `MM/YYYY`, montant dû,
+    montant payé, `StatutBadge` A_PAYER/PAYEE/EN_RETARD/ANNULEE, échéance), **filtre par
+    statut ET par période** (périodes distinctes calculées depuis les données) ;
+  - bouton **« Calculer une cotisation »** (`FormulaireModal`) : police ACTIVE + période +
+    âge + id adhérent, bouton **« Calculer le tarif »** → appelle
+    `POST /billing/cotisations/calculer` et **affiche le détail avant génération**
+    (badge source **NÉGOCIÉ / STANDARD**, tarif de base, **part membre %** si collectivité
+    subventionnée, montant dû) ; la soumission génère réellement la ligne via
+    `POST /billing/polices/:id/cotisations` ;
+  - action de ligne **« Enregistrer un paiement »** sur les cotisations `A_PAYER` /
+    `EN_RETARD` uniquement (`FormulaireModal` montant, pré-rempli au reste dû) →
+    `POST /billing/cotisations/:id/paiement` ; le statut se met à jour via `router.refresh()` ;
+  - section **« Grilles tarifaires »** : `DataTable` (produit·version, type
+    **Standard / Négocié**, souscripteur, tranche d'âge, montant mensuel) + filtre type +
+    **« Nouvelle grille négociée »** (`FormulaireModal` : produit, souscripteur *requis*,
+    tranche d'âge, montant) → `POST /billing/grilles-tarifaires`.
+- Server actions (`cotisations/actions.ts`) : `calculerCotisation`, `genererCotisation`,
+  `enregistrerPaiement`, `creerGrille` (`2026-05` du champ `month` → `2026-05-01` pour l'API).
+  Type `Calcul` isolé dans `cotisations/types.ts`.
+- **Test navigateur réel — 22/22** (serveurs prod, session `armelk01@yahoo.fr`) :
+  calcul sur Mutuelle de Bouaké → **STANDARD** 12 000 F, part membre 60 % → dû 7 200 F ;
+  création d'une **grille négociée** 8 000 F pour ce souscripteur ; **recalcul → NÉGOCIÉ**
+  8 000 F → dû 4 800 F (le négocié prime) ; génération réelle → ligne `A_PAYER` 4 800 F ;
+  **paiement partiel 2 000 F → reste `A_PAYER`** ; **complément 2 800 F → `PAYEE`**
+  (statut ne bascule qu'au règlement complet) ; page : cotisation + souscripteur rendus,
+  montants formatés, section grilles Standard + Négocié, plus d'action de paiement sur une
+  cotisation `PAYEE`.
+- **Vérifs** : `next build --webpack` ✅ (27 routes) ; `jest` API **116/116**.
+  Données de test e2e supprimées (1 cotisation + 1 grille négociée) ; serveurs arrêtés.
+
+### 🎯 Jalon — rattrapage frontend Phase 2 terminé
+
+Les 4 écrans de gestion de la Phase 2 sont livrés et testés en navigateur réel, tous
+bâtis sur les mêmes patterns réutilisables (`components/dashboard/patterns/`) :
+
+| Écran | Module API | Points clés |
+|---|---|---|
+| **Souscripteurs** | `tenant/` | champs dynamiques par type ; comité de gestion des COLLECTIVITE |
+| **Produits** | `plan/` | cycle de vie versionné ; lecture seule après publication |
+| **Polices** | `policy/` | boutons de transition **calculés par l'API** (`/actions`) ; avenants proratisés |
+| **Cotisations** | `billing/` | tarif NÉGOCIÉ > STANDARD ; part membre ; paiement partiel/complet ; grilles |
+
+Prochaine étape : reprendre la séquence des prompts backend (Phase 7+) — les écrans des
+autres rôles (médecin-conseil, pharmacien-conseil, établissements, pharmacies) et
+dashboards restants seront traités au fil des besoins.

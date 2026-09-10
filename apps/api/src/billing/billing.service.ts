@@ -150,6 +150,10 @@ export class BillingService {
           : {}),
       },
       orderBy: [{ produitId: 'asc' }, { trancheAgeMin: 'asc' }],
+      include: {
+        produit: { select: { nom: true, version: true } },
+        souscripteur: { select: { nom: true, type: true } },
+      },
     });
   }
 
@@ -329,6 +333,15 @@ export class BillingService {
         ...(filtres.policeId ? { policeId: filtres.policeId } : {}),
       },
       orderBy: { dateEcheance: 'asc' },
+      include: {
+        police: {
+          select: {
+            numeroPolice: true,
+            souscripteur: { select: { nom: true, type: true } },
+            produit: { select: { nom: true } },
+          },
+        },
+      },
     });
   }
 

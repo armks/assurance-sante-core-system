@@ -6,3 +6,8 @@ target/
 *.iml
 .vscode/
 *.log
+
+# configuration locale avec secrets — JAMAIS versionnée
+.env
+.env.local
+run-local.sh

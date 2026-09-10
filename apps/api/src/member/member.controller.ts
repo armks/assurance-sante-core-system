@@ -15,6 +15,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { AdherentService } from './adherent.service';
+import { MemberCarteService } from './carte.service';
 import {
   ChangerStatutDto,
   CreateAdherentDto,
@@ -32,7 +33,10 @@ import {
 @Controller('member')
 @UseGuards(SupabaseAuthGuard)
 export class MemberController {
-  constructor(private readonly adherents: AdherentService) {}
+  constructor(
+    private readonly adherents: AdherentService,
+    private readonly cartes: MemberCarteService,
+  ) {}
 
   // --- Adhérents ---------------------------------------------------
 
@@ -89,6 +93,24 @@ export class MemberController {
     return this.adherents.supprimerAdherent(user, id);
   }
 
+  // --- Cartes de membre (PROMPT 13) -----------------------------
+
+  @Post('adherents/:id/carte')
+  genererCarteAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.cartes.genererCarteAdherent(user, id);
+  }
+
+  @Post('souscripteurs/:souscripteurId/cartes')
+  genererCartesSouscripteur(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+  ) {
+    return this.cartes.genererCartesSouscripteur(user, souscripteurId);
+  }
+
   // --- Bénéficiaires ----------------------------------------------
 
   @Post('adherents/:id/beneficiaires')
@@ -131,6 +153,15 @@ export class MemberController {
       beneficiaireId,
       dto,
     );
+  }
+
+  @Post('adherents/:id/beneficiaires/:beneficiaireId/carte')
+  genererCarteBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+  ) {
+    return this.cartes.genererCarteBeneficiaire(user, id, beneficiaireId);
   }
 
   @Delete('adherents/:id/beneficiaires/:beneficiaireId')

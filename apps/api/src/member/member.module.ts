@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
 import { AdherentService } from './adherent.service';
+import { MemberCarteService } from './carte.service';
 import { MemberController } from './member.controller';
 
 /**
@@ -15,7 +16,7 @@ import { MemberController } from './member.controller';
 @Module({
   imports: [IdentityModule],
   controllers: [MemberController],
-  providers: [AdherentService],
+  providers: [AdherentService, MemberCarteService],
   exports: [AdherentService],
 })
 export class MemberModule {}

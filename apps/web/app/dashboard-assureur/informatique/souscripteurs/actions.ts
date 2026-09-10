@@ -46,6 +46,29 @@ export async function ajouterMembreComite(
   return { ok: true, message: 'Membre ajouté au comité.' };
 }
 
+/**
+ * Génère (PDF multi-pages) les cartes de tous les adhérents ACTIFS d'un
+ * souscripteur et renvoie une URL signée temporaire vers le fichier.
+ */
+export async function genererCartesSouscripteur(
+  souscripteurId: string,
+): Promise<
+  | { ok: true; url: string; nombreCartes: number; expiresIn: number }
+  | { ok: false; error: string }
+> {
+  const res = await apiFetch(
+    `/api/v1/member/souscripteurs/${souscripteurId}/cartes`,
+    { method: 'POST' },
+  );
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const body = (await res.json()) as {
+    url: string;
+    nombreCartes: number;
+    expiresIn: number;
+  };
+  return { ok: true, ...body };
+}
+
 /** Retire un membre du comité (clôture de mandat). */
 export async function retirerMembreComite(
   souscripteurId: string,

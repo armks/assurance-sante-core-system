@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
+import { CartesSouscripteur } from '@/components/dashboard/cartes-souscripteur';
 import { ComiteGestion } from '@/components/dashboard/comite-gestion';
 import { PageTitre } from '@/components/page-titre';
 import { StatutBadge } from '@/components/dashboard/patterns';
@@ -131,6 +132,8 @@ export default async function SouscripteurDetail({
           comptes={comptes}
         />
       )}
+
+      <CartesSouscripteur souscripteurId={s.id} />
     </div>
   );
 }

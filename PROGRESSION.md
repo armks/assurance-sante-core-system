@@ -1915,7 +1915,67 @@ bruts) en vraies clés étrangères.
   - Données e2e supprimées, compte éphémère supprimé, serveurs arrêtés. Base : 3 adhérents
     de réconciliation conservés (ils portent des données de test réelles désormais).
 
-### 🎯 Jalon — Phase 3 (partie adhérents/bénéficiaires) : module `member` livré
-- Reste de la Phase 3 : PROMPT 13 (génération de cartes de membre — le n° de carte existe
-  déjà, il manque le document/QR). Écrans frontend member non couverts (hors périmètre de ce
-  prompt backend).
+### Jalon partiel — module `member` livré (adhérents/bénéficiaires)
+
+## 2026-09-10 — PROMPT 13 : cartes de membre (PDF + QR + Storage) — FIN DE LA PHASE 3
+
+### Choix d'architecture : endpoint NestJS, pas d'Edge Function
+La génération réutilise le RBAC du module `member/` (`ROLES_GESTION_MEMBRE` +
+`SOCIETE_ADMINISTRATION`), `IdentityService`, la chaîne de rôles et `log_audit()` — tout
+côté NestJS. Une Edge Function Deno dupliquerait ce socle. Documenté dans le service.
+
+### Base — `prisma/sql/023`
+- Bucket Storage **privé** `cartes` (`storage.buckets`, `public=false`, mime `application/pdf`,
+  limite 25 Mio). Aucune policy sur `storage.objects` pour ce bucket → inaccessible en
+  anon/authenticated ; seul `service_role` (côté NestJS) y écrit et signe des URL.
+
+### `apps/api/src/member/carte.service.ts` — `MemberCarteService`
+- `pdf-lib` (pur JS, pas de binaire natif → compatible SAC) + `qrcode` pour le QR PNG.
+- Une page/carte : bandeau organisation, nom complet, qualité (titulaire / ayant droit +
+  lien + titulaire), **n° de carte**, **formule** (`produit nom + version` de la police),
+  **date de validité** (`police.dateFin`), **QR encodant le `numero_carte`**, n° d'adhérent.
+- Téléversement via l'API Storage REST (`fetch`, clé `service_role`, `x-upsert`), puis
+  **URL signée** (`/object/sign/cartes/…`, TTL `CARTE_URL_TTL_SECONDS`, défaut 3600 s).
+- Endpoints (`MemberController`) :
+  `POST /member/adherents/:id/carte`,
+  `POST /member/adherents/:id/beneficiaires/:beneficiaireId/carte`,
+  `POST /member/souscripteurs/:souscripteurId/cartes` (**lot** : 1 PDF multi-pages, tous
+  les adhérents `ACTIF` du souscripteur ; `SUSPENDU`/`RADIE` exclus).
+- Réponses : `{ url, expiresIn, chemin, numeroCarte, qrCode(data-url) }` (unitaire) /
+  `{ url, expiresIn, chemin, nombreCartes }` (lot). Audit `GENERATION_CARTE_*` /
+  `GENERATION_CARTES_LOT`.
+- `.env.example` : `CARTE_URL_TTL_SECONDS` documenté.
+
+### Frontend — `apps/web`
+- `components/dashboard/cartes-souscripteur.tsx` (`'use client'`) : carte « Cartes de
+  membre » + bouton **« Générer les cartes »** ; au clic → server action → ouverture du
+  PDF (URL signée) dans un nouvel onglet, message avec le nombre de cartes et la validité.
+- `souscripteurs/actions.ts` : `genererCartesSouscripteur(souscripteurId)`.
+- `souscripteurs/[id]/page.tsx` : `<CartesSouscripteur>` ajouté à la vue détail.
+
+### Tests
+- **jest API 147/147** (+6 : `carte.service.spec` — round-trip QR décodable [`qrEnPng` →
+  `pngjs` + `jsqr`], carte adhérent [PDF `%PDF-`, 2 appels Storage, URL signée, QR =
+  `numero_carte`], lot [PDF multi-pages, `nombreCartes`], lot vide → 404, rôle non habilité
+  → 403 sans appel réseau, carte bénéficiaire [QR = sa propre carte]). `tsc` API + web OK,
+  `nest build` OK.
+- **HTTP réel bout-en-bout** (serveur lancé, compte `ASSUREUR_EXPLOITATION` éphémère,
+  souscripteur ACME = 5 adhérents `ACTIF` + 1 `SUSPENDU`) :
+  - `POST /member/adherents/:id/carte` → URL signée, `content-type: application/pdf`,
+    PDF téléchargé (4,5 Kio) — **QR extrait du PDF et décodé = `CM-0000000007`** (le
+    `numero_carte` de l'adhérent), 1 page ;
+  - carte bénéficiaire → QR extrait du PDF = `CM-0000000010` (sa propre carte) ;
+  - `POST /member/souscripteurs/:id/cartes` → `nombreCartes = 5`, PDF de **5 pages**
+    (l'adhérent `SUSPENDU` bien exclu — 6 adhérents ACME au total), QR de la 1ʳᵉ page
+    décodable.
+  - Objets Storage de test supprimés (via l'API Storage `service_role`), adhérents/
+    bénéficiaire/comptes éphémères supprimés, serveur arrêté. Base : 3 adhérents de
+    réconciliation conservés.
+
+### 🎯 Jalon — PHASE 3 (adhérents et cartes) TERMINÉE
+- PROMPT 12 : module `member` (adhérents + bénéficiaires) + 13 FK (dette de l'audit) +
+  contrôle d'éligibilité au parcours de soins sur le statut réel.
+- PROMPT 13 : cartes de membre PDF + QR, stockage privé + URL signée, génération unitaire
+  et en lot, écran de déclenchement.
+- Restent hors Palier 1 / autres phases : PROMPT 15 (géocodage automatique), écrans dédiés
+  par sous-rôle (Phase 12), portail adhérent (Phase 13).

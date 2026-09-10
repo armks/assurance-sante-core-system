@@ -1530,3 +1530,49 @@ Contrôles négatifs : `has_table_privilege('svc_adjudication','reclamations','S
 - Données e2e supprimées (réclamations + chaîne de soins) ; serveur arrêté.
 - **⚠️ Point d'arrêt volontaire** : le microservice Java d'adjudication n'est PAS appelé —
   la connexion (via le rôle `svc_adjudication`) est l'objet du prompt suivant.
+
+### 2026-09-10 — PROMPT 24 (correctif b) — grants `svc_adjudication` : `SELECT` sur `remboursements` + test SQL direct
+
+`prisma/sql/019_prompt24b_grant_remboursements_select.sql`.
+
+- **Ajout `GRANT SELECT (id, reclamation_id, montant_rembourse, created_at) ON public.remboursements`** :
+  - `reclamation_id, montant_rembourse, created_at` → sommer les remboursements de l'année
+    d'un adhérent (jointure `remboursements` × `reclamations.adherent_id`) pour le plafond restant ;
+  - **`id`** → nécessaire pour que `INSERT INTO remboursements (...) VALUES (...) RETURNING id`
+    fonctionne : la clause `RETURNING` est évaluée comme un `SELECT` sur les colonnes renvoyées.
+    **Test SQL direct confirmé** : sans `SELECT` sur `id`, l'INSERT échoue avec
+    `permission denied for table remboursements` ; avec, il passe.
+  - `decision`, `plafond_restant_apres`, `duree_traitement_ms` **non** accordés (le microservice
+    les écrit, il n'a pas à les relire).
+- **Test SQL exécuté EN TANT QUE `svc_adjudication`** (`set local role` après un `grant … to postgres`
+  temporaire — révoqué ensuite ; NB : Supabase auto-attache à `postgres` une adhésion
+  `admin_option` **sans `SET`/`INHERIT`** sur tout rôle qu'il crée, inoffensive et non retirable) :
+
+  | Requête | Résultat |
+  |---|---|
+  | `INSERT INTO remboursements (reclamation_id, montant_rembourse, plafond_restant_apres, decision, duree_traitement_ms) VALUES (…) RETURNING id` | ✅ **OK** (id renvoyé) |
+  | `SELECT sum(montant_rembourse) … JOIN reclamations ON adherent_id …` (somme année) | ✅ OK |
+  | `UPDATE reclamations SET statut = …` | ✅ OK |
+  | `SELECT decision FROM remboursements` | ⛔ refusé (`insufficient_privilege`) — attendu |
+  | `UPDATE reclamations SET montant = …` | ⛔ refusé — attendu |
+
+#### Grants exacts APRÈS correctif (re-vérifiés `has_column_privilege`)
+
+| Objet | Privilège | Colonnes |
+|---|---|---|
+| `schema public` | `USAGE` | — |
+| `public.garanties` | `SELECT` | table *(= « plan de couverture » ; pas de table `plans_couverture` distincte)* |
+| `public.grilles_tarifaires` | `SELECT` | table |
+| `public.referentiel_actes` | `SELECT` | table |
+| `public.medicaments` | `SELECT` | table |
+| `public.polices` | `SELECT` | table |
+| `public.reclamations` | `SELECT` | `id, organisation_id, dossier_soins_id, acte_dossier_id, adherent_id, beneficiaire_id, police_id, garantie_id, montant, type_reclamation, statut, created_at` *(12 — pas `codes_rejet`/`updated_at`/`deleted_at`)* |
+| `public.reclamations` | `UPDATE` | `statut` **uniquement** |
+| `public.remboursements` | `SELECT` | `id, reclamation_id, montant_rembourse, created_at` *(4 — pas `decision`/`plafond_restant_apres`/`duree_traitement_ms`)* |
+| `public.remboursements` | `INSERT` | table *(spec : « INSERT sur remboursements »)* |
+| `public.log_audit(text,text,uuid,uuid,jsonb)` | `EXECUTE` | — |
+
+Contrôles négatifs re-vérifiés : `has_table_privilege('svc_adjudication','reclamations','SELECT')` = **false** ;
+`has_table_privilege('svc_adjudication','remboursements','SELECT'/'UPDATE'/'DELETE')` = **false** ;
+`profils` SELECT = **false** ; `audit_log` INSERT = **false** ; `factures_dossier` SELECT = **false**.
+Tous les autres grants du PROMPT 24 sont inchangés.

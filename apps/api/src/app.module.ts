@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { CareEpisodeModule } from './care-episode/care-episode.module';
+import { ClaimsModule } from './claims/claims.module';
 import { EmailModule } from './email/email.module';
 import { IdentityModule } from './identity/identity.module';
 import { InvitationsModule } from './invitations/invitations.module';
@@ -33,6 +34,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     ReferenceModule,
     CareEpisodeModule,
     PreauthorizationModule,
+    ClaimsModule,
     SuperadminModule,
   ],
 })

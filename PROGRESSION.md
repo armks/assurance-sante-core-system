@@ -1451,3 +1451,82 @@ dashboards restants seront traités au fil des besoins.
   patron d'e2e navigateur réel.
 - `CLAUDE.md` : ligne ajoutée pointant vers ce skill pour toute construction d'écran `apps/web`.
 - Objectif : les prompts d'écran chargent ces conventions automatiquement, sans rappel explicite.
+
+## 2026-09-10 — PROMPT 24 (partie 1 / 2) — Réclamations + rôle technique `svc_adjudication`
+
+*(Réception uniquement. Le microservice Java d'adjudication n'est PAS branché — découpé volontairement, suite au prompt suivant.)*
+
+### Tables (`prisma/sql/018_prompt24_reclamations_svc_adjudication.sql`)
+- **`reclamations`** (`id`, `organisation_id`, `dossier_soins_id` FK, `acte_dossier_id` FK,
+  `adherent_id?`, `beneficiaire_id?`, `police_id` FK, `garantie_id` FK, `montant` num(14,2),
+  `type_reclamation` ∈ {SOIN, PHARMACIE, HOSPITALISATION, OPTIQUE, DENTAIRE, ANALYSES,
+  IMAGERIE, AUTRE}, `statut` ∈ {SOUMISE, EN_ADJUDICATION, AUTO_ADJUDIQUE, REVUE_MANUELLE,
+  REJETE, PAYEE}, `codes_rejet text[]?`, timestamps + `deleted_at`).
+  **Index unique partiel `reclamations_acte_dossier_unique (acte_dossier_id) WHERE deleted_at IS NULL`**
+  → une seule réclamation vivante par acte (base de l'idempotence).
+- **`remboursements`** (`id`, `reclamation_id` FK **unique**, `montant_rembourse`,
+  `plafond_restant_apres?`, `decision`, `duree_traitement_ms?`, `created_at`).
+- Modèles Prisma `Reclamation` (+ `remboursement Remboursement?`) / `Remboursement`.
+- **RLS** : lecture pour le personnel ASSUREUR de l'organisation ; **aucune policy d'écriture
+  `authenticated`** → seuls `postgres` (NestJS, propriétaire) et `svc_adjudication` (BYPASSRLS) écrivent.
+
+### `log_audit` → SECURITY DEFINER
+`alter function public.log_audit(text,text,uuid,uuid,jsonb) security definer` (+ `set search_path = public`).
+La fonction appartient à `postgres` → son corps garde les droits de `postgres` (aucun changement
+pour NestJS), et `svc_adjudication` n'a besoin que d'`EXECUTE` (pas d'`INSERT` sur `audit_log`
+ni de `SELECT` sur `profils`).
+
+### Rôle Postgres `svc_adjudication` — `NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS`
+**Grants exacts (vérifiés via `has_table_privilege` / `has_column_privilege` / `has_function_privilege`)** :
+
+| Objet | Privilège accordé | Vérifié |
+|---|---|---|
+| `schema public` | `USAGE` | ✅ |
+| `public.garanties` | `SELECT` | ✅ *(= « plan de couverture » ; pas de table `plans_couverture` distincte)* |
+| `public.grilles_tarifaires` | `SELECT` | ✅ |
+| `public.referentiel_actes` | `SELECT` | ✅ |
+| `public.medicaments` | `SELECT` | ✅ |
+| `public.polices` | `SELECT` | ✅ |
+| `public.reclamations` | `SELECT` sur **12 colonnes** : `id, organisation_id, dossier_soins_id, acte_dossier_id, adherent_id, beneficiaire_id, police_id, garantie_id, montant, type_reclamation, statut, created_at` | ✅ (`codes_rejet`, `updated_at`, `deleted_at` **non** accordés) |
+| `public.reclamations` | `UPDATE` sur **`statut` uniquement** | ✅ (`UPDATE` sur toute autre colonne refusé) |
+| `public.remboursements` | `INSERT` | ✅ (`SELECT`/`UPDATE`/`DELETE` **non** accordés) |
+| `public.log_audit(text,text,uuid,uuid,jsonb)` | `EXECUTE` | ✅ |
+
+Contrôles négatifs : `has_table_privilege('svc_adjudication','reclamations','SELECT')` = **false**
+(pas de SELECT niveau table), `profils` SELECT = **false**, `audit_log` INSERT = **false**.
+`revoke all … from svc_adjudication` en tête du script pour repartir d'une ardoise vierge.
+
+### Module `apps/api/src/claims/`
+- `ClaimsService.soumettre(user, { acteDossierId, typeReclamation?, garantieId?, montant? })` :
+  1. `assertGestion` — réservé à `ASSUREUR_DIRECTION` / `ASSUREUR_EXPLOITATION` / `ASSUREUR_INFORMATIQUE` ;
+  2. dérive `organisation_id`, `police_id`, `garantie_id` (= `dossier.plan_couverture_id`, sinon
+     `dto.garantieId`), `montant` (= `acte.montant_prescrit × quantité`), `type_reclamation`
+     (mappé depuis `acte.categorie_acte`) depuis l'acte + le dossier ;
+  3. crée la réclamation à `SOUMISE` si elle n'existe pas (une création concurrente perdante
+     tombe sur l'index unique `P2002` → on relit la ligne gagnante) ;
+  4. **verrouille** via un compare-and-swap atomique :
+     `updateMany({ where: { id, statut: 'SOUMISE' }, data: { statut: 'EN_ADJUDICATION' } })` —
+     `count === 0` ⇒ `409` ; réclamation déjà `≠ SOUMISE` ⇒ `409` (« déjà EN_ADJUDICATION… »).
+  - Aucune séquence `SELECT … FOR UPDATE` ni verrou applicatif : la base est l'arbitre.
+- `listerReclamations` / `obtenirReclamation` (scopés org, `include: { remboursement }`).
+- `ClaimsController` : `POST /claims/reclamations/soumettre`, `GET /claims/reclamations?statut=`,
+  `GET /claims/reclamations/:id`. `ClaimsModule` enregistré dans `app.module.ts`.
+
+### Tests
+- **`jest` API 129/129** (+5) : `claims.service.spec.ts` — création `SOUMISE` + verrouillage
+  `EN_ADJUDICATION` ; 2e soumission d'une réclamation déjà `EN_ADJUDICATION` → `Conflict`
+  (pas de 2e `updateMany`) ; CAS concurrent `count = 0` → `Conflict` ; verrouillage d'une
+  réclamation préexistante encore `SOUMISE` ; rôle non habilité → `Forbidden`.
+- **Test HTTP réel — 12/12** (serveur prod ; `armelk01@yahoo.fr` `ASSUREUR_INFORMATIQUE` +
+  `armelk01+adherent@gmail.com`) sur une chaîne semée (étab. + dossier + ticket + 2 actes) :
+  - soumission acte 1 → `201`, `EN_ADJUDICATION`, `montant 15000`, `type SOIN`, org + garantie
+    dérivées du dossier ;
+  - **re-soumission séquentielle du même acte → `409`** (« déjà EN_ADJUDICATION — idempotence ») ;
+  - **double soumission SIMULTANÉE** (`Promise.all`) sur l'acte 2 → codes `[201, 409]`
+    exactement, une seule réclamation créée, message perdant propre
+    (« déjà verrouillée par une soumission concurrente ») ;
+  - `GET` : 2 réclamations `EN_ADJUDICATION`, `remboursement: null` (microservice non branché) ;
+  - un `ADHERENT_TITULAIRE` qui soumet → `403`.
+- Données e2e supprimées (réclamations + chaîne de soins) ; serveur arrêté.
+- **⚠️ Point d'arrêt volontaire** : le microservice Java d'adjudication n'est PAS appelé —
+  la connexion (via le rôle `svc_adjudication`) est l'objet du prompt suivant.

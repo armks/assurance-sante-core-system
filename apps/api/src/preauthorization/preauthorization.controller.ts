@@ -11,6 +11,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { AjouterActeDto } from './dto/acte.dto';
+import { ValiderCodeFacturationDto } from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
   DispensationDto,
@@ -126,5 +127,48 @@ export class PreauthorizationController {
     @Body() dto: AjouterActeDto,
   ) {
     return this.preauth.ajouterActe(user, id, dto);
+  }
+
+  // --- Code de Facturation (v8 §5) — 4e et dernier code anti-fraude ---
+
+  /** Côté ASSUREUR : génère la facture d'un ticket CLÔTURÉ (+ le code, non renvoyé ici). */
+  @Post('tickets-soins/:id/facture')
+  genererFacture(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.genererFacture(user, id);
+  }
+
+  /** Côté ADHÉRENT : ses factures, avec le code de facturation et la synthèse. */
+  @Get('codes-facturation')
+  mesFactures(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerMesFactures(user);
+  }
+
+  /** Côté ADHÉRENT : valide le code de facturation (condition du règlement). */
+  @Post('codes-facturation/valider')
+  validerFacturation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ValiderCodeFacturationDto,
+  ) {
+    return this.preauth.validerCodeFacturation(user, dto);
+  }
+
+  @Get('factures/:id')
+  obtenirFacture(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.obtenirFacture(user, id);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE : confirme le paiement — bloqué si code non validé. */
+  @Post('factures/:id/confirmer-paiement')
+  confirmerPaiement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.confirmerPaiement(user, id);
   }
 }

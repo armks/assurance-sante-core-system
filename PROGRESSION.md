@@ -1001,3 +1001,92 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - **Vérifs** : build API ✅ ; `jest` **96/96** ✅. Données de test du parcours e2e
   supprimées (acte, ticket, dossier, consultation, code, établissement, profil + compte
   Supabase du médecin, invitation) ; serveur arrêté. Aucun changement frontend ce prompt.
+
+## 2026-09-10 — PROMPT 21 — Code de Facturation → 🎯 FIN DE LA PHASE 6 (4 codes anti-fraude)
+- **Supabase** (`prisma/sql/015_prompt21_code_facturation.sql`) :
+  - Table **`factures_dossier`** (v8 §5) : `dossier_soins_id` FK, `ticket_soins_id` FK
+    **unique** (une facture par épisode), `etablissement_id` FK, `adherent_id` /
+    `beneficiaire_id` (dénormalisés, RLS), `montant_total` / `montant_assurance` /
+    `montant_patient` `numeric(14,2)`, `statut` EMISE / EN_VALIDATION / VALIDEE / REGLEE /
+    CONTESTEE, **`code_facturation` unique nullable** (généré seulement quand la facture est
+    prête), **`code_valide_par_patient` bool défaut false**, `date_validation_patient`,
+    `date_reglement` + `regle_par` (traçabilité du règlement). CHECK : validation patient ⟺
+    horodatage.
+  - **Trigger `verifier_facture_reglable()`** — BEFORE UPDATE : interdit **tout** passage à
+    `REGLEE` si `code_valide_par_patient` ≠ true, **même en UPDATE SQL direct**
+    (défense en profondeur, comme `verifier_medecin_traitant` / `verifier_ticket_ouvert`).
+  - RLS : lecture pour l'établissement (sa facture) + l'adhérent concerné + le personnel
+    assureur ; écriture réservée aux rôles ASSUREUR habilités (`profil_a_role`) ; l'adhérent
+    peut mettre à jour SA facture (validation du code).
+- **Prisma** : modèle `FactureDossier` (29 → 30 modèles), `prisma generate`.
+- **apps/api** — `preauthorization/` étendu (choix retenu : les 4 codes anti-fraude dans un
+  seul domaine) :
+  - `genererFacture(user, ticketSoinsId)` : **refuse si le ticket est encore OUVERT** (409) ;
+    calcule `montant_total` = Σ(`acte.montant_prescrit × quantité`) et la répartition
+    assurance / patient depuis les `garanties` du produit (taux de couverture par catégorie
+    d'acte, plafond par acte ; taux 80 % par défaut — *l'adjudication fine viendra Phase 7*) ;
+    émet le `code_facturation` ; **ne renvoie jamais le code** (réponse = les montants).
+    Réservé à `ASSUREUR_EXPLOITATION` / `ASSUREUR_COMPTABLE` / `ASSUREUR_INFORMATIQUE`.
+  - `listerMesFactures(user)` : côté adhérent — ses factures **avec** le code + la synthèse
+    (total, part assurance, reste à charge).
+  - `validerCodeFacturation(user, { code })` : **réservé à l'adhérent concerné** (403 pour
+    l'établissement ou tout autre rôle) — marque `code_valide_par_patient = true`,
+    `date_validation_patient`, statut → VALIDEE.
+  - `confirmerPaiement(user, factureId)` : **réservé à `ASSUREUR_COMPTABLE`** (403 sinon) ;
+    **GARDE BLOQUANTE EXPLICITE dans le service** — `ForbiddenException` si
+    `code_valide_par_patient` est false (s'applique même en contournant le contrôleur) ;
+    statut → REGLEE + `date_reglement` + `regle_par`.
+  - `obtenirFacture` (le code n'est renvoyé qu'à l'adhérent). Routes
+    `POST /api/v1/preauthorization/tickets-soins/:id/facture`,
+    `GET/POST …/codes-facturation[/valider]`, `GET …/factures/:id`,
+    `POST …/factures/:id/confirmer-paiement`.
+  - `preauthorization-facture.service.spec.ts` : **9 cas**, dont **LE test exigé** —
+    `confirmerPaiement` **appelé directement sur le service, AVANT validation du code**, →
+    `ForbiddenException` (message explicite), `factureDossier.update` jamais appelé.
+    Autres : ticket OUVERT → 409 ; montants calculés (25000 → 20000 assurance / 5000
+    patient) ; code non renvoyé ; validation par l'adhérent → true ; validation par
+    l'établissement → 403 ; confirmerPaiement hors ASSUREUR_COMPTABLE → 403 ;
+    confirmerPaiement après validation → REGLEE ; facture déjà REGLEE → 409. → **jest 104/104**.
+- **Test HTTP réel — 13/13** (établissement + médecin + **comptable
+  `armelk01+comptable.<stamp>@gmail.com` (ASSUREUR_COMPTABLE)**, adhérent
+  `armelk01+adherent@gmail.com`, épisode complet ouvert via un vrai code de consultation,
+  acte CONSULTATION 25 000 XOF, ticket clôturé) :
+  - `genererFacture` sur le ticket **OUVERT** → **409** « le ticket de soins est encore OUVERT ».
+  - Clôture du dossier, puis `genererFacture` → **201** : `montant_total 25000.00`,
+    `montant_assurance 20000.00` (garantie CONSULTATION 80 %), `montant_patient 5000.00`,
+    statut EMISE, **code absent de la réponse** ; 2ᵉ génération → 409.
+  - **`UPDATE factures_dossier SET statut='REGLEE'` en SQL direct (code non validé) →
+    rejeté par le trigger** `verifier_facture_reglable()`.
+  - `confirmerPaiement` par `ASSUREUR_INFORMATIQUE` → **403** (mauvais rôle) ;
+    `confirmerPaiement` par `ASSUREUR_COMPTABLE` **avant** validation du code → **403**
+    « le code de facturation n'a pas été validé par l'adhérent … (anti-fraude, v8 §5) ».
+  - L'adhérent voit sa facture + code (`DVPQP79H`) + reste à charge 5000.00 ;
+    validation du code par le **médecin** → **403** ; par l'**adhérent** → **VALIDEE**,
+    `code_valide_par_patient = true`.
+  - `confirmerPaiement` par `ASSUREUR_COMPTABLE` **après** validation → **REGLEE**
+    (part assurance 20000.00) ; 2ᵉ appel → **409** (déjà réglée).
+  - `audit_log` : GENERATION_CODE_FACTURATION, VALIDATION_CODE_FACTURATION,
+    CONFIRMATION_PAIEMENT_FACTURE.
+- **Vérifs** : build API ✅ ; `jest` **104/104** ✅. Données de test e2e supprimées
+  (facture, acte, ticket, dossier, consultation, code, établissement, 2 profils + comptes
+  Supabase, invitations) ; serveur arrêté. Aucun changement frontend ce prompt.
+
+---
+
+## 🎯 JALON — PHASE 6 TERMINÉE : les 4 codes anti-fraude sont implémentés et testés en conditions réelles
+
+| Code | Prompt | Table | Voie unique verrouillée | Défense en profondeur |
+|---|---|---|---|---|
+| **1. Code de Consultation** | 18 | `codes_consultation` | ouverture d'un dossier de soins uniquement via `validerCodeConsultation` (route `POST /care-episode/dossiers` **supprimée**) | garde applicative |
+| **2. Code Référence d'Ordonnance** | 19 | `ordonnances` + `codes_ordonnance` | contenu de l'ordonnance révélé à la pharmacie uniquement via `validerCodeOrdonnance` | RLS (aucune lecture pharmacie) |
+| **3. Ticket de Soins** | 20 | `tickets_soins` + `actes_dossier` | ticket créé/clôturé **automatiquement** avec le dossier (même transaction) ; acte refusé sur ticket non-OUVERT | trigger `verifier_ticket_ouvert()` |
+| **4. Code de Facturation** | 21 | `factures_dossier` | règlement impossible sans `code_valide_par_patient = true` (validé **par l'adhérent lui-même**) | garde applicative **+** trigger `verifier_facture_reglable()` |
+
+- Chaque étape du parcours est testée **en tentant de la contourner via l'API directe**
+  (livrable de fin de Phase 6, v9) — et, pour les tickets/factures, **aussi en SQL direct**.
+- Modèles Prisma : **30**. Tests : **`jest` 104/104**. Migrations SQL : `001` → `015`.
+- Comptes de test permanents : `armelk01@yahoo.fr` (ASSUREUR_INFORMATIQUE) +
+  `armelk01+adherent@gmail.com` (ADHERENT_TITULAIRE). Tous les autres rôles sont
+  provisionnés à la demande dans chaque parcours e2e puis supprimés.
+- **Prochaine phase — Phase 7** : adjudication (microservice Java, verrouillage optimiste
+  des plafonds) + module `claims/` NestJS.

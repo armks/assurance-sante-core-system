@@ -15,6 +15,7 @@ import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AjouterActeDto } from './dto/acte.dto';
+import { ValiderCodeFacturationDto } from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
   DispensationDto,
@@ -31,8 +32,11 @@ import {
   ROLES_ADHERENT,
   ROLES_AJOUT_ACTE,
   ROLES_CENTRE_MEDICAL,
+  ROLES_GENERATION_FACTURE,
   ROLES_PHARMACIE,
+  ROLE_CONFIRMATION_PAIEMENT,
   ROLE_MEDECIN_TRAITANT,
+  TAUX_COUVERTURE_DEFAUT,
 } from './preauthorization.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -706,6 +710,350 @@ export class PreauthorizationService {
       throw new NotFoundException('Ticket de soins introuvable.');
     }
     return ticket;
+  }
+
+  // =====================================================================
+  // Code de Facturation (v8 §5) — 4e et dernier code anti-fraude.
+  // =====================================================================
+
+  /**
+   * Génère la facture d'un épisode : refuse si le ticket est encore OUVERT,
+   * calcule les montants depuis les actes, émet le `code_facturation`. Le code
+   * part vers l'ADHÉRENT (jamais l'établissement) ; il le récupère via
+   * `GET /preauthorization/codes-facturation`.
+   */
+  async genererFacture(user: AuthenticatedUser, ticketSoinsId: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_GENERATION_FACTURE as readonly string[]).includes(r),
+      )
+    ) {
+      throw new ForbiddenException(
+        "Seul un rôle ASSUREUR habilité peut générer une facture.",
+      );
+    }
+
+    const ticket = await this.prisma.ticketSoins.findFirst({
+      where: { id: ticketSoinsId },
+      include: {
+        dossier: { include: { police: true } },
+        facture: true,
+      },
+    });
+    if (!ticket || ticket.dossier.organisationId !== ctx.organisationId) {
+      throw new NotFoundException('Ticket de soins introuvable.');
+    }
+    if (ticket.statut === 'OUVERT') {
+      throw new ConflictException(
+        "Impossible de facturer : le ticket de soins est encore OUVERT. Il doit d'abord être clôturé.",
+      );
+    }
+    if (ticket.statut === 'ANNULE') {
+      throw new ConflictException(
+        'Le ticket de soins est ANNULÉ — aucune facturation possible.',
+      );
+    }
+    if (ticket.facture) {
+      throw new ConflictException(
+        'Une facture a déjà été générée pour ce ticket de soins.',
+      );
+    }
+
+    const { montantTotal, montantAssurance, montantPatient } =
+      await this.calculerMontants(ticket.dossier.police.produitId, ticketSoinsId);
+
+    const code = await this.genererCodeFacturationUnique();
+
+    const facture = await this.prisma.$transaction(async (tx) => {
+      const f = await tx.factureDossier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          dossierSoinsId: ticket.dossierSoinsId,
+          ticketSoinsId,
+          etablissementId: ticket.dossier.etablissementId,
+          adherentId: ticket.dossier.adherentId,
+          beneficiaireId: ticket.dossier.beneficiaireId,
+          montantTotal,
+          montantAssurance,
+          montantPatient,
+          statut: 'EMISE',
+          codeFacturation: code,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'GENERATION_CODE_FACTURATION',
+        f.id,
+        { ticketSoinsId, montantTotal, montantPatient },
+        'factures_dossier',
+      );
+      return f;
+    });
+
+    // Réponse à l'ASSUREUR : montants, PAS le code.
+    return {
+      factureId: facture.id,
+      statut: facture.statut,
+      montantTotal: facture.montantTotal.toFixed(2),
+      montantAssurance: facture.montantAssurance.toFixed(2),
+      montantPatient: facture.montantPatient.toFixed(2),
+      message:
+        "Facture générée. Le code de facturation a été transmis à l'adhérent pour validation.",
+    };
+  }
+
+  /** Factures de l'adhérent connecté — AVEC le code + la synthèse chiffrée. */
+  async listerMesFactures(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.adherentId) {
+      return [];
+    }
+    const factures = await this.prisma.factureDossier.findMany({
+      where: { adherentId: ctx.adherentId, deletedAt: null },
+      include: { dossier: { select: { numeroTraitement: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+    return factures.map((f) => ({
+      id: f.id,
+      ticketSoinsId: f.ticketSoinsId,
+      numeroTraitement: f.dossier.numeroTraitement,
+      code: f.codeFacturation,
+      statut: f.statut,
+      codeValideParPatient: f.codeValideParPatient,
+      montantTotal: f.montantTotal.toFixed(2),
+      montantAssurance: f.montantAssurance.toFixed(2),
+      montantPatient: f.montantPatient.toFixed(2),
+    }));
+  }
+
+  /**
+   * Validation du code par l'ADHÉRENT lui-même (jamais l'établissement).
+   * Marque `code_valide_par_patient = true` — condition SINE QUA NON du règlement.
+   */
+  async validerCodeFacturation(
+    user: AuthenticatedUser,
+    dto: ValiderCodeFacturationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_ADHERENT as readonly string[]).includes(r),
+      )
+    ) {
+      throw new ForbiddenException(
+        "Seul l'adhérent concerné peut valider un code de facturation.",
+      );
+    }
+
+    const facture = await this.prisma.factureDossier.findUnique({
+      where: { codeFacturation: dto.code.toUpperCase() },
+    });
+    if (
+      !facture ||
+      facture.organisationId !== ctx.organisationId ||
+      facture.deletedAt
+    ) {
+      throw new NotFoundException('Code de facturation invalide.');
+    }
+    if (!ctx.adherentId || facture.adherentId !== ctx.adherentId) {
+      throw new ForbiddenException('Cette facture ne vous concerne pas.');
+    }
+    if (facture.codeValideParPatient) {
+      throw new ConflictException('Ce code a déjà été validé.');
+    }
+    if (['REGLEE', 'CONTESTEE'].includes(facture.statut)) {
+      throw new ConflictException(
+        `Facture ${facture.statut.toLowerCase()} — validation impossible.`,
+      );
+    }
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const f = await tx.factureDossier.update({
+        where: { id: facture.id },
+        data: {
+          codeValideParPatient: true,
+          dateValidationPatient: new Date(),
+          statut: 'VALIDEE',
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'VALIDATION_CODE_FACTURATION',
+        f.id,
+        { montantPatient: f.montantPatient.toFixed(2) },
+        'factures_dossier',
+      );
+      return f;
+    });
+
+    return {
+      factureId: maj.id,
+      statut: maj.statut,
+      codeValideParPatient: true,
+      montantPatient: maj.montantPatient.toFixed(2),
+    };
+  }
+
+  /**
+   * Confirmation du paiement — réservé à ASSUREUR_COMPTABLE.
+   *
+   * GARDE BLOQUANTE EXPLICITE : refuse absolument si `code_valide_par_patient`
+   * est false (v8 §5, checklist v19). Cette garde est dans le service — elle
+   * s'applique même si on contourne le contrôleur. Le trigger Postgres
+   * `verifier_facture_reglable()` la double au niveau base.
+   */
+  async confirmerPaiement(user: AuthenticatedUser, factureId: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_CONFIRMATION_PAIEMENT)) {
+      throw new ForbiddenException(
+        'La confirmation de paiement est réservée à ASSUREUR_COMPTABLE.',
+      );
+    }
+
+    const facture = await this.prisma.factureDossier.findFirst({
+      where: {
+        id: factureId,
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+      },
+    });
+    if (!facture) {
+      throw new NotFoundException('Facture introuvable.');
+    }
+
+    // >>> GARDE ANTI-FRAUDE — NE JAMAIS RETIRER <<<
+    if (!facture.codeValideParPatient) {
+      throw new ForbiddenException(
+        "Règlement impossible : le code de facturation n'a pas été validé par l'adhérent. " +
+          "Cette validation par le patient est obligatoire avant tout paiement (anti-fraude, v8 §5).",
+      );
+    }
+
+    if (facture.statut === 'REGLEE') {
+      throw new ConflictException('Cette facture a déjà été réglée.');
+    }
+    if (facture.statut !== 'VALIDEE') {
+      throw new ConflictException(
+        `Facture au statut ${facture.statut} — règlement impossible.`,
+      );
+    }
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const f = await tx.factureDossier.update({
+        where: { id: factureId },
+        data: {
+          statut: 'REGLEE',
+          dateReglement: new Date(),
+          reglePar: ctx.userId,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'CONFIRMATION_PAIEMENT_FACTURE',
+        f.id,
+        {
+          montantAssurance: f.montantAssurance.toFixed(2),
+          montantPatient: f.montantPatient.toFixed(2),
+        },
+        'factures_dossier',
+      );
+      return f;
+    });
+
+    return {
+      factureId: maj.id,
+      statut: maj.statut,
+      montantAssurance: maj.montantAssurance.toFixed(2),
+      montantPatient: maj.montantPatient.toFixed(2),
+      dateReglement: maj.dateReglement,
+    };
+  }
+
+  async obtenirFacture(user: AuthenticatedUser, factureId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const facture = await this.prisma.factureDossier.findFirst({
+      where: {
+        id: factureId,
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+      },
+    });
+    if (!facture) {
+      throw new NotFoundException('Facture introuvable.');
+    }
+    const { codeFacturation, ...reste } = facture;
+    // le code n'est visible que de l'adhérent (via listerMesFactures)
+    const estLAdherent = ctx.adherentId === facture.adherentId;
+    return estLAdherent ? facture : reste;
+  }
+
+  /** Montants d'une facture — calcul provisoire (adjudication fine : Phase 7). */
+  private async calculerMontants(
+    produitId: string,
+    ticketSoinsId: string,
+  ): Promise<{
+    montantTotal: string;
+    montantAssurance: string;
+    montantPatient: string;
+  }> {
+    const actes = await this.prisma.acteDossier.findMany({
+      where: {
+        ticketSoinsId,
+        deletedAt: null,
+        statut: { not: 'ANNULE' },
+      },
+    });
+    const garanties = await this.prisma.garantie.findMany({
+      where: { produitId, deletedAt: null },
+    });
+    const parCategorie = new Map(garanties.map((g) => [g.categorieActe, g]));
+
+    let total = new Decimal(0);
+    let assurance = new Decimal(0);
+    for (const acte of actes) {
+      const montant = new Decimal(acte.montantPrescrit?.toString() ?? '0').mul(
+        acte.quantite,
+      );
+      total = total.add(montant);
+
+      const g = parCategorie.get(acte.categorieActe);
+      const taux = new Decimal(
+        g?.tauxCouverture?.toString() ?? String(TAUX_COUVERTURE_DEFAUT),
+      );
+      let partAssurance = montant.mul(taux).div(100).toDecimalPlaces(2);
+      if (g?.plafondParActe) {
+        const plafond = new Decimal(g.plafondParActe.toString());
+        if (partAssurance.gt(plafond)) partAssurance = plafond;
+      }
+      assurance = assurance.add(partAssurance);
+    }
+
+    const patient = total.sub(assurance);
+    return {
+      montantTotal: total.toFixed(2),
+      montantAssurance: assurance.toFixed(2),
+      montantPatient: patient.toFixed(2),
+    };
+  }
+
+  private async genererCodeFacturationUnique(): Promise<string> {
+    for (let tentative = 0; tentative < 6; tentative += 1) {
+      const candidat = this.tirerCode();
+      const existe = await this.prisma.factureDossier.findUnique({
+        where: { codeFacturation: candidat },
+      });
+      if (!existe) {
+        return candidat;
+      }
+    }
+    throw new ConflictException(
+      "Impossible de générer un code de facturation unique — réessayez.",
+    );
   }
 
   private async genererCodeOrdonnanceUnique(): Promise<string> {

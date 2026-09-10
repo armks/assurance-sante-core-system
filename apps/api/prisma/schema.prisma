@@ -53,6 +53,7 @@ model Organisation {
   codesConsultation CodeConsultation[]
   ordonnances       Ordonnance[]
   codesOrdonnance   CodeOrdonnance[]
+  facturesDossier   FactureDossier[]
 
   @@map("organisations")
 }
@@ -133,6 +134,7 @@ model Profil {
   consultations         ConsultationDossier[]
   ordonnancesPrescrites Ordonnance[]
   actesPrescrits        ActeDossier[]
+  facturesReglees       FactureDossier[]
 
   @@map("profils")
 }
@@ -495,6 +497,7 @@ model EtablissementSante {
   dossiers           DossierSoins[]    @relation("DossierEtablissement")
   dossiersTransferes DossierSoins[]    @relation("DossierTransfereVers")
   codesConsultation  CodeConsultation[]
+  factures           FactureDossier[]
 
   @@index([organisationId])
   @@index([statut])
@@ -642,6 +645,7 @@ model DossierSoins {
   ordonnances       Ordonnance[]
   ticket            TicketSoins?
   actes             ActeDossier[]
+  factures          FactureDossier[]
 
   @@index([organisationId])
   @@index([etablissementId])
@@ -776,8 +780,9 @@ model TicketSoins {
   statut         String    @default("OUVERT") // OUVERT | CLOTURE | ANNULE
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  dossier DossierSoins  @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dossier DossierSoins     @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   actes   ActeDossier[]
+  facture FactureDossier?
 
   @@index([statut])
   @@map("tickets_soins")
@@ -813,4 +818,41 @@ model ActeDossier {
   @@index([ticketSoinsId])
   @@index([statut])
   @@map("actes_dossier")
+}
+
+/// factures_dossier — 4e et dernier des 4 codes anti-fraude (v8 §5). Une facture
+/// par ticket de soins clôturé. Le règlement est IMPOSSIBLE tant que l'adhérent
+/// n'a pas validé `code_facturation` (garde applicative + trigger). prisma/sql/015.
+model FactureDossier {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId         String    @map("organisation_id") @db.Uuid
+  dossierSoinsId         String    @map("dossier_soins_id") @db.Uuid
+  ticketSoinsId          String    @unique @map("ticket_soins_id") @db.Uuid
+  etablissementId        String    @map("etablissement_id") @db.Uuid
+  adherentId             String?   @map("adherent_id") @db.Uuid
+  beneficiaireId         String?   @map("beneficiaire_id") @db.Uuid
+  montantTotal           Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
+  montantAssurance       Decimal   @default(0) @map("montant_assurance") @db.Decimal(14, 2)
+  montantPatient         Decimal   @default(0) @map("montant_patient") @db.Decimal(14, 2)
+  statut                 String    @default("EMISE") // EMISE | EN_VALIDATION | VALIDEE | REGLEE | CONTESTEE
+  codeFacturation        String?   @unique @map("code_facturation")
+  codeValideParPatient   Boolean   @default(false) @map("code_valide_par_patient")
+  dateValidationPatient  DateTime? @map("date_validation_patient") @db.Timestamptz(6)
+  dateReglement          DateTime? @map("date_reglement") @db.Timestamptz(6)
+  reglePar               String?   @map("regle_par") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime?  @map("deleted_at") @db.Timestamptz(6)
+
+  organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossier       DossierSoins       @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ticket        TicketSoins        @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  etablissement EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  regleParProfil Profil?           @relation(fields: [reglePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([adherentId])
+  @@index([etablissementId])
+  @@index([statut])
+  @@map("factures_dossier")
 }

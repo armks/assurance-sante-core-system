@@ -78,6 +78,30 @@ export const ROLES_CENTRE_MEDICAL = [
   'CENTRE_MEDICAL_ADMINISTRATIF',
 ] as const;
 
+// --- Code de Facturation (v8 §5) — 4e et dernier code anti-fraude ------
+
+export const STATUTS_FACTURE = [
+  'EMISE',
+  'EN_VALIDATION',
+  'VALIDEE',
+  'REGLEE',
+  'CONTESTEE',
+] as const;
+export type StatutFacture = (typeof STATUTS_FACTURE)[number];
+
+/** Rôles ASSUREUR habilités à générer une facture. */
+export const ROLES_GENERATION_FACTURE = [
+  'ASSUREUR_EXPLOITATION',
+  'ASSUREUR_COMPTABLE',
+  'ASSUREUR_INFORMATIQUE',
+] as const;
+
+/** La confirmation de paiement est réservée à ASSUREUR_COMPTABLE (v8 §5). */
+export const ROLE_CONFIRMATION_PAIEMENT = 'ASSUREUR_COMPTABLE';
+
+/** Taux de couverture par défaut si aucune garantie ne matche la catégorie d'acte. */
+export const TAUX_COUVERTURE_DEFAUT = 80;
+
 /**
  * Alphabet du code : majuscules + chiffres, sans caractères ambigus
  * (0/O, 1/I/L). 30 symboles → 30^8 ≈ 6,5·10¹¹ combinaisons pour une fenêtre de

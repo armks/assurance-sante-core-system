@@ -148,6 +148,11 @@ export class CareEpisodeService {
       const ticket = await tx.ticketSoins.create({
         data: {
           dossierSoinsId: dossier.id,
+          // Dénormalisé depuis le dossier de soins à la création : permet une
+          // policy RLS d'isolation tenant vérifiable directement sur la table
+          // (le trigger `tickets_soins_set_organisation_id` la refige de toute
+          // façon depuis le dossier — défense en profondeur).
+          organisationId: ctx.organisationId,
           code: codeTicket,
           statut: 'OUVERT',
         },

@@ -1791,3 +1791,59 @@ verrouillage. Boucle d'adjudication complète, testée les deux services tournan
 
 Backend Phases 1 → 7 complètes. Prochaine étape : Phase 8 (paiements / reversements) ou
 reprise de la séquence des prompts selon `07-sequence-prompts-EXECUTION-v19.md`.
+
+## 2026-09-10 — Revue de consolidation puis 3 corrections (avant reprise du dev)
+
+Revue complète depuis le PROMPT 0 (état réel vérifié contre le code + la base, pas
+seulement PROGRESSION.md). 3 écarts prioritaires corrigés, chacun vérifié en HTTP/SQL
+réel avant commit — le reste (module member/adhérents PROMPT 12, cartes PROMPT 13,
+géocodage PROMPT 15, écrans Phase 6/7) reste à planifier.
+
+### 1. `ARCHITECTURE-DECISIONS.md` (nouveau) — 3 déviations tracées
+- **ADR-001** : `pg_advisory_xact_lock(hashtextextended(adherent_id, 0))` au lieu de
+  `SELECT … FOR UPDATE` pour le verrou de plafond (raison : ne pas accorder `UPDATE`
+  table-level sur `polices` à `svc_adjudication`). Équivalence vérifiée en Phase 7.
+- **ADR-002** : RLS *deny-by-default* en lecture sur `profils` / `organisations`
+  (aucune policy `SELECT`) — intentionnel : NestJS contourne la RLS via `postgres`,
+  un refus total protège contre tout accès direct hors NestJS (anti-énumération de
+  l'annuaire d'identité).
+- **ADR-003** : **référence unique** des grants `svc_adjudication` (relevés en base
+  le 2026-09-10 : attributs de rôle, `USAGE`, SELECT tables, SELECT/UPDATE colonnes
+  `reclamations`, SELECT/INSERT `remboursements`, `EXECUTE log_audit`) — remplace le
+  recoupement de `sql/018` + `019` + `020`. Pointeur ajouté dans `SECURITY.md`.
+
+### 2. `tickets_soins.organisation_id` + RLS directe — `prisma/sql/021`
+- Constat : `tickets_soins` (sql/014) n'avait **pas** `organisation_id` ; son
+  isolation multi-tenant ne reposait que sur une **jointure implicite** vers
+  `dossiers_soins`. Seule table du parcours de soins dans ce cas.
+- Ajouté : colonne `organisation_id NOT NULL` (backfill depuis le dossier) + index ;
+  trigger `BEFORE INSERT tickets_soins_set_organisation_id()` qui **refige** toujours
+  la valeur depuis `dossiers_soins` (défense en profondeur : un INSERT SQL direct ne
+  peut pas la faire diverger) ; policy `tickets_soins_lecture` **réécrite** pour
+  porter directement sur `tickets_soins.organisation_id` (plus de sous-`EXISTS` sur
+  `dossiers_soins`).
+- Côté applicatif : `CareEpisodeService.ouvrirDossier` passe `organisationId` à la
+  création du ticket, dans la même transaction que le dossier.
+- `schema.prisma` : `TicketSoins.organisationId` + relation `Organisation` + index.
+
+### 3. `apps/api` refuse de démarrer sans `SERVICE_JWT_SECRET`
+- `main.ts` → `verifierSecretsObligatoires(app)` (après `NestFactory.create`, donc
+  après chargement de `.env` par `ConfigModule`) : si `SERVICE_JWT_SECRET` est absent
+  ou vide → log `ERROR` explicite (pointant vers `apps/api/.env`) + `app.close()` +
+  `process.exit(1)`. Évite un démarrage « réussi » suivi d'un `401` silencieux au
+  premier appel d'adjudication.
+- `.env.example` : mention « OBLIGATOIRE — le serveur refuse de démarrer sans ».
+
+### Tests réels
+- **jest API 131/131**, `tsc --noEmit` OK, `nest build` OK.
+- **Démarrage** : `SERVICE_JWT_SECRET="" node dist/main.js` → refus, `exit 1`, message
+  clair ; démarrage normal (secret présent) → `Nest application successfully started`,
+  `GET /api/v1/identity/me` → 401 (guard actif).
+- **`tickets_soins` bout-en-bout HTTP** (serveur lancé, compte `ASSUREUR_EXPLOITATION`
+  éphémère, `POST /api/v1/preauthorization/codes-consultation/valider` → 201) :
+  ticket créé avec `organisation_id = organisation_id du dossier` (cohérent) ;
+  prédicat de la policy vérifié : `visible_org_A = true`, `visible_org_B = false` ;
+  trigger vérifié : INSERT SQL avec `organisation_id` volontairement faux → valeur
+  stockée forcée à celle du dossier (transaction rollback, rien persisté).
+- Migration `021` appliquée en base (`prisma db execute`). Données e2e supprimées,
+  compte éphémère supprimé, serveurs arrêtés.

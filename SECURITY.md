@@ -3,6 +3,10 @@
 Ce fichier consigne les décisions de sécurité qui, sans trace écrite, seraient
 re-triées à chaque `npm install`. Ajouter, ne pas réécrire l'historique.
 
+> Décisions d'architecture qui s'écartent d'une règle du skill (verrou de
+> plafond, RLS *deny-by-default* sur `profils`/`organisations`, référence unique
+> des grants `svc_adjudication`) : voir **`ARCHITECTURE-DECISIONS.md`**.
+
 ---
 
 ## 2026-09-06 — `npm audit` : 3 vulnérabilités « high » (deepmerge-ts) — ACCEPTÉES

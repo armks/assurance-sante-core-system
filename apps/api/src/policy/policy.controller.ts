@@ -15,6 +15,7 @@ import {
   ChangerStatutDto,
   CreateAvenantDto,
   CreateDevisDto,
+  SimulerAvenantDto,
   SouscrireDto,
 } from './dto/policy.dto';
 import { PolicyService } from './policy.service';
@@ -55,6 +56,14 @@ export class PolicyController {
     return this.policy.obtenirPolice(user, id);
   }
 
+  @Get(':id/actions')
+  actions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.policy.actionsDisponibles(user, id);
+  }
+
   @Post(':id/souscrire')
   souscrire(
     @CurrentUser() user: AuthenticatedUser,
@@ -79,6 +88,15 @@ export class PolicyController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.policy.listerAvenants(user, id);
+  }
+
+  @Post(':id/avenants/simulation')
+  simulerAvenant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SimulerAvenantDto,
+  ) {
+    return this.policy.simulerAvenant(user, id, dto);
   }
 
   @Post(':id/avenants')

@@ -1259,3 +1259,57 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   `nouvelle-version` → BROUILLON v2 avec 2 garanties clonées, de nouveau éditable.
 - **Vérifs** : `next build --webpack` ✅ (26 routes) ; `jest` API **111/111**.
   Données de test e2e supprimées (produit + versions + garanties) ; serveurs arrêtés.
+
+## 2026-09-10 — Frontend : écran Polices (machine à états pilotée par l'API) + avenants proratisés
+
+- **API — nouvel endpoint « source de vérité » des transitions** (au lieu de dupliquer
+  `TRANSITIONS_POLICE` en JavaScript) :
+  - `GET /policy/polices/:id/actions` → `{ statut, transitions[], actions[] }`.
+    `actions[]` est calculé côté `PolicyService.actionsDisponibles` depuis
+    `TRANSITIONS_POLICE[statut]` : chaque entrée porte `cle`, `libelle` (dans
+    `LIBELLE_TRANSITION`), `endpoint` (`'statut'` | `'souscrire'`), `statutCible`,
+    `avecDates`, `danger`. DEVIS/EN_SOUSCRIPTION → une seule action `souscrire` ;
+    ACTIVE → Suspendre/Renouveler/Résilier/Ne pas renouveler ; SUSPENDUE → Réactiver ;
+    états terminaux → `[]`. Le frontend rend `actions[]` **tel quel**, sans re-décrire
+    la machine à états.
+  - `POST /policy/polices/:id/avenants/simulation` → aperçu de proratisation
+    (`joursTotal`, `joursRestants`, `impactCotisation`, `proratisationAppliquee`) **sans
+    rien persister** — même calcul (`calculerImpact`) que `creerAvenant`, extrait en
+    helper partagé. + `assertDateEffetDansPeriode` factorisé.
+  - `PolicyService.listerPolices` inclut désormais `produit {nom,version,statut}`,
+    `souscripteur {nom,type}` et `_count.avenants`.
+  - Tests unitaires ajoutés (`policy.service.spec.ts`) : actions par statut (DEVIS,
+    ACTIVE avec les 2 `danger`, RESILIEE terminal, SUSPENDUE→Réactiver) + simulation
+    identique à `creerAvenant` sans persistance → **jest 116/116**.
+- **`/dashboard-assureur/informatique/polices`** — `GrilleCartes` + `DataTable`
+  (n° police, souscripteur, produit·version, `StatutBadge` des 7 statuts via `map` +
+  `libelles` explicites, date de début), **filtre par statut**, recherche multi-champs,
+  bouton **« Nouveau devis »** (`FormulaireModal`) : liste déroulante souscripteurs +
+  **produits filtrés sur `?statut=PUBLIE`** (un produit non publié n'apparaît jamais),
+  dates optionnelles.
+- **`/dashboard-assureur/informatique/polices/[id]`** — `PoliceDetail` (client) :
+  - carte d'informations (souscripteur, produit, période, nb avenants) ;
+  - carte **« Cycle de vie »** : légende « Transitions valides depuis X » + les boutons
+    rendus **1:1 depuis `GET …/actions`** — jamais un bouton vers une transition que
+    l'API refuserait. `souscrire` ouvre un `FormulaireModal` de dates → `POST /souscrire` ;
+    les autres → `POST /statut` (variante `destructive` pour Résilier / Ne pas renouveler) ;
+  - carte **« Avenants »** : `DataTable` (type, date d'effet, proratisation, impact
+    cotisation, statut) + **« Nouvel avenant »** (`FormulaireModal`) avec bouton
+    **« Calculer la proratisation »** → appelle `/avenants/simulation` et **affiche
+    l'impact proratisé (jours restants / jours total) avant confirmation** ; création via
+    `POST /avenants` (l'API recalcule). Actions ligne Appliquer / Annuler. Bloc masqué si
+    la police n'est pas ACTIVE.
+- Server actions (`polices/actions.ts`) : `creerDevis`, `souscrirePolice`, `changerStatut`,
+  `simulerAvenant`, `creerAvenant`, `appliquerAvenant`, `annulerAvenant`. Type `Simulation`
+  isolé dans `polices/types.ts` (un fichier `'use server'` ne peut exporter que des fonctions).
+- **Test navigateur réel — 37/37** (serveurs prod, session `armelk01@yahoo.fr`) :
+  liste déroulante = produits PUBLIE only (BROUILLON absent) ; création devis → 201 ;
+  devis sur produit BROUILLON → **400** ; `/actions` DEVIS = `souscrire` seul et la page
+  n'affiche que ce bouton ; `POST /statut {ACTIVE}` depuis DEVIS → **409** ;
+  `/souscrire` → ACTIVE ; `/actions` ACTIVE = 4 transitions, page affiche exactement ces
+  4 boutons + « Nouvel avenant », plus aucun bouton de souscription ; simulation
+  proratisation `10000 × 183/364 = 5027,47 F` (non persistée) puis avenant créé avec le
+  **même** impact, rendu dans le tableau ; `SUSPENDUE` → `/actions` = « Réactiver » seul,
+  page idem ; réactivation → ACTIVE.
+- **Vérifs** : `next build --webpack` ✅ (27 routes) ; `jest` API **116/116**.
+  Données de test e2e supprimées (1 police + 1 avenant) ; serveurs arrêtés.

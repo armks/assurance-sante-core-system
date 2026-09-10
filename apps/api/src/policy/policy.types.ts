@@ -23,6 +23,35 @@ export const TRANSITIONS_POLICE: Record<StatutPolice, StatutPolice[]> = {
   NON_RENOUVELEE: [],
 };
 
+/**
+ * Libellés d'action pour chaque statut cible d'une transition `changerStatut`.
+ * Sert à construire la réponse de `GET /policy/polices/:id/actions` — le
+ * frontend ne redéfinit jamais la machine à états, il rend `actions[]` tel quel.
+ */
+export const LIBELLE_TRANSITION: Record<string, string> = {
+  EN_SOUSCRIPTION: 'Passer en souscription',
+  ACTIVE: 'Réactiver',
+  SUSPENDUE: 'Suspendre',
+  RENOUVELEE: 'Renouveler',
+  RESILIEE: 'Résilier',
+  NON_RENOUVELEE: 'Ne pas renouveler',
+};
+
+/** Une action proposée sur une police, calculée côté service depuis l'état courant. */
+export interface ActionPolice {
+  /** Identifiant stable de l'action (statut cible, ou `souscrire`). */
+  cle: string;
+  libelle: string;
+  /** Endpoint à appeler : `statut` → POST :id/statut ; `souscrire` → POST :id/souscrire. */
+  endpoint: 'statut' | 'souscrire';
+  /** Statut cible pour `endpoint === 'statut'`. */
+  statutCible?: StatutPolice;
+  /** L'action ouvre un formulaire de dates (souscription). */
+  avecDates?: boolean;
+  /** Action destructrice / irréversible — à présenter avec prudence. */
+  danger?: boolean;
+}
+
 export const TYPES_AVENANT = [
   'AJOUT_ADHERENT',
   'RADIATION_ADHERENT',

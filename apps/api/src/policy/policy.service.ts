@@ -14,10 +14,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateAvenantDto,
   CreateDevisDto,
+  SimulerAvenantDto,
   SouscrireDto,
 } from './dto/policy.dto';
 import {
+  ActionPolice,
   ContexteAppelant,
+  LIBELLE_TRANSITION,
   ROLES_GESTION_POLICE,
   STATUTS_POLICE,
   StatutPolice,
@@ -205,6 +208,11 @@ export class PolicyService {
         ...(filtres.statut ? { statut: filtres.statut } : {}),
       },
       orderBy: { createdAt: 'desc' },
+      include: {
+        produit: { select: { nom: true, version: true, statut: true } },
+        souscripteur: { select: { nom: true, type: true } },
+        _count: { select: { avenants: { where: { deletedAt: null } } } },
+      },
     });
   }
 
@@ -213,7 +221,80 @@ export class PolicyService {
     return this.chargerPolice(ctx, id);
   }
 
+  /**
+   * Actions réellement disponibles sur la police depuis son statut courant.
+   * Source unique de vérité : `TRANSITIONS_POLICE` (+ le raccourci `souscrire`).
+   * Le frontend rend `actions[]` sans redéfinir la machine à états.
+   */
+  async actionsDisponibles(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    const police = await this.chargerPolice(ctx, id);
+    const statut = police.statut as StatutPolice;
+    const brutes = TRANSITIONS_POLICE[statut] ?? [];
+    const actions: ActionPolice[] = [];
+
+    // Raccourci d'onboarding : DEVIS/EN_SOUSCRIPTION → ACTIVE en un geste (avec dates).
+    if (statut === 'DEVIS' || statut === 'EN_SOUSCRIPTION') {
+      actions.push({
+        cle: 'souscrire',
+        libelle:
+          statut === 'DEVIS' ? 'Souscrire la police' : 'Activer la police',
+        endpoint: 'souscrire',
+        avecDates: true,
+      });
+    }
+
+    for (const cible of brutes) {
+      // EN_SOUSCRIPTION et ACTIVE (depuis EN_SOUSCRIPTION) sont couverts par « souscrire ».
+      if (cible === 'EN_SOUSCRIPTION') continue;
+      if (cible === 'ACTIVE' && statut !== 'SUSPENDUE') continue;
+      actions.push({
+        cle: cible,
+        libelle: LIBELLE_TRANSITION[cible] ?? cible,
+        endpoint: 'statut',
+        statutCible: cible,
+        danger: cible === 'RESILIEE' || cible === 'NON_RENOUVELEE',
+      });
+    }
+
+    return { statut, transitions: brutes, actions };
+  }
+
   // --- Avenants ------------------------------------------------------
+
+  /** Aperçu de proratisation avant confirmation — ne persiste rien. */
+  async simulerAvenant(
+    user: AuthenticatedUser,
+    policeId: string,
+    dto: SimulerAvenantDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const police = await this.assertPoliceDansPerimetre(
+      ctx.organisationId,
+      policeId,
+    );
+    if (police.statut !== 'ACTIVE') {
+      throw new ConflictException(
+        `Un avenant ne peut porter que sur une police ACTIVE (statut actuel : ${police.statut}).`,
+      );
+    }
+    const dateEffet = new Date(dto.dateEffet);
+    this.assertDateEffetDansPeriode(police, dateEffet);
+    const calcul = this.calculerImpact(police, dateEffet, dto);
+    return {
+      type: dto.type,
+      dateEffet: dto.dateEffet.slice(0, 10),
+      periode: {
+        dateDebut: police.dateDebut?.toISOString().slice(0, 10) ?? null,
+        dateFin: police.dateFin?.toISOString().slice(0, 10) ?? null,
+      },
+      joursTotal: calcul.joursTotal,
+      joursRestants: calcul.joursRestants,
+      proratisationAppliquee: calcul.proratisationAppliquee,
+      impactCotisation: calcul.impact ? calcul.impact.toString() : null,
+    };
+  }
 
   async creerAvenant(
     user: AuthenticatedUser,
@@ -233,34 +314,13 @@ export class PolicyService {
     }
 
     const dateEffet = new Date(dto.dateEffet);
-    if (police.dateDebut && police.dateFin) {
-      if (dateEffet < police.dateDebut || dateEffet > police.dateFin) {
-        throw new BadRequestException(
-          "date_effet doit être comprise dans la période de la police.",
-        );
-      }
-    }
+    this.assertDateEffetDansPeriode(police, dateEffet);
 
-    let impact: Decimal | null = null;
-    let proratisationAppliquee = false;
-
-    if (dto.tarifMensuelFormule !== undefined) {
-      if (!police.dateDebut || !police.dateFin) {
-        throw new BadRequestException(
-          'Proratisation impossible : la police n\'a pas de période définie.',
-        );
-      }
-      const joursTotal = this.joursEntre(police.dateDebut, police.dateFin);
-      const joursRestants = this.joursEntre(dateEffet, police.dateFin);
-      // montant_prorata = tarif_mensuel × jours_restants / jours_total
-      impact = new Decimal(dto.tarifMensuelFormule)
-        .mul(joursRestants)
-        .div(joursTotal)
-        .toDecimalPlaces(2);
-      proratisationAppliquee = true;
-    } else if (dto.impactCotisation !== undefined) {
-      impact = new Decimal(dto.impactCotisation).toDecimalPlaces(2);
-    }
+    const { impact, proratisationAppliquee } = this.calculerImpact(
+      police,
+      dateEffet,
+      dto,
+    );
 
     return this.prisma.$transaction(async (tx) => {
       const avenant = await tx.avenant.create({
@@ -455,6 +515,73 @@ export class PolicyService {
       throw new NotFoundException('Police introuvable.');
     }
     return police;
+  }
+
+  // --- Helpers avenant --------------------------------------------
+
+  private assertDateEffetDansPeriode(
+    police: { dateDebut: Date | null; dateFin: Date | null },
+    dateEffet: Date,
+  ): void {
+    if (police.dateDebut && police.dateFin) {
+      if (dateEffet < police.dateDebut || dateEffet > police.dateFin) {
+        throw new BadRequestException(
+          'date_effet doit être comprise dans la période de la police.',
+        );
+      }
+    }
+  }
+
+  /**
+   * Impact sur la cotisation d'un avenant :
+   *   - `tarifMensuelFormule` fourni → proratisation
+   *     `tarif × jours_restants / jours_total`, `proratisation_appliquee = true` ;
+   *   - sinon `impactCotisation` fourni → repris tel quel ;
+   *   - sinon `null`.
+   */
+  private calculerImpact(
+    police: { dateDebut: Date | null; dateFin: Date | null },
+    dateEffet: Date,
+    dto: { tarifMensuelFormule?: number; impactCotisation?: number },
+  ): {
+    impact: Decimal | null;
+    proratisationAppliquee: boolean;
+    joursTotal: number | null;
+    joursRestants: number | null;
+  } {
+    if (dto.tarifMensuelFormule !== undefined) {
+      if (!police.dateDebut || !police.dateFin) {
+        throw new BadRequestException(
+          "Proratisation impossible : la police n'a pas de période définie.",
+        );
+      }
+      const joursTotal = this.joursEntre(police.dateDebut, police.dateFin);
+      const joursRestants = this.joursEntre(dateEffet, police.dateFin);
+      const impact = new Decimal(dto.tarifMensuelFormule)
+        .mul(joursRestants)
+        .div(joursTotal)
+        .toDecimalPlaces(2);
+      return {
+        impact,
+        proratisationAppliquee: true,
+        joursTotal,
+        joursRestants,
+      };
+    }
+    if (dto.impactCotisation !== undefined) {
+      return {
+        impact: new Decimal(dto.impactCotisation).toDecimalPlaces(2),
+        proratisationAppliquee: false,
+        joursTotal: null,
+        joursRestants: null,
+      };
+    }
+    return {
+      impact: null,
+      proratisationAppliquee: false,
+      joursTotal: null,
+      joursRestants: null,
+    };
   }
 
   // --- Helpers dates -----------------------------------------------

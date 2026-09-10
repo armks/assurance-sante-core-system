@@ -283,6 +283,89 @@ describe('PolicyService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('actionsDisponibles : DEVIS → seulement « souscrire »', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.police.findFirst.mockResolvedValue({
+      id: 'po1',
+      statut: 'DEVIS',
+      avenants: [],
+    });
+    const res = await service.actionsDisponibles(USER, 'po1');
+    expect(res.statut).toBe('DEVIS');
+    expect(res.transitions).toEqual(['EN_SOUSCRIPTION']);
+    expect(res.actions.map((a) => a.cle)).toEqual(['souscrire']);
+    expect(res.actions[0].endpoint).toBe('souscrire');
+  });
+
+  it('actionsDisponibles : ACTIVE → 4 transitions /statut (dont 2 danger)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.police.findFirst.mockResolvedValue({
+      id: 'po1',
+      statut: 'ACTIVE',
+      avenants: [],
+    });
+    const res = await service.actionsDisponibles(USER, 'po1');
+    expect(res.actions.map((a) => a.cle).sort()).toEqual(
+      ['NON_RENOUVELEE', 'RENOUVELEE', 'RESILIEE', 'SUSPENDUE'].sort(),
+    );
+    expect(res.actions.every((a) => a.endpoint === 'statut')).toBe(true);
+    expect(res.actions.filter((a) => a.danger).map((a) => a.cle).sort()).toEqual(
+      ['NON_RENOUVELEE', 'RESILIEE'],
+    );
+  });
+
+  it('actionsDisponibles : RESILIEE (terminal) → aucune action', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.police.findFirst.mockResolvedValue({
+      id: 'po1',
+      statut: 'RESILIEE',
+      avenants: [],
+    });
+    const res = await service.actionsDisponibles(USER, 'po1');
+    expect(res.actions).toEqual([]);
+  });
+
+  it('actionsDisponibles : SUSPENDUE → « Réactiver » (ACTIVE via /statut)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.police.findFirst.mockResolvedValue({
+      id: 'po1',
+      statut: 'SUSPENDUE',
+      avenants: [],
+    });
+    const res = await service.actionsDisponibles(USER, 'po1');
+    expect(res.actions).toHaveLength(1);
+    expect(res.actions[0]).toMatchObject({
+      cle: 'ACTIVE',
+      endpoint: 'statut',
+      statutCible: 'ACTIVE',
+    });
+  });
+
+  it('simulerAvenant : proratisation identique à creerAvenant, sans persistance', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.police.findFirst.mockResolvedValue({
+      id: 'po1',
+      organisationId: 'org-1',
+      statut: 'ACTIVE',
+      dateDebut: new Date('2026-01-01'),
+      dateFin: new Date('2026-12-31'),
+    });
+
+    const res = await service.simulerAvenant(USER, 'po1', {
+      type: 'AJOUT_ADHERENT',
+      dateEffet: '2026-07-01',
+      tarifMensuelFormule: 10000,
+    });
+
+    expect(res).toMatchObject({
+      proratisationAppliquee: true,
+      impactCotisation: '5027.47',
+      joursTotal: 364,
+      joursRestants: 183,
+    });
+    expect(prisma.avenant.create).not.toHaveBeenCalled();
+  });
+
   it('refuse la gestion à un rôle non habilité (comptable)', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_COMPTABLE']));
     await expect(

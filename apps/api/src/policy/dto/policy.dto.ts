@@ -38,6 +38,23 @@ export class ChangerStatutDto {
   statut!: (typeof STATUTS_POLICE)[number];
 }
 
+/** Aperçu de proratisation avant confirmation — ne persiste rien. */
+export class SimulerAvenantDto {
+  @IsIn(TYPES_AVENANT)
+  type!: (typeof TYPES_AVENANT)[number];
+
+  @IsISO8601()
+  dateEffet!: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  tarifMensuelFormule?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  impactCotisation?: number;
+}
+
 export class CreateAvenantDto {
   @IsIn(TYPES_AVENANT)
   type!: (typeof TYPES_AVENANT)[number];

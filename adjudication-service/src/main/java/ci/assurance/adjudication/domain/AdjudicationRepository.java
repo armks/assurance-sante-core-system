@@ -20,8 +20,17 @@ public interface AdjudicationRepository {
   /** Un remboursement existe-t-il déjà pour cette réclamation ? (doublon) */
   boolean remboursementExiste(UUID reclamationId);
 
-  /** Verrou pessimiste : {@code SELECT id FROM polices WHERE id = ? FOR UPDATE}. */
-  void verrouillerPolice(UUID policeId);
+  /**
+   * Verrou pessimiste transactionnel keyé sur l'adhérent (ou la police à défaut) :
+   * {@code SELECT pg_advisory_xact_lock(hashtextextended(?, 0))}. Deux adjudications
+   * concurrentes pour le même adhérent ne peuvent PAS calculer le plafond en même
+   * temps ; le verrou est relâché automatiquement au commit / rollback.
+   *
+   * <p>On n'utilise pas {@code SELECT ... FOR UPDATE} sur {@code polices} : cela
+   * exigerait le privilège {@code UPDATE} sur la table, ce qui sur-privilégierait
+   * le rôle {@code svc_adjudication} (il ne modifie jamais de police).
+   */
+  void verrouillerPourPlafond(UUID cle);
 
   /** Somme des remboursements de l'année civile en cours pour cet adhérent. */
   BigDecimal sommeRemboursementsAnnee(UUID adherentId);

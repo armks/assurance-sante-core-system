@@ -1640,27 +1640,57 @@ plafond_restant_apres, duree_traitement_ms }`. Codes : `E001` police inactive (�
 - **`ServiceJwtVerifierTest`** : signé OK / falsifié / mauvais secret / expiré / `alg=none` /
   malformé / secret absent.
 
-### ⚠️ Exécution locale non réalisée
-La machine de dev **n'a ni JDK 21 ni Maven ni Docker** — le projet et les tests sont écrits
-et **relus ligne à ligne** (montants recalculés à la main dans PROGRESSION), mais
-`mvn test` / `docker build` sont à lancer par l'utilisateur (ou en CI) :
-```
-mvn -f adjudication-service/pom.xml test          # aucune base requise (repo mocké, calcul pur)
-docker build -t adjudication-service:0.1.0 adjudication-service/
-```
+### Exécution — JDK 21 + Maven installés, tests + appel HTTP réel exécutés
 
-### Appel `curl` documenté (test autonome, une fois le service démarré contre une vraie base)
-```bash
-SECRET='<SERVICE_JWT_SECRET>'
-TOKEN=$(node -e 'const c=require("crypto"),s=process.env.SECRET;const b=o=>Buffer.from(JSON.stringify(o)).toString("base64url");const n=Math.floor(Date.now()/1e3);const h=b({alg:"HS256",typ:"JWT"});const p=b({iss:"edge-declencher-adjudication",aud:"adjudication-service",iat:n,exp:n+300});process.stdout.write(h+"."+p+"."+c.createHmac("sha256",s).update(h+"."+p).digest("base64url"))')
+*(L'utilisateur a installé `EclipseAdoptium.Temurin.21.JDK` ; Maven 3.9.9 récupéré dans
+`~/tools`. Les remarques du commit `b1742cf` sur l'absence de toolchain sont caduques.)*
 
-curl -i -X POST http://localhost:8081/api/v1/adjudication/<uuid>/evaluer            # → 401 (sans jeton)
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8081/api/v1/adjudication/<reclamationId-EN_ADJUDICATION>/evaluer  # → 200 { decision, montant_rembourse, … }
-# 2e appel identique → 409 (statut ≠ EN_ADJUDICATION / doublon)
-```
-Format de jeton (exemple, secret `dev-secret-change-me`, expiré — illustration) :
-`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlZGdlLWRlY2xlbmNoZXItYWRqdWRpY2F0aW9uIiwiYXVkIjoiYWRqdWRpY2F0aW9uLXNlcnZpY2UiLCJpYXQiOjE3ODkwNDcwMjIsImV4cCI6MTc4OTA0NzMyMn0.GeE5J1luEPJI4vdvvNYil2-9o4FR-J5mfX2Jx4Nh81A`
+- **`mvn test` → 19 tests, 0 échec** (`AdjudicateurTest` 6, `AdjudicationServiceTest` 6,
+  `ServiceJwtVerifierTest` 7). `mvn package` → `target/adjudication-service-0.1.0.jar` (fat jar, ~26 Mo).
+- **Appel HTTP réel** — service démarré contre la **vraie base Supabase**, connexion en
+  tant que **`svc_adjudication`** (pooler session `:5432`), sur une chaîne semée
+  (étab. + dossier + ticket + acte + réclamation `EN_ADJUDICATION`, garantie taux 80 %
+  sans franchise, plafond annuel 500 000, montant réclamé 20 000) :
+  | Appel | Résultat |
+  |---|---|
+  | `GET /healthz` | `200` `{"status":"UP"}` |
+  | `POST …/evaluer` **sans jeton** | **`401`** |
+  | `POST …/evaluer` **jeton HS256 falsifié** | **`401`** |
+  | `POST …/evaluer` **jeton valide** | **`200`** `{"decision":"AUTO_ADJUDIQUE","montant_rembourse":16000.00,"codes_rejet":[],"plafond_restant_apres":484000.00,"duree_traitement_ms":73}` |
+  | `POST …/evaluer` **2ᵉ appel** | **`409`** « … statut « AUTO_ADJUDIQUE » … » |
+  | police `RESILIEE` | `{"decision":"REJETE","montant_rembourse":0.00,"codes_rejet":["E001"],"plafond_restant_apres":500000.00,…}` |
+  | réclamation inexistante | **`404`** |
+  - En base après le 1ᵉʳ appel : `reclamations.statut = AUTO_ADJUDIQUE`, ligne `remboursements`
+    (`16000.00` / `484000.00` / `AUTO_ADJUDIQUE` / `duree_traitement_ms=73`), ligne
+    `audit_log` `ADJUDICATION_AUTO_ADJUDIQUE` (`user_id` = constante svc, `organisation_id` NULL).
+  - **Toute la transaction exécutée par `svc_adjudication`** (BYPASSRLS + grants stricts en colonnes).
+  - Données de test supprimées ; service arrêté.
+
+### ⚠️ Correctif c — `prisma/sql/020_prompt24c_svc_adjudication_login.sql`
+Découvert pendant l'appel HTTP réel :
+1. **`svc_adjudication` était `NOLOGIN`** (PROMPT 24 partie 1) → le microservice ne pouvait
+   pas ouvrir de connexion JDBC. → `ALTER ROLE svc_adjudication LOGIN` (+ mot de passe posé
+   **hors versionnement** : `ALTER ROLE svc_adjudication PASSWORD '…'`). C'est une session
+   **de service**, jamais une session utilisateur — cohérent avec la spec v12 (`create role
+   svc_adjudication login password '…' bypassrls`).
+2. **`SELECT … WHERE r.deleted_at IS NULL`** échouait (`permission denied for column
+   reclamations.deleted_at`) → `GRANT SELECT (deleted_at) ON reclamations` (→ **13 colonnes**),
+   nécessaire pour ne jamais adjuger une réclamation soft-deleted.
+3. **`SELECT … FROM polices … FOR UPDATE`** échouait (`FOR UPDATE` exige le privilège
+   `UPDATE` sur la table, que `svc_adjudication` ne doit pas avoir). → remplacé par un
+   **verrou pessimiste transactionnel `pg_advisory_xact_lock(hashtextextended(<adherent>,0))`**
+   (fonction `pg_catalog`, exécutable par PUBLIC — aucun grant) : deux adjudications du même
+   adhérent ne calculent jamais le plafond en même temps, verrou relâché au commit/rollback.
+   `AdjudicationRepository.verrouillerPourPlafond`.
+4. `application.yml` : exclusion de `UserDetailsServiceAutoConfiguration` (plus de mot de
+   passe Spring Security généré — l'auth est 100 % JWT de service).
+
+#### Grants `svc_adjudication` après correctif c (13 colonnes sur `reclamations`)
+`SELECT` reclamations : `id, organisation_id, dossier_soins_id, acte_dossier_id, adherent_id,
+beneficiaire_id, police_id, garantie_id, montant, type_reclamation, statut, created_at,
+**deleted_at**` · `UPDATE(statut)` · `SELECT(id, reclamation_id, montant_rembourse,
+created_at)` + `INSERT` sur remboursements · `SELECT` sur garanties / grilles_tarifaires /
+referentiel_actes / medicaments / polices · `EXECUTE` sur `log_audit`. `LOGIN` activé.
 
 ### Point d'arrêt volontaire
 Le service n'appelle rien dans `apps/api` et `apps/api` ne l'appelle pas. Prochaine étape :

@@ -18,8 +18,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <ol>
  *   <li>SELECT réclamation + garantie applicable + police ;</li>
  *   <li>vérif. statut EN_ADJUDICATION (409 sinon) + doublon (409) ;</li>
- *   <li>{@code SELECT ... FOR UPDATE} sur la police (verrou pessimiste) puis
- *       {@code SUM(remboursements de l'année)} ;</li>
+ *   <li>verrou pessimiste transactionnel keyé sur l'adhérent
+ *       ({@code pg_advisory_xact_lock}) puis {@code SUM(remboursements de l'année)} ;</li>
  *   <li>calcul {@link Adjudicateur} (BigDecimal) ;</li>
  *   <li>INSERT {@code remboursements} RETURNING id + UPDATE {@code reclamations.statut} ;</li>
  *   <li>{@code log_audit()}.</li>
@@ -61,8 +61,9 @@ public class AdjudicationService {
       throw new Doublon(reclamationId);
     }
 
-    // 3) verrou pessimiste + cumul de l'année
-    repo.verrouillerPolice(ctx.policeId());
+    // 3) verrou pessimiste (keyé sur l'adhérent, ou la police à défaut) + cumul de l'année
+    final UUID cleVerrou = ctx.adherentId() != null ? ctx.adherentId() : ctx.policeId();
+    repo.verrouillerPourPlafond(cleVerrou);
     final java.math.BigDecimal dejaRembourse =
         repo.sommeRemboursementsAnnee(ctx.adherentId());
 

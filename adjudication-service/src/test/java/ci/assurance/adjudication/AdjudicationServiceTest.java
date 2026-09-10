@@ -59,7 +59,7 @@ class AdjudicationServiceTest {
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
 
     assertThatThrownBy(() -> service.evaluer(ID)).isInstanceOf(MauvaisStatut.class);
-    verify(repo, never()).verrouillerPolice(any());
+    verify(repo, never()).verrouillerPourPlafond(any());
     verify(repo, never()).insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong());
   }
 
@@ -95,7 +95,7 @@ class AdjudicationServiceTest {
     assertThat(res.plafondRestantApres()).isEqualByComparingTo("81600.00");
     assertThat(res.dureeTraitementMs()).isGreaterThanOrEqualTo(0);
 
-    verify(repo).verrouillerPolice(JeuDeDonneesReference.POLICE_ID);
+    verify(repo).verrouillerPourPlafond(JeuDeDonneesReference.ADHERENT_ID);
     verify(repo).insererRemboursement(
         eq(ID), eq(new BigDecimal("18400.00")), eq(new BigDecimal("81600.00")),
         eq("AUTO_ADJUDIQUE"), org.mockito.ArgumentMatchers.anyLong());

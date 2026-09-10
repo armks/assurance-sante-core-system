@@ -54,8 +54,12 @@ Authorization: Bearer <jwt-service-HS256>
 
 1. `SELECT` réclamation + garantie applicable + police (une requête, colonnes autorisées).
 2. Idempotence : statut doit être `EN_ADJUDICATION` (409 sinon) ; pas de remboursement existant (409).
-3. `SELECT id FROM polices WHERE id = ? FOR UPDATE` (verrou pessimiste) puis
-   `SUM(montant_rembourse)` des remboursements de l'année civile pour l'adhérent.
+3. `SELECT pg_advisory_xact_lock(hashtextextended(<adherent>, 0))` — **verrou pessimiste
+   transactionnel** keyé sur l'adhérent (deux adjudications du même adhérent ne calculent
+   jamais le plafond en même temps ; relâché au commit/rollback). *On n'utilise pas
+   `SELECT ... FOR UPDATE` sur `polices` : cela exigerait le privilège `UPDATE` sur la table,
+   ce qui sur-privilégierait `svc_adjudication`.* Puis `SUM(montant_rembourse)` des
+   remboursements de l'année civile pour l'adhérent.
 4. Calcul (`Adjudicateur`, `BigDecimal` partout, `HALF_UP`, échelle 2) :
    franchise → taux → plafond par acte → plafond annuel restant.
 5. `INSERT INTO remboursements (...) RETURNING id` + `UPDATE reclamations SET statut = ? WHERE id = ? AND statut = 'EN_ADJUDICATION'`.
@@ -80,6 +84,8 @@ Toute exception ⇒ **ROLLBACK complet** (rien de partiel n'est écrit).
 mvn test          # tests JUnit — AUCUNE base de données requise (repo mocké, calcul pur)
 mvn clean package # produit target/adjudication-service-0.1.0.jar
 ```
+
+État : **19 tests, 0 échec** (`mvn test` — JDK 21 / Maven 3.9.9).
 
 Tests :
 - `AdjudicateurTest` — cas normal, plafond partiel, plafond épuisé, police inactive,
@@ -140,21 +146,26 @@ curl -s -X POST \
   http://localhost:8081/api/v1/adjudication/<reclamationId>/evaluer | jq
 ```
 
-Réponse attendue (réclamation `EN_ADJUDICATION`, garantie taux 80 % / franchise 2000 /
-plafond annuel 100 000, rien de consommé, montant réclamé 25 000) :
+### Résultat observé en conditions réelles (contre la base Supabase, connexion `svc_adjudication`)
 
-```json
-{
-  "decision": "AUTO_ADJUDIQUE",
-  "montant_rembourse": 18400.00,
-  "codes_rejet": [],
-  "plafond_restant_apres": 81600.00,
-  "duree_traitement_ms": 9
-}
+Réclamation `EN_ADJUDICATION`, garantie taux 80 % / sans franchise / plafond annuel 500 000,
+rien de consommé, montant réclamé **20 000** :
+
+```bash
+$ curl -s -o /dev/null -w '%{http_code}' -X POST .../evaluer            # sans jeton
+401
+$ curl -s -X POST -H "Authorization: Bearer $TOKEN" .../evaluer         # 1er appel
+{"decision":"AUTO_ADJUDIQUE","montant_rembourse":16000.00,"codes_rejet":[],"plafond_restant_apres":484000.00,"duree_traitement_ms":73}
+$ curl -s -w '\n%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" .../evaluer   # 2e appel
+{"...","status":409,"message":"Réclamation … au statut « AUTO_ADJUDIQUE » — adjudication impossible …"}
+409
 ```
 
-Un second appel sur la même réclamation → **409** (`statut` n'est plus `EN_ADJUDICATION`,
-ou un remboursement existe déjà).
+En base après le 1er appel : `reclamations.statut = AUTO_ADJUDIQUE`, une ligne
+`remboursements` (`16000.00`, `484000.00`, `AUTO_ADJUDIQUE`, `duree_traitement_ms=73`),
+une ligne `audit_log` `ADJUDICATION_AUTO_ADJUDIQUE`.
+
+Cas police résiliée (`RESILIEE`) → `{"decision":"REJETE","montant_rembourse":0.00,"codes_rejet":["E001"],"plafond_restant_apres":500000.00,…}`.
 
 ---
 

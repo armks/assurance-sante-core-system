@@ -1,6 +1,9 @@
 spring:
   application:
     name: adjudication-service
+  autoconfigure:
+    # pas d'utilisateur/mot de passe généré : l'auth se fait uniquement par JWT de service
+    exclude: org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   datasource:
     url: ${JDBC_URL}
     username: ${JDBC_USER:svc_adjudication}

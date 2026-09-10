@@ -102,10 +102,16 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
   }
 
   @Override
-  public void verrouillerPolice(UUID policeId) {
-    // verrou pessimiste sur la LIGNE de la police (sérialise les adjudications
-    // concurrentes qui touchent au même plafond) — pas un simple SELECT.
-    jdbc.queryForObject("SELECT id FROM polices WHERE id = ? FOR UPDATE", UUID.class, policeId);
+  public void verrouillerPourPlafond(UUID cle) {
+    // verrou pessimiste transactionnel : sérialise les adjudications concurrentes
+    // portant sur la même clé (adhérent). Relâché au commit / rollback.
+    // `pg_advisory_xact_lock` renvoie void → on n'exploite pas de valeur.
+    jdbc.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))",
+        rs -> {
+          /* void */
+        },
+        cle.toString());
   }
 
   @Override

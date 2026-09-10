@@ -1221,3 +1221,41 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   - **Filtre par type** : `?type=ENTREPRISE` / `?type=COLLECTIVITE` renvoient bien le sous-ensemble.
 - **Vérifs** : `next build --webpack` ✅ (25 routes) ; `jest` API inchangé **111/111**.
   Données de test e2e supprimées (2 souscripteurs + membres) ; serveurs arrêtés.
+
+## 2026-09-10 — Frontend : écran Produits (cycle de vie versionné, lecture seule après publication)
+
+- **`/dashboard-assureur/informatique/produits`** — deuxième consommateur des patterns `patterns/` :
+  - `GrilleCartes` (total, brouillons, publiés, archivés) + `DataTable` (nom triable, version,
+    `StatutBadge` BROUILLON/PUBLIE/ARCHIVE, **nombre de garanties**, date de publication triable),
+    **filtre par statut**, recherche par nom, bouton **« Nouveau produit »** (`FormulaireModal`,
+    champ `nom` — produit créé en **BROUILLON**).
+  - API : `PlanService.listerProduits` expose désormais `_count.garanties` (count filtré
+    `deleted_at IS NULL`) pour alimenter la colonne « Garanties » de la liste.
+- **`/dashboard-assureur/informatique/produits/[id]`** — vue détail (`ProduitDetail`, client) :
+  - carte d'informations (statut, version, nb garanties, dates) ; bouton **« Renommer »**
+    (`FormulaireModal`) visible **uniquement en BROUILLON** ;
+  - `DataTable` des **garanties** (catégorie, taux, plafond/acte, plafond/an, franchise,
+    ticket modérateur, carence, réseau, compteur d'exclusions) — montants formatés `fr-FR` ;
+  - **« Ajouter une garantie »** (`FormulaireModal` avec tous les champs : catégorie d'acte,
+    taux %, plafonds, franchise, ticket modérateur, délai de carence, réseau de soins,
+    exclusions une par ligne) — visible **uniquement en BROUILLON** ;
+  - **« Publier le produit »** : visible en BROUILLON, **désactivé** si 0 garantie avec le
+    message explicite « Ajoutez au moins une garantie pour pouvoir publier. » ;
+  - **« Créer une nouvelle version »** : visible si PUBLIE ou ARCHIVE → nouveau BROUILLON
+    v+1 (produit + garanties clonés), redirige vers la nouvelle version ;
+  - **après publication → tout passe en lecture seule dans l'UI** : bandeau « lecture seule »,
+    disparition des boutons « Ajouter une garantie » / « Retirer » / « Publier » / « Renommer »
+    (cohérent avec le `409` déjà renvoyé par l'API `PlanService.assertBrouillon` si l'on
+    forçait la requête). Les garanties restent affichées en consultation.
+- Server actions (`produits/actions.ts`) : `creerProduit`, `renommerProduit`, `ajouterGarantie`,
+  `supprimerGarantie`, `publierProduit`, `creerNouvelleVersion` (`apiFetch` + `revalidatePath`,
+  `detailErreur` pour la liste d'erreurs du modal).
+- **Test navigateur réel — 33/33** (serveurs prod, session `armelk01@yahoo.fr`) :
+  création produit BROUILLON, rendu liste (badge, colonne garanties, bouton) ; détail sans
+  garantie → bouton « Publier » **rendu `disabled`** + message ; ajout de 2 garanties → « Publier »
+  actif, garanties + valeurs formatées rendues ; publication → HTTP 201, `datePublication` ;
+  détail PUBLIE → bandeau lecture seule, **boutons d'écriture absents du HTML**, garanties
+  toujours visibles ; l'API confirme le verrou (`POST garantie` / `PATCH nom` → **409**) ;
+  `nouvelle-version` → BROUILLON v2 avec 2 garanties clonées, de nouveau éditable.
+- **Vérifs** : `next build --webpack` ✅ (26 routes) ; `jest` API **111/111**.
+  Données de test e2e supprimées (produit + versions + garanties) ; serveurs arrêtés.

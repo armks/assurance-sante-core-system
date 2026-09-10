@@ -93,6 +93,9 @@ export class PlanService {
         ...(filtres.nom ? { nom: filtres.nom } : {}),
       },
       orderBy: [{ nom: 'asc' }, { version: 'desc' }],
+      include: {
+        _count: { select: { garanties: { where: { deletedAt: null } } } },
+      },
     });
   }
 

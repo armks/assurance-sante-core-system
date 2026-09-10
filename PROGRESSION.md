@@ -847,3 +847,35 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   invitations) ; serveur arrêté. Aucun changement frontend ce prompt.
 - ⚠️ **Donnée de test conservée** : `adherent.test@exemple.ci` + profil
   `ADHERENT_TITULAIRE` (`adherent_id` synthétique) — à retirer avant prod.
+
+## 2026-09-10 — Nettoyage des comptes de test à domaine fictif (taux de rebond Supabase)
+- **Problème** : les comptes de test créés aux prompts précédents utilisaient des adresses
+  à domaine fictif (`@exemple.ci`). L'API Admin Supabase (`inviteUserByEmail`) tentait de
+  leur envoyer un e-mail → rebonds → alerte « bounce rate » de Supabase.
+- **Supprimés** (API Admin Supabase, la ligne `profils` part en cascade via
+  `profils_id_fkey` ON DELETE CASCADE) :
+  - `medecin.conseil.test@exemple.ci` (ASSUREUR_MEDECIN_CONSEIL)
+  - `superadmin.test@exemple.ci` (SUPERADMIN_PRINCIPAL)
+  - `pharmacien.conseil.test@exemple.ci` (ASSUREUR_PHARMACIEN_CONSEIL)
+  - `adherent.test@exemple.ci` (ADHERENT_TITULAIRE)
+  - `caissiere.mtupueum@exemple.ci` (orphelin — vestige du test PROMPT 14, invitation
+    jamais acceptée, aucun profil)
+  Vérifié au préalable : aucune FK vers ces `profils` (`questionnaires_medicaux.valide_par`,
+  `referentiel_actes`/`medicaments.homologue_par`, `avenants.cree_par`,
+  `consultations_dossier.medecin_id`, `dossiers_soins.cloture_par`, `invitations.invite_par`,
+  `membres_comite_gestion.user_id` → tous à 0). Ligne `audit_log` orpheline (org de test
+  déjà supprimée) purgée également.
+- **Recréé** : **`armelk01+adherent@gmail.com`** (mot de passe `Adherent-2026`,
+  `email_confirm`) — profil `ADHERENT_TITULAIRE`, organisation `aaaaaaaa-…-0001`,
+  `adherent_id = 1aff894a-3cc8-426e-9365-c5a23446193e`. Adresse Gmail plus-address :
+  délivrable, aucun rebond. Police active pour les tests : `POL-2026-000004`
+  (`d1d1d1d1-1111-4111-8111-111111111111`, souscripteur ACME BTP).
+- **Non recréés** : les rôles MEDECIN_CONSEIL / PHARMACIEN_CONSEIL / SUPERADMIN seront
+  recréés **au coup par coup** quand un prompt e2e en aura réellement besoin, avec des
+  adresses `armelk01+<role>@gmail.com`. Ne plus créer de compte de test par anticipation.
+- **Règle** : tout compte de test créé désormais utilise `armelk01+<qqch>@gmail.com`
+  (jamais de domaine fictif).
+- État de `auth.users` : `armelk01@yahoo.fr` (ASSUREUR_INFORMATIQUE, réel) +
+  `armelk01+adherent@gmail.com` (ADHERENT_TITULAIRE).
+- Fixture unitaire `preauthorization.service.spec.ts` : e-mail mock aligné sur la nouvelle
+  adresse (aucun envoi réel — simple fixture).

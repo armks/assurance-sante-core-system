@@ -884,3 +884,67 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   confusion).
 - Cette entrée **remplace** les anciens marqueurs « ⚠️ Donnée de test conservée » des
   PROMPTs 6, 10, 16 et 17 : ces comptes n'existent plus (sauf l'adhérent, recréé).
+
+## 2026-09-10 — PROMPT 19 — Code Référence d'Ordonnance (module preauthorization étendu)
+- **Supabase** (`prisma/sql/013_prompt19_code_ordonnance.sql`) :
+  - Table **`ordonnances`** (minimale, v8 §3) : `organisation_id`, `dossier_soins_id` FK,
+    `consultation_id` FK, `medecin_id` FK profils, `lignes jsonb` (liste
+    médicament/dosage/posologie/durée/quantité — le référentiel `medicaments` viendra
+    l'affiner), `statut` ACTIVE / PARTIELLEMENT_DELIVREE / COMPLETEMENT_DELIVREE / EXPIREE /
+    ANNULEE, `date_prescription`, `date_validite` défaut `now()+7 jours`.
+  - Table **`codes_ordonnance`** (v8 §3) : `code` unique (même format que
+    `codes_consultation`, `^[A-Z0-9]{6,8}$`), `date_expiration` défaut `now()+7 jours`
+    (aligné sur la validité de l'ordonnance), `statut` EMIS / PRESENTE_PHARMACIE /
+    UTILISE_PARTIEL / UTILISE_COMPLET / EXPIRE / ANNULE, `pharmacie_utilisatrice_id` FK
+    (rempli à la 1ʳᵉ validation), `adherent_id` / `beneficiaire_id` (dénormalisés du
+    dossier, pour la RLS).
+  - **RLS — même principe que `codes_consultation`** : **aucune policy de lecture pour la
+    pharmacie**, ni sur `ordonnances` ni sur `codes_ordonnance` ; `ordonnances` lisible
+    par le médecin prescripteur / l'adhérent concerné / le personnel assureur ;
+    `codes_ordonnance` lisible seulement par l'adhérent concerné
+    (`adherent_id = profils.adherent_id`).
+- **Prisma** : modèles `Ordonnance` + `CodeOrdonnance` (25 → 27 modèles), `prisma generate`.
+- **apps/api** — `preauthorization/` étendu :
+  - `creerOrdonnance(user, { consultationId, medecinId, lignes })` : vérifie que le médecin
+    de l'ordonnance = médecin de la consultation (v10 §1) ; le prescripteur est le médecin
+    lui-même ou l'administratif de son établissement ; crée l'ordonnance **ET** le
+    `code_ordonnance` **dans la même transaction** ; **ne renvoie JAMAIS le code** (au
+    médecin) — réponse = `{ ordonnanceId, nombreLignes, dateValidite }`.
+  - `listerMesCodesOrdonnance(user)` : côté adhérent — ses codes **avec** la valeur du code
+    (c'est ainsi que l'adhérent « reçoit » le code, en attendant le module notification).
+  - `validerCodeOrdonnance(user, { code, pharmacieId })` : côté pharmacie — 404 code
+    inconnu / autre org ; 409 UTILISE_COMPLET ; 410 ANNULE / EXPIRE (+ passe EXPIRE) ;
+    **403 si déjà pris en charge par une autre pharmacie** ; sinon **RÉVÈLE le contenu
+    complet de l'ordonnance** (`lignes`) — seul moment où la pharmacie y accède — et passe
+    le code PRESENTE_PHARMACIE + `pharmacie_utilisatrice_id`. Re-lecture par la même
+    pharmacie autorisée tant que non dispensée. La valeur du code n'est jamais renvoyée.
+  - `marquerDispensation(user, codeId, { type: PARTIELLE|COMPLETE, lignesDelivrees?,
+    commentaire? })` : réservé à la pharmacie qui a validé ; PARTIELLE → code
+    UTILISE_PARTIEL + ordonnance PARTIELLEMENT_DELIVREE ; COMPLETE → UTILISE_COMPLET +
+    COMPLETEMENT_DELIVREE.
+  - `PreauthorizationController` : `POST /preauthorization/ordonnances` (médecin),
+    `GET /preauthorization/codes-ordonnance` (adhérent),
+    `POST /preauthorization/codes-ordonnance/valider` (pharmacie),
+    `POST /preauthorization/codes-ordonnance/:id/dispensation` (pharmacie).
+  - `preauthorization-ordonnance.service.spec.ts` : **8 cas** (médecin ≠ consultation →
+    400 ; création OK sans code en réponse ; adhérent récupère le code ; code inconnu →
+    404 ; validation OK révèle les lignes + PRESENTE_PHARMACIE ; UTILISE_COMPLET → 409 ;
+    autre pharmacie → 403 ; dispensation COMPLETE). → **jest 89/89**.
+- **Test HTTP réel — 13/13** (comptes créés à la nouvelle convention
+  `armelk01+<role>.<stamp>@gmail.com` : médecin `CENTRE_MEDICAL_MEDECIN`, 2 pharmaciens
+  `PHARMACIE_PHARMACIEN` sur 2 pharmacies distinctes ; dossier ouvert via un vrai code de
+  consultation ; adhérent `armelk01+adherent@gmail.com`) :
+  - `POST /ordonnances` (médecin) → 201, `{ ordonnanceId, nombreLignes: 2 }`, **code
+    absent de la réponse** ; `GET /codes-ordonnance` côté médecin → **liste vide**.
+  - Pharmacie avec un code bidon → **404** (aucun accès au contenu).
+  - `GET /codes-ordonnance` côté adhérent → le code (`P4496JU4`, 8 car., EMIS).
+  - Validation par la bonne pharmacie → **contenu complet révélé** (2 lignes), code
+    PRESENTE_PHARMACIE, valeur du code non renvoyée ; re-lecture même pharmacie → OK.
+  - Validation par une **autre** pharmacie → **403**.
+  - Dispensation COMPLETE → code UTILISE_COMPLET + ordonnance COMPLETEMENT_DELIVREE ;
+    2ᵉ lecture après dispensation totale → **409**.
+  - `audit_log` : GENERATION_CODE_ORDONNANCE, VALIDATION_CODE_ORDONNANCE,
+    DISPENSATION_ORDONNANCE.
+- **Vérifs** : build API ✅ ; `jest` **89/89** ✅. Données de test du parcours e2e
+  supprimées (ordonnance, codes, dossier, établissement, 2 pharmacies, 3 profils + comptes
+  Supabase, invitations) ; serveur arrêté. Aucun changement frontend ce prompt.

@@ -14,6 +14,11 @@ import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  CreerOrdonnanceDto,
+  DispensationDto,
+  ValiderCodeOrdonnanceDto,
+} from './dto/ordonnance.dto';
+import {
   GenererCodeConsultationDto,
   ValiderCodeConsultationDto,
 } from './dto/preauthorization.dto';
@@ -22,6 +27,8 @@ import {
   ContexteAppelant,
   LONGUEUR_CODE,
   ROLES_ADHERENT,
+  ROLES_PHARMACIE,
+  ROLE_MEDECIN_TRAITANT,
 } from './preauthorization.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -260,6 +267,336 @@ export class PreauthorizationService {
     };
   }
 
+  // =====================================================================
+  // Code Référence d'Ordonnance (v8 §3)
+  // =====================================================================
+
+  /**
+   * Crée une ordonnance ET son code de retrait dans la même transaction.
+   * Appelé par le médecin (ou le personnel administratif du centre). Le code
+   * n'est JAMAIS renvoyé ici — il part vers l'adhérent (APP/SMS), qui le
+   * récupère via `GET /preauthorization/codes-ordonnance`.
+   */
+  async creerOrdonnance(user: AuthenticatedUser, dto: CreerOrdonnanceDto) {
+    const ctx = await this.contexteAppelant(user);
+
+    const consultation = await this.prisma.consultationDossier.findFirst({
+      where: { id: dto.consultationId, deletedAt: null },
+      include: { dossier: true },
+    });
+    if (
+      !consultation ||
+      consultation.dossier.organisationId !== ctx.organisationId
+    ) {
+      throw new NotFoundException('Consultation introuvable.');
+    }
+    if (consultation.statut === 'ANNULEE') {
+      throw new ConflictException(
+        'On ne peut pas prescrire sur une consultation annulée.',
+      );
+    }
+
+    // Le médecin de l'ordonnance DOIT être celui de la consultation (v10 §1).
+    if (consultation.medecinId !== dto.medecinId) {
+      throw new BadRequestException(
+        "Le médecin de l'ordonnance doit être celui de la consultation.",
+      );
+    }
+
+    // Qui prescrit ? le médecin lui-même, ou le personnel administratif du
+    // même établissement.
+    const estLeMedecin =
+      ctx.roleChain.includes(ROLE_MEDECIN_TRAITANT) &&
+      ctx.userId === dto.medecinId;
+    const estAdminDuCentre =
+      ['CENTRE_MEDICAL_ADMINISTRATIF', 'CENTRE_MEDICAL_ACCUEIL'].some((r) =>
+        ctx.roleChain.includes(r),
+      ) && ctx.etablissementId === consultation.dossier.etablissementId;
+    if (!estLeMedecin && !estAdminDuCentre) {
+      throw new ForbiddenException(
+        "Seul le médecin de la consultation (ou l'administratif de son établissement) peut établir l'ordonnance.",
+      );
+    }
+
+    const dossier = consultation.dossier;
+    if (!dossier.adherentId && !dossier.beneficiaireId) {
+      throw new BadRequestException(
+        "Le dossier de soins n'identifie aucun patient.",
+      );
+    }
+
+    const code = await this.genererCodeOrdonnanceUnique();
+
+    const resultat = await this.prisma.$transaction(async (tx) => {
+      const ordonnance = await tx.ordonnance.create({
+        data: {
+          organisationId: ctx.organisationId,
+          dossierSoinsId: dossier.id,
+          consultationId: consultation.id,
+          medecinId: dto.medecinId,
+          lignes: dto.lignes as unknown as Prisma.InputJsonValue,
+          statut: 'ACTIVE',
+        },
+      });
+      const ligneCode = await tx.codeOrdonnance.create({
+        data: {
+          organisationId: ctx.organisationId,
+          ordonnanceId: ordonnance.id,
+          adherentId: dossier.adherentId,
+          beneficiaireId: dossier.beneficiaireId,
+          code,
+          statut: 'EMIS',
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'GENERATION_CODE_ORDONNANCE',
+        ligneCode.id,
+        { ordonnanceId: ordonnance.id, lignes: dto.lignes.length },
+        'codes_ordonnance',
+      );
+      return { ordonnance, ligneCode };
+    });
+
+    // Réponse au MÉDECIN — sans le code (il ne doit jamais le voir).
+    return {
+      ordonnanceId: resultat.ordonnance.id,
+      statut: resultat.ordonnance.statut,
+      dateValidite: resultat.ordonnance.dateValidite,
+      nombreLignes: dto.lignes.length,
+      message:
+        "Ordonnance établie. Le code de retrait a été transmis à l'adhérent (APP/SMS).",
+    };
+  }
+
+  /** Codes d'ordonnance de l'adhérent connecté — AVEC la valeur du code (les siens). */
+  async listerMesCodesOrdonnance(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.adherentId) {
+      return [];
+    }
+    const codes = await this.prisma.codeOrdonnance.findMany({
+      where: { adherentId: ctx.adherentId },
+      orderBy: { dateEmission: 'desc' },
+      take: 50,
+    });
+    return codes.map((c) => ({
+      id: c.id,
+      ordonnanceId: c.ordonnanceId,
+      code: c.code,
+      statut: c.statut,
+      dateEmission: c.dateEmission,
+      dateExpiration: c.dateExpiration,
+    }));
+  }
+
+  /**
+   * Saisie du code côté PHARMACIE. Si valide, RÉVÈLE le contenu complet de
+   * l'ordonnance (c'est le seul moment où la pharmacie y a accès) et marque le
+   * code PRESENTE_PHARMACIE. Une pharmacie ne peut pas relire un code déjà
+   * pris en charge par une autre pharmacie, ni un code entièrement dispensé.
+   */
+  async validerCodeOrdonnance(
+    user: AuthenticatedUser,
+    dto: ValiderCodeOrdonnanceDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx, dto.pharmacieId);
+
+    const code = await this.prisma.codeOrdonnance.findUnique({
+      where: { code: dto.code.toUpperCase() },
+    });
+    if (!code || code.organisationId !== ctx.organisationId) {
+      throw new NotFoundException("Code d'ordonnance invalide.");
+    }
+
+    if (code.statut === 'UTILISE_COMPLET') {
+      throw new ConflictException(
+        'Cette ordonnance a déjà été entièrement dispensée.',
+      );
+    }
+    if (code.statut === 'ANNULE') {
+      throw new GoneException("Ce code d'ordonnance a été annulé.");
+    }
+    if (code.statut === 'EXPIRE' || code.dateExpiration.getTime() < Date.now()) {
+      if (code.statut !== 'EXPIRE') {
+        await this.prisma.codeOrdonnance.update({
+          where: { id: code.id },
+          data: { statut: 'EXPIRE' },
+        });
+      }
+      throw new GoneException(
+        "Ce code d'ordonnance a expiré (validité 7 jours).",
+      );
+    }
+    // Déjà pris en charge par une AUTRE pharmacie → refus.
+    if (
+      code.pharmacieUtilisatriceId &&
+      code.pharmacieUtilisatriceId !== dto.pharmacieId
+    ) {
+      throw new ForbiddenException(
+        'Cette ordonnance est déjà prise en charge par une autre pharmacie.',
+      );
+    }
+
+    const ordonnance = code.ordonnanceId
+      ? await this.prisma.ordonnance.findUnique({
+          where: { id: code.ordonnanceId },
+          include: {
+            medecin: { select: { id: true, role: true } },
+            dossier: { select: { numeroTraitement: true } },
+          },
+        })
+      : null;
+    if (!ordonnance || ordonnance.deletedAt) {
+      throw new NotFoundException('Ordonnance introuvable.');
+    }
+    if (['EXPIREE', 'ANNULEE'].includes(ordonnance.statut)) {
+      throw new GoneException(
+        `Ordonnance ${ordonnance.statut.toLowerCase()} — dispensation impossible.`,
+      );
+    }
+
+    if (code.statut === 'EMIS') {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.codeOrdonnance.update({
+          where: { id: code.id },
+          data: {
+            statut: 'PRESENTE_PHARMACIE',
+            pharmacieUtilisatriceId: dto.pharmacieId,
+          },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'VALIDATION_CODE_ORDONNANCE',
+          code.id,
+          { ordonnanceId: ordonnance.id, pharmacieId: dto.pharmacieId },
+          'codes_ordonnance',
+        );
+      });
+    }
+
+    // RÉVÉLATION du contenu — uniquement ici, uniquement à cette pharmacie.
+    return {
+      code: {
+        id: code.id,
+        statut: code.statut === 'EMIS' ? 'PRESENTE_PHARMACIE' : code.statut,
+      },
+      ordonnance: {
+        id: ordonnance.id,
+        statut: ordonnance.statut,
+        datePrescription: ordonnance.datePrescription,
+        dateValidite: ordonnance.dateValidite,
+        medecinId: ordonnance.medecinId,
+        numeroTraitement: ordonnance.dossier.numeroTraitement,
+        lignes: ordonnance.lignes,
+      },
+    };
+  }
+
+  /**
+   * Dispensation partielle ou complète, après coup. Réservée à la pharmacie qui
+   * a validé le code.
+   */
+  async marquerDispensation(
+    user: AuthenticatedUser,
+    codeId: string,
+    dto: DispensationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+
+    const code = await this.prisma.codeOrdonnance.findFirst({
+      where: { id: codeId, organisationId: ctx.organisationId },
+    });
+    if (!code) {
+      throw new NotFoundException("Code d'ordonnance introuvable.");
+    }
+    this.assertPharmacie(ctx, code.pharmacieUtilisatriceId ?? '');
+    if (
+      !code.pharmacieUtilisatriceId ||
+      code.pharmacieUtilisatriceId !== ctx.pharmacieId
+    ) {
+      throw new ForbiddenException(
+        "Seule la pharmacie qui a validé le code peut enregistrer la dispensation.",
+      );
+    }
+    if (!['PRESENTE_PHARMACIE', 'UTILISE_PARTIEL'].includes(code.statut)) {
+      throw new ConflictException(
+        `Dispensation impossible depuis le statut ${code.statut}.`,
+      );
+    }
+
+    const complet = dto.type === 'COMPLETE';
+    const statutCode = complet ? 'UTILISE_COMPLET' : 'UTILISE_PARTIEL';
+    const statutOrdonnance = complet
+      ? 'COMPLETEMENT_DELIVREE'
+      : 'PARTIELLEMENT_DELIVREE';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.codeOrdonnance.update({
+        where: { id: codeId },
+        data: { statut: statutCode },
+      });
+      if (code.ordonnanceId) {
+        await tx.ordonnance.update({
+          where: { id: code.ordonnanceId },
+          data: { statut: statutOrdonnance },
+        });
+      }
+      await this.audit(
+        tx,
+        ctx.userId,
+        'DISPENSATION_ORDONNANCE',
+        codeId,
+        {
+          type: dto.type,
+          lignesDelivrees: dto.lignesDelivrees ?? null,
+          commentaire: dto.commentaire ?? null,
+        },
+        'codes_ordonnance',
+      );
+    });
+
+    return {
+      code: { id: codeId, statut: statutCode },
+      ordonnance: { id: code.ordonnanceId, statut: statutOrdonnance },
+    };
+  }
+
+  private assertPharmacie(ctx: ContexteAppelant, pharmacieId: string): void {
+    const estPharmacie = ctx.roleChain.some((r) =>
+      (ROLES_PHARMACIE as readonly string[]).includes(r),
+    );
+    if (!estPharmacie) {
+      throw new ForbiddenException(
+        "Réservé au personnel d'une pharmacie du réseau.",
+      );
+    }
+    if (!ctx.pharmacieId || ctx.pharmacieId !== pharmacieId) {
+      throw new ForbiddenException(
+        "Vous ne pouvez agir que pour votre propre pharmacie.",
+      );
+    }
+  }
+
+  private async genererCodeOrdonnanceUnique(): Promise<string> {
+    for (let tentative = 0; tentative < 6; tentative += 1) {
+      const candidat = this.tirerCode();
+      const [ord, cons] = await Promise.all([
+        this.prisma.codeOrdonnance.findUnique({ where: { code: candidat } }),
+        this.prisma.codeConsultation.findUnique({ where: { code: candidat } }),
+      ]);
+      if (!ord && !cons) {
+        return candidat;
+      }
+    }
+    throw new ConflictException(
+      "Impossible de générer un code unique — réessayez.",
+    );
+  }
+
   // --- Helpers ----------------------------------------------------
 
   private async contexteAppelant(
@@ -276,6 +613,8 @@ export class PreauthorizationService {
       organisationId: profil.organisationId,
       role: profil.role,
       adherentId: profil.adherentId,
+      etablissementId: profil.etablissementId,
+      pharmacieId: profil.pharmacieId,
       roleChain: permissions?.roleChain ?? [],
     };
   }
@@ -323,12 +662,13 @@ export class PreauthorizationService {
     action: string,
     enregistrementId: string,
     details: Prisma.InputJsonValue | null,
+    tableCible = 'codes_consultation',
   ): Promise<void> {
     try {
       await db.$executeRaw`
         SELECT log_audit(
           ${action}::text,
-          ${'codes_consultation'}::text,
+          ${tableCible}::text,
           ${enregistrementId}::uuid,
           ${userId}::uuid,
           ${details === null ? null : JSON.stringify(details)}::jsonb

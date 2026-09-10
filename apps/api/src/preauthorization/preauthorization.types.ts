@@ -14,6 +14,36 @@ export const ROLES_ADHERENT = [
   'SOUSCRIPTEUR_INDIVIDUEL',
 ] as const;
 
+// --- Code Référence d'Ordonnance (v8 §3) --------------------------------
+
+export const STATUTS_CODE_ORDONNANCE = [
+  'EMIS',
+  'PRESENTE_PHARMACIE',
+  'UTILISE_PARTIEL',
+  'UTILISE_COMPLET',
+  'EXPIRE',
+  'ANNULE',
+] as const;
+export type StatutCodeOrdonnance = (typeof STATUTS_CODE_ORDONNANCE)[number];
+
+export const STATUTS_ORDONNANCE = [
+  'ACTIVE',
+  'PARTIELLEMENT_DELIVREE',
+  'COMPLETEMENT_DELIVREE',
+  'EXPIREE',
+  'ANNULEE',
+] as const;
+export type StatutOrdonnance = (typeof STATUTS_ORDONNANCE)[number];
+
+export const ROLE_MEDECIN_TRAITANT = 'CENTRE_MEDICAL_MEDECIN';
+
+/** Rôles côté pharmacie autorisés à saisir un code d'ordonnance. */
+export const ROLES_PHARMACIE = [
+  'PHARMACIE_PHARMACIEN',
+  'PHARMACIE_CAISSIERE',
+  'PHARMACIE_COMPTABLE',
+] as const;
+
 /**
  * Alphabet du code : majuscules + chiffres, sans caractères ambigus
  * (0/O, 1/I/L). 30 symboles → 30^8 ≈ 6,5·10¹¹ combinaisons pour une fenêtre de
@@ -27,5 +57,7 @@ export interface ContexteAppelant {
   organisationId: string;
   role: string | null;
   adherentId: string | null;
+  etablissementId: string | null;
+  pharmacieId: string | null;
   roleChain: string[];
 }

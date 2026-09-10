@@ -51,6 +51,8 @@ model Organisation {
   medicaments       Medicament[]
   dossiersSoins     DossierSoins[]
   codesConsultation CodeConsultation[]
+  ordonnances       Ordonnance[]
+  codesOrdonnance   CodeOrdonnance[]
 
   @@map("organisations")
 }
@@ -129,6 +131,7 @@ model Profil {
   medicamentsHomologues Medicament[]
   dossiersClotures      DossierSoins[]
   consultations         ConsultationDossier[]
+  ordonnancesPrescrites Ordonnance[]
 
   @@map("profils")
 }
@@ -523,7 +526,8 @@ model Pharmacie {
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organisation    Organisation      @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  codesOrdonnance CodeOrdonnance[]
 
   @@index([organisationId])
   @@index([statut])
@@ -634,6 +638,7 @@ model DossierSoins {
   derives           DossierSoins[]        @relation("DossierDerive")
   consultations     ConsultationDossier[]
   codesConsultation CodeConsultation[]
+  ordonnances       Ordonnance[]
 
   @@index([organisationId])
   @@index([etablissementId])
@@ -659,8 +664,9 @@ model ConsultationDossier {
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  dossier DossierSoins @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  medecin Profil       @relation(fields: [medecinId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossier     DossierSoins @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  medecin     Profil       @relation(fields: [medecinId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ordonnances Ordonnance[]
 
   @@index([dossierSoinsId])
   @@index([medecinId])
@@ -695,4 +701,61 @@ model CodeConsultation {
   @@index([etablissementId])
   @@index([statut])
   @@map("codes_consultation")
+}
+
+/// ordonnances — table minimale (v8 §3, PROMPT 19). `lignes` = liste JSON de
+/// médicaments/posologie ; le référentiel `medicaments` viendra l'affiner.
+/// prisma/sql/013.
+model Ordonnance {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId   String    @map("organisation_id") @db.Uuid
+  dossierSoinsId   String    @map("dossier_soins_id") @db.Uuid
+  consultationId   String    @map("consultation_id") @db.Uuid
+  medecinId        String    @map("medecin_id") @db.Uuid
+  lignes           Json      @default("[]")
+  statut           String    @default("ACTIVE") // ACTIVE | PARTIELLEMENT_DELIVREE | COMPLETEMENT_DELIVREE | EXPIREE | ANNULEE
+  datePrescription DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
+  dateValidite     DateTime  @default(dbgenerated("(now() + '7 days'::interval)")) @map("date_validite") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossier      DossierSoins        @relation(fields: [dossierSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  consultation ConsultationDossier @relation(fields: [consultationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  medecin      Profil              @relation(fields: [medecinId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  codes        CodeOrdonnance[]
+
+  @@index([organisationId])
+  @@index([dossierSoinsId])
+  @@index([consultationId])
+  @@index([statut])
+  @@map("ordonnances")
+}
+
+/// codes_ordonnance — 2e des 4 codes anti-fraude (v8 §3). Sa validation par une
+/// pharmacie est le SEUL moment où le contenu de l'ordonnance lui est révélé.
+/// prisma/sql/013.
+model CodeOrdonnance {
+  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId          String    @map("organisation_id") @db.Uuid
+  ordonnanceId            String?   @map("ordonnance_id") @db.Uuid
+  adherentId              String?   @map("adherent_id") @db.Uuid
+  beneficiaireId          String?   @map("beneficiaire_id") @db.Uuid
+  code                    String    @unique
+  dateEmission            DateTime  @default(now()) @map("date_emission") @db.Timestamptz(6)
+  dateExpiration          DateTime  @default(dbgenerated("(now() + '7 days'::interval)")) @map("date_expiration") @db.Timestamptz(6)
+  statut                  String    @default("EMIS") // EMIS | PRESENTE_PHARMACIE | UTILISE_PARTIEL | UTILISE_COMPLET | EXPIRE | ANNULE
+  pharmacieUtilisatriceId String?   @map("pharmacie_utilisatrice_id") @db.Uuid
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ordonnance   Ordonnance?  @relation(fields: [ordonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacie    Pharmacie?   @relation(fields: [pharmacieUtilisatriceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([adherentId])
+  @@index([ordonnanceId])
+  @@index([statut])
+  @@map("codes_ordonnance")
 }

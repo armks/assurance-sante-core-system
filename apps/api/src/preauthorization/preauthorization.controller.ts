@@ -11,6 +11,11 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
+  CreerOrdonnanceDto,
+  DispensationDto,
+  ValiderCodeOrdonnanceDto,
+} from './dto/ordonnance.dto';
+import {
   GenererCodeConsultationDto,
   ValiderCodeConsultationDto,
 } from './dto/preauthorization.dto';
@@ -63,5 +68,41 @@ export class PreauthorizationController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.preauth.annulerCode(user, id);
+  }
+
+  // --- Code Référence d'Ordonnance (v8 §3) --------------------------
+
+  /** Côté MÉDECIN : établit l'ordonnance + génère le code (non renvoyé ici). */
+  @Post('ordonnances')
+  creerOrdonnance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreerOrdonnanceDto,
+  ) {
+    return this.preauth.creerOrdonnance(user, dto);
+  }
+
+  /** Côté ADHÉRENT : ses codes d'ordonnance (avec la valeur du code). */
+  @Get('codes-ordonnance')
+  mesCodesOrdonnance(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerMesCodesOrdonnance(user);
+  }
+
+  /** Côté PHARMACIE : saisie du code → révèle le contenu de l'ordonnance. */
+  @Post('codes-ordonnance/valider')
+  validerOrdonnance(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ValiderCodeOrdonnanceDto,
+  ) {
+    return this.preauth.validerCodeOrdonnance(user, dto);
+  }
+
+  /** Côté PHARMACIE : dispensation partielle ou complète, après coup. */
+  @Post('codes-ordonnance/:id/dispensation')
+  dispensation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DispensationDto,
+  ) {
+    return this.preauth.marquerDispensation(user, id, dto);
   }
 }

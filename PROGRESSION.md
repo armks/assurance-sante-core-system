@@ -1168,3 +1168,56 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - ⚠️ **Comptes de test permanents** désormais : `armelk01@yahoo.fr` (ASSUREUR_INFORMATIQUE),
   `armelk01+adherent@gmail.com` (ADHERENT_TITULAIRE), **`armelk01+superadmin@gmail.com`
   (SUPERADMIN_PRINCIPAL, mdp `Sante-Test-2026`)** — à retirer avant prod.
+
+## 2026-09-10 — Frontend : patterns réutilisables + écran Souscripteurs
+- **`apps/web/components/dashboard/patterns/`** — jeu de composants **formalisés une fois**,
+  à réutiliser sur tous les écrans de gestion (produits, polices, cotisations,
+  établissements, utilisateurs…), basés sur les primitives shadcn en place. Doc +
+  exemples : `patterns/README.md`.
+  - **`DataTable`** — tableau générique : colonnes configurables (`rendu`, `valeur`,
+    `triable`, `aligneDroite`), **recherche plein texte** multi-champs (chemins `a.b`
+    supportés), **filtres `select`**, **tri** par colonne, **pagination** (`parPage`,
+    défaut 10), **état de chargement** (skeleton), **état vide** (« Aucune donnée » /
+    « Aucun résultat pour ces filtres »), emplacement `actions` (barre d'outils) et
+    `actionLigne` (cellule de fin de ligne).
+  - **`StatutBadge`** — badge coloré ; **tonalité déduite du jeton** (ACTIF/PUBLIE/HOMOLOGUE
+    → vert, BROUILLON/EN_ATTENTE/SUSPENDUE → ambre, RESILIE/EXPIRE… → rouge, CLOTURE/ARCHIVE
+    → gris) ; **surchargeable** par `map` (statut → tonalité), `ton` (force) ou `libelles`.
+    3 nouvelles variantes ajoutées à `ui/badge.tsx` : `warning`, `danger`, `info`.
+  - **`FormulaireModal`** — wrapper de formulaire création/édition en **drawer**
+    (mobile-first : plein écran mobile, panneau droit desktop) ou **modale** (`mode="center"`).
+    `onSoumettre(formData)` → `{ ok }` : succès ferme + réinitialise + `onSucces()` ;
+    **échec affiche `error` ET la liste `erreurs`** (messages class-validator de NestJS).
+    Pilotable (`ouvert` / `onOuvertChange`). Primitive `ui/dialog.tsx` ajoutée (radix Dialog,
+    option `side="right"` pour le drawer). Helper `lib/api.ts` : `detailErreur(res)` →
+    `{ error, erreurs[] }`.
+  - **`Champ*`** — champs libellés (`ChampTexte`, `ChampNombre`, `ChampZone`, `ChampSelect`,
+    `ChampCheckbox`) + enveloppe `Champ`, alignés sur le style du codebase.
+  - **`CarteResume` / `GrilleCartes`** — carte de chiffre-clé (libellé, valeur, indice
+    coloré, icône, lien optionnel) pour les vues d'ensemble.
+- **Écran Souscripteurs** — premier consommateur de ces patterns :
+  - `/dashboard-assureur/informatique/souscripteurs` : `GrilleCartes` (total + par type) +
+    `DataTable` (nom, type via `StatutBadge`, détail synthétique, date de création triable),
+    **filtre par type** ENTREPRISE/COLLECTIVITE/INDIVIDUEL, recherche, bouton
+    **« Nouveau souscripteur »** ouvrant un `FormulaireModal` dont **les champs s'adaptent
+    dynamiquement au type** (secteur/effectif pour ENTREPRISE ; type de collectivité /
+    organe de gouvernance / subvention + bailleur pour COLLECTIVITE ; pièce d'identité pour
+    INDIVIDUEL). Appelle le module `tenant/` (`POST /api/v1/tenant/souscripteurs`).
+  - `/dashboard-assureur/informatique/souscripteurs/[id]` : vue détail (fiche
+    d'informations selon le type) et, **pour une COLLECTIVITE**, la **gestion du comité de
+    gestion** (`ComiteGestion` : `DataTable` des membres + `FormulaireModal` d'ajout — le
+    membre est choisi parmi les comptes réels de l'organisation via
+    `GET /identity/comptes` — + retrait). Endpoints `tenant/souscripteurs/:id/membres-comite`.
+  - Server actions : `creerSouscripteur`, `ajouterMembreComite`, `retirerMembreComite`
+    (`apiFetch` + `revalidatePath`, renvoient `{ ok:false, error, erreurs }` pour le modal).
+- **Test navigateur réel — 12/12** (serveurs prod, session `armelk01@yahoo.fr`) :
+  - `/souscripteurs` → 200 : DataTable avec les vraies données (ACME BTP, Mutuelle
+    communautaire de Bouaké), cartes de résumé, badges de type, bouton « Nouveau souscripteur ».
+  - Création **ENTREPRISE** (`SODECI Test`, secteur + effectif) → 201, apparaît dans la liste.
+  - `POST` sans `type` → **400 avec la liste des messages de validation** (rendue par le modal).
+  - Création **COLLECTIVITE** (type de collectivité, organe, subvention + bailleur) → 201.
+  - Ajout d'un **membre de comité** (compte réel de l'org, fonction « Président ») → 201 ;
+    vue détail affiche infos + comité + membre ; retrait → 204.
+  - **Filtre par type** : `?type=ENTREPRISE` / `?type=COLLECTIVITE` renvoient bien le sous-ensemble.
+- **Vérifs** : `next build --webpack` ✅ (25 routes) ; `jest` API inchangé **111/111**.
+  Données de test e2e supprimées (2 souscripteurs + membres) ; serveurs arrêtés.

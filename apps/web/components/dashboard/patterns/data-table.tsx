@@ -1,0 +1,327 @@
+'use client';
+
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+} from 'lucide-react';
+import * as React from 'react';
+import { useEffect, useMemo, useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
+
+const CLASSE_SELECT =
+  'h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50';
+
+/** Définition d'une colonne. `T` = type d'une ligne. */
+export interface ColonneTable<T> {
+  cle: string;
+  entete: string;
+  /** Rendu personnalisé de la cellule (sinon `String(row[cle])`). */
+  rendu?: (row: T) => React.ReactNode;
+  /** Valeur utilisée pour le tri / la recherche (sinon `row[cle]`, chemins `a.b` supportés). */
+  valeur?: (row: T) => string | number | null | undefined;
+  triable?: boolean;
+  className?: string;
+  aligneDroite?: boolean;
+}
+
+export interface FiltreSelect {
+  cle: string;
+  libelle: string;
+  options: { valeur: string; libelle: string }[];
+  valeur?: (row: unknown) => string | null | undefined;
+}
+
+function lire(row: object, cle: string): unknown {
+  return cle.split('.').reduce<unknown>((acc, k) => {
+    if (acc && typeof acc === 'object')
+      return (acc as Record<string, unknown>)[k];
+    return undefined;
+  }, row as Record<string, unknown>);
+}
+
+/**
+ * Tableau de données générique : recherche plein texte, filtres `select`, tri
+ * par colonne, pagination, état vide et état de chargement. Filtrage / tri /
+ * pagination sont **client-side** (les données sont chargées côté serveur).
+ */
+export function DataTable<T extends object>({
+  colonnes,
+  donnees,
+  cleLigne,
+  recherche,
+  filtres = [],
+  actions,
+  actionLigne,
+  chargement = false,
+  parPage = 10,
+  vide = 'Aucune donnée.',
+  tailleTexte = 'text-sm',
+}: {
+  colonnes: ColonneTable<T>[];
+  donnees: T[];
+  cleLigne: (row: T) => string;
+  recherche?: { placeholder?: string; champs: string[] };
+  filtres?: FiltreSelect[];
+  /** Barre d'outils à droite (bouton « Nouveau »…). */
+  actions?: React.ReactNode;
+  /** Cellule d'action en fin de ligne. */
+  actionLigne?: (row: T) => React.ReactNode;
+  chargement?: boolean;
+  /** Lignes par page (0 = pas de pagination). */
+  parPage?: number;
+  vide?: React.ReactNode;
+  tailleTexte?: string;
+}) {
+  const [q, setQ] = useState('');
+  const [valeursFiltres, setValeursFiltres] = useState<Record<string, string>>(
+    {},
+  );
+  const [tri, setTri] = useState<{ cle: string; sens: 'asc' | 'desc' } | null>(
+    null,
+  );
+  const [page, setPage] = useState(1);
+
+  const colonneParCle = useMemo(
+    () => new Map(colonnes.map((c) => [c.cle, c])),
+    [colonnes],
+  );
+
+  const lignesFiltrees = useMemo(() => {
+    let out = donnees;
+
+    if (recherche && q.trim()) {
+      const t = q.toLowerCase().trim();
+      out = out.filter((row) =>
+        recherche.champs.some((champ) =>
+          String(lire(row, champ) ?? '')
+            .toLowerCase()
+            .includes(t),
+        ),
+      );
+    }
+
+    for (const f of filtres) {
+      const v = valeursFiltres[f.cle];
+      if (v) {
+        out = out.filter((row) => {
+          const val = f.valeur ? f.valeur(row) : lire(row, f.cle);
+          return String(val ?? '') === v;
+        });
+      }
+    }
+
+    if (tri) {
+      const col = colonneParCle.get(tri.cle);
+      const val = (row: T) =>
+        col?.valeur ? col.valeur(row) : (lire(row, tri.cle) as string | number);
+      out = [...out].sort((a, b) => {
+        const va = val(a) ?? '';
+        const vb = val(b) ?? '';
+        const cmp =
+          typeof va === 'number' && typeof vb === 'number'
+            ? va - vb
+            : String(va).localeCompare(String(vb), 'fr', { numeric: true });
+        return tri.sens === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return out;
+  }, [donnees, q, recherche, filtres, valeursFiltres, tri, colonneParCle]);
+
+  // revient à la page 1 quand les filtres changent
+  useEffect(() => {
+    setPage(1);
+  }, [q, valeursFiltres]);
+
+  const pagination = parPage > 0 && lignesFiltrees.length > parPage;
+  const nbPages = pagination ? Math.ceil(lignesFiltrees.length / parPage) : 1;
+  const pageSure = Math.min(page, nbPages);
+  const lignesAffichees = pagination
+    ? lignesFiltrees.slice((pageSure - 1) * parPage, pageSure * parPage)
+    : lignesFiltrees;
+
+  const basculerTri = (cle: string) =>
+    setTri((t) =>
+      t?.cle !== cle
+        ? { cle, sens: 'asc' }
+        : t.sens === 'asc'
+          ? { cle, sens: 'desc' }
+          : null,
+    );
+
+  const nbCol = colonnes.length + (actionLigne ? 1 : 0);
+  const aBarreOutils = recherche || filtres.length > 0 || actions;
+
+  return (
+    <div className="space-y-3">
+      {aBarreOutils && (
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {recherche && (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder={recherche.placeholder ?? 'Rechercher…'}
+                  className="h-9 w-56 pl-8"
+                />
+              </div>
+            )}
+            {filtres.map((f) => (
+              <select
+                key={f.cle}
+                className={CLASSE_SELECT}
+                value={valeursFiltres[f.cle] ?? ''}
+                onChange={(e) =>
+                  setValeursFiltres((v) => ({ ...v, [f.cle]: e.target.value }))
+                }
+                aria-label={f.libelle}
+              >
+                <option value="">{f.libelle} : tous</option>
+                {f.options.map((o) => (
+                  <option key={o.valeur} value={o.valeur}>
+                    {o.libelle}
+                  </option>
+                ))}
+              </select>
+            ))}
+          </div>
+          {actions && <div className="flex items-center gap-2">{actions}</div>}
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border">
+        <table className={cn('w-full', tailleTexte)}>
+          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+            <tr>
+              {colonnes.map((c) => (
+                <th
+                  key={c.cle}
+                  className={cn(
+                    'px-3 py-2 font-medium',
+                    c.aligneDroite && 'text-right',
+                    c.className,
+                  )}
+                >
+                  {c.triable ? (
+                    <button
+                      type="button"
+                      onClick={() => basculerTri(c.cle)}
+                      className="inline-flex items-center gap-1 hover:text-foreground"
+                    >
+                      {c.entete}
+                      {tri?.cle === c.cle ? (
+                        tri.sens === 'asc' ? (
+                          <ArrowUp className="size-3" />
+                        ) : (
+                          <ArrowDown className="size-3" />
+                        )
+                      ) : (
+                        <ArrowUpDown className="size-3 opacity-40" />
+                      )}
+                    </button>
+                  ) : (
+                    c.entete
+                  )}
+                </th>
+              ))}
+              {actionLigne && <th className="px-3 py-2" />}
+            </tr>
+          </thead>
+          <tbody>
+            {chargement ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <tr key={i} className="border-t">
+                  {Array.from({ length: nbCol }).map((__, j) => (
+                    <td key={j} className="px-3 py-2.5">
+                      <span className="block h-4 w-full animate-pulse rounded bg-muted" />
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <>
+                {lignesAffichees.map((row) => (
+                  <tr key={cleLigne(row)} className="border-t">
+                    {colonnes.map((c) => (
+                      <td
+                        key={c.cle}
+                        className={cn(
+                          'px-3 py-2',
+                          c.aligneDroite && 'text-right tabular-nums',
+                          c.className,
+                        )}
+                      >
+                        {c.rendu
+                          ? c.rendu(row)
+                          : String(lire(row, c.cle) ?? '—')}
+                      </td>
+                    ))}
+                    {actionLigne && (
+                      <td className="px-3 py-2 text-right">
+                        <span className="flex justify-end gap-2">
+                          {actionLigne(row)}
+                        </span>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+                {lignesFiltrees.length === 0 && (
+                  <tr className="border-t">
+                    <td
+                      className="px-3 py-8 text-center text-muted-foreground"
+                      colSpan={nbCol}
+                    >
+                      {donnees.length === 0
+                        ? vide
+                        : 'Aucun résultat pour ces filtres.'}
+                    </td>
+                  </tr>
+                )}
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {!chargement && lignesFiltrees.length > 0 && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            {lignesFiltrees.length} / {donnees.length}
+            {pagination && ` — page ${pageSure}/${nbPages}`}
+          </span>
+          {pagination && (
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                disabled={pageSure <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="outline"
+                disabled={pageSure >= nbPages}
+                onClick={() => setPage((p) => Math.min(nbPages, p + 1))}
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

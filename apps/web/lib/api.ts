@@ -49,3 +49,28 @@ export async function messageErreur(res: Response): Promise<string> {
     return res.statusText || `Erreur ${res.status}`;
   }
 }
+
+/**
+ * Détail d'une erreur NestJS pour les formulaires : `error` = résumé,
+ * `erreurs` = la liste des messages de validation (class-validator) le cas échéant.
+ */
+export async function detailErreur(
+  res: Response,
+): Promise<{ error: string; erreurs: string[] }> {
+  try {
+    const body = (await res.json()) as {
+      message?: string | string[];
+      error?: string;
+    };
+    if (Array.isArray(body.message)) {
+      return {
+        error:
+          body.error ?? 'Certains champs sont invalides.',
+        erreurs: body.message,
+      };
+    }
+    return { error: body.message ?? body.error ?? res.statusText, erreurs: [] };
+  } catch {
+    return { error: res.statusText || `Erreur ${res.status}`, erreurs: [] };
+  }
+}

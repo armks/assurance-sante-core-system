@@ -1576,3 +1576,93 @@ Contrôles négatifs re-vérifiés : `has_table_privilege('svc_adjudication','re
 `has_table_privilege('svc_adjudication','remboursements','SELECT'/'UPDATE'/'DELETE')` = **false** ;
 `profils` SELECT = **false** ; `audit_log` INSERT = **false** ; `factures_dossier` SELECT = **false**.
 Tous les autres grants du PROMPT 24 sont inchangés.
+## 2026-09-10 — PROMPT 24 (partie 2 / 2) — microservice `adjudication-service/` (Spring Boot, autonome)
+
+*(Projet Java distinct à la racine, à côté de `apps/`. **PAS encore branché à `apps/api`** —
+l'Edge Function de déclenchement viendra ensuite. Commit séparé du module `claims/`.)*
+
+### Structure — `adjudication-service/` (Spring Boot 3.3.5, Java 21, Maven)
+- `pom.xml` : `spring-boot-starter-web`, `-jdbc`, `-security`, `postgresql` (runtime),
+  `spring-boot-starter-test` (JUnit 5 + Mockito + AssertJ, transitif). Aucune dépendance JWT
+  tierce — la vérification HMAC-SHA256 est faite avec le JDK (`javax.crypto.Mac`) + Jackson.
+- `Dockerfile` **multi-stage** : `maven:3.9-eclipse-temurin-21` (build, `dependency:go-offline`
+  puis `package -DskipTests`) → `eclipse-temurin:21-jre-alpine` (run, user non-root,
+  `HEALTHCHECK` sur `/healthz`).
+- `README.md` : variables d'env (`JDBC_URL`, `JDBC_USER=svc_adjudication`, `JDBC_PASSWORD`,
+  `SERVICE_JWT_SECRET`, `PORT`), contrat d'API, pipeline, table des codes, build/tests, `curl`.
+
+### Configuration
+- `application.yml` : `spring.datasource.{url,username,password}` ← `${JDBC_URL}` /
+  `${JDBC_USER:svc_adjudication}` / `${JDBC_PASSWORD}` (jamais en dur), pool Hikari (5),
+  `server.port ${PORT:8081}`, `service.jwt.secret ${SERVICE_JWT_SECRET}`.
+- **Sécurité** — `SecurityConfig` (stateless, no-CSRF) + `ServiceJwtAuthFilter`
+  (`OncePerRequestFilter`, n'agit que sur `/api/v1/adjudication/**`) + `ServiceJwtVerifier` :
+  - `alg` **doit** être `HS256` (rejet de `none` / RS256 — anti *algorithm confusion*) ;
+  - HMAC-SHA256 sur `header.payload`, comparaison **à temps constant** (`MessageDigest.isEqual`) ;
+  - `exp` présent et futur ;
+  - **le service refuse de démarrer sans `SERVICE_JWT_SECRET`**.
+  - `/api/v1/adjudication/**` → **401** sans JWT valide ; `/healthz` ouvert.
+
+### Pipeline — `AdjudicationController` (`POST /api/v1/adjudication/{reclamationId}/evaluer`) → `AdjudicationService.evaluer` (`@Transactional`, UNE transaction JDBC)
+1. `SELECT` réclamation (12 colonnes autorisées) + garantie applicable + police, une requête.
+2. Idempotence : statut **doit** être `EN_ADJUDICATION` → **409** sinon ; remboursement déjà
+   présent → **409** (+ filet `DuplicateKeyException` sur l'index unique DB).
+3. `SELECT id FROM polices WHERE id = ? FOR UPDATE` (**verrou pessimiste sur la ligne**), puis
+   `SUM(montant_rembourse)` des remboursements de l'année civile pour l'adhérent (jointure
+   `remboursements × reclamations.adherent_id`).
+4. Calcul `Adjudicateur` — **`BigDecimal` partout, `RoundingMode.HALF_UP`, échelle 2** ；
+   franchise → taux de couverture → plafond par acte → plafond annuel restant.
+5. `INSERT INTO remboursements (...) RETURNING id` + `UPDATE reclamations SET statut = ?
+   WHERE id = ? AND statut = 'EN_ADJUDICATION'` (CAS — 0 ligne ⇒ 409, rollback).
+6. `SELECT log_audit('ADJUDICATION_<decision>', 'reclamations', <id>, <uuid svc>, <details jsonb>)`.
+- Toute exception ⇒ **ROLLBACK complet**. `AdjudicationRepository` (interface) isole le JDBC
+  pour un test unitaire sans base.
+
+### Décision structurée renvoyée (v12 §3, JSON `snake_case`)
+`{ decision: AUTO_ADJUDIQUE|REVUE_MANUELLE|REJETE, montant_rembourse, codes_rejet[],
+plafond_restant_apres, duree_traitement_ms }`. Codes : `E001` police inactive (→ REJETE),
+`E006` plafond atteint (→ REJETE si épuisé, REVUE_MANUELLE si réduit), `E010` montant > 150 000 (→ REVUE_MANUELLE).
+
+### Tests JUnit — jeu de données de référence (`JeuDeDonneesReference` : taux 80 %, franchise 2 000, plafond/acte 50 000, plafond annuel 100 000, police ACTIVE 2026)
+- **`AdjudicateurTest`** (calcul pur, `assertEquals(new BigDecimal("…"), …)` — valeur **et** échelle) :
+  | Cas | Attendu (exact) |
+  |---|---|
+  | normal (réclamé 25 000, rien consommé) | `AUTO_ADJUDIQUE`, `18400.00`, `[]`, plafond après `81600.00` |
+  | plafond dépassé partiel (réclamé 30 000, déjà 95 000) | `REVUE_MANUELLE`, `5000.00`, `[E006]`, `0.00` |
+  | plafond épuisé (déjà 100 000) | `REJETE`, `0.00`, `[E006]`, `0.00` |
+  | police inactive (SUSPENDUE) | `REJETE`, `0.00`, `[E001]`, `100000.00` |
+  | police hors période (soin en 2027) | `REJETE`, `0.00`, `[E001]` |
+  | montant élevé (300 000, taux 100 %, sans plafond/acte) | `REVUE_MANUELLE`, `300000.00`, `[E010]`, `4700000.00` |
+- **`AdjudicationServiceTest`** (Mockito, repo mocké — orchestration) : introuvable → 404 ;
+  mauvais statut → 409 ; **doublon → 409** (aucune écriture) ; cas normal complet (INSERT
+  `18400.00`, `majStatut("AUTO_ADJUDIQUE")`, `journaliser`) ; police inactive → REJETE ;
+  `majStatut` renvoie 0 (course) → 409.
+- **`ServiceJwtVerifierTest`** : signé OK / falsifié / mauvais secret / expiré / `alg=none` /
+  malformé / secret absent.
+
+### ⚠️ Exécution locale non réalisée
+La machine de dev **n'a ni JDK 21 ni Maven ni Docker** — le projet et les tests sont écrits
+et **relus ligne à ligne** (montants recalculés à la main dans PROGRESSION), mais
+`mvn test` / `docker build` sont à lancer par l'utilisateur (ou en CI) :
+```
+mvn -f adjudication-service/pom.xml test          # aucune base requise (repo mocké, calcul pur)
+docker build -t adjudication-service:0.1.0 adjudication-service/
+```
+
+### Appel `curl` documenté (test autonome, une fois le service démarré contre une vraie base)
+```bash
+SECRET='<SERVICE_JWT_SECRET>'
+TOKEN=$(node -e 'const c=require("crypto"),s=process.env.SECRET;const b=o=>Buffer.from(JSON.stringify(o)).toString("base64url");const n=Math.floor(Date.now()/1e3);const h=b({alg:"HS256",typ:"JWT"});const p=b({iss:"edge-declencher-adjudication",aud:"adjudication-service",iat:n,exp:n+300});process.stdout.write(h+"."+p+"."+c.createHmac("sha256",s).update(h+"."+p).digest("base64url"))')
+
+curl -i -X POST http://localhost:8081/api/v1/adjudication/<uuid>/evaluer            # → 401 (sans jeton)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8081/api/v1/adjudication/<reclamationId-EN_ADJUDICATION>/evaluer  # → 200 { decision, montant_rembourse, … }
+# 2e appel identique → 409 (statut ≠ EN_ADJUDICATION / doublon)
+```
+Format de jeton (exemple, secret `dev-secret-change-me`, expiré — illustration) :
+`eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJlZGdlLWRlY2xlbmNoZXItYWRqdWRpY2F0aW9uIiwiYXVkIjoiYWRqdWRpY2F0aW9uLXNlcnZpY2UiLCJpYXQiOjE3ODkwNDcwMjIsImV4cCI6MTc4OTA0NzMyMn0.GeE5J1luEPJI4vdvvNYil2-9o4FR-J5mfX2Jx4Nh81A`
+
+### Point d'arrêt volontaire
+Le service n'appelle rien dans `apps/api` et `apps/api` ne l'appelle pas. Prochaine étape :
+Edge Function `declencher-adjudication` (verrou `SOUMISE → EN_ADJUDICATION` déjà fait par
+`ClaimsService.soumettre` au PROMPT 24 partie 1) + client HTTP côté `claims/`.

@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: adjudication-service
+  datasource:
+    url: ${JDBC_URL}
+    username: ${JDBC_USER:svc_adjudication}
+    password: ${JDBC_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: adjudication-pool
+      maximum-pool-size: 5
+      minimum-idle: 1
+      # une transaction d'adjudication doit être courte ; on échoue vite si elle traîne
+      connection-timeout: 5000
+
+server:
+  port: ${PORT:8081}
+  error:
+    include-message: always
+
+service:
+  jwt:
+    # secret partagé HMAC — fourni UNIQUEMENT par l'environnement
+    secret: ${SERVICE_JWT_SECRET}
+
+logging:
+  level:
+    org.springframework.jdbc.core: INFO

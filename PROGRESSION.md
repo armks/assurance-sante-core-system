@@ -1847,3 +1847,75 @@ géocodage PROMPT 15, écrans Phase 6/7) reste à planifier.
   stockée forcée à celle du dossier (transaction rollback, rien persisté).
 - Migration `021` appliquée en base (`prisma db execute`). Données e2e supprimées,
   compte éphémère supprimé, serveurs arrêtés.
+
+## 2026-09-10 — PROMPT 12 : module `member` (adhérents + bénéficiaires) — dette FK comblée
+
+Le module le plus structurant du MVP restant (v9 phase 3). Matérialise le fichier des
+membres et transforme la dette de l'audit (`adherent_id` / `beneficiaire_id` en UUID
+bruts) en vraies clés étrangères.
+
+### Base — `prisma/sql/022`
+- **`adherents`** (id, organisation_id FK, souscripteur_id FK, police_id FK?, `numero_adherent`
+  unique généré `ADH-YYYY-NNNNNN` via séquence, nom, prenom, date_naissance, sexe M/F,
+  statut ACTIF/SUSPENDU/RADIE, `numero_carte` unique généré `CM-NNNNNNNNNN`, iban_ou_rib?,
+  banque_nom?, mode_paiement_prefere MOBILE_MONEY/VIREMENT_BANCAIRE?, timestamps+deleted_at).
+- **`beneficiaires`** (id, adherent_id FK `on delete cascade`, lien_parente CONJOINT/ENFANT/
+  PERE/MERE/AUTRE, nom, prenom, date_naissance, sexe, `numero_carte` unique généré (séquence
+  partagée avec adherents), statut ACTIF/SUSPENDU/RADIE, timestamps+deleted_at).
+- **RLS** : lecture = personnel de l'organisation OU l'adhérent lui-même (`profils.adherent_id`) ;
+  écriture = `profil_a_role(org, [ASSUREUR_DIRECTION, _EXPLOITATION, _INFORMATIQUE])` OU
+  `SOCIETE_ADMINISTRATION` pour SES propres adhérents (`souscripteur_id = profils.societe_id`).
+  Bénéficiaires : org/rôle résolus via l'adhérent parent.
+- **Clés étrangères ajoutées** (dette de l'audit → soldée) : `profils`, `cotisations`,
+  `invitations`, `dossiers_soins` (adherent + beneficiaire), `codes_consultation` (×2),
+  `codes_ordonnance` (×2), `factures_dossier` (×2), `reclamations` (×2) → 13 colonnes,
+  noms `<table>_<col>_fkey`. `svc_adjudication` inchangé (il ne lit pas `adherents`).
+- **Réconciliation des données de test** (bloc `DO` gardé — no-op sur env neuf) : 3 lignes
+  référençaient des UUID d'adhérents fictifs (profil `armelk01+adherent`, 2 cotisations
+  ACME) → 3 adhérents réels matérialisés (org A / souscripteur ACME / POL-2026-000004),
+  ids conservés. `ADH-2026-000001..3`.
+
+### `apps/api/src/member/`
+- **`AdherentService`** : CRUD adhérents + bénéficiaires, changement de statut (audité),
+  suppression logique (cascade bénéficiaires). Génération `numero_*` **déléguée aux
+  séquences DB** (atomique, sans collision) — le service les expose, ne les calcule pas.
+  Autorisation `assertGestion(ctx, souscripteurId)` = rôle ASSUREUR habilité OU
+  `SOCIETE_ADMINISTRATION` du bon souscripteur. Audit via `log_audit()` dans la transaction.
+- **`MemberController`** (`/api/v1/member/adherents…`) : POST/GET/PATCH/DELETE adhérents,
+  `PATCH …/statut`, sous-ressource `…/:id/beneficiaires…`.
+- `member.module.ts` ajouté à `app.module.ts` (avant `PlanModule`).
+- `schema.prisma` : modèles `Adherent` / `Beneficiaire` + relations sur les 8 modèles
+  référençants (Organisation, Souscripteur, Police, Profil, Cotisation, Invitation,
+  DossierSoins, CodeConsultation, CodeOrdonnance, FactureDossier, Reclamation).
+
+### Dette `care-episode.service.ts:290` corrigée
+- Le raccourci « adhérent éligible = carte valide » (TODO PROMPT 12) est remplacé par
+  `evaluerEligibiliteMembre()` : le **statut réel** est vérifié — `ACTIF` requis ; pour un
+  bénéficiaire, l'adhérent titulaire doit aussi être `ACTIF`. Blocage précis sinon
+  (`« Adhérent non éligible : statut … »`). Le dossier stocke désormais l'évaluation réelle
+  (`evaluation.carteValide` etc.) au lieu de littéraux `true`.
+
+### Tests
+- **jest API 141/141** (+10 : 7 `adherent.service.spec` — création, bénéficiaire, refus
+  rôle comptable, SOCIETE_ADMINISTRATION ok/refusé, statut RADIE, sans-org ; 3
+  `care-episode.service.spec` — adhérent RADIE / SUSPENDU / bénéficiaire dont le titulaire
+  est RADIE → blocage, pas de `create`). `tsc --noEmit` OK, `nest build` OK.
+  **Les 13 FK n'ont cassé aucun module existant** (18 suites préexistantes toujours vertes).
+- **HTTP réel bout-en-bout** (serveur lancé, compte `ASSUREUR_EXPLOITATION` éphémère) :
+  - `POST /member/adherents` → 201, `numeroAdherent = ADH-2026-000004`, `numeroCarte =
+    CM-0000000004`, statut `ACTIF` ;
+  - `POST …/:id/beneficiaires` ×2 → cartes `CM-0000000005` / `CM-0000000006` ; `GET` →
+    2 bénéficiaires ;
+  - `PATCH …/:id/statut {RADIE}` → 200 ;
+  - **ouverture de dossier pour l'adhérent RADIE** → **409**
+    `blocages: ["Adhérent non éligible : statut « RADIE » (ACTIF requis)."]` — nouveau
+    comportement ;
+  - réactivation `ACTIF` → ré-tentative → **201**, dossier ouvert, `adherentEligible: true`
+    (valeur réelle de l'évaluation).
+  - Données e2e supprimées, compte éphémère supprimé, serveurs arrêtés. Base : 3 adhérents
+    de réconciliation conservés (ils portent des données de test réelles désormais).
+
+### 🎯 Jalon — Phase 3 (partie adhérents/bénéficiaires) : module `member` livré
+- Reste de la Phase 3 : PROMPT 13 (génération de cartes de membre — le n° de carte existe
+  déjà, il manque le document/QR). Écrans frontend member non couverts (hors périmètre de ce
+  prompt backend).

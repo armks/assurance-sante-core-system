@@ -61,6 +61,14 @@ describe('CareEpisodeService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       profil: { findFirst: jest.fn() },
+      adherent: {
+        findFirst: jest.fn().mockResolvedValue({ statut: 'ACTIF' }),
+      },
+      beneficiaire: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ statut: 'ACTIF', adherent: { statut: 'ACTIF' } }),
+      },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -126,6 +134,54 @@ describe('CareEpisodeService', () => {
       response: {
         blocages: expect.arrayContaining([
           expect.stringContaining('déjà ouvert'),
+        ]),
+      },
+    });
+    expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
+  });
+
+  it('REFUSE l’ouverture pour un adhérent RADIE (contrôle de statut réel, PROMPT 12)', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    prisma.adherent.findFirst.mockResolvedValue({ statut: 'RADIE' });
+
+    await expect(service.ouvrirDossier(USER, dtoOuverture)).rejects.toMatchObject({
+      response: {
+        blocages: expect.arrayContaining([
+          expect.stringContaining('RADIE'),
+        ]),
+      },
+    });
+    expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
+  });
+
+  it('REFUSE l’ouverture pour un adhérent SUSPENDU', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    prisma.adherent.findFirst.mockResolvedValue({ statut: 'SUSPENDU' });
+
+    await expect(service.ouvrirDossier(USER, dtoOuverture)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
+  });
+
+  it('REFUSE l’ouverture pour un bénéficiaire dont l’adhérent titulaire est RADIE', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    prisma.beneficiaire.findFirst.mockResolvedValue({
+      statut: 'ACTIF',
+      adherent: { statut: 'RADIE' },
+    });
+
+    await expect(
+      service.ouvrirDossier(USER, {
+        beneficiaireId: 'bbbbbbbb-1111-4111-8111-111111111111',
+        etablissementId: 'etab-1',
+        policeId: 'pol-1',
+        motifConsultation: 'Toux',
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        blocages: expect.arrayContaining([
+          expect.stringContaining('titulaire'),
         ]),
       },
     });

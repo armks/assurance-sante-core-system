@@ -41,6 +41,7 @@ model Organisation {
   profils           Profil[]
   auditLogs         AuditLog[]
   souscripteurs     Souscripteur[]
+  adherents         Adherent[]
   produits          Produit[]
   polices           Police[]
   grillesTarifaires GrilleTarifaire[]
@@ -124,10 +125,11 @@ model Profil {
   updatedAt          DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation         Organisation?           @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  sousRole             SousRole?               @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
-  membresComite        MembreComiteGestion[]
-  avenantsCrees        Avenant[]
+  organisation          Organisation?          @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sousRole              SousRole?              @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
+  adherent              Adherent?              @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  membresComite         MembreComiteGestion[]
+  avenantsCrees         Avenant[]
   questionnairesValides QuestionnaireMedical[]
   invitationsEmises     Invitation[]
   actesHomologues       ReferentielActe[]
@@ -156,21 +158,91 @@ model Souscripteur {
   numeroPieceIdentite    String?   @map("numero_piece_identite")
   questionnaireMedicalId String?   @map("questionnaire_medical_id") @db.Uuid
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt             DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation           Organisation                @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organisation           Organisation               @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   membresComite          MembreComiteGestion[]
   polices                Police[]
   grillesTarifaires      GrilleTarifaire[]
   planPaiement           PlanPaiementCollectivite[]
   cotisations            Cotisation[]
   questionnairesMedicaux QuestionnaireMedical[]
+  adherents              Adherent[]
 
   @@index([organisationId])
   @@index([type])
   @@index([deletedAt])
   @@map("souscripteurs")
+}
+
+/// adherents — personne physique assurée (titulaire). v9 phase 3, PROMPT 12.
+/// `numero_adherent` / `numero_carte` générés en base (séquences). prisma/sql/022.
+model Adherent {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId      String    @map("organisation_id") @db.Uuid
+  souscripteurId      String    @map("souscripteur_id") @db.Uuid
+  policeId            String?   @map("police_id") @db.Uuid
+  numeroAdherent      String    @unique @default(dbgenerated("(('ADH-'::text || to_char(now(), 'YYYY'::text)) || '-'::text || lpad((nextval('adherents_numero_seq'::regclass))::text, 6, '0'::text))")) @map("numero_adherent")
+  nom                 String
+  prenom              String
+  dateNaissance       DateTime  @map("date_naissance") @db.Date
+  sexe                String // M | F
+  statut              String    @default("ACTIF") // ACTIF | SUSPENDU | RADIE
+  numeroCarte         String    @unique @default(dbgenerated("('CM-'::text || lpad((nextval('cartes_membre_numero_seq'::regclass))::text, 10, '0'::text))")) @map("numero_carte")
+  ibanOuRib           String?   @map("iban_ou_rib")
+  banqueNom           String?   @map("banque_nom")
+  modePaiementPrefere String?   @map("mode_paiement_prefere") // MOBILE_MONEY | VIREMENT_BANCAIRE
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation      Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  souscripteur      Souscripteur       @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  police            Police?            @relation(fields: [policeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  beneficiaires     Beneficiaire[]
+  profils           Profil[]
+  cotisations       Cotisation[]
+  invitations       Invitation[]
+  dossiersSoins     DossierSoins[]
+  codesConsultation CodeConsultation[]
+  codesOrdonnance   CodeOrdonnance[]
+  facturesDossier   FactureDossier[]
+  reclamations      Reclamation[]
+
+  @@index([organisationId])
+  @@index([souscripteurId])
+  @@index([policeId])
+  @@index([statut])
+  @@index([deletedAt])
+  @@map("adherents")
+}
+
+/// beneficiaires — ayants droit rattachés à un adhérent titulaire. prisma/sql/022.
+model Beneficiaire {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adherentId    String    @map("adherent_id") @db.Uuid
+  lienParente   String    @map("lien_parente") // CONJOINT | ENFANT | PERE | MERE | AUTRE
+  nom           String
+  prenom        String
+  dateNaissance DateTime  @map("date_naissance") @db.Date
+  sexe          String // M | F
+  numeroCarte   String    @unique @default(dbgenerated("('CM-'::text || lpad((nextval('cartes_membre_numero_seq'::regclass))::text, 10, '0'::text))")) @map("numero_carte")
+  statut        String    @default("ACTIF") // ACTIF | SUSPENDU | RADIE
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  adherent          Adherent           @relation(fields: [adherentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dossiersSoins     DossierSoins[]
+  codesConsultation CodeConsultation[]
+  codesOrdonnance   CodeOrdonnance[]
+  facturesDossier   FactureDossier[]
+  reclamations      Reclamation[]
+
+  @@index([adherentId])
+  @@index([statut])
+  @@map("beneficiaires")
 }
 
 /// membres_comite_gestion — gouvernance des collectivités (v9 §1.3).
@@ -270,7 +342,7 @@ model Police {
   organisationId String    @map("organisation_id") @db.Uuid
   souscripteurId String    @map("souscripteur_id") @db.Uuid
   produitId      String    @map("produit_id") @db.Uuid
-  numeroPolice   String    @unique @map("numero_police") @default(dbgenerated("((('POL-'::text || to_char(now(), 'YYYY'::text)) || '-'::text) || lpad((nextval('polices_numero_seq'::regclass))::text, 6, '0'::text))"))
+  numeroPolice   String    @unique @default(dbgenerated("((('POL-'::text || to_char(now(), 'YYYY'::text)) || '-'::text) || lpad((nextval('polices_numero_seq'::regclass))::text, 6, '0'::text))")) @map("numero_police")
   dateDebut      DateTime? @map("date_debut") @db.Date
   dateFin        DateTime? @map("date_fin") @db.Date
   statut         String    @default("DEVIS") // DEVIS | EN_SOUSCRIPTION | ACTIVE | SUSPENDUE | RENOUVELEE | RESILIEE | NON_RENOUVELEE
@@ -278,14 +350,15 @@ model Police {
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation  Organisation                @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  souscripteur  Souscripteur                @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  produit       Produit                     @relation(fields: [produitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organisation      Organisation               @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  souscripteur      Souscripteur               @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  produit           Produit                    @relation(fields: [produitId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   avenants          Avenant[]
-  cotisations        Cotisation[]
-  tarifications      TarificationIndividuelle[]
-  dossiersSoins      DossierSoins[]
-  codesConsultation  CodeConsultation[]
+  cotisations       Cotisation[]
+  tarifications     TarificationIndividuelle[]
+  dossiersSoins     DossierSoins[]
+  codesConsultation CodeConsultation[]
+  adherents         Adherent[]
 
   @@index([organisationId])
   @@index([souscripteurId])
@@ -374,8 +447,9 @@ model Cotisation {
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  police  Police        @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  societe Souscripteur? @relation(fields: [societeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  police   Police        @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  societe  Souscripteur? @relation(fields: [societeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adherent Adherent?     @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([policeId])
   @@index([statut])
@@ -402,8 +476,8 @@ model QuestionnaireMedical {
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  souscripteur  Souscripteur              @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  validateur    Profil?                   @relation(fields: [validePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  souscripteur  Souscripteur               @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  validateur    Profil?                    @relation(fields: [validePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tarifications TarificationIndividuelle[]
 
   @@index([souscripteurId])
@@ -460,6 +534,7 @@ model Invitation {
 
   organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   emetteur     Profil        @relation(fields: [invitePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adherent     Adherent?     @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([invitePar])
   @@index([statut])
@@ -469,35 +544,35 @@ model Invitation {
 /// etablissements_sante — réseau de soins (entité d'affichage CENTRE_MEDICAL,
 /// v9 §1.1). Écriture réservée à ASSUREUR_INFORMATIQUE. prisma/sql/009.
 model EtablissementSante {
-  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organisationId     String    @map("organisation_id") @db.Uuid
-  nom                String
-  code               String    @unique
-  typeEtablissement  String    @map("type_etablissement") // HOPITAL_PUBLIC | CLINIQUE_PRIVEE | CABINET_MEDICAL | CENTRE_SANTE | LABORATOIRE | CENTRE_IMAGERIE | OPTICIEN | DENTISTE | MATERNITE
-  pays               String    @default("Côte d'Ivoire")
-  ville              String?
-  commune            String?
-  quartier           String?
-  adresseComplete    String?   @map("adresse_complete")
-  latitude           Float?
-  longitude          Float?
-  telephone          String?
-  telephoneUrgence   String?   @map("telephone_urgence")
-  email              String?
-  statut             String    @default("EN_ATTENTE_VALIDATION") // ACTIF | SUSPENDU | EN_ATTENTE_VALIDATION | RESILIE
-  dateConvention     DateTime? @map("date_convention") @db.Date
-  dateFinConvention  DateTime? @map("date_fin_convention") @db.Date
-  gardeWeekend       Boolean   @default(false) @map("garde_weekend")
-  horairesGarde      Json?     @map("horaires_garde")
-  horairesSemaine    Json?     @map("horaires_semaine")
-  tiersPayant        Boolean   @default(true) @map("tiers_payant")
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId    String    @map("organisation_id") @db.Uuid
+  nom               String
+  code              String    @unique
+  typeEtablissement String    @map("type_etablissement") // HOPITAL_PUBLIC | CLINIQUE_PRIVEE | CABINET_MEDICAL | CENTRE_SANTE | LABORATOIRE | CENTRE_IMAGERIE | OPTICIEN | DENTISTE | MATERNITE
+  pays              String    @default("Côte d'Ivoire")
+  ville             String?
+  commune           String?
+  quartier          String?
+  adresseComplete   String?   @map("adresse_complete")
+  latitude          Float?
+  longitude         Float?
+  telephone         String?
+  telephoneUrgence  String?   @map("telephone_urgence")
+  email             String?
+  statut            String    @default("EN_ATTENTE_VALIDATION") // ACTIF | SUSPENDU | EN_ATTENTE_VALIDATION | RESILIE
+  dateConvention    DateTime? @map("date_convention") @db.Date
+  dateFinConvention DateTime? @map("date_fin_convention") @db.Date
+  gardeWeekend      Boolean   @default(false) @map("garde_weekend")
+  horairesGarde     Json?     @map("horaires_garde")
+  horairesSemaine   Json?     @map("horaires_semaine")
+  tiersPayant       Boolean   @default(true) @map("tiers_payant")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation       Organisation      @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  dossiers           DossierSoins[]    @relation("DossierEtablissement")
-  dossiersTransferes DossierSoins[]    @relation("DossierTransfereVers")
+  organisation       Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossiers           DossierSoins[]     @relation("DossierEtablissement")
+  dossiersTransferes DossierSoins[]     @relation("DossierTransfereVers")
   codesConsultation  CodeConsultation[]
   factures           FactureDossier[]
 
@@ -532,7 +607,7 @@ model Pharmacie {
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation    Organisation      @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   codesOrdonnance CodeOrdonnance[]
 
   @@index([organisationId])
@@ -586,7 +661,7 @@ model Medicament {
   generiqueDisponible   Boolean?  @map("generique_disponible")
   ordonnanceObligatoire Boolean   @default(true) @map("ordonnance_obligatoire")
   medicamentControle    Boolean   @default(false) @map("medicament_controle")
-  usage                 String?   // AMBULATOIRE | HOSPITALIER | LES_DEUX
+  usage                 String? // AMBULATOIRE | HOSPITALIER | LES_DEUX
   statutHomologation    String    @default("PROPOSE") @map("statut_homologation") // PROPOSE | HOMOLOGUE | SUSPENDU | RETIRE
   homologuePar          String?   @map("homologue_par") @db.Uuid
   dateHomologation      DateTime? @map("date_homologation") @db.Timestamptz(6)
@@ -639,6 +714,8 @@ model DossierSoins {
   police            Police                @relation(fields: [policeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   planCouverture    Garantie?             @relation(fields: [planCouvertureId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   clotureParProfil  Profil?               @relation(fields: [cloturePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adherent          Adherent?             @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  beneficiaire      Beneficiaire?         @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   transfereVersEtab EtablissementSante?   @relation("DossierTransfereVers", fields: [transfereVers], references: [id], onDelete: NoAction, onUpdate: NoAction)
   origine           DossierSoins?         @relation("DossierDerive", fields: [dossierOrigine], references: [id], onDelete: NoAction, onUpdate: NoAction)
   derives           DossierSoins[]        @relation("DossierDerive")
@@ -687,24 +764,26 @@ model ConsultationDossier {
 /// envoyé à l'adhérent, saisi par l'établissement. Sa validation est la SEULE
 /// voie d'ouverture d'un dossier de soins. prisma/sql/012.
 model CodeConsultation {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organisationId  String    @map("organisation_id") @db.Uuid
-  adherentId      String?   @map("adherent_id") @db.Uuid
-  beneficiaireId  String?   @map("beneficiaire_id") @db.Uuid
-  etablissementId String    @map("etablissement_id") @db.Uuid
-  policeId        String    @map("police_id") @db.Uuid
-  code            String    @unique
-  dateEmission    DateTime  @default(now()) @map("date_emission") @db.Timestamptz(6)
-  dateExpiration  DateTime  @default(dbgenerated("(now() + '48:00:00'::interval)")) @map("date_expiration") @db.Timestamptz(6)
-  statut          String    @default("EMIS") // EMIS | CONFIRME_PATIENT | UTILISE_ETABLISSEMENT | EXPIRE | ANNULE
-  canalEnvoi      String[]  @default(["APP", "SMS"]) @map("canal_envoi")
-  dossierSoinsId  String?   @map("dossier_soins_id") @db.Uuid
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId  String   @map("organisation_id") @db.Uuid
+  adherentId      String?  @map("adherent_id") @db.Uuid
+  beneficiaireId  String?  @map("beneficiaire_id") @db.Uuid
+  etablissementId String   @map("etablissement_id") @db.Uuid
+  policeId        String   @map("police_id") @db.Uuid
+  code            String   @unique
+  dateEmission    DateTime @default(now()) @map("date_emission") @db.Timestamptz(6)
+  dateExpiration  DateTime @default(dbgenerated("(now() + '48:00:00'::interval)")) @map("date_expiration") @db.Timestamptz(6)
+  statut          String   @default("EMIS") // EMIS | CONFIRME_PATIENT | UTILISE_ETABLISSEMENT | EXPIRE | ANNULE
+  canalEnvoi      String[] @default(["APP", "SMS"]) @map("canal_envoi")
+  dossierSoinsId  String?  @map("dossier_soins_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   etablissement EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   police        Police             @relation(fields: [policeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   dossier       DossierSoins?      @relation(fields: [dossierSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adherent      Adherent?          @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  beneficiaire  Beneficiaire?      @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisationId])
   @@index([adherentId])
@@ -747,21 +826,23 @@ model Ordonnance {
 /// pharmacie est le SEUL moment où le contenu de l'ordonnance lui est révélé.
 /// prisma/sql/013.
 model CodeOrdonnance {
-  id                      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organisationId          String    @map("organisation_id") @db.Uuid
-  ordonnanceId            String?   @map("ordonnance_id") @db.Uuid
-  adherentId              String?   @map("adherent_id") @db.Uuid
-  beneficiaireId          String?   @map("beneficiaire_id") @db.Uuid
-  code                    String    @unique
-  dateEmission            DateTime  @default(now()) @map("date_emission") @db.Timestamptz(6)
-  dateExpiration          DateTime  @default(dbgenerated("(now() + '7 days'::interval)")) @map("date_expiration") @db.Timestamptz(6)
-  statut                  String    @default("EMIS") // EMIS | PRESENTE_PHARMACIE | UTILISE_PARTIEL | UTILISE_COMPLET | EXPIRE | ANNULE
-  pharmacieUtilisatriceId String?   @map("pharmacie_utilisatrice_id") @db.Uuid
-  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                      String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId          String   @map("organisation_id") @db.Uuid
+  ordonnanceId            String?  @map("ordonnance_id") @db.Uuid
+  adherentId              String?  @map("adherent_id") @db.Uuid
+  beneficiaireId          String?  @map("beneficiaire_id") @db.Uuid
+  code                    String   @unique
+  dateEmission            DateTime @default(now()) @map("date_emission") @db.Timestamptz(6)
+  dateExpiration          DateTime @default(dbgenerated("(now() + '7 days'::interval)")) @map("date_expiration") @db.Timestamptz(6)
+  statut                  String   @default("EMIS") // EMIS | PRESENTE_PHARMACIE | UTILISE_PARTIEL | UTILISE_COMPLET | EXPIRE | ANNULE
+  pharmacieUtilisatriceId String?  @map("pharmacie_utilisatrice_id") @db.Uuid
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  ordonnance   Ordonnance?  @relation(fields: [ordonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  pharmacie    Pharmacie?   @relation(fields: [pharmacieUtilisatriceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ordonnance   Ordonnance?   @relation(fields: [ordonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacie    Pharmacie?    @relation(fields: [pharmacieUtilisatriceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adherent     Adherent?     @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  beneficiaire Beneficiaire? @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisationId])
   @@index([adherentId])
@@ -783,8 +864,8 @@ model TicketSoins {
   statut         String    @default("OUVERT") // OUVERT | CLOTURE | ANNULE
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  dossier      DossierSoins   @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  organisation Organisation   @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossier      DossierSoins    @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organisation Organisation    @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   actes        ActeDossier[]
   facture      FactureDossier?
 
@@ -829,31 +910,33 @@ model ActeDossier {
 /// par ticket de soins clôturé. Le règlement est IMPOSSIBLE tant que l'adhérent
 /// n'a pas validé `code_facturation` (garde applicative + trigger). prisma/sql/015.
 model FactureDossier {
-  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  organisationId         String    @map("organisation_id") @db.Uuid
-  dossierSoinsId         String    @map("dossier_soins_id") @db.Uuid
-  ticketSoinsId          String    @unique @map("ticket_soins_id") @db.Uuid
-  etablissementId        String    @map("etablissement_id") @db.Uuid
-  adherentId             String?   @map("adherent_id") @db.Uuid
-  beneficiaireId         String?   @map("beneficiaire_id") @db.Uuid
-  montantTotal           Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
-  montantAssurance       Decimal   @default(0) @map("montant_assurance") @db.Decimal(14, 2)
-  montantPatient         Decimal   @default(0) @map("montant_patient") @db.Decimal(14, 2)
-  statut                 String    @default("EMISE") // EMISE | EN_VALIDATION | VALIDEE | REGLEE | CONTESTEE
-  codeFacturation        String?   @unique @map("code_facturation")
-  codeValideParPatient   Boolean   @default(false) @map("code_valide_par_patient")
-  dateValidationPatient  DateTime? @map("date_validation_patient") @db.Timestamptz(6)
-  dateReglement          DateTime? @map("date_reglement") @db.Timestamptz(6)
-  reglePar               String?   @map("regle_par") @db.Uuid
-  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt             DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId        String    @map("organisation_id") @db.Uuid
+  dossierSoinsId        String    @map("dossier_soins_id") @db.Uuid
+  ticketSoinsId         String    @unique @map("ticket_soins_id") @db.Uuid
+  etablissementId       String    @map("etablissement_id") @db.Uuid
+  adherentId            String?   @map("adherent_id") @db.Uuid
+  beneficiaireId        String?   @map("beneficiaire_id") @db.Uuid
+  montantTotal          Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
+  montantAssurance      Decimal   @default(0) @map("montant_assurance") @db.Decimal(14, 2)
+  montantPatient        Decimal   @default(0) @map("montant_patient") @db.Decimal(14, 2)
+  statut                String    @default("EMISE") // EMISE | EN_VALIDATION | VALIDEE | REGLEE | CONTESTEE
+  codeFacturation       String?   @unique @map("code_facturation")
+  codeValideParPatient  Boolean   @default(false) @map("code_valide_par_patient")
+  dateValidationPatient DateTime? @map("date_validation_patient") @db.Timestamptz(6)
+  dateReglement         DateTime? @map("date_reglement") @db.Timestamptz(6)
+  reglePar              String?   @map("regle_par") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  dossier       DossierSoins       @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  ticket        TicketSoins        @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  etablissement EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  regleParProfil Profil?           @relation(fields: [reglePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  organisation   Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossier        DossierSoins       @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ticket         TicketSoins        @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  etablissement  EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  regleParProfil Profil?            @relation(fields: [reglePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adherent       Adherent?          @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  beneficiaire   Beneficiaire?      @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisationId])
   @@index([adherentId])
@@ -865,15 +948,15 @@ model FactureDossier {
 /// licences_organisation — administration SaaS (v14 §5). Une licence par tenant.
 /// prisma/sql/016.
 model LicenceOrganisation {
-  organisationId       String    @id @map("organisation_id") @db.Uuid
-  plan                 String    @default("STARTER") // STARTER | BUSINESS | ENTERPRISE
-  limiteAdherents      Int?      @map("limite_adherents")
-  limiteAppelsApiMois  Int?      @map("limite_appels_api_mois")
-  dateDebut            DateTime  @default(dbgenerated("CURRENT_DATE")) @map("date_debut") @db.Date
-  dateFin              DateTime? @map("date_fin") @db.Date
-  statut               String    @default("ACTIVE") // ACTIVE | SUSPENDUE | EXPIREE
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  organisationId      String    @id @map("organisation_id") @db.Uuid
+  plan                String    @default("STARTER") // STARTER | BUSINESS | ENTERPRISE
+  limiteAdherents     Int?      @map("limite_adherents")
+  limiteAppelsApiMois Int?      @map("limite_appels_api_mois")
+  dateDebut           DateTime  @default(dbgenerated("CURRENT_DATE")) @map("date_debut") @db.Date
+  dateFin             DateTime? @map("date_fin") @db.Date
+  statut              String    @default("ACTIVE") // ACTIVE | SUSPENDUE | EXPIREE
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
@@ -988,6 +1071,8 @@ model Reclamation {
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   remboursement Remboursement?
+  adherent      Adherent?      @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  beneficiaire  Beneficiaire?  @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisationId])
   @@index([statut])

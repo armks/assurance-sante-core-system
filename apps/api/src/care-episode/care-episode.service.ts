@@ -128,10 +128,10 @@ export class CareEpisodeService {
           motifConsultation: dto.motifConsultation,
           diagnosticEntree: dto.diagnosticEntree ?? null,
           codeCim10: dto.codeCim10 ?? null,
-          carteValide: true,
-          adherentEligible: true,
-          aucunDossierOuvert: true,
-          horsDelaiCarence: true,
+          carteValide: evaluation.carteValide,
+          adherentEligible: evaluation.adherentEligible,
+          aucunDossierOuvert: evaluation.aucunDossierOuvert,
+          horsDelaiCarence: evaluation.horsDelaiCarence,
         },
       });
       if (options.codeConsultationId) {
@@ -292,9 +292,11 @@ export class CareEpisodeService {
       }
     }
 
-    // adhérent éligible : la table adherents n'existe pas encore (PROMPT 12) —
-    // on considère l'éligibilité acquise dès que la carte est valide.
-    const adherentEligible = carteValide;
+    // 5. Adhérent / bénéficiaire réellement ACTIF (PROMPT 12).
+    //    On vérifie désormais le STATUT réel dans le fichier des membres —
+    //    plus le raccourci « éligible dès que la carte est valide ». Un adhérent
+    //    SUSPENDU ou RADIE ne peut pas ouvrir de dossier de soins.
+    const adherentEligible = await this.evaluerEligibiliteMembre(dto, blocages);
 
     return {
       carteValide,
@@ -303,6 +305,61 @@ export class CareEpisodeService {
       horsDelaiCarence,
       blocages,
     };
+  }
+
+  /**
+   * Statut du membre (adhérent titulaire ou bénéficiaire) dans le fichier des
+   * membres. `ACTIF` requis ; pour un bénéficiaire, l'adhérent titulaire doit
+   * lui aussi être `ACTIF`. Ajoute un blocage précis sinon (v1 §15.4).
+   */
+  private async evaluerEligibiliteMembre(
+    dto: { adherentId?: string; beneficiaireId?: string },
+    blocages: string[],
+  ): Promise<boolean> {
+    if (dto.beneficiaireId) {
+      const benef = await this.prisma.beneficiaire.findFirst({
+        where: { id: dto.beneficiaireId, deletedAt: null },
+        select: { statut: true, adherent: { select: { statut: true } } },
+      });
+      if (!benef) {
+        blocages.push('Bénéficiaire inconnu dans le fichier des membres.');
+        return false;
+      }
+      if (benef.statut !== 'ACTIF') {
+        blocages.push(
+          `Bénéficiaire non éligible : statut « ${benef.statut} » (ACTIF requis).`,
+        );
+        return false;
+      }
+      if (benef.adherent.statut !== 'ACTIF') {
+        blocages.push(
+          `Bénéficiaire non éligible : l'adhérent titulaire est « ${benef.adherent.statut} » (ACTIF requis).`,
+        );
+        return false;
+      }
+      return true;
+    }
+
+    if (dto.adherentId) {
+      const adherent = await this.prisma.adherent.findFirst({
+        where: { id: dto.adherentId, deletedAt: null },
+        select: { statut: true },
+      });
+      if (!adherent) {
+        blocages.push('Adhérent inconnu dans le fichier des membres.');
+        return false;
+      }
+      if (adherent.statut !== 'ACTIF') {
+        blocages.push(
+          `Adhérent non éligible : statut « ${adherent.statut} » (ACTIF requis).`,
+        );
+        return false;
+      }
+      return true;
+    }
+
+    blocages.push('Aucun patient identifié (adhérent ou bénéficiaire requis).');
+    return false;
   }
 
   // --- Consultations -------------------------------------------

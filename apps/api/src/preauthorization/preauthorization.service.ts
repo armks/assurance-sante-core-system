@@ -730,7 +730,7 @@ export class PreauthorizationService {
       )
     ) {
       throw new ForbiddenException(
-        "Seul un rôle ASSUREUR habilité peut générer une facture.",
+        "Rôle insuffisant pour générer une facture (comptable / administratif du centre, ou exploitation / comptable / informatique de l'assureur).",
       );
     }
 
@@ -743,6 +743,19 @@ export class PreauthorizationService {
     });
     if (!ticket || ticket.dossier.organisationId !== ctx.organisationId) {
       throw new NotFoundException('Ticket de soins introuvable.');
+    }
+    // Personnel de centre médical : uniquement les tickets de SON établissement
+    // (même contrôle que l'ajout d'acte).
+    const estCentreMedical = ctx.roleChain.some((r) =>
+      (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r),
+    );
+    if (
+      estCentreMedical &&
+      ctx.etablissementId !== ticket.dossier.etablissementId
+    ) {
+      throw new ForbiddenException(
+        "Vous n'appartenez pas à l'établissement de ce ticket de soins.",
+      );
     }
     if (ticket.statut === 'OUVERT') {
       throw new ConflictException(

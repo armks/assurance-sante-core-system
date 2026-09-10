@@ -124,6 +124,52 @@ describe('PreauthorizationService — Code de Facturation (garde de paiement)', 
     expect((res as any).codeFacturation).toBeUndefined();
   });
 
+  it('genererFacture par un CENTRE_MEDICAL_COMPTABLE de l’établissement du ticket → OK', async () => {
+    identity.getMe.mockResolvedValue(
+      profil('CENTRE_MEDICAL_COMPTABLE', { etablissementId: 'etab-1' }),
+    );
+    prisma.ticketSoins.findFirst.mockResolvedValue(ticket('CLOTURE'));
+    prisma.acteDossier.findMany.mockResolvedValue([
+      { montantPrescrit: dec(10000), quantite: 1, categorieActe: 'CONSULTATION' },
+    ]);
+    prisma.garantie.findMany.mockResolvedValue([
+      { categorieActe: 'CONSULTATION', tauxCouverture: dec(80), plafondParActe: null },
+    ]);
+    prisma.factureDossier.create.mockImplementation(({ data }: any) => ({
+      id: 'fac-1',
+      ...data,
+      montantTotal: dec(Number(data.montantTotal)),
+      montantAssurance: dec(Number(data.montantAssurance)),
+      montantPatient: dec(Number(data.montantPatient)),
+    }));
+
+    const res = await service.genererFacture(USER, 'tkt-1');
+    expect(res.statut).toBe('EMISE');
+    expect((res as any).code).toBeUndefined(); // le code part vers l'adhérent
+  });
+
+  it('genererFacture par un CENTRE_MEDICAL_COMPTABLE d’un AUTRE établissement → 403', async () => {
+    identity.getMe.mockResolvedValue(
+      profil('CENTRE_MEDICAL_COMPTABLE', { etablissementId: 'autre-etab' }),
+    );
+    prisma.ticketSoins.findFirst.mockResolvedValue(ticket('CLOTURE'));
+
+    await expect(service.genererFacture(USER, 'tkt-1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.factureDossier.create).not.toHaveBeenCalled();
+  });
+
+  it('genererFacture par un CENTRE_MEDICAL_MEDECIN → 403 (rôle non habilité à facturer)', async () => {
+    identity.getMe.mockResolvedValue(
+      profil('CENTRE_MEDICAL_MEDECIN', { etablissementId: 'etab-1' }),
+    );
+    await expect(service.genererFacture(USER, 'tkt-1')).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.ticketSoins.findFirst).not.toHaveBeenCalled();
+  });
+
   // ---- LE test à ne pas rater : garde bloquante de paiement ----
 
   it('confirmerPaiement AVANT validation du code → ForbiddenException (appel direct du service)', async () => {

@@ -602,7 +602,28 @@ export class CareEpisodeService {
           where: { deletedAt: null },
           orderBy: { dateConsultation: 'asc' },
         },
-        ticket: true,
+        // `ticket.facture` : la vue comptable du centre affiche l'état de la
+        // facture (montants, validation patient) sans endpoint dédié. Le
+        // `code_facturation` reste EXCLU — il n'est visible que de l'adhérent
+        // (anti-fraude v8 §5).
+        ticket: {
+          include: {
+            facture: {
+              select: {
+                id: true,
+                ticketSoinsId: true,
+                montantTotal: true,
+                montantAssurance: true,
+                montantPatient: true,
+                statut: true,
+                codeValideParPatient: true,
+                dateValidationPatient: true,
+                dateReglement: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
         actes: {
           where: { deletedAt: null },
           orderBy: { datePrescription: 'asc' },

@@ -1979,3 +1979,68 @@ côté NestJS. Une Edge Function Deno dupliquerait ce socle. Documenté dans le 
   et en lot, écran de déclenchement.
 - Restent hors Palier 1 / autres phases : PROMPT 15 (géocodage automatique), écrans dédiés
   par sous-rôle (Phase 12), portail adhérent (Phase 13).
+
+## 2026-09-10 — Écrans du parcours de soins côté établissement (`/dashboard-centre-medical`)
+
+Frontend `apps/web` (skill `health-insurance-core-ui`, patterns réutilisés) + 1 extension
+backend d'autorisation.
+
+### Décisions (tranchées avec l'utilisateur avant codage)
+- **Code d'ordonnance** : conservé anti-fraude (v8 §3) — le médecin/établissement ne voit
+  JAMAIS le code, il part à l'adhérent (APP/SMS). L'écran affiche seulement « Ordonnance
+  établie — code envoyé à l'adhérent ». Aucune modif backend.
+- **Génération de facture** : `ROLES_GENERATION_FACTURE` étendu à `CENTRE_MEDICAL_COMPTABLE`
+  + `CENTRE_MEDICAL_ADMINISTRATIF` (contrôle d'établissement ajouté dans `genererFacture`,
+  comme `ajouterActe` ; `CENTRE_MEDICAL_COMPTABLE` ajouté à `ROLES_CENTRE_MEDICAL`). Garde-
+  fous intacts : montants calculés serveur, code de facturation → adhérent uniquement,
+  confirmation de paiement toujours réservée à `ASSUREUR_COMPTABLE`.
+
+### Backend
+- `preauthorization.types.ts` : `ROLES_GENERATION_FACTURE` (+2) et `ROLES_CENTRE_MEDICAL` (+1).
+- `preauthorization.service.ts` `genererFacture` : contrôle d'établissement pour le
+  personnel centre médical (403 si autre établissement).
+- `care-episode.service.ts` `chargerDossier` : `ticket.facture` inclus **en `select`
+  explicite SANS `code_facturation`** (le code reste visible du seul adhérent, anti-fraude
+  v8 §5) — permet la vue comptable sans nouvel endpoint.
+- Tests : +3 `preauthorization-facture.service.spec` (comptable centre du bon
+  établissement → OK ; autre établissement → 403 ; médecin → 403). **jest API 150/150**,
+  `tsc` OK, `nest build` OK.
+
+### Frontend — `apps/web/app/dashboard-centre-medical/`
+- `layout.tsx` : garde `entite === CENTRE_MEDICAL` + rattachement établissement ; nav
+  commune aux 4 sous-rôles (`lib/dashboard-nav.ts` → clé `/dashboard-centre-medical`).
+- `lib/centre-medical.ts` : ensembles de rôles **miroir du backend** (pour le retrait
+  visuel des actions non autorisées — l'API reste seule juge).
+- **1. `/accueil`** (`accueil-ecran.tsx`) : champ code + motif + « Valider le code » →
+  succès (n° de traitement + lien dossier) ou refus avec la **liste précise des blocages**.
+  Formulaire masqué si le rôle n'est pas dans `ROLES_GESTION_DOSSIER`.
+- **2. `/medecin`** + `/[id]` (`dossiers-ecran.tsx`, `dossier-detail.tsx`) : DataTable des
+  dossiers OUVERT de l'établissement ; détail = consultations + actes + boutons pilotés par
+  l'état réel (`dossier.statut` / `ticket.statut`) et le rôle : « Ajouter une consultation »
+  (médecin uniquement), « + Acte » / « + Ordonnance » par consultation, « Clôturer le
+  dossier ». L'ordonnance n'affiche jamais de code.
+- **3. `/comptable`** + `/[id]` (`facturation-ecran.tsx`, `ticket-detail.tsx`) : DataTable
+  des dossiers CLÔTURÉS ; détail = actes + total + carte Facture (montant total / part
+  assurance / part patient / statut / **état de validation par le patient**). Bouton
+  « Générer la facture » affiché seulement si le rôle est habilité **et** le ticket
+  clôturé **et** aucune facture existante ; sinon note explicite.
+- `/` et `/administratif` → redirigent vers `/accueil`.
+
+### Test — navigateur réel (`_e2e_parcours_soins.mjs`, session `@supabase/ssr`)
+Serveurs API `:3001` + Next `next start` `:3000`. 4 comptes éphémères
+(`CENTRE_MEDICAL_ACCUEIL` / `_MEDECIN` / `_COMPTABLE` + adhérent existant), 1 clinique de
+test. **Parcours complet vérifié bout-en-bout :**
+1. adhérent génère + confirme un code de consultation ;
+2. **accueil** valide → dossier `TRT-2026-09-…` ouvert ;
+3. **médecin** ajoute une consultation, un acte (15 000 F), émet une ordonnance
+   (aucun code renvoyé au médecin), puis **clôture** → dossier + ticket `CLOTURE` ;
+4. **comptable centre médical** génère la facture → `EMISE`, total 15 000 / assurance
+   12 000 / patient 3 000, code de facturation **non renvoyé** à l'établissement ;
+   l'accueil qui tente la facturation → **403** ;
+5. l'adhérent voit puis valide le code de facturation → facture `VALIDEE`.
+Rendu des 5 écrans avec la session réelle de chaque rôle (HTTP 200, contenu attendu) ;
+le bouton « Générer la facture » est **absent** de l'écran comptable pour un compte accueil.
+Données e2e + comptes éphémères supprimés, serveurs arrêtés.
+
+### 🎯 Jalon — parcours de soins côté établissement disponible en UI
+Phase 6 (anti-fraude) : le backend était complet et testé ; il a désormais ses écrans.

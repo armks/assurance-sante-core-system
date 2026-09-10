@@ -1,11 +1,13 @@
 import {
   Building2,
+  DoorOpen,
   FileText,
   HeartPulse,
   LayoutDashboard,
   type LucideIcon,
   Package,
   Pill,
+  ReceiptText,
   Stethoscope,
   Users,
   Wallet,
@@ -40,8 +42,29 @@ export interface NavItem {
 const INFORMATIQUE = '/dashboard-assureur/informatique';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
+const CENTRE_MEDICAL = '/dashboard-centre-medical';
 
 export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
+  // Parcours de soins côté établissement : nav commune aux 4 sous-rôles
+  // CENTRE_MEDICAL. Chaque écran retire ensuite ses propres actions selon le
+  // rôle connecté (l'API reste seule juge).
+  [CENTRE_MEDICAL]: [
+    {
+      label: 'Accueil — codes',
+      href: `${CENTRE_MEDICAL}/accueil`,
+      icon: DoorOpen,
+    },
+    {
+      label: 'Dossiers de soins',
+      href: `${CENTRE_MEDICAL}/medecin`,
+      icon: Stethoscope,
+    },
+    {
+      label: 'Facturation',
+      href: `${CENTRE_MEDICAL}/comptable`,
+      icon: ReceiptText,
+    },
+  ],
   [MEDECIN_CONSEIL]: [
     { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard },
     {

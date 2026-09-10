@@ -76,6 +76,7 @@ export const ROLES_CENTRE_MEDICAL = [
   'CENTRE_MEDICAL_MEDECIN',
   'CENTRE_MEDICAL_ACCUEIL',
   'CENTRE_MEDICAL_ADMINISTRATIF',
+  'CENTRE_MEDICAL_COMPTABLE',
 ] as const;
 
 // --- Code de Facturation (v8 §5) — 4e et dernier code anti-fraude ------
@@ -89,11 +90,21 @@ export const STATUTS_FACTURE = [
 ] as const;
 export type StatutFacture = (typeof STATUTS_FACTURE)[number];
 
-/** Rôles ASSUREUR habilités à générer une facture. */
+/**
+ * Rôles habilités à générer une facture d'un ticket clôturé. Côté ASSUREUR
+ * (exploitation / comptable / informatique) et côté ÉTABLISSEMENT (comptable /
+ * administratif du centre — soumis au contrôle d'établissement, cf.
+ * `ROLES_CENTRE_MEDICAL`). Les garde-fous anti-fraude restent intacts : montants
+ * calculés côté serveur depuis les actes + garanties, code de facturation
+ * transmis à l'adhérent (jamais à l'établissement), et confirmation de paiement
+ * réservée à `ASSUREUR_COMPTABLE`.
+ */
 export const ROLES_GENERATION_FACTURE = [
   'ASSUREUR_EXPLOITATION',
   'ASSUREUR_COMPTABLE',
   'ASSUREUR_INFORMATIQUE',
+  'CENTRE_MEDICAL_COMPTABLE',
+  'CENTRE_MEDICAL_ADMINISTRATIF',
 ] as const;
 
 /** La confirmation de paiement est réservée à ASSUREUR_COMPTABLE (v8 §5). */

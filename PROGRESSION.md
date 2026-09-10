@@ -1696,3 +1696,33 @@ referentiel_actes / medicaments / polices · `EXECUTE` sur `log_audit`. `LOGIN` 
 Le service n'appelle rien dans `apps/api` et `apps/api` ne l'appelle pas. Prochaine étape :
 Edge Function `declencher-adjudication` (verrou `SOUMISE → EN_ADJUDICATION` déjà fait par
 `ClaimsService.soumettre` au PROMPT 24 partie 1) + client HTTP côté `claims/`.
+
+## 2026-09-10 — Incident sécurité : mot de passe DB fuité en historique git → remédiation
+
+- **Cause** : un test `node -e` a écrit un fichier à un chemin dont le shell a mangé les
+  backslashes → atterri dans `apps/api/` (`Usersarmel…dbpw.txt`), **commité + poussé**
+  (commits `d4a82ba` / `2dda954`). Contenu = **le mot de passe Postgres de `DATABASE_URL`
+  / `DIRECT_URL`**.
+- **Remédiation effectuée** :
+  1. **`git filter-repo --invert-paths --path <fichier>`** puis **`git push --force origin main`**
+     → le blob et le mot de passe **ne sont plus dans l'historique de `origin/main`**
+     (vérifié : `git rev-list --all --objects | grep dbpw` → vide ; `git log -S 'Aliance10'` → vide).
+     Les commits `d4a82ba`→`79b0e51`, `71a3738`→`58f8ab7` réécrits ; `2dda954` (ne faisait
+     que supprimer le fichier) élagué. `b1742cf` et antérieurs inchangés.
+     Sauvegarde `git bundle` avant réécriture conservée localement (scratch).
+  2. **Rotation du mot de passe Postgres** (`postgres` / projet) — **action dashboard
+     Supabase à faire par l'utilisateur** (Settings → Database → Reset database password),
+     puis mise à jour de `DATABASE_URL` / `DIRECT_URL` dans `apps/api/.env`. ⚠️ Tant que ce
+     n'est pas fait, le mot de passe fuité reste valide (il a transité par GitHub).
+  3. **Rotation du mot de passe `svc_adjudication`** — `ALTER ROLE svc_adjudication PASSWORD
+     '<32 car. aléatoires>'` (généré, jamais affiché). Nouveau mot de passe placé dans
+     **`adjudication-service/.env`** (gitignoré) comme `JDBC_PASSWORD`. Vérifié end-to-end :
+     `POST /evaluer` → `{"decision":"AUTO_ADJUDIQUE","montant_rembourse":16000.00,…}` avec la
+     connexion `svc_adjudication` sur le nouveau mot de passe. (Un décalage passager de
+     ~1 min a été observé — cache de credentials du pooler Supavisor après un `ALTER ROLE`.)
+- **`adjudication-service/`** : `.env` ajouté au `.gitignore` (avec `.env.local`,
+  `run-local.sh`) ; **`.env.example`** committé (variables `JDBC_*` / `SERVICE_JWT_SECRET`
+  documentées, sans valeurs).
+- **Outils** : `winget` n'a pas de paquet Apache Maven → copie portable dans
+  `~/tools/apache-maven-3.9.9` ; `Python.Python.3.12` + `git-filter-repo` installés pour la
+  réécriture d'historique.

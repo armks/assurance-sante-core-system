@@ -55,6 +55,11 @@ describe('CareEpisodeService', () => {
         findUnique: jest.fn(),
         updateMany: jest.fn(),
       },
+      ticketSoins: {
+        create: jest.fn().mockResolvedValue({ id: 'tkt-1' }),
+        findUnique: jest.fn().mockResolvedValue(null),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       profil: { findFirst: jest.fn() },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
@@ -98,6 +103,12 @@ describe('CareEpisodeService', () => {
           carteValide: true,
           aucunDossierOuvert: true,
         }),
+      }),
+    );
+    // le Ticket de Soins est créé automatiquement, dans la même transaction
+    expect(prisma.ticketSoins.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ dossierSoinsId: 'dos-1', statut: 'OUVERT' }),
       }),
     );
     expect(res.statut).toBe('OUVERT');
@@ -213,7 +224,31 @@ describe('CareEpisodeService', () => {
         data: expect.objectContaining({ statut: 'FORCE_CLOS', clotureType: 'FORCEE' }),
       }),
     );
+    // le Ticket de Soins est clôturé automatiquement avec le dossier
+    expect(prisma.ticketSoins.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { dossierSoinsId: 'dos-1', statut: 'OUVERT' },
+        data: expect.objectContaining({ statut: 'CLOTURE' }),
+      }),
+    );
     expect(res.statut).toBe('FORCE_CLOS');
+  });
+
+  it('la clôture normale clôture aussi le Ticket de Soins', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    prisma.dossierSoins.findFirst
+      .mockResolvedValueOnce({ id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT' })
+      .mockResolvedValueOnce({ id: 'dos-1', statut: 'CLOTURE', consultations: [] });
+    prisma.dossierSoins.update.mockResolvedValue({});
+    prisma.consultationDossier.updateMany.mockResolvedValue({});
+
+    await service.clotureNormale(USER, 'dos-1', { motif: 'Fin de prise en charge' });
+
+    expect(prisma.ticketSoins.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ statut: 'CLOTURE' }),
+      }),
+    );
   });
 
   it('refuse l’ouverture à un rôle non autorisé (comptable)', async () => {

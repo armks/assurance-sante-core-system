@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -25,6 +26,9 @@ import {
 } from './care-episode.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
+
+/** Alphabet du code de ticket — sans caractères ambigus (cf. codes anti-fraude). */
+const ALPHABET_TICKET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 /**
  * CareEpisodeService — Dossier de Soins et Numéro de Traitement (v1 §15).
@@ -109,6 +113,7 @@ export class CareEpisodeService {
     const planCouvertureId = await this.resoudreGarantieConsultation(
       police!.produitId,
     );
+    const codeTicket = await this.genererCodeTicketUnique();
 
     const id = await this.prisma.$transaction(async (tx) => {
       const dossier = await tx.dossierSoins.create({
@@ -138,6 +143,16 @@ export class CareEpisodeService {
           },
         });
       }
+
+      // Ticket de Soins — créé AUTOMATIQUEMENT, dans CETTE transaction (v8 §4).
+      const ticket = await tx.ticketSoins.create({
+        data: {
+          dossierSoinsId: dossier.id,
+          code: codeTicket,
+          statut: 'OUVERT',
+        },
+      });
+
       await this.audit(
         tx,
         ctx.userId,
@@ -148,7 +163,16 @@ export class CareEpisodeService {
           etablissementId: dto.etablissementId,
           policeId: dto.policeId,
           codeConsultationId: options.codeConsultationId ?? null,
+          ticketSoinsId: ticket.id,
         },
+      );
+      await this.audit(
+        tx,
+        ctx.userId,
+        'OUVERTURE_TICKET_SOINS',
+        ticket.id,
+        { dossierSoinsId: dossier.id },
+        'tickets_soins',
       );
       return dossier.id;
     });
@@ -413,6 +437,14 @@ export class CareEpisodeService {
         where: { dossierSoinsId: dossierId, statut: 'EN_COURS', deletedAt: null },
         data: { statut: 'TERMINEE' },
       });
+
+      // Ticket de Soins — clôturé AUTOMATIQUEMENT, dans CETTE transaction :
+      // verrouille définitivement l'ajout d'actes (v8 §4).
+      const ticket = await tx.ticketSoins.updateMany({
+        where: { dossierSoinsId: dossierId, statut: 'OUVERT' },
+        data: { statut: 'CLOTURE', dateCloture: new Date() },
+      });
+
       await this.audit(
         tx,
         ctx.userId,
@@ -420,7 +452,7 @@ export class CareEpisodeService {
           ? 'CLOTURE_FORCEE_DOSSIER_SOINS'
           : 'CLOTURE_DOSSIER_SOINS',
         dossierId,
-        { motif: motif ?? null },
+        { motif: motif ?? null, ticketCloture: ticket.count },
       );
     });
     return this.chargerDossier(ctx.organisationId, dossierId);
@@ -508,12 +540,36 @@ export class CareEpisodeService {
           where: { deletedAt: null },
           orderBy: { dateConsultation: 'asc' },
         },
+        ticket: true,
+        actes: {
+          where: { deletedAt: null },
+          orderBy: { datePrescription: 'asc' },
+        },
       },
     });
     if (!dossier) {
       throw new NotFoundException('Dossier de soins introuvable.');
     }
     return dossier;
+  }
+
+  /** Code de ticket cryptographiquement sûr (`crypto.randomInt`), unique. */
+  private async genererCodeTicketUnique(): Promise<string> {
+    for (let tentative = 0; tentative < 6; tentative += 1) {
+      let code = '';
+      for (let i = 0; i < 8; i += 1) {
+        code += ALPHABET_TICKET[randomInt(ALPHABET_TICKET.length)];
+      }
+      const existe = await this.prisma.ticketSoins.findUnique({
+        where: { code },
+      });
+      if (!existe) {
+        return code;
+      }
+    }
+    throw new ConflictException(
+      'Impossible de générer un code de ticket unique — réessayez.',
+    );
   }
 
   /** Écriture d'audit — toujours via `log_audit()` (v9 §1.6). */

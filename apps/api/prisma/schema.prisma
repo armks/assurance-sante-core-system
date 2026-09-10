@@ -132,6 +132,7 @@ model Profil {
   dossiersClotures      DossierSoins[]
   consultations         ConsultationDossier[]
   ordonnancesPrescrites Ordonnance[]
+  actesPrescrits        ActeDossier[]
 
   @@map("profils")
 }
@@ -639,6 +640,8 @@ model DossierSoins {
   consultations     ConsultationDossier[]
   codesConsultation CodeConsultation[]
   ordonnances       Ordonnance[]
+  ticket            TicketSoins?
+  actes             ActeDossier[]
 
   @@index([organisationId])
   @@index([etablissementId])
@@ -664,9 +667,10 @@ model ConsultationDossier {
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  dossier     DossierSoins @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  medecin     Profil       @relation(fields: [medecinId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossier     DossierSoins  @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  medecin     Profil        @relation(fields: [medecinId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   ordonnances Ordonnance[]
+  actes       ActeDossier[]
 
   @@index([dossierSoinsId])
   @@index([medecinId])
@@ -758,4 +762,55 @@ model CodeOrdonnance {
   @@index([ordonnanceId])
   @@index([statut])
   @@map("codes_ordonnance")
+}
+
+/// tickets_soins — 3e des 4 codes anti-fraude (v8 §4). Un seul ticket par
+/// dossier de soins ; créé et clôturé AUTOMATIQUEMENT avec le dossier (jamais
+/// une étape manuelle). Trigger `verifier_ticket_ouvert()`. prisma/sql/014.
+model TicketSoins {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dossierSoinsId String    @unique @map("dossier_soins_id") @db.Uuid
+  code           String    @unique
+  dateEmission   DateTime  @default(now()) @map("date_emission") @db.Timestamptz(6)
+  dateCloture    DateTime? @map("date_cloture") @db.Timestamptz(6)
+  statut         String    @default("OUVERT") // OUVERT | CLOTURE | ANNULE
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  dossier DossierSoins  @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  actes   ActeDossier[]
+
+  @@index([statut])
+  @@map("tickets_soins")
+}
+
+/// actes_dossier — actes d'un épisode de soins (v1 §15). Rattachés à un
+/// `ticket_soins` OUVERT (trigger). `medecin_prescripteur_id` = compte réel
+/// (v10 §1.2). prisma/sql/014.
+model ActeDossier {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dossierSoinsId        String    @map("dossier_soins_id") @db.Uuid
+  ticketSoinsId         String    @map("ticket_soins_id") @db.Uuid
+  consultationId        String?   @map("consultation_id") @db.Uuid
+  medecinPrescripteurId String?   @map("medecin_prescripteur_id") @db.Uuid
+  categorieActe         String    @map("categorie_acte")
+  libelle               String
+  codeActe              String?   @map("code_acte")
+  quantite              Int       @default(1)
+  montantPrescrit       Decimal?  @map("montant_prescrit") @db.Decimal(14, 2)
+  statut                String    @default("PRESCRIT") // PRESCRIT | REALISE | ANNULE | LIQUIDE
+  datePrescription      DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
+  dateRealisation       DateTime? @map("date_realisation") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  dossier      DossierSoins         @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ticket       TicketSoins          @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  consultation ConsultationDossier? @relation(fields: [consultationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  prescripteur Profil?              @relation(fields: [medecinPrescripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([dossierSoinsId])
+  @@index([ticketSoinsId])
+  @@index([statut])
+  @@map("actes_dossier")
 }

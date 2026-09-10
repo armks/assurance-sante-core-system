@@ -10,6 +10,7 @@ import {
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
+import { AjouterActeDto } from './dto/acte.dto';
 import {
   CreerOrdonnanceDto,
   DispensationDto,
@@ -104,5 +105,26 @@ export class PreauthorizationController {
     @Body() dto: DispensationDto,
   ) {
     return this.preauth.marquerDispensation(user, id, dto);
+  }
+
+  // --- Ticket de Soins (v8 §4) -------------------------------------
+  // Le ticket est créé / clôturé AUTOMATIQUEMENT avec le dossier de soins ;
+  // il n'existe pas de route pour le créer ou le clôturer manuellement.
+
+  @Get('tickets-soins/:id')
+  obtenirTicket(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.obtenirTicket(user, id);
+  }
+
+  @Post('tickets-soins/:id/actes')
+  ajouterActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AjouterActeDto,
+  ) {
+    return this.preauth.ajouterActe(user, id, dto);
   }
 }

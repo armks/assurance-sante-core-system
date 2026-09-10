@@ -948,3 +948,56 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - **Vérifs** : build API ✅ ; `jest` **89/89** ✅. Données de test du parcours e2e
   supprimées (ordonnance, codes, dossier, établissement, 2 pharmacies, 3 profils + comptes
   Supabase, invitations) ; serveur arrêté. Aucun changement frontend ce prompt.
+
+## 2026-09-10 — PROMPT 20 — Ticket de Soins (module preauthorization / care-episode)
+- **État constaté** : `actes_dossier` **n'existait pas** — le PROMPT 17 n'avait créé que
+  `dossiers_soins` + `consultations_dossier`. Ce prompt crée donc **`actes_dossier`**
+  (version minimale) en plus de `tickets_soins`.
+- **Supabase** (`prisma/sql/014_prompt20_ticket_soins.sql`) :
+  - Table **`tickets_soins`** (v8 §4) : `dossier_soins_id` FK **unique** (un seul ticket
+    par dossier), `code` unique même format que les autres codes (`^[A-Z0-9]{6,8}$`),
+    `date_cloture` nullable, `statut` OUVERT / CLOTURE / ANNULE — CHECK :
+    `(statut = 'OUVERT') = (date_cloture is null)`.
+  - Table **`actes_dossier`** (minimale, v1 §15) : `dossier_soins_id`, **`ticket_soins_id`**
+    FK, `consultation_id` FK, `medecin_prescripteur_id` FK profils (v10 §1.2),
+    `categorie_acte`, `libelle`, `code_acte`, `quantite`, `montant_prescrit`, `statut`
+    PRESCRIT / REALISE / ANNULE / LIQUIDE.
+  - **Trigger `verifier_ticket_ouvert()`** — BEFORE INSERT sur `actes_dossier` : refuse
+    tout acte si le ticket n'est pas OUVERT, **même pour un INSERT SQL direct** (rôle
+    `postgres` du pooler inclus), sur le modèle de `verifier_medecin_traitant()` (PROMPT 17).
+  - RLS : lecture ouverte à l'organisation ; INSERT `actes_dossier` réservé au personnel du
+    centre / assureur.
+- **Prisma** : modèles `TicketSoins` + `ActeDossier` (27 → 29 modèles), `prisma generate`.
+- **apps/api** :
+  - **`CareEpisodeService.ouvrirDossier`** crée le `ticket_soins` (OUVERT, code
+    `crypto.randomInt`) **dans la MÊME transaction** que l'ouverture du dossier — jamais
+    une étape séparée oubliable. `chargerDossier` renvoie désormais `ticket` + `actes`.
+  - **`CareEpisodeService.appliquerCloture`** clôture le ticket (→ CLOTURE + `date_cloture`)
+    **dans la MÊME transaction** que la clôture du dossier (normale **et** forcée) —
+    verrouille l'ajout d'actes.
+  - `preauthorization/` étendu : `ajouterActe(user, ticketSoinsId, dto)` — garde centrale
+    **ticket OUVERT sinon 409** (+ autorisation par rôle et établissement) ;
+    `obtenirTicket(user, ticketSoinsId)` (avec ses actes). Routes
+    `POST /api/v1/preauthorization/tickets-soins/:id/actes` et `GET …/tickets-soins/:id`.
+    Aucune route pour créer/clôturer un ticket manuellement.
+  - `care-episode.service.spec.ts` : +2 assertions (ticket créé à l'ouverture, clôturé à la
+    clôture normale et forcée) ; `preauthorization-ticket.service.spec.ts` : **6 cas**
+    (ajout sur OUVERT OK ; sur CLOTURE → 409 message clair ; sur ANNULE → 409 ; ticket
+    introuvable → 404 ; autre établissement → 403 ; rôle non autorisé → 403). → **jest 96/96**.
+- **Test HTTP réel — 8/8** (établissement + médecin `armelk01+medecin.<stamp>@gmail.com`,
+  adhérent `armelk01+adherent@gmail.com`, dossier ouvert via un vrai code de consultation) :
+  - Ouverture du dossier → **Ticket de Soins créé automatiquement** (statut OUVERT, code
+    `N8D9NTQ3`) — visible dans la réponse de `validerCodeConsultation`.
+  - Ajout d'un acte au ticket OUVERT → 201 ; `GET /tickets-soins/:id` → statut OUVERT +
+    l'acte listé.
+  - Clôture du dossier → le **Ticket de Soins passe CLOTURE automatiquement** (avec
+    `date_cloture`).
+  - Ajout d'un acte après clôture **via l'API** → **409** « Le ticket de soins est CLOTURE
+    — impossible d'y ajouter un acte (ticket verrouillé) ».
+  - Ajout d'un acte après clôture **en INSERT SQL direct** → **rejeté par le trigger**
+    `verifier_ticket_ouvert()` (même message).
+  - `audit_log` : OUVERTURE_TICKET_SOINS, AJOUT_ACTE_DOSSIER, CLOTURE_DOSSIER_SOINS
+    (avec `ticketCloture`).
+- **Vérifs** : build API ✅ ; `jest` **96/96** ✅. Données de test du parcours e2e
+  supprimées (acte, ticket, dossier, consultation, code, établissement, profil + compte
+  Supabase du médecin, invitation) ; serveur arrêté. Aucun changement frontend ce prompt.

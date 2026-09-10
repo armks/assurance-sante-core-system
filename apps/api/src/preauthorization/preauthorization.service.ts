@@ -9,10 +9,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AjouterActeDto } from './dto/acte.dto';
 import {
   CreerOrdonnanceDto,
   DispensationDto,
@@ -27,6 +29,8 @@ import {
   ContexteAppelant,
   LONGUEUR_CODE,
   ROLES_ADHERENT,
+  ROLES_AJOUT_ACTE,
+  ROLES_CENTRE_MEDICAL,
   ROLES_PHARMACIE,
   ROLE_MEDECIN_TRAITANT,
 } from './preauthorization.types';
@@ -579,6 +583,129 @@ export class PreauthorizationService {
         "Vous ne pouvez agir que pour votre propre pharmacie.",
       );
     }
+  }
+
+  // =====================================================================
+  // Ticket de Soins (v8 §4) — le ticket lui-même est créé / clôturé
+  // automatiquement par CareEpisodeService (ouverture / clôture du dossier).
+  // Ici : l'ajout d'actes, refusé si le ticket n'est plus OUVERT.
+  // =====================================================================
+
+  async obtenirTicket(user: AuthenticatedUser, ticketSoinsId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const ticket = await this.chargerTicket(ctx.organisationId, ticketSoinsId);
+    const actes = await this.prisma.acteDossier.findMany({
+      where: { ticketSoinsId, deletedAt: null },
+      orderBy: { datePrescription: 'asc' },
+    });
+    return { ...ticket, actes };
+  }
+
+  async ajouterActe(
+    user: AuthenticatedUser,
+    ticketSoinsId: string,
+    dto: AjouterActeDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+
+    const ticket = await this.prisma.ticketSoins.findFirst({
+      where: { id: ticketSoinsId },
+      include: { dossier: true },
+    });
+    if (!ticket || ticket.dossier.organisationId !== ctx.organisationId) {
+      throw new NotFoundException('Ticket de soins introuvable.');
+    }
+
+    // Autorisation : personnel du centre (même établissement) ou assureur.
+    const autorise = ctx.roleChain.some((r) =>
+      (ROLES_AJOUT_ACTE as readonly string[]).includes(r),
+    );
+    if (!autorise) {
+      throw new ForbiddenException(
+        "Rôle insuffisant pour ajouter un acte à un ticket de soins.",
+      );
+    }
+    const estCentreMedical = ctx.roleChain.some((r) =>
+      (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r),
+    );
+    if (
+      estCentreMedical &&
+      ctx.etablissementId !== ticket.dossier.etablissementId
+    ) {
+      throw new ForbiddenException(
+        "Vous n'appartenez pas à l'établissement de ce dossier de soins.",
+      );
+    }
+
+    // GARDE CENTRALE : le ticket doit être OUVERT (le trigger Postgres double
+    // ce contrôle même pour un INSERT SQL direct).
+    if (ticket.statut !== 'OUVERT') {
+      throw new ConflictException(
+        `Le ticket de soins est ${ticket.statut} — impossible d'y ajouter un acte (ticket verrouillé).`,
+      );
+    }
+
+    if (dto.consultationId) {
+      const consultation = await this.prisma.consultationDossier.findFirst({
+        where: {
+          id: dto.consultationId,
+          dossierSoinsId: ticket.dossierSoinsId,
+          deletedAt: null,
+        },
+      });
+      if (!consultation) {
+        throw new BadRequestException(
+          "La consultation indiquée n'appartient pas à ce dossier de soins.",
+        );
+      }
+    }
+
+    const id = await this.prisma.$transaction(async (tx) => {
+      const acte = await tx.acteDossier.create({
+        data: {
+          dossierSoinsId: ticket.dossierSoinsId,
+          ticketSoinsId: ticket.id,
+          consultationId: dto.consultationId ?? null,
+          medecinPrescripteurId: dto.medecinPrescripteurId ?? null,
+          categorieActe: dto.categorieActe,
+          libelle: dto.libelle,
+          codeActe: dto.codeActe ?? null,
+          quantite: dto.quantite ?? 1,
+          montantPrescrit:
+            dto.montantPrescrit === undefined
+              ? null
+              : new Decimal(dto.montantPrescrit).toFixed(2),
+          dateRealisation: dto.dateRealisation
+            ? new Date(dto.dateRealisation)
+            : null,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'AJOUT_ACTE_DOSSIER',
+        acte.id,
+        {
+          ticketSoinsId: ticket.id,
+          dossierSoinsId: ticket.dossierSoinsId,
+          categorie: dto.categorieActe,
+        },
+        'actes_dossier',
+      );
+      return acte.id;
+    });
+
+    return this.prisma.acteDossier.findUnique({ where: { id } });
+  }
+
+  private async chargerTicket(organisationId: string, ticketSoinsId: string) {
+    const ticket = await this.prisma.ticketSoins.findFirst({
+      where: { id: ticketSoinsId, dossier: { organisationId } },
+    });
+    if (!ticket) {
+      throw new NotFoundException('Ticket de soins introuvable.');
+    }
+    return ticket;
   }
 
   private async genererCodeOrdonnanceUnique(): Promise<string> {

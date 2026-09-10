@@ -44,6 +44,40 @@ export const ROLES_PHARMACIE = [
   'PHARMACIE_COMPTABLE',
 ] as const;
 
+// --- Ticket de Soins (v8 §4) -------------------------------------------
+
+export const STATUTS_TICKET_SOINS = ['OUVERT', 'CLOTURE', 'ANNULE'] as const;
+export type StatutTicketSoins = (typeof STATUTS_TICKET_SOINS)[number];
+
+export const CATEGORIES_ACTE = [
+  'CONSULTATION',
+  'HOSPITALISATION',
+  'PHARMACIE',
+  'OPTIQUE',
+  'DENTAIRE',
+  'IMAGERIE',
+  'BIOLOGIE',
+  'ACTE_TECHNIQUE',
+  'TRANSPORT',
+  'AUTRE',
+] as const;
+
+/** Rôles autorisés à ajouter un acte à un ticket de soins. */
+export const ROLES_AJOUT_ACTE = [
+  'CENTRE_MEDICAL_MEDECIN',
+  'CENTRE_MEDICAL_ACCUEIL',
+  'CENTRE_MEDICAL_ADMINISTRATIF',
+  'ASSUREUR_EXPLOITATION',
+  'ASSUREUR_INFORMATIQUE',
+] as const;
+
+/** Rôles « personnel de centre médical » — soumis au contrôle d'établissement. */
+export const ROLES_CENTRE_MEDICAL = [
+  'CENTRE_MEDICAL_MEDECIN',
+  'CENTRE_MEDICAL_ACCUEIL',
+  'CENTRE_MEDICAL_ADMINISTRATIF',
+] as const;
+
 /**
  * Alphabet du code : majuscules + chiffres, sans caractères ambigus
  * (0/O, 1/I/L). 30 symboles → 30^8 ≈ 6,5·10¹¹ combinaisons pour une fenêtre de

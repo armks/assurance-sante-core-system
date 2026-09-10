@@ -12,7 +12,7 @@ import { PreauthorizationService } from './preauthorization.service';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
-  email: 'armelk01+adherent@gmail.com',
+  email: 'armelk01+testunitaire@gmail.com',
   postgresRole: 'authenticated',
   claimRole: null,
   aud: 'authenticated',

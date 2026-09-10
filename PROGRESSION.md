@@ -462,8 +462,9 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
     sans surprime, + calcul de prime (10000 → surprime 20 % → 2000).
 - **Vérifs** : build ✅ ; tests **44/44** ✅.
 - **Test HTTP réel — DEUX profils Supabase distincts** :
-  - 2ᵉ utilisateur créé via l'API Admin (`medecin.conseil.test@exemple.ci`) + profil
-    `ASSUREUR_MEDECIN_CONSEIL` ; profil principal `6fc93835-…` repositionné en `ASSUREUR_MEDECIN_SOUSCRIPTEUR`.
+  - 2ᵉ utilisateur créé via l'API Admin (compte de test `ASSUREUR_MEDECIN_CONSEIL`,
+    supprimé depuis — voir 2026-09-10) + profil `ASSUREUR_MEDECIN_CONSEIL` ; profil
+    principal `6fc93835-…` repositionné en `ASSUREUR_MEDECIN_SOUSCRIPTEUR`.
     (Note : l'API Admin Supabase refuse la clé `sb_secret_` avec `Invoke-RestMethod` — « secret key
     in browser » — utilisée via `curl.exe`.)
   - **SOUSCRIPTEUR** : `POST /underwriting/questionnaires` → **201** ; `POST /:id/evaluer`
@@ -478,9 +479,10 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - Serveur arrêté. Profil de test remis à `ASSUREUR_INFORMATIQUE`.
 - Correctif annexe : `decimal.js` (ajouté au PROMPT 9) n'avait pas été committé dans
   `package-lock.json` (le `git add apps/api` manquait la racine) — corrigé dans ce commit.
-- ⚠️ **Données de test en base à supprimer avant prod** (en plus des précédentes) : utilisateur
-  Supabase `medecin.conseil.test@exemple.ci` + son profil, souscripteur INDIVIDUEL `50c1a1a1-…1111`
-  + police `50c1a1a1-…2222`, questionnaire + tarification associés, + lignes `audit_log`.
+- ⚠️ **Données de test en base à supprimer avant prod** (en plus des précédentes) : souscripteur
+  INDIVIDUEL `50c1a1a1-…1111` + police `50c1a1a1-…2222`, questionnaire + tarification associés,
+  + lignes `audit_log`. (Le compte de test `ASSUREUR_MEDECIN_CONSEIL` associé a été supprimé
+  le 2026-09-10 — voir l'entrée « Nettoyage des comptes de test ».)
 
 ## 2026-09-09 — Frontend : structure de navigation d'`apps/web`
 - Objectif : coquille de navigation générale (landing publique + dispatch de dashboard +
@@ -586,8 +588,8 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   - `/dashboard-assureur/informatique/utilisateurs` : vraie page (lien « bientôt » retiré) —
     formulaire alimenté par `GET /identity/roles-proposables`, table des invitations en
     cours (valider / révoquer), table des comptes de l'organisation.
-- **Test HTTP réel — parcours complet** (serveurs prod, compte `superadmin.test@exemple.ci`
-  créé + profil SUPERADMIN_PRINCIPAL) : 14/14 OK —
+- **Test HTTP réel — parcours complet** (serveurs prod, compte de test `SUPERADMIN_PRINCIPAL`
+  créé — supprimé depuis, voir 2026-09-10) : 14/14 OK —
   - Super Admin : `GET /superadmin` → 307 `/superadmin/societes` ; page rendue ;
     `POST /identity/organisations` → 201, organisation listée.
   - `POST /invitations` (ASSUREUR_INFORMATIQUE, `emailEnvoye=true`) → 201 statut EN_ATTENTE ;
@@ -602,8 +604,8 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   - `audit_log` : CREATION_ORGANISATION, CREATION_INVITATION, ACCEPTATION_INVITATION.
 - **Vérifs** : build API ✅ ; `jest` **52/52** ✅ ; `next build --webpack` ✅ (20 routes).
   Données de test du parcours e2e supprimées ; serveurs arrêtés.
-- ⚠️ **Donnée de test conservée** : utilisateur Supabase `superadmin.test@exemple.ci` +
-  profil `SUPERADMIN_PRINCIPAL` (à retirer avant prod).
+- (Le compte de test `SUPERADMIN_PRINCIPAL` a été supprimé le 2026-09-10 — voir l'entrée
+  « Nettoyage des comptes de test ».)
 - Le mode PROPOSITION (pharmacien → caissière) est couvert par les tests unitaires ; pas
   encore de parcours e2e HTTP (nécessite un profil PHARMACIE_PHARMACIEN scopé).
 
@@ -703,8 +705,8 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
     `/dashboard-assureur/pharmacien-conseil` (+ `/medicaments-a-homologuer`) — layout
     gardé par `dashboardRoute`, `HomologationPanneau` (compteurs par statut, boutons
     Homologuer / Suspendre / Re-proposer selon le statut). Entrées de nav ajoutées.
-- **Test HTTP réel — 16/16** (compte `pharmacien.conseil.test@exemple.ci` +
-  profil `ASSUREUR_PHARMACIEN_CONSEIL` créés) :
+- **Test HTTP réel — 16/16** (compte de test `ASSUREUR_PHARMACIEN_CONSEIL` créé —
+  supprimé depuis, voir 2026-09-10) :
   - `ASSUREUR_INFORMATIQUE` propose des actes (PROPOSE) ; `ASSUREUR_MEDECIN_CONSEIL`
     homologue un acte → HOMOLOGUE.
   - **CROISEMENT** : `ASSUREUR_PHARMACIEN_CONSEIL` homologue un acte → **403** ;
@@ -721,9 +723,8 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - **Vérifs** : build API ✅ ; `jest` **66/66** ✅ ; `next build --webpack` ✅ (26 routes).
   Actes de test supprimés ; les 16 médicaments essentiels remis à PROPOSE (données de
   démo « à homologuer ») ; serveurs arrêtés.
-- ⚠️ **Donnée de test conservée** : `pharmacien.conseil.test@exemple.ci` +
-  profil `ASSUREUR_PHARMACIEN_CONSEIL` (comme `medecin.conseil.test@` et
-  `superadmin.test@` — à retirer avant prod).
+- (Le compte de test `ASSUREUR_PHARMACIEN_CONSEIL` a été supprimé le 2026-09-10 — voir
+  l'entrée « Nettoyage des comptes de test ».)
 
 ## 2026-09-09 — PROMPT 17 — Dossier de Soins + Numéro de Traitement (module care-episode)
 - **Supabase** (`prisma/sql/011_prompt17_care_episode.sql`) :
@@ -826,9 +827,9 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   la route `POST /api/v1/care-episode/dossiers` a été **supprimée**.
   `CareEpisodeService.ouvrirDossier` est désormais un **appel interne uniquement**,
   déclenché seulement par `validerCodeConsultation`.
-- **Test HTTP réel — 11/11** (compte `adherent.test@exemple.ci` + profil
-  `ADHERENT_TITULAIRE` avec `adherent_id`, 2 établissements ACTIF, compte
-  `CENTRE_MEDICAL_ACCUEIL` provisionné, police réelle `POL-2026-000004` ACTIVE) :
+- **Test HTTP réel — 11/11** (compte de test `ADHERENT_TITULAIRE` avec `adherent_id`
+  — recréé le 2026-09-10 sous `armelk01+adherent@gmail.com` —, 2 établissements ACTIF,
+  compte `CENTRE_MEDICAL_ACCUEIL` provisionné, police réelle `POL-2026-000004` ACTIVE) :
   - L'adhérent génère un code → 201, `code` = 8 car. alphanum, statut EMIS, expiration +48 h.
   - `GET /codes-consultation` côté établissement → **liste vide** (aucun accès aux codes).
   - Validation avec le **MAUVAIS** établissement → **403** « Ce code n'a pas été émis pour
@@ -845,8 +846,8 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
 - **Vérifs** : build API ✅ ; `jest` **81/81** ✅. Données de test du parcours e2e
   supprimées (codes, dossier, établissements, profil + compte Supabase du staff,
   invitations) ; serveur arrêté. Aucun changement frontend ce prompt.
-- ⚠️ **Donnée de test conservée** : `adherent.test@exemple.ci` + profil
-  `ADHERENT_TITULAIRE` (`adherent_id` synthétique) — à retirer avant prod.
+- (Le compte de test `ADHERENT_TITULAIRE` a été recréé le 2026-09-10 sous
+  `armelk01+adherent@gmail.com` — voir l'entrée « Nettoyage des comptes de test ».)
 
 ## 2026-09-10 — Nettoyage des comptes de test à domaine fictif (taux de rebond Supabase)
 - **Problème** : les comptes de test créés aux prompts précédents utilisaient des adresses
@@ -877,5 +878,9 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   (jamais de domaine fictif).
 - État de `auth.users` : `armelk01@yahoo.fr` (ASSUREUR_INFORMATIQUE, réel) +
   `armelk01+adherent@gmail.com` (ADHERENT_TITULAIRE).
-- Fixture unitaire `preauthorization.service.spec.ts` : e-mail mock aligné sur la nouvelle
-  adresse (aucun envoi réel — simple fixture).
+- Fixture unitaire `preauthorization.service.spec.ts` : e-mail mock =
+  `armelk01+testunitaire@gmail.com` (aucun envoi réel — simple fixture, alignée sur la
+  convention `armelk01+<qqch>@gmail.com` pour éviter toute exception qui prêterait à
+  confusion).
+- Cette entrée **remplace** les anciens marqueurs « ⚠️ Donnée de test conservée » des
+  PROMPTs 6, 10, 16 et 17 : ces comptes n'existent plus (sauf l'adhérent, recréé).

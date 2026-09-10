@@ -7,6 +7,11 @@ Next.js 16 + NestJS + Supabase (Auth via JWKS, pas de secret partagé) + microse
 Java isolé pour l'adjudication uniquement. Ne réinvente jamais une règle déjà spécifiée
 dans ce skill.
 
+Pour toute construction ou modification d'écran du frontend Next.js (`apps/web`), le skill
+`health-insurance-core-ui` s'applique : réutilise les composants `components/dashboard/patterns/`
+(DataTable, StatutBadge, FormulaireModal, Champ*, CarteResume, GrilleCartes) et le découpage
+`page.tsx` (server) / `*-ecran.tsx` (client) / `actions.ts` (server actions).
+
 ## Suivi de progression
 Après chaque tâche significative terminée, mets à jour PROGRESSION.md à la racine :
 entrée datée, étape réalisée, ce qui a été créé, statut. Ajoute seulement, ne réécris

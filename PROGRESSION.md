@@ -1434,3 +1434,20 @@ dashboards restants seront traités au fil des besoins.
   - les 3 pages `/superadmin/{parametres,sante-systeme,catalogue-national}` rendent en 200.
 - **Vérifs** : `next build --webpack` ✅ (30 routes) ; `jest` API **124/124**.
   Données de test e2e supprimées (1 acte importé) ; `langues` restauré ; serveurs arrêtés.
+
+## 2026-09-10 — Skill local `health-insurance-core-ui`
+
+- Nouveau skill `.claude/skills/health-insurance-core-ui/SKILL.md` — frontmatter
+  (`name`, `description` calibrée pour se déclencher sur toute tâche « créer / modifier
+  un écran de dashboard ») + instructions d'usage des briques
+  `components/dashboard/patterns/` (`DataTable`, `StatutBadge`, `FormulaireModal`,
+  `Champ*`, `CarteResume`, `GrilleCartes`) avec un exemple minimal par composant.
+- Reprend et formalise `apps/web/components/dashboard/patterns/README.md` en ajoutant les
+  conventions dégagées des 5 écrans déjà construits : découpage
+  `page.tsx` (server) / `*-ecran.tsx` (client) / `actions.ts` (`'use server'`) ;
+  `ResultatSoumission` + `detailErreur` ; types partagés dans un `types.ts` voisin (un
+  fichier `'use server'` n'exporte que des fonctions) ; champs dynamiques ; aperçu avant
+  confirmation via endpoint de simulation ; boutons de transition pilotés par l'API ;
+  patron d'e2e navigateur réel.
+- `CLAUDE.md` : ligne ajoutée pointant vers ce skill pour toute construction d'écran `apps/web`.
+- Objectif : les prompts d'écran chargent ces conventions automatiquement, sans rappel explicite.

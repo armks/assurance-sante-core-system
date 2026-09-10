@@ -20,11 +20,19 @@ import {
   AdjudicationRefusError,
   type DecisionAdjudication,
 } from './adjudication-client.service';
-import { SoumettreReclamationDto } from './dto/claims.dto';
+import {
+  SoumettreReclamationDto,
+  ValiderManuellementDto,
+} from './dto/claims.dto';
 import {
   CATEGORIE_VERS_TYPE,
+  CODE_REJET_MANUEL,
   ContexteAppelant,
+  ROLE_REVUE_FINANCIERE,
+  ROLE_REVUE_MEDICALE,
+  ROLE_REVUE_SUPERVISION,
   ROLES_GESTION_CLAIMS,
+  TYPES_RECLAMATION_MEDICAUX,
 } from './claims.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -289,6 +297,88 @@ export class ClaimsService {
   async obtenirReclamation(user: AuthenticatedUser, id: string) {
     const ctx = await this.contexteAppelant(user);
     return this.chargerReclamation(ctx, id);
+  }
+
+  /**
+   * Traitement manuel d'une réclamation `REVUE_MANUELLE` (v1 §16.3). Réservé,
+   * **selon le type de réclamation**, à `ASSUREUR_MEDECIN_CONSEIL` (contenu
+   * médical) ou `ASSUREUR_EXPLOITATION` (autre) — `ASSUREUR_DIRECTION` peut
+   * traiter les deux.
+   *
+   *  - `APPROUVE` → statut `AUTO_ADJUDIQUE` (validé pour remboursement) ; le
+   *    remboursement est mis à jour si `montantAjuste` est fourni.
+   *  - `REJETE`   → statut `REJETE`, remboursement à 0, code `REJET_MANUEL`.
+   */
+  async validerManuellement(
+    user: AuthenticatedUser,
+    id: string,
+    dto: ValiderManuellementDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    const reclamation = await this.chargerReclamation(ctx, id);
+
+    if (reclamation.statut !== 'REVUE_MANUELLE') {
+      throw new ConflictException(
+        `La réclamation n'est pas en revue manuelle (statut : ${reclamation.statut}).`,
+      );
+    }
+
+    const roleRequis = this.roleRevuePour(reclamation.typeReclamation);
+    const autorise =
+      ctx.roleChain.includes(roleRequis) ||
+      ctx.roleChain.includes(ROLE_REVUE_SUPERVISION);
+    if (!autorise) {
+      throw new ForbiddenException(
+        `La revue manuelle d'une réclamation « ${reclamation.typeReclamation} » est réservée à ${roleRequis} (ou ${ROLE_REVUE_SUPERVISION}).`,
+      );
+    }
+
+    const statutFinal = dto.decision === 'APPROUVE' ? 'AUTO_ADJUDIQUE' : 'REJETE';
+    const montantFinal =
+      dto.decision === 'REJETE'
+        ? '0.00'
+        : dto.montantAjuste !== undefined
+          ? new Decimal(dto.montantAjuste).toFixed(2)
+          : (reclamation.remboursement?.montantRembourse?.toString() ?? '0.00');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.reclamation.update({
+        where: { id },
+        data: {
+          statut: statutFinal,
+          codesRejet:
+            dto.decision === 'REJETE'
+              ? [...(reclamation.codesRejet ?? []), CODE_REJET_MANUEL]
+              : (reclamation.codesRejet ?? []),
+        },
+      });
+      if (reclamation.remboursement) {
+        await tx.remboursement.update({
+          where: { reclamationId: id },
+          data: {
+            montantRembourse: montantFinal,
+            decision: `REVUE_MANUELLE_${dto.decision}`,
+          },
+        });
+      }
+      await this.audit(tx, ctx.userId, 'VALIDATION_MANUELLE_RECLAMATION', id, {
+        decision: dto.decision,
+        statutFinal,
+        montantAjuste: dto.montantAjuste ?? null,
+        montantFinal,
+        motif: dto.motif,
+        roleRequis,
+        de: 'REVUE_MANUELLE',
+      });
+    });
+
+    return this.chargerReclamation(ctx, id);
+  }
+
+  private roleRevuePour(type: string): string {
+    return (TYPES_RECLAMATION_MEDICAUX as readonly string[]).includes(type)
+      ? ROLE_REVUE_MEDICALE
+      : ROLE_REVUE_FINANCIERE;
   }
 
   // --- Autorisation / helpers -------------------------------------

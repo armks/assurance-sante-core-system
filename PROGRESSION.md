@@ -2044,3 +2044,67 @@ Données e2e + comptes éphémères supprimés, serveurs arrêtés.
 
 ### 🎯 Jalon — parcours de soins côté établissement disponible en UI
 Phase 6 (anti-fraude) : le backend était complet et testé ; il a désormais ses écrans.
+
+## 2026-09-10 — Écrans de réclamations côté assureur + endpoint de revue manuelle
+
+### Backend — `claims/` : `validerManuellement` (nouveau)
+Aucun endpoint de validation manuelle n'existait → ajouté.
+- `POST /claims/reclamations/:id/valider-manuellement` `{ decision: APPROUVE|REJETE,
+  montantAjuste?, motif }` — réclamation `REVUE_MANUELLE` uniquement.
+- **Autorisation selon le type** : types médicaux (SOIN, HOSPITALISATION, PHARMACIE,
+  OPTIQUE, DENTAIRE, ANALYSES, IMAGERIE) → `ASSUREUR_MEDECIN_CONSEIL` ; autres (AUTRE) →
+  `ASSUREUR_EXPLOITATION` ; `ASSUREUR_DIRECTION` traite les deux. 403 sinon.
+- `APPROUVE` → statut `AUTO_ADJUDIQUE` (+ `remboursements.montant_rembourse` = `montantAjuste`
+  si fourni, `decision` = `REVUE_MANUELLE_APPROUVE`) ; `REJETE` → statut `REJETE`,
+  remboursement à 0, code `REJET_MANUEL` ajouté. Audit `VALIDATION_MANUELLE_RECLAMATION`.
+- `claims.types.ts` : `TYPES_RECLAMATION_MEDICAUX`, rôles de revue, `LIBELLE_CODE_REJET`
+  (E001 / E006 / E010 / ADJ_ECHEC / REJET_MANUEL).
+- Tests : +6 `claims.service.spec` (approuve médical par médecin-conseil, montant ajusté,
+  rejet + code, exploitation refusée sur SOIN → 403, exploitation OK sur AUTRE, mauvais
+  statut → 409). **jest API 156/156**, `tsc` + `nest build` OK.
+
+### Frontend — `apps/web`
+- `lib/reclamations.ts` : statuts + tons + `LIBELLE_CODE_REJET` + `roleRevuePour()` /
+  `peutTraiterRevue()` — **miroir du backend**, pour le retrait visuel.
+- `app/dashboard-assureur/reclamations-actions.ts` : `validerReclamationManuellement`.
+- **1. `/dashboard-assureur/informatique/reclamations`** (`reclamations-liste.tsx`) :
+  DataTable — n°, patient, type, montant réclamé, remboursé, `StatutBadge` (6 statuts),
+  codes de rejet, date. Filtre par statut. `GrilleCartes` + bouton d'accès rapide vers la
+  file « En revue manuelle ».
+- **2. `/reclamations/[id]`** (`reclamation-detail.tsx`) : montant réclamé ; **décision de
+  l'adjudication** (décision microservice, montant remboursé, plafond restant après, durée
+  de traitement en ms, codes de rejet **avec leur libellé**) ; **dossier de soins d'origine**
+  (n° de traitement, statut, ticket, actes) via un 2ᵉ appel `care-episode`.
+- **3. `/reclamations/revue-manuelle`** + `medecin-conseil/reclamations-revue`
+  (`revue-manuelle-file.tsx`, partagé) : file dédiée ; action **« Traiter »** (modale :
+  décision APPROUVE/REJETE, montant ajusté optionnel, motif) affichée **seulement si le
+  rôle connecté correspond au type de réclamation** — sinon mention « revue médecin-conseil
+  / exploitation ».
+- Nav : « Réclamations » (INFORMATIQUE), « Réclamations en revue » (MEDECIN_CONSEIL).
+
+### Test — navigateur réel (`@supabase/ssr`, 3 serveurs : API + adjudication-service + Next)
+Comptes éphémères `ASSUREUR_INFORMATIQUE` + `ASSUREUR_MEDECIN_CONSEIL` ; dossier clôturé
+seedé avec 2 actes (25 000 F / 200 000 F).
+1. soumission de la réclamation standard → **AUTO_ADJUDIQUE**, montant remboursé **20 000 F**,
+   durée 80 ms — visible immédiatement dans la liste ;
+2. soumission de la réclamation à montant élevé → **REVUE_MANUELLE**, `codes_rejet = ['E010']`,
+   montant calculé **160 000 F** — présente dans la file dédiée ;
+3. `ASSUREUR_INFORMATIQUE` tente de traiter la réclamation SOIN → **403** ;
+4. **médecin-conseil** traite : APPROUVE + montant ajusté 150 000 → statut **AUTO_ADJUDIQUE**,
+   `remboursements.montant_rembourse` = 150 000, `decision` = `REVUE_MANUELLE_APPROUVE` ;
+5. répercussion : détail = AUTO_ADJUDIQUE, sortie de la file de revue.
+Écrans rendus (session réelle) : liste, détail (décision d'adjudication visible), file de
+revue (informatique + médecin-conseil) ; bouton « Traiter » **absent** pour l'informatique
+sur une réclamation SOIN. Données e2e + comptes supprimés, serveurs arrêtés.
+
+### 🎯 Jalon — Phase 7 (réclamations et adjudication) : UI livrée
+Backend + microservice + écrans de réclamations complets (liste, détail, revue manuelle).
+
+### État du Palier 1 (MVP, phases 0–7)
+- Phases 0, 1, 2, 3, 5, 6, 7 : **complètes** (backend + écrans).
+- Phase 4 : PROMPT 14 (réseau de soins) complet ; **reste PROMPT 15 — géocodage automatique
+  des établissements + vérification périodique** (fonctionnalité backend, pas un écran).
+- Écrans de gestion des adhérents/bénéficiaires (CRUD) : non construits (jamais demandés ;
+  le module `member` et l'écran « générer les cartes » existent).
+Le parcours structurant assuré ↔ établissement ↔ adjudication ↔ réclamations est bouclé
+côté écrans.

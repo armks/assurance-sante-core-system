@@ -72,6 +72,7 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
         updateMany: jest.fn(),
         findMany: jest.fn(),
       },
+      remboursement: { update: jest.fn().mockResolvedValue({}) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -206,5 +207,108 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
       service.soumettre(USER, { acteDossierId: 'acte-1' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(adjudication.evaluer).not.toHaveBeenCalled();
+  });
+
+  // --- Revue manuelle ---------------------------------------------
+
+  const REVUE = {
+    id: 'rec-1',
+    statut: 'REVUE_MANUELLE',
+    typeReclamation: 'SOIN',
+    codesRejet: ['E010'],
+    organisationId: 'org-1',
+    remboursement: { montantRembourse: { toString: () => '160000.00' } },
+  };
+
+  it('médecin-conseil APPROUVE une réclamation médicale REVUE_MANUELLE → AUTO_ADJUDIQUE', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+    prisma.reclamation.findFirst
+      .mockResolvedValueOnce(REVUE)
+      .mockResolvedValueOnce({ ...REVUE, statut: 'AUTO_ADJUDIQUE' });
+
+    const res = await service.validerManuellement(USER, 'rec-1', {
+      decision: 'APPROUVE',
+      motif: 'Justificatifs conformes',
+    });
+
+    expect(prisma.reclamation.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ statut: 'AUTO_ADJUDIQUE' }) }),
+    );
+    expect(res.statut).toBe('AUTO_ADJUDIQUE');
+  });
+
+  it('APPROUVE avec montantAjuste → le remboursement est mis à jour', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+    prisma.reclamation.findFirst
+      .mockResolvedValueOnce(REVUE)
+      .mockResolvedValueOnce(REVUE);
+
+    await service.validerManuellement(USER, 'rec-1', {
+      decision: 'APPROUVE',
+      montantAjuste: 120000,
+      motif: 'Plafonné au barème',
+    });
+
+    expect(prisma.remboursement.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ montantRembourse: '120000.00', decision: 'REVUE_MANUELLE_APPROUVE' }),
+      }),
+    );
+  });
+
+  it('REJETE → statut REJETE, remboursement à 0, code REJET_MANUEL', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+    prisma.reclamation.findFirst
+      .mockResolvedValueOnce(REVUE)
+      .mockResolvedValueOnce({ ...REVUE, statut: 'REJETE' });
+
+    await service.validerManuellement(USER, 'rec-1', {
+      decision: 'REJETE',
+      motif: 'Acte non couvert par la garantie',
+    });
+
+    expect(prisma.reclamation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          statut: 'REJETE',
+          codesRejet: ['E010', 'REJET_MANUEL'],
+        }),
+      }),
+    );
+    expect(prisma.remboursement.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ montantRembourse: '0.00' }) }),
+    );
+  });
+
+  it('exploitation ne peut PAS traiter une réclamation médicale (type SOIN) → 403', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.reclamation.findFirst.mockResolvedValueOnce(REVUE);
+
+    await expect(
+      service.validerManuellement(USER, 'rec-1', { decision: 'APPROUVE', motif: 'ok' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.reclamation.update).not.toHaveBeenCalled();
+  });
+
+  it('exploitation traite une réclamation non médicale (type AUTRE)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.reclamation.findFirst
+      .mockResolvedValueOnce({ ...REVUE, typeReclamation: 'AUTRE' })
+      .mockResolvedValueOnce({ ...REVUE, typeReclamation: 'AUTRE', statut: 'AUTO_ADJUDIQUE' });
+
+    const res = await service.validerManuellement(USER, 'rec-1', {
+      decision: 'APPROUVE',
+      motif: 'Frais de transport justifiés',
+    });
+    expect(res.statut).toBe('AUTO_ADJUDIQUE');
+  });
+
+  it('refuse si la réclamation n’est pas REVUE_MANUELLE → 409', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+    prisma.reclamation.findFirst.mockResolvedValueOnce({ ...REVUE, statut: 'AUTO_ADJUDIQUE' });
+
+    await expect(
+      service.validerManuellement(USER, 'rec-1', { decision: 'APPROUVE', motif: 'ok' }),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 });

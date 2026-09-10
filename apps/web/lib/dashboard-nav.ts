@@ -8,6 +8,7 @@ import {
   Package,
   Pill,
   ReceiptText,
+  Scale,
   Stethoscope,
   Users,
   Wallet,
@@ -72,6 +73,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${MEDECIN_CONSEIL}/actes-a-homologuer`,
       icon: Stethoscope,
     },
+    {
+      label: 'Réclamations en revue',
+      href: `${MEDECIN_CONSEIL}/reclamations-revue`,
+      icon: Scale,
+    },
   ],
   [PHARMACIEN_CONSEIL]: [
     { label: "Vue d'ensemble", href: PHARMACIEN_CONSEIL, icon: LayoutDashboard },
@@ -117,6 +123,12 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Pharmacies',
       href: `${INFORMATIQUE}/pharmacies`,
       icon: Pill,
+      minNiveau: 'LECTURE_SEULE',
+    },
+    {
+      label: 'Réclamations',
+      href: `${INFORMATIQUE}/reclamations`,
+      icon: ReceiptText,
       minNiveau: 'LECTURE_SEULE',
     },
     {

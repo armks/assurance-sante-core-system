@@ -1,5 +1,14 @@
-import { IsIn, IsNumber, IsOptional, IsUUID, Min } from 'class-validator';
-import { TYPES_RECLAMATION } from '../claims.types';
+import {
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+import { DECISIONS_REVUE_MANUELLE, TYPES_RECLAMATION } from '../claims.types';
 
 /**
  * Soumission d'une réclamation à l'adjudication. La réclamation est construite à
@@ -22,4 +31,23 @@ export class SoumettreReclamationDto {
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   montant?: number;
+}
+
+/**
+ * Décision de revue manuelle d'une réclamation `REVUE_MANUELLE`. `montantAjuste`
+ * ne s'applique qu'à une approbation (sinon le remboursement est mis à 0).
+ */
+export class ValiderManuellementDto {
+  @IsIn(DECISIONS_REVUE_MANUELLE)
+  decision!: (typeof DECISIONS_REVUE_MANUELLE)[number];
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  montantAjuste?: number;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(1000)
+  motif!: string;
 }

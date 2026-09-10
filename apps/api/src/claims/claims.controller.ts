@@ -12,7 +12,10 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { ClaimsService } from './claims.service';
-import { SoumettreReclamationDto } from './dto/claims.dto';
+import {
+  SoumettreReclamationDto,
+  ValiderManuellementDto,
+} from './dto/claims.dto';
 
 /**
  * Endpoints REST du module claims — réception des réclamations (PROMPT 24, partie 1).
@@ -46,5 +49,15 @@ export class ClaimsController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.claims.obtenirReclamation(user, id);
+  }
+
+  /** Traitement manuel d'une réclamation `REVUE_MANUELLE` (médecin-conseil / exploitation). */
+  @Post(':id/valider-manuellement')
+  validerManuellement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ValiderManuellementDto,
+  ) {
+    return this.claims.validerManuellement(user, id, dto);
   }
 }

@@ -1,8 +1,10 @@
 import { PageTitre } from '@/components/page-titre';
+import { FileActionsEnAttente } from '@/components/superadmin/file-actions';
 import {
   ActionsLicence,
   CreerSocieteFlow,
 } from '@/components/superadmin/societes-forms';
+import type { ActionEnAttente } from '@/app/superadmin/societes/actions';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, messageErreur } from '@/lib/api';
@@ -25,9 +27,15 @@ interface Organisation {
 }
 
 export default async function Societes() {
-  const res = await apiFetch('/api/v1/identity/organisations');
+  const [res, resActions] = await Promise.all([
+    apiFetch('/api/v1/identity/organisations'),
+    apiFetch('/api/v1/superadmin/actions'),
+  ]);
   const organisations: Organisation[] = res.ok ? await res.json() : [];
   const erreur = res.ok ? null : await messageErreur(res);
+  const actionsEnAttente: ActionEnAttente[] = resActions.ok
+    ? await resActions.json()
+    : [];
 
   return (
     <div className="space-y-8">
@@ -44,6 +52,8 @@ export default async function Societes() {
           <CreerSocieteFlow />
         </CardContent>
       </Card>
+
+      <FileActionsEnAttente actions={actionsEnAttente} />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">

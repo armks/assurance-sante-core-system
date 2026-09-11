@@ -2232,3 +2232,54 @@ Toutes les phases 0–7 livrées (backend + écrans + automatisations prévues).
 écart identifié par l'audit de consolidation (PROMPT 15) est comblé. Prochaine étape :
 « Fin du Palier 1 » de `07-sequence-prompts-EXECUTION-v19.md` → déploiement (AWS Amplify /
 ECS Fargate), puis Palier 2.
+
+---
+
+## 2026-09-10 — Suites de l'audit de couverture frontend : Annuler une action SA + dashboard Direction
+
+Deux écarts prioritaires de l'audit de couverture frontend traités.
+
+### 1. Bouton « Annuler une action » — `/superadmin/societes`
+- `societes/actions.ts` : `listerActionsEnAttente()` (GET `/superadmin/actions`) et
+  `annulerActionSuperadmin(id)` (POST `/superadmin/actions/:id/annuler`, déjà exposé côté
+  API depuis le PROMPT 22) + type `ActionEnAttente`.
+- Nouveau composant client `components/superadmin/file-actions.tsx` : `FileActionsEnAttente`
+  — carte « Actions en attente de confirmation (n) », une ligne par action initiée non
+  confirmée (statut EMIS, non expirée — l'API ne renvoie qu'elles), bouton **« Annuler »**
+  par ligne, `router.refresh()` au succès, message d'erreur si l'API refuse (409).
+- `societes/page.tsx` : fetch parallèle des organisations + de la file, section rendue
+  au-dessus de la liste des organisations (masquée si file vide).
+
+### 2. Dashboard `ASSUREUR_DIRECTION` — `/dashboard-assureur/direction`
+- Nouvelle route `app/dashboard-assureur/direction/{layout,page}.tsx`. Le premier admin
+  créé par le Super Admin (rôle `ASSUREUR_DIRECTION`) y atterrit après connexion.
+- `page.tsx` (server) — `GrilleCartes` : **Comptes provisionnés** (`identity/comptes`),
+  **Polices actives** (`policy/polices?statut=ACTIVE`), **Réclamations en attente de revue**
+  (`claims/reclamations` filtré `REVUE_MANUELLE`), **Sinistralité globale**
+  (Σ remboursé / Σ cotisations encaissées — « — » si aucune cotisation). Section
+  « Accès rapides » vers les écrans que l'API autorise déjà pour ce rôle :
+  souscripteurs, produits, polices, adhérents, réclamations, utilisateurs
+  (`ROLES_GESTION_{PLAN,POLICE,MEMBRE,SOUSCRIPTEUR,CLAIMS}` + provisioning incluent
+  `ASSUREUR_DIRECTION`). **Pas** de cotisations ni de réseau de soins (réservés
+  `ASSUREUR_INFORMATIQUE`).
+- `informatique/layout.tsx` : garde élargie — accepte `dashboardRoute` ∈
+  {informatique, direction} pour que la Direction atteigne réellement les écrans partagés.
+- `lib/dashboard-nav.ts` : entrée `NAV_PAR_DASHBOARD['/dashboard-assureur/direction']`
+  (vue d'ensemble + 6 écrans partagés, Utilisateurs en `minNiveau ADMIN`).
+
+### Test — navigateur réel (compte SUPERADMIN + `ASSUREUR_DIRECTION` éphémère)
+1. SA `initier` création d'organisation → action visible dans `GET /superadmin/actions` ;
+   `POST …/annuler` → 201, l'action **disparaît de la file** ; ré-annuler → **409**.
+2. Page `/superadmin/societes` : « Actions en attente de confirmation », le résumé de
+   l'action et le bouton « Annuler » sont bien rendus.
+3. SA `initier` + `confirmer` (code lu en base) avec `premierCompteRole ASSUREUR_DIRECTION`
+   → **organisation créée + invitation `EN_ATTENTE` `ASSUREUR_DIRECTION`**, e-mail envoyé.
+4. Compte `ASSUREUR_DIRECTION` : login OK → `/dashboard` **307 → /dashboard-assureur/direction**
+   → page **200** avec les 4 cartes de métriques + « Accès rapides » ; ne montre pas
+   Cotisations/Établissements.
+5. Droits API confirmés pour ce rôle : `identity/comptes`, `policy/polices`,
+   `claims/reclamations`, `billing/cotisations` (lecture), `tenant/souscripteurs`,
+   `plan/produits` → tous 200 ; écrans `/informatique/{produits,polices,reclamations,utilisateurs}`
+   → **200** (garde élargie OK, plus de redirection).
+Organisation + invitation + comptes éphémères + codes de test supprimés, base au
+référentiel (adherents 3, profils 3, organisations 2), serveurs arrêtés.

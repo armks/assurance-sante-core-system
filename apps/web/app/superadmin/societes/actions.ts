@@ -14,6 +14,15 @@ export type ResultatConfirmation =
   | { ok: true; message: string }
   | { ok: false; error: string };
 
+/** Action sensible initiée mais pas encore confirmée (statut EMIS, non expirée). */
+export interface ActionEnAttente {
+  id: string;
+  action: 'CREATION_ORGANISATION' | 'SUSPENSION_ORGANISATION' | 'PROLONGATION_ORGANISATION';
+  resume: string;
+  dateEmission: string;
+  dateExpiration: string;
+}
+
 async function initier(path: string, body: unknown): Promise<ResultatInitiation> {
   const res = await apiFetch(path, {
     method: 'POST',
@@ -69,6 +78,29 @@ export async function initierProlongation(
     `/api/v1/superadmin/organisations/${organisationId}/prolongation/initier`,
     { nouvelleDateFin },
   );
+}
+
+/** File d'attente : actions initiées, en attente du code de confirmation. */
+export async function listerActionsEnAttente(): Promise<ActionEnAttente[]> {
+  const res = await apiFetch('/api/v1/superadmin/actions');
+  if (!res.ok) return [];
+  return (await res.json()) as ActionEnAttente[];
+}
+
+/**
+ * Annule une action au statut EMIS avant sa confirmation (elle disparaît alors
+ * de la file). L'API refuse (409) toute action déjà confirmée, expirée ou annulée.
+ */
+export async function annulerActionSuperadmin(
+  actionId: string,
+): Promise<ResultatConfirmation> {
+  const res = await apiFetch(`/api/v1/superadmin/actions/${actionId}/annuler`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Action annulée.' };
 }
 
 /** Étape 2 — confirmation par le code reçu par e-mail : exécute réellement l'action. */

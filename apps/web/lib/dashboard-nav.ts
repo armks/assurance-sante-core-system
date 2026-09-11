@@ -41,6 +41,7 @@ export interface NavItem {
  * la RLS Postgres refuserait ensuite (règle transverse du skill).
  */
 const INFORMATIQUE = '/dashboard-assureur/informatique';
+const DIRECTION = '/dashboard-assureur/direction';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 const CENTRE_MEDICAL = '/dashboard-centre-medical';
@@ -93,6 +94,31 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Médicaments à homologuer',
       href: `${PHARMACIEN_CONSEIL}/medicaments-a-homologuer`,
       icon: Pill,
+    },
+  ],
+  // Direction : vue d'ensemble propre + les écrans de gestion partagés avec
+  // l'informatique (l'API autorise déjà ASSUREUR_DIRECTION sur ces modules).
+  // Pas de Cotisations ni de réseau de soins : réservés à l'informatique.
+  [DIRECTION]: [
+    { label: "Vue d'ensemble", href: DIRECTION, icon: LayoutDashboard },
+    {
+      label: 'Souscripteurs',
+      href: `${INFORMATIQUE}/souscripteurs`,
+      icon: Building2,
+    },
+    { label: 'Produits', href: `${INFORMATIQUE}/produits`, icon: Package },
+    { label: 'Polices', href: `${INFORMATIQUE}/polices`, icon: FileText },
+    { label: 'Adhérents', href: `${INFORMATIQUE}/adherents`, icon: Users },
+    {
+      label: 'Réclamations',
+      href: `${INFORMATIQUE}/reclamations`,
+      icon: ReceiptText,
+    },
+    {
+      label: 'Utilisateurs',
+      href: `${INFORMATIQUE}/utilisateurs`,
+      icon: Users,
+      minNiveau: 'ADMIN',
     },
   ],
   [INFORMATIQUE]: [

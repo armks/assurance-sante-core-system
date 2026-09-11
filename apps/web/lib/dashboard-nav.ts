@@ -1,6 +1,7 @@
 import {
   Building2,
   ClipboardList,
+  CreditCard,
   DoorOpen,
   FileText,
   HeartPulse,
@@ -48,12 +49,28 @@ const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const MEDECIN_SOUSCRIPTEUR = '/dashboard-assureur/medecin-souscripteur';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 const CENTRE_MEDICAL = '/dashboard-centre-medical';
+const ADHERENT = '/dashboard-adherent';
 const SOCIETE_ADMINISTRATION = '/dashboard-societe/administration';
 const SOCIETE_ASSUREE = '/dashboard-societe/assuree';
 const SOCIETE_COMPTABLE = '/dashboard-societe/comptable';
 const SOCIETE_RECEPTION = '/dashboard-societe/reception';
 
 export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
+  // Espace ADHERENT (ADHERENT_TITULAIRE / SOUSCRIPTEUR_INDIVIDUEL) : self-service,
+  // aucune donnée d'un autre adhérent n'est jamais exposée (voir les fix de
+  // scoping member/claims/preauthorization de l'audit dashboard adhérent).
+  [ADHERENT]: [
+    { label: "Vue d'ensemble", href: ADHERENT, icon: LayoutDashboard },
+    {
+      label: 'Consultation',
+      href: `${ADHERENT}/consultation`,
+      icon: Stethoscope,
+    },
+    { label: 'Ordonnances', href: `${ADHERENT}/ordonnances`, icon: Pill },
+    { label: 'Factures', href: `${ADHERENT}/factures`, icon: ReceiptText },
+    { label: 'Réclamations', href: `${ADHERENT}/reclamations`, icon: Scale },
+    { label: 'Ma carte', href: `${ADHERENT}/carte`, icon: CreditCard },
+  ],
   [SOCIETE_ADMINISTRATION]: [
     {
       label: 'Adhérents',

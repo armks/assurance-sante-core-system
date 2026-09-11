@@ -496,7 +496,7 @@ export class AdherentService {
             statut: true,
             dateDebut: true,
             dateFin: true,
-            produit: { select: { nom: true, version: true } },
+            produit: { select: { id: true, nom: true, version: true } },
           },
         },
       },

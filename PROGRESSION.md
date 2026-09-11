@@ -2582,3 +2582,111 @@ Comptes éphémères (auth + profils) supprimés après test.
 
 ### Commit
 Correctif de sécurité isolé dans son propre commit, séparé de toute autre tâche.
+
+---
+
+## 2026-09-11 — Dashboard adhérent (`/dashboard-adherent`) complet + audit de scoping
+
+Avant de brancher le frontend, audit de chaque endpoint que le dashboard adhérent allait
+consommer, avec la même rigueur que le fix `reclamations/` ci-dessus. Trois failles réelles
+de la même famille trouvées et corrigées, **chacune dans son propre commit**, avant tout
+code frontend.
+
+### Faille 1 — `member/` : fuite inter-adhérent (PII complète)
+`GET /member/adherents/:id`, `GET /member/adherents` et `POST /member/adherents/:id/carte`
+ne scopaient que par `organisationId` (+ le cas `SOCIETE_AFFILIEE`) — **aucune branche pour
+l'entité `ADHERENT`**. Un adhérent authentifié appelant ces routes avec l'ID d'un AUTRE
+adhérent de l'organisation obtenait nom, prénom, date de naissance, IBAN/RIB, banque,
+bénéficiaires, police — et pouvait générer la carte de n'importe qui. `listerAdherents`
+sans filtre renvoyait le fichier complet des membres à un simple adhérent.
+Corrigé : `ContexteAppelant` porte `adherentId` ; 404 anti-énumération (même pattern que
+`SOCIETE_AFFILIEE`) si l'appelant est `ADHERENT` et que l'id n'est pas le sien ;
+`listerAdherents` scope la liste au seul id propre ; `assertGestion` (cartes) accepte un
+`estPropreCarte` permettant l'auto-génération sans toucher au périmètre ASSUREUR/société.
+7 tests ajoutés. Commit `fix(member): fuite inter-adherent sur obtenirAdherent/...`.
+
+### Faille 2 — `claims/` : "Mes réclamations" était impossible pour un adhérent
+Le fix du 2026-09-11 précédent (`ROLES_LECTURE_CLAIMS`) avait fermé la lecture des
+réclamations au seul personnel ASSUREUR — dette explicitement notée pour un rôle ADHERENT.
+`reclamations.adherentId` existe : `modeLecture()` remplace `assertLecture()` — staff
+habilité → scope organisation (inchangé) ; rôle ADHERENT avec `adherentId` → scope strict
+sur `adherentId` (liste ET lecture par id) ; sinon 403. Flux ASSUREUR (`soumettre`,
+`validerManuellement`) non touché (mode `STAFF` par défaut). 5 tests ajoutés. Commit
+`fix(claims): lecture des reclamations scopee adherent`.
+
+### Faille 3 — `preauthorization/obtenirFacture` : fuite financière
+`GET /preauthorization/factures/:id` ne vérifiait que `organisationId` ; seul le code de
+facturation était masqué au non-propriétaire — montants, `adherentId`, `etablissementId`,
+statut étaient renvoyés à n'importe quel compte de l'organisation. Endpoint non encore
+consommé côté frontend, corrigé sans rien casser : adhérent propriétaire OU personnel
+`ROLES_GENERATION_FACTURE` (scopé à son établissement pour le centre médical) ; sinon 403.
+5 tests ajoutés. Commit `fix(preauthorization): fuite inter-adherent sur obtenirFacture`.
+
+Après les 3 correctifs : **20/20 suites, 188/188 tests verts**, `tsc --noEmit` propre (API).
+Vérifiés endpoints déjà corrects, non touchés : `genererCodeConsultation`/`listerMesCodes`/
+`confirmerPresence`/`annulerCode`, `listerMesCodesOrdonnance`, `listerMesFactures`,
+`validerCodeFacturation` (tous scopés sur `ctx.adherentId` dérivé du token) ; `plan/produits`
+et `provider/etablissements` (lecture ouverte **intentionnelle**, catalogue produit/réseau
+de soins — pas des données personnelles).
+
+### Test HTTP réel des 3 correctifs (avant commit)
+API locale + Supabase réel. Adhérent de référence `armelk01+adherent@gmail.com`
+(`ADHERENT_TITULAIRE`, adhérent « Konan Adjoua ») + 1 compte adhérent éphémère (« Traore
+Awa ») créé/supprimé pour le test — **9/9** : lecture propre → 200 ; ID direct d'un autre
+adhérent → 404 dans les deux sens ; liste → ne voit que soi-même ; génération de carte
+propre → 200 avec URL Storage signée réelle ; carte d'un autre → 404 ; liste des
+réclamations → 200 pour chacun (fini le 403 systématique) ; facture inexistante → 404 (pas
+de 500). Compte éphémère + son profil supprimés après test.
+
+### Frontend — 6 écrans (`apps/web/app/dashboard-adherent/`)
+Conventions `health-insurance-core-ui` (`page.tsx` serveur / `*-ecran.tsx` client /
+`actions.ts`), patterns `DataTable`/`StatutBadge`/`FormulaireModal`/`CarteResume`/
+`GrilleCartes` réemployés, aucun redéveloppement :
+1. **Vue d'ensemble** (`page.tsx`) : police/produit/garanties (repris du rendu
+   `assuree-ecran.tsx`) + plafond restant dérivé du `remboursement.plafondRestantApres` de
+   la réclamation la plus récente + compteur de réclamations en cours.
+2. **Consultation** : sélection établissement (`GET provider/etablissements?statut=ACTIF`)
+   → `POST codes-consultation` → code affiché en gros caractères dans une bannière
+   ("à transmettre ORALEMENT à l'accueil") + liste des codes avec annulation tant que
+   `EMIS`.
+3. **Ordonnances** : `GET codes-ordonnance`, code visible uniquement tant que
+   `EMIS`/`PRESENTE_PHARMACIE`.
+4. **Factures** : `GET codes-facturation`, bouton « Valider le code » par ligne tant que
+   `codeValideParPatient` est faux → `POST codes-facturation/valider`.
+5. **Réclamations** : `GET claims/reclamations` (désormais scopé adhérent grâce au fix
+   2), statut + décision + montant remboursé.
+6. **Ma carte** : bouton « Générer ma carte » → `POST member/adherents/:id/carte` (id =
+   propre `adherentId`, jamais saisi) → QR + lien PDF signé.
+`lib/dashboard-nav.ts` : entrée `/dashboard-adherent` (6 items). `lib/identity.ts` inchangé
+— utilise `permissions.scope.adherentId` déjà exposé (convention déjà en place, cf.
+`dashboard-centre-medical/accueil/page.tsx`). Petit ajout non-sécuritaire : `produit.id`
+ajouté au `select` Prisma de `chargerAdherent` (nécessaire pour enchaîner sur
+`GET plan/produits/:id`, absent jusqu'ici de la réponse). `next build` : les 6 routes
+compilent, `tsc --noEmit` propre.
+
+### Test — navigateur réel (session `@supabase/ssr`, cookie jar, serveurs `next start`
+`:3000` + API `:3001`)
+Adhérent de référence `armelk01+adherent@gmail.com`, connexion réelle (mot de passe),
+cookies de session réels :
+- **Parcours "Demander une consultation" complet et réel** (1 clinique de test créée pour
+  l'occasion) : établissement listé → `POST codes-consultation` → code généré (201) → le
+  code apparaît dans `GET codes-consultation` (statut `EMIS`) → annulation → statut
+  `ANNULE`. **7/7**.
+- **Rendu réel des 6 pages** avec la session cookie (200 partout ; vue d'ensemble affiche
+  bien `POL-2026-000004` ; consultation affiche le formulaire ; carte affiche le bouton de
+  génération) + `/dashboard` redirige bien (307) vers `/dashboard-adherent`
+  (`dashboardRoute` du rôle). **7/7**.
+- Aucune route `[id]` n'existe sur ce dashboard (toutes les pages utilisent
+  `permissions.scope.adherentId` du compte connecté, jamais un paramètre d'URL) — pas de
+  surface de navigation permettant à un adhérent de tenter l'URL d'un autre.
+- **Limite assumée** : les écrans Ordonnances/Factures/Réclamations sont vérifiés à l'état
+  vide (aucune ordonnance/facture/réclamation réelle n'existait en base) — leur scoping
+  précis par `adherentId` est couvert par les tests unitaires (Prisma mocké, assertions sur
+  le `where`) et par le test HTTP réel de la Faille 2/3 ci-dessus, pas par une chaîne
+  complète dossier→ticket→facture→réclamation reconstruite ici (aurait exigé de provisionner
+  4 rôles supplémentaires — hors périmètre de ce prompt).
+Établissement de test + code de consultation supprimés, serveurs arrêtés. Base revenue à
+l'état de référence (0 établissement, 0 code, 0 réclamation, seul le profil adhérent de
+référence persiste).
+
+### 🎯 Jalon — dashboard adhérent disponible en UI, 3 failles de scoping fermées

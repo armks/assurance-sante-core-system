@@ -251,4 +251,39 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
     );
     expect(res.code.statut).toBe('UTILISE_COMPLET');
   });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  listerCodesOrdonnancePharmacie (audit dashboard pharmacie) — nouvel
+  //  endpoint, scope strict sur ctx.pharmacieId, jamais un paramètre client.
+  // ═══════════════════════════════════════════════════════════════════════
+  it('liste les codes pris en charge par SA PROPRE pharmacie (scope ctx.pharmacieId)', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    prisma.codeOrdonnance.findMany.mockResolvedValue([]);
+
+    await service.listerCodesOrdonnancePharmacie(USER);
+
+    expect(prisma.codeOrdonnance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { pharmacieUtilisatriceId: 'pharm-1' },
+      }),
+    );
+  });
+
+  it('refuse un rôle non-pharmacie (adhérent) → 403', async () => {
+    identity.getMe.mockResolvedValue(adherent());
+    await expect(
+      service.listerCodesOrdonnancePharmacie(USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.codeOrdonnance.findMany).not.toHaveBeenCalled();
+  });
+
+  it('refuse un rôle pharmacie sans pharmacieId propre (compte mal provisionné) → 403', async () => {
+    identity.getMe.mockResolvedValue({
+      profil: { id: 'p1', organisationId: 'org-1', role: 'PHARMACIE_PHARMACIEN', adherentId: null, etablissementId: null, pharmacieId: null },
+      permissions: { roleChain: ['PHARMACIE_PHARMACIEN'] },
+    });
+    await expect(
+      service.listerCodesOrdonnancePharmacie(USER),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

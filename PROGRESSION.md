@@ -2954,3 +2954,83 @@ précédent) — les 3 autres avaient déjà, chacun dans son domaine, le bon r�
 comparer l'identité réelle de l'appelant (`ctx.pharmacieId`/`ctx.etablissementId`) plutôt
 que de faire confiance à un champ du corps de la requête. Aucun nouveau commit de
 correctif requis pour ce prompt — audit et vérification HTTP réelle seuls.
+
+---
+
+## 2026-09-11 (suite) — Dashboards pharmacie : `/pharmacien`, `/caissiere`, `/comptable`
+
+Audit préalable (même rigueur que les modules précédents) avant toute construction.
+
+### Constats de l'audit
+- **`validerCodeOrdonnance` / `marquerDispensation`** : déjà vérifiés lors du prompt
+  précédent — `ctx.pharmacieId` (identité réelle) comparé, jamais un simple champ de
+  requête. Aucun correctif nécessaire.
+- **`ROLES_PHARMACIE`** (préauthorisation) **ne distingue PAS** `PHARMACIE_PHARMACIEN`,
+  `PHARMACIE_CAISSIERE` et `PHARMACIE_COMPTABLE` sur ces deux endpoints : les 3 rôles ont
+  aujourd'hui des droits API identiques pour valider un code et marquer une dispensation.
+  `peutValider` (vrai seulement pour le pharmacien dans `sous_roles`) ne gate aucun de ces
+  2 endpoints côté API — c'est un indicateur d'affichage général, pas une restriction
+  technique ici. Conséquence directe sur la construction : l'écran caissière **inclut**
+  la dispensation (l'API ne la lui refuse pas — vérifié par un vrai `POST`
+  `.../dispensation` → 201 avec un compte caissière), conformément à la consigne
+  « retirée SI l'API ne l'autorise pas ».
+- **Gap n°1 — pas de stock (v1 §13.4 introuvable)** : aucune table de stock/inventaire de
+  pharmacie n'existe dans le schéma. `medicaments` (module `reference/`) est un
+  **référentiel national partagé** (dénomination, taux/plafond de remboursement,
+  homologation) — pas une gestion de quantités disponibles par pharmacie. Noté comme gap,
+  aucune table improvisée. La page « Médicaments remboursables » du pharmacien affiche ce
+  référentiel en lecture seule, explicitement présenté comme tel (pas un « stock »).
+- **Gap n°2 — pas de facturation pharmacie** : aucune colonne `pharmacie_id` sur une
+  quelconque table de facture/paiement (`FactureDossier` est scopée `etablissement_id`,
+  côté centre médical uniquement). L'écran comptable est donc un **suivi en lecture seule
+  des dispensations** de sa pharmacie, explicitement noté comme tel (pas de « facturation »
+  puisqu'aucune brique de facturation-pharmacie n'existe).
+- **Gap n°3 — aucun endpoint de lecture côté pharmacie n'existait** : `GET
+  /preauthorization/codes-ordonnance` est exclusivement le point de vue ADHÉRENT
+  (`ctx.adherentId`). Sans un endpoint de lecture scopé pharmacie, aucune « vue
+  d'ensemble » n'était constructible. Ajout nécessaire, pas une amélioration
+  optionnelle — détaillé ci-dessous.
+
+### Backend — nouvel endpoint `GET /preauthorization/codes-ordonnance/pharmacie`
+`PreauthorizationService.listerCodesOrdonnancePharmacie()` : scope strict et exclusif sur
+`ctx.pharmacieId` (jamais un paramètre client), réservé à `ROLES_PHARMACIE`. Renvoie les
+codes déjà pris en charge par la pharmacie de l'appelant (statut + `ordonnance.lignes`,
+déjà révélés à cette pharmacie lors de la validation — aucune fuite nouvelle). 3 tests
+ajoutés. Suite complète : **20/20 suites, 201/201 tests verts**, `tsc --noEmit` propre.
+
+### Frontend (`apps/web/app/dashboard-pharmacie/`)
+- `layout.tsx` : garde entité `PHARMACIE` + `permissions.scope.pharmacieId` requis. Pas
+  de nav commune façon centre médical : chaque rôle garde sa propre `dashboardRoute`
+  (pharmacien et caissière ont cependant le même écran de fonction, cf. audit ci-dessus).
+- `/pharmacien` + `/caissiere` (`DispensationEcran` partagé) : `GrilleCartes` (en
+  attente / dispensées / total), formulaire de validation de code (révèle le contenu,
+  banni­ère de confirmation), action « Marquer comme dispensée » (partielle/complète) par
+  ligne en attente.
+- `/pharmacien/medicaments` (`MedicamentsEcran`) : référentiel national des médicaments
+  homologués, lecture seule, mention explicite que ce n'est pas un stock.
+- `/comptable` (`ComptableEcran`) : suivi en lecture seule des dispensations, mention
+  explicite de l'absence de module de facturation.
+- `lib/dashboard-nav.ts` : 3 nouvelles entrées (`/dashboard-pharmacie/pharmacien`,
+  `/caissiere`, `/comptable`).
+
+### Test — HTTP réel (2 pharmacies + établissement + 6 comptes éphémères, ordonnance
+réelle) — 11/11
+Pharmacien A valide un code réel (201) → apparaît dans la liste de la pharmacie A,
+**absent de la liste de la pharmacie B** (isolation confirmée sur le nouvel endpoint) ;
+caissière A voit la même ordonnance (même pharmacie) et **peut réellement marquer la
+dispensation** (201, droit confirmé plutôt que supposé) ; comptable A voit la dispensation
+en lecture ; un adhérent ne peut pas appeler ce nouvel endpoint (403).
+
+### Test — navigateur réel (session cookie, 4 comptes : pharmacien A, caissière A,
+comptable A, pharmacien B) — 9/9
+Pharmacien A : vue d'ensemble affiche l'ordonnance dispensée (« Paracétamol »,
+« Dispensée entièrement ») + page médicaments accessible. Caissière A : voit la même
+ordonnance, bouton « Valider un code » présent. Comptable A : voit la dispensation,
+mention de l'absence de facturation affichée. **Pharmacien B (autre pharmacie) : 200 mais
+NE VOIT PAS l'ordonnance de la pharmacie A** — état vide affiché, isolation cross-pharmacie
+confirmée côté UI en conditions réelles. Données et 6 comptes éphémères supprimés,
+serveurs arrêtés.
+
+### 🎯 Jalon — les 3 sous-rôles PHARMACIE ont chacun un espace réel, scopé par pharmacie
+et vérifié en HTTP réel comme en navigateur réel ; 3 gaps documentés (stock, facturation,
+lecture pharmacie) plutôt qu'improvisés

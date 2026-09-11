@@ -422,6 +422,55 @@ export class PreauthorizationService {
   }
 
   /**
+   * Codes d'ordonnance déjà pris en charge par LA PHARMACIE de l'appelant
+   * (audit dashboard pharmacie) — scope strict sur `ctx.pharmacieId`, jamais
+   * un paramètre client (aucun endpoint équivalent n'existait avant ce
+   * prompt). Sert la vue d'ensemble (en attente de dispensation / déjà
+   * dispensées) des 3 sous-rôles PHARMACIE_*.
+   */
+  async listerCodesOrdonnancePharmacie(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    const estPharmacie = ctx.roleChain.some((r) =>
+      (ROLES_PHARMACIE as readonly string[]).includes(r),
+    );
+    if (!estPharmacie || !ctx.pharmacieId) {
+      throw new ForbiddenException(
+        "Réservé au personnel d'une pharmacie du réseau.",
+      );
+    }
+    const codes = await this.prisma.codeOrdonnance.findMany({
+      where: { pharmacieUtilisatriceId: ctx.pharmacieId },
+      orderBy: { dateEmission: 'desc' },
+      take: 100,
+      include: {
+        ordonnance: {
+          select: {
+            id: true,
+            statut: true,
+            lignes: true,
+            dossier: { select: { numeroTraitement: true } },
+          },
+        },
+      },
+    });
+    return codes.map((c) => ({
+      id: c.id,
+      code: c.code,
+      statut: c.statut,
+      dateEmission: c.dateEmission,
+      dateExpiration: c.dateExpiration,
+      ordonnance: c.ordonnance
+        ? {
+            id: c.ordonnance.id,
+            statut: c.ordonnance.statut,
+            numeroTraitement: c.ordonnance.dossier.numeroTraitement,
+            lignes: c.ordonnance.lignes,
+          }
+        : null,
+    }));
+  }
+
+  /**
    * Saisie du code côté PHARMACIE. Si valide, RÉVÈLE le contenu complet de
    * l'ordonnance (c'est le seul moment où la pharmacie y a accès) et marque le
    * code PRESENTE_PHARMACIE. Une pharmacie ne peut pas relire un code déjà

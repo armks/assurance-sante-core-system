@@ -89,6 +89,12 @@ export class PreauthorizationController {
     return this.preauth.listerMesCodesOrdonnance(user);
   }
 
+  /** Côté PHARMACIE : historique des codes pris en charge par SA pharmacie. */
+  @Get('codes-ordonnance/pharmacie')
+  mesCodesOrdonnancePharmacie(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerCodesOrdonnancePharmacie(user);
+  }
+
   /** Côté PHARMACIE : saisie du code → révèle le contenu de l'ordonnance. */
   @Post('codes-ordonnance/valider')
   validerOrdonnance(

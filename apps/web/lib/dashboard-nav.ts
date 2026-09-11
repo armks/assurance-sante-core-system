@@ -50,6 +50,9 @@ const MEDECIN_SOUSCRIPTEUR = '/dashboard-assureur/medecin-souscripteur';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 const CENTRE_MEDICAL = '/dashboard-centre-medical';
 const ADHERENT = '/dashboard-adherent';
+const PHARMACIEN = '/dashboard-pharmacie/pharmacien';
+const CAISSIERE = '/dashboard-pharmacie/caissiere';
+const PHARMACIE_COMPTABLE = '/dashboard-pharmacie/comptable';
 const SOCIETE_ADMINISTRATION = '/dashboard-societe/administration';
 const SOCIETE_ASSUREE = '/dashboard-societe/assuree';
 const SOCIETE_COMPTABLE = '/dashboard-societe/comptable';
@@ -70,6 +73,28 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     { label: 'Factures', href: `${ADHERENT}/factures`, icon: ReceiptText },
     { label: 'Réclamations', href: `${ADHERENT}/reclamations`, icon: Scale },
     { label: 'Ma carte', href: `${ADHERENT}/carte`, icon: CreditCard },
+  ],
+  // Espace PHARMACIE. Pharmacien et caissière ont des droits API identiques
+  // sur la validation de code / dispensation (ROLES_PHARMACIE ne distingue
+  // pas ces 2 rôles, vérifié explicitement — voir PROGRESSION.md) : même
+  // écran de fonction, seule la page « Médicaments remboursables » est
+  // propre au pharmacien. Le comptable n'a qu'un suivi en lecture seule
+  // (aucun module de facturation pharmacie n'existe dans l'application).
+  [PHARMACIEN]: [
+    { label: "Vue d'ensemble", href: PHARMACIEN, icon: LayoutDashboard },
+    {
+      label: 'Médicaments remboursables',
+      href: `${PHARMACIEN}/medicaments`,
+      icon: Pill,
+    },
+  ],
+  [CAISSIERE]: [{ label: "Vue d'ensemble", href: CAISSIERE, icon: LayoutDashboard }],
+  [PHARMACIE_COMPTABLE]: [
+    {
+      label: 'Suivi des dispensations',
+      href: PHARMACIE_COMPTABLE,
+      icon: ReceiptText,
+    },
   ],
   [SOCIETE_ADMINISTRATION]: [
     {

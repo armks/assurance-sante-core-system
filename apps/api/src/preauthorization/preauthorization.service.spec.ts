@@ -27,10 +27,13 @@ function identiteAdherent() {
     permissions: { roleChain: ['ADHERENT_TITULAIRE'] },
   };
 }
-function identiteEtablissement() {
+function identiteEtablissement(
+  etablissementId: string | null = 'etab-1',
+  role = 'CENTRE_MEDICAL_ACCUEIL',
+) {
   return {
-    profil: { id: 'e1', organisationId: 'org-1', role: 'CENTRE_MEDICAL_ACCUEIL', adherentId: null },
-    permissions: { roleChain: ['CENTRE_MEDICAL_ACCUEIL'] },
+    profil: { id: 'e1', organisationId: 'org-1', role, adherentId: null, etablissementId },
+    permissions: { roleChain: [role] },
   };
 }
 
@@ -219,5 +222,57 @@ describe('PreauthorizationService — Code de Consultation', () => {
     expect(res.dossier).toMatchObject({ id: 'dos-1' });
     expect(res.code.statut).toBe('UTILISE_ETABLISSEMENT');
     expect((res as any).code.code).toBeUndefined();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Fuite inter-établissement corrigée (reproduction du test du PROMPT 18,
+  //  audit demandé explicitement) : `code.etablissementId !== dto.etablissementId`
+  //  ne vérifiait que la cohérence du corps de la requête — jamais que
+  //  l'APPELANT appartenait lui-même à cet établissement. Reproduit en HTTP
+  //  réel (201, dossier ouvert) avant ce fix.
+  // ═══════════════════════════════════════════════════════════════════════
+  it('CENTRE_MEDICAL_ACCUEIL d’un AUTRE établissement ne peut PAS valider un code (même avec le bon dto.etablissementId) → 403', async () => {
+    identity.getMe.mockResolvedValue(identiteEtablissement('etab-B'));
+    prisma.codeConsultation.findUnique.mockResolvedValue({
+      id: 'code-1',
+      organisationId: 'org-1',
+      statut: 'EMIS',
+      dateExpiration: DANS_48H,
+      etablissementId: 'etab-A',
+      adherentId: ADH,
+      policeId: 'pol-1',
+    });
+
+    await expect(
+      service.validerCodeConsultation(USER, {
+        code: 'ABCD2345',
+        etablissementId: 'etab-A', // correspond bien au code — la fraude porte sur l'appelant
+        motifConsultation: 'Tentative établissement B',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(careEpisode.ouvrirDossier).not.toHaveBeenCalled();
+  });
+
+  it('ASSUREUR_EXPLOITATION (staff, sans établissement propre) peut valider un code de n’importe quel établissement', async () => {
+    identity.getMe.mockResolvedValue(identiteEtablissement(null, 'ASSUREUR_EXPLOITATION'));
+    prisma.codeConsultation.findUnique.mockResolvedValue({
+      id: 'code-1',
+      code: 'ABCD2345',
+      organisationId: 'org-1',
+      statut: 'EMIS',
+      dateExpiration: DANS_48H,
+      etablissementId: 'etab-A',
+      adherentId: ADH,
+      beneficiaireId: null,
+      policeId: 'pol-1',
+    });
+
+    const res = await service.validerCodeConsultation(USER, {
+      code: 'ABCD2345',
+      etablissementId: 'etab-A',
+      motifConsultation: 'Supervision assureur',
+    });
+    expect(careEpisode.ouvrirDossier).toHaveBeenCalled();
+    expect(res.dossier).toMatchObject({ id: 'dos-1' });
   });
 });

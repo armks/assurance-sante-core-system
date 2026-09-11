@@ -2824,3 +2824,74 @@ réellement. Données et compte éphémères supprimés, serveurs arrêtés.
 
 ### 🎯 Jalon — les 4 sous-rôles CENTRE_MEDICAL ont chacun un espace réel ; le module
 care-episode est désormais scopé par établissement comme le reste de l'application
+
+---
+
+## 2026-09-11 (suite) — Dette du prompt précédent traitée : `validerCodeConsultation` fermé
+
+Le commit `fix(care-episode)` précédent notait explicitement une dette : *« validerCodeConsultation
+ne vérifie pas que l'établissement APPELANT correspond à code.etablissementId »*. Demande
+explicite de reproduire d'abord le test exact du PROMPT 18 pour vérifier si c'est
+exploitable aujourd'hui, avant de corriger.
+
+### Reproduction du test du PROMPT 18 — résultat HTTP exact
+2 établissements ACTIF éphémères (A, B) + 1 compte `CENTRE_MEDICAL_ACCUEIL` éphémère
+rattaché à **B** + l'adhérent de référence :
+1. `POST /preauthorization/codes-consultation` (adhérent, `etablissementId: A`) → **201**,
+   code émis pour A.
+2. `POST /preauthorization/codes-consultation/valider` avec le compte de **B**,
+   `dto.etablissementId: A` (le bon établissement, celui du code) → **201 — VULNÉRABLE**.
+   Le dossier s'ouvre, attribué à l'établissement A (`dossier.etablissementId = A`), alors
+   que c'est un compte de B qui l'a réellement validé.
+
+Confirmé exploitable tel quel.
+
+### Pourquoi le test du PROMPT 18 n'a pas détecté ça — régression ou angle mort ?
+**Angle mort du test d'origine, pas une régression.** Vérifié en relisant le commit
+`c5c2cd8` (PROMPT 18) :
+- Le `ContexteAppelant` de `preauthorization.service.ts` à ce commit ne portait **pas**
+  `etablissementId` du tout (`{ userId, organisationId, role, adherentId, roleChain }`) —
+  il était donc **structurellement impossible** d'écrire cette vérification à ce moment-là,
+  le champ n'était même pas chargé.
+- Le test « mauvais établissement → 403 » du PROMPT 18 utilisait **un seul compte
+  `CENTRE_MEDICAL_ACCUEIL`** testé contre **2 établissements en fixtures**, en faisant
+  varier `dto.etablissementId` dans le corps de la requête — pas deux comptes réels
+  affiliés chacun à un établissement différent. Il vérifiait donc bien
+  `code.etablissementId !== dto.etablissementId` (cohérence interne de la requête), mais ne
+  pouvait pas détecter qu'un compte d'un AUTRE établissement, indiquant le BON
+  `etablissementId` dans le corps, passerait quand même — ce n'est pas ce qu'il testait.
+- `etablissementId` a été ajouté au `ContexteAppelant` de ce fichier au commit `85e10bd`
+  (**PROMPT 19**, un prompt plus tard), pour les besoins de `creerOrdonnance` (vérifier que
+  le médecin/administratif appartient à l'établissement de la consultation). Le pattern
+  « vérifier l'établissement de l'APPELANT » est né à ce moment précis — mais n'a jamais
+  été reporté sur `validerCodeConsultation`, écrite au prompt précédent et non retouchée
+  depuis. Chaque prompt a audité le périmètre de sa propre fonctionnalité, pas
+  rétroactivement les endpoints déjà livrés.
+
+### Correctif (`preauthorization.service.ts`)
+Ajout, juste après le contrôle existant `code.etablissementId !== dto.etablissementId`,
+d'un contrôle sur l'appelant — même pattern que `assertEtablissementDossier`
+(care-episode) et `genererFacture`/`ajouterActe`/`obtenirFacture` (même fichier) :
+personnel `CENTRE_MEDICAL_*` scopé à son établissement propre ; `ASSUREUR_EXPLOITATION`/
+`ASSUREUR_INFORMATIQUE` non scopés (organisation entière, cohérent avec leur rôle de
+supervision transverse ailleurs dans le même fichier).
+
+2 tests ajoutés (+ les tests existants adaptés pour préciser l'établissement du contexte,
+sans quoi le test « VALIDATION OK » aurait désormais échoué) : établissement B refusé même
+avec le bon `dto.etablissementId` (403, `ouvrirDossier` jamais appelé) ; `ASSUREUR_EXPLOITATION`
+sans établissement propre reste non scopé (non-régression). Suite complète : **20/20
+suites, 198/198 tests verts**, `tsc --noEmit` propre.
+
+### Nouveau test HTTP réel — mêmes établissements, même scénario, après correctif
+Rejoué exactement le même script (mêmes 2 établissements re-créés, même compte
+`CENTRE_MEDICAL_ACCUEIL` de B, même code généré pour A) : étape 2 → **403**
+`"Vous n'appartenez pas à l'établissement pour lequel ce code a été émis."` Donnée et
+comptes éphémères supprimés, serveur arrêté.
+
+### Commit
+Correctif de sécurité isolé dans son propre commit, séparé de toute autre tâche — comme
+demandé.
+
+### 🎯 Jalon — les 4 codes anti-fraude (v8) ont chacun leur scoping d'établissement vérifié
+et testé en HTTP réel ; plus aucune dette de sécurité connue et non documentée sur le
+parcours de soins côté établissement

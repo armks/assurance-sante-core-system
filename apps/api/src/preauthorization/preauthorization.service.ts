@@ -243,6 +243,28 @@ export class PreauthorizationService {
       );
     }
 
+    /**
+     * Fuite inter-établissement corrigée (reproduction du test du PROMPT 18,
+     * audit demandé après le fix care-episode) : le contrôle ci-dessus ne
+     * vérifie que la cohérence `dto.etablissementId` / `code.etablissementId`
+     * — jamais que l'APPELANT appartient lui-même à cet établissement. Un
+     * compte CENTRE_MEDICAL_* de N'IMPORTE QUEL établissement du réseau
+     * pouvait valider (et donc ouvrir, à son nom) un code émis pour un AUTRE
+     * établissement, simplement en indiquant le bon `etablissementId` dans le
+     * corps de la requête (reproduit en HTTP réel : 201, dossier ouvert).
+     * ASSUREUR_EXPLOITATION/INFORMATIQUE restent non scopés (organisation
+     * entière), même pattern que `assertEtablissementDossier` (care-episode)
+     * et `genererFacture`/`ajouterActe`/`obtenirFacture` (ce même fichier).
+     */
+    const estCentreMedical = ctx.roleChain.some((r) =>
+      (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r),
+    );
+    if (estCentreMedical && ctx.etablissementId !== code.etablissementId) {
+      throw new ForbiddenException(
+        "Vous n'appartenez pas à l'établissement pour lequel ce code a été émis.",
+      );
+    }
+
     // Ouverture automatique du dossier (SEULE voie). ouvrirDossier ré-évalue
     // l'éligibilité et lie/marque le code dans la même transaction.
     const dossier = await this.careEpisode.ouvrirDossier(

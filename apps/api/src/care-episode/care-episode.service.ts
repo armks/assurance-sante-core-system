@@ -22,8 +22,13 @@ import {
   EvaluationOuverture,
   ROLE_CLOTURE_FORCEE,
   ROLE_MEDECIN_TRAITANT,
+  ROLES_CENTRE_MEDICAL,
   ROLES_GESTION_DOSSIER,
+  ROLES_LECTURE_DOSSIER_STAFF,
 } from './care-episode.types';
+
+/** Mode de lecture résolu par `modeLectureDossiers()` — voir son commentaire. */
+type ModeLectureDossiers = 'STAFF' | 'CENTRE_MEDICAL';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -373,6 +378,7 @@ export class CareEpisodeService {
     this.assertGestion(ctx);
 
     const dossier = await this.chargerDossierBrut(ctx.organisationId, dossierId);
+    this.assertEtablissementDossier(ctx, dossier);
     if (dossier.statut !== 'OUVERT') {
       throw new ConflictException(
         `On ne peut ajouter une consultation qu'à un dossier OUVERT (statut actuel : ${dossier.statut}).`,
@@ -435,6 +441,7 @@ export class CareEpisodeService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const dossier = await this.chargerDossierBrut(ctx.organisationId, dossierId);
+    this.assertEtablissementDossier(ctx, dossier);
     if (!['OUVERT', 'SUSPENDU'].includes(dossier.statut)) {
       throw new ConflictException(
         `Ce dossier ne peut pas être clôturé (statut actuel : ${dossier.statut}).`,
@@ -522,11 +529,39 @@ export class CareEpisodeService {
 
   // --- Lecture --------------------------------------------
 
+  /**
+   * Fuite inter-établissement corrigée (audit dashboard administratif) :
+   * `listerDossiers`/`obtenirDossier` ne vérifiaient QUE `organisationId` —
+   * aucune restriction de rôle NI d'établissement. N'importe quel compte
+   * authentifié de l'organisation (un adhérent, une pharmacie, un autre
+   * établissement du réseau…) pouvait lire n'importe quel dossier de soins
+   * (diagnostic, motif de consultation — données de santé). Désormais : le
+   * personnel ASSUREUR habilité lit toute l'organisation (supervision/revue
+   * médicale) ; le personnel CENTRE_MEDICAL ne lit que les dossiers de SON
+   * PROPRE établissement ; tout autre appelant → 403.
+   */
+  private modeLectureDossiers(ctx: ContexteAppelant): ModeLectureDossiers {
+    const estStaff = ctx.roleChain.some((code) =>
+      (ROLES_LECTURE_DOSSIER_STAFF as readonly string[]).includes(code),
+    );
+    if (estStaff) return 'STAFF';
+
+    const estCentreMedical = ctx.roleChain.some((code) =>
+      (ROLES_CENTRE_MEDICAL as readonly string[]).includes(code),
+    );
+    if (estCentreMedical && ctx.etablissementId) return 'CENTRE_MEDICAL';
+
+    throw new ForbiddenException(
+      'Rôle insuffisant : la consultation des dossiers de soins est réservée au personnel ASSUREUR habilité (direction, exploitation, informatique, médecin-conseil) ou au personnel de l’établissement concerné.',
+    );
+  }
+
   async listerDossiers(
     user: AuthenticatedUser,
     filtres: { statut?: string; etablissementId?: string },
   ) {
     const ctx = await this.contexteAppelant(user);
+    const mode = this.modeLectureDossiers(ctx);
     return this.prisma.dossierSoins.findMany({
       where: {
         organisationId: ctx.organisationId,
@@ -535,6 +570,11 @@ export class CareEpisodeService {
         ...(filtres.etablissementId
           ? { etablissementId: filtres.etablissementId }
           : {}),
+        // Le scope CENTRE_MEDICAL écrase tout etablissementId fourni par le
+        // client : impossible d'élargir sa lecture à un autre établissement.
+        ...(mode === 'CENTRE_MEDICAL' && ctx.etablissementId
+          ? { etablissementId: ctx.etablissementId }
+          : {}),
       },
       orderBy: { dateOuverture: 'desc' },
     });
@@ -542,7 +582,12 @@ export class CareEpisodeService {
 
   async obtenirDossier(user: AuthenticatedUser, id: string) {
     const ctx = await this.contexteAppelant(user);
-    return this.chargerDossier(ctx.organisationId, id);
+    const mode = this.modeLectureDossiers(ctx);
+    return this.chargerDossier(
+      ctx.organisationId,
+      id,
+      mode === 'CENTRE_MEDICAL' ? ctx.etablissementId : null,
+    );
   }
 
   // --- Helpers -----------------------------------------
@@ -560,7 +605,30 @@ export class CareEpisodeService {
       userId: profil.id,
       organisationId: profil.organisationId,
       roleChain: permissions?.roleChain ?? [],
+      etablissementId: profil.etablissementId ?? null,
     };
+  }
+
+  /**
+   * Fuite inter-établissement corrigée (audit dashboard administratif) :
+   * `ajouterConsultation`/`clotureNormale` ne vérifiaient QUE `organisationId`
+   * sur le dossier — jamais que l'APPELANT (et pas seulement le médecin
+   * référencé) appartenait à l'établissement du dossier. Un compte
+   * CENTRE_MEDICAL_* de n'importe quel établissement du réseau pouvait ainsi
+   * clôturer ou modifier le dossier d'un AUTRE établissement.
+   */
+  private assertEtablissementDossier(
+    ctx: ContexteAppelant,
+    dossier: { etablissementId: string },
+  ): void {
+    const estCentreMedical = ctx.roleChain.some((code) =>
+      (ROLES_CENTRE_MEDICAL as readonly string[]).includes(code),
+    );
+    if (estCentreMedical && ctx.etablissementId !== dossier.etablissementId) {
+      throw new ForbiddenException(
+        "Vous n'appartenez pas à l'établissement de ce dossier de soins.",
+      );
+    }
   }
 
   private assertGestion(ctx: ContexteAppelant): void {
@@ -594,9 +662,18 @@ export class CareEpisodeService {
     return dossier;
   }
 
-  private async chargerDossier(organisationId: string, id: string) {
+  private async chargerDossier(
+    organisationId: string,
+    id: string,
+    etablissementId?: string | null,
+  ) {
     const dossier = await this.prisma.dossierSoins.findFirst({
-      where: { id, organisationId, deletedAt: null },
+      where: {
+        id,
+        organisationId,
+        deletedAt: null,
+        ...(etablissementId ? { etablissementId } : {}),
+      },
       include: {
         consultations: {
           where: { deletedAt: null },

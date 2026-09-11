@@ -28,10 +28,42 @@ export const ROLES_GESTION_DOSSIER = [
 /** La clôture forcée est réservée à ASSUREUR_EXPLOITATION (v1 §15). */
 export const ROLE_CLOTURE_FORCEE = 'ASSUREUR_EXPLOITATION';
 
+/**
+ * Rôles « personnel de centre médical » — soumis au contrôle d'établissement
+ * (fuite inter-établissement corrigée, audit dashboard administratif) :
+ * `ajouterConsultation`/`clotureNormale`/`clotureForcee` ne vérifiaient QUE
+ * `organisationId`, jamais que l'APPELANT appartenait à l'établissement du
+ * dossier — un compte de n'importe quel établissement du réseau pouvait
+ * clôturer ou modifier le dossier d'un autre établissement. Dupliqué
+ * localement (même valeur que `preauthorization.types.ts`), cohérent avec la
+ * règle « un module = un domaine ».
+ */
+export const ROLES_CENTRE_MEDICAL = [
+  'CENTRE_MEDICAL_MEDECIN',
+  'CENTRE_MEDICAL_ACCUEIL',
+  'CENTRE_MEDICAL_ADMINISTRATIF',
+  'CENTRE_MEDICAL_COMPTABLE',
+] as const;
+
+/**
+ * Rôles ASSUREUR habilités à lire TOUS les dossiers de soins de
+ * l'organisation (supervision / revue médicale) — plus large que
+ * `ROLES_GESTION_DOSSIER` (qui ne couvre que l'écriture), cohérent avec le
+ * pattern déjà établi pour `ROLES_LECTURE_CLAIMS` (claims.types.ts).
+ */
+export const ROLES_LECTURE_DOSSIER_STAFF = [
+  'ASSUREUR_DIRECTION',
+  'ASSUREUR_EXPLOITATION',
+  'ASSUREUR_INFORMATIQUE',
+  'ASSUREUR_MEDECIN_CONSEIL',
+] as const;
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;
   roleChain: string[];
+  /** `profils.etablissement_id` — renseigné pour les rôles CENTRE_MEDICAL. */
+  etablissementId: string | null;
 }
 
 /** Résultat détaillé du MoteurOuvertureDossier — blocages jamais génériques. */

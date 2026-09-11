@@ -1,6 +1,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -17,9 +18,13 @@ const USER: AuthenticatedUser = {
   token: 'jwt',
 };
 
-function identite(roleChain: string[], organisationId: string | null = 'org-1') {
+function identite(
+  roleChain: string[],
+  organisationId: string | null = 'org-1',
+  etablissementId: string | null = null,
+) {
   return {
-    profil: { id: 'u1', organisationId },
+    profil: { id: 'u1', organisationId, etablissementId },
     permissions: roleChain.length ? { roleChain } : null,
   };
 }
@@ -208,7 +213,7 @@ describe('CareEpisodeService', () => {
   });
 
   it('REFUSE d’ajouter une consultation avec un médecin d’un AUTRE établissement', async () => {
-    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-1'));
     prisma.dossierSoins.findFirst.mockResolvedValue({
       id: 'dos-1',
       organisationId: 'org-1',
@@ -231,7 +236,7 @@ describe('CareEpisodeService', () => {
   });
 
   it('ajoute une consultation avec un médecin du bon établissement', async () => {
-    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN']));
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
     prisma.dossierSoins.findFirst.mockResolvedValue({
       id: 'dos-1',
       organisationId: 'org-1',
@@ -291,9 +296,9 @@ describe('CareEpisodeService', () => {
   });
 
   it('la clôture normale clôture aussi le Ticket de Soins', async () => {
-    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-1'));
     prisma.dossierSoins.findFirst
-      .mockResolvedValueOnce({ id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT' })
+      .mockResolvedValueOnce({ id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT', etablissementId: 'etab-1' })
       .mockResolvedValueOnce({ id: 'dos-1', statut: 'CLOTURE', consultations: [] });
     prisma.dossierSoins.update.mockResolvedValue({});
     prisma.consultationDossier.updateMany.mockResolvedValue({});
@@ -312,5 +317,89 @@ describe('CareEpisodeService', () => {
     await expect(
       service.ouvrirDossier(USER, dtoOuverture),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Fuite inter-établissement corrigée (audit dashboard administratif) :
+  //  listerDossiers/obtenirDossier ne vérifiaient QUE organisationId (aucun
+  //  rôle, aucun établissement) ; ajouterConsultation/clotureNormale ne
+  //  vérifiaient l'établissement que du médecin référencé, jamais celui de
+  //  l'APPELANT.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('scope établissement (lecture ET écriture)', () => {
+    it('CENTRE_MEDICAL_ACCUEIL d’un AUTRE établissement ne peut PAS clôturer un dossier (403, pas de fuite)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-2'));
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT', etablissementId: 'etab-1',
+      });
+      await expect(
+        service.clotureNormale(USER, 'dos-1', { motif: 'tentative' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.dossierSoins.update).not.toHaveBeenCalled();
+    });
+
+    it('CENTRE_MEDICAL_ACCUEIL d’un AUTRE établissement ne peut PAS ajouter de consultation (403)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-2'));
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT', etablissementId: 'etab-1',
+      });
+      await expect(
+        service.ajouterConsultation(USER, 'dos-1', { medecinId: 'med-1', motif: 'Suivi' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.profil.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_EXPLOITATION (staff) liste TOUS les dossiers de l’organisation', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.dossierSoins.findMany = jest.fn().mockResolvedValue([]);
+      await service.listerDossiers(USER, {});
+      expect(prisma.dossierSoins.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.not.objectContaining({ etablissementId: expect.anything() }),
+        }),
+      );
+    });
+
+    it('ASSUREUR_MEDECIN_CONSEIL (staff, revue médicale) peut lister les dossiers', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+      prisma.dossierSoins.findMany = jest.fn().mockResolvedValue([]);
+      await expect(service.listerDossiers(USER, {})).resolves.toEqual([]);
+    });
+
+    it('CENTRE_MEDICAL_MEDECIN ne liste QUE les dossiers de SON établissement', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findMany = jest.fn().mockResolvedValue([]);
+      await service.listerDossiers(USER, {});
+      expect(prisma.dossierSoins.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ etablissementId: 'etab-1' }),
+        }),
+      );
+    });
+
+    it('CENTRE_MEDICAL_MEDECIN ne peut PAS élargir sa lecture via ?etablissementId= (le scope propre écrase le filtre client)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findMany = jest.fn().mockResolvedValue([]);
+      await service.listerDossiers(USER, { etablissementId: 'etab-2' });
+      expect(prisma.dossierSoins.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ etablissementId: 'etab-1' }),
+        }),
+      );
+    });
+
+    it('un rôle sans droit sur les dossiers (adhérent) → 403 sur listerDossiers/obtenirDossier', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE']));
+      await expect(service.listerDossiers(USER, {})).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.obtenirDossier(USER, 'dos-1')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('CENTRE_MEDICAL_ACCUEIL ne peut PAS lire le dossier d’un AUTRE établissement (404, pas de fuite)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-2'));
+      // Le mock Prisma est scopé par etablissementId dans le `where` : un
+      // dossier d'un autre établissement ne matche jamais → findFirst renvoie null.
+      prisma.dossierSoins.findFirst.mockResolvedValue(null);
+      await expect(service.obtenirDossier(USER, 'dos-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
   });
 });

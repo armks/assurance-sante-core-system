@@ -2331,3 +2331,46 @@ référentiel (adherents 3, profils 3, organisations 2), serveurs arrêtés.
 7. Adjoint : `souscripteurs` / `polices` / `cotisations` → **200** (écrans partagés OK).
 Invitations + comptes éphémères supprimés, base au référentiel (profils 3, invitations 0),
 serveurs arrêtés.
+
+---
+
+## 2026-09-10 — Correction cohérence : `permissions.peutValider` = valeur propre au rôle
+
+### Audit préalable (demandé) — quel endpoint NestJS décide sur `peutValider` ?
+**Aucun.** Revue exhaustive de `apps/api/src` : `permissions.peutValider` n'est lu par
+aucun guard, décorateur ni service pour une décision d'autorisation. `SupabaseAuthGuard`
+ne valide que le JWT. **Toutes** les décisions d'autorisation métier lisent
+`permissions.roleChain` et le comparent à des listes de codes explicites
+(`ROLES_GESTION_PLAN/POLICE/MEMBRE/CLAIMS/BILLING…`, `ROLE_SUPERADMIN`,
+`ROLE_REVUE_SUPERVISION = 'ASSUREUR_DIRECTION'`, etc.). `permissions.peutValider` et
+`permissions.niveauAcces` ne sont consommés que par le frontend (badge + filtrage nav du
+`DashboardShell`, gating des boutons de l'espace informatique-adjoint). Changer le calcul
+de `peutValider` est donc **sans effet sur l'autorisation API**.
+
+### Correction
+- `identity.service.ts` : `peutValider = profil.sousRole.peutValider` (valeur PROPRE au
+  rôle assigné au profil) au lieu de `chaine.some(r => r.peutValider)` (OR sur la chaîne
+  d'héritage). `roleChain`, `niveauAcces`, `dashboardRoute` continuent de remonter
+  l'héritage. → un rôle adjoint qui porte `peut_valider = false` ne « peut plus valider »,
+  même si son parent le peut.
+- `identity.service.spec.ts` : la ligne 111 validait le comportement bugué
+  (`peutValider === true` pour l'adjoint) — corrigée en `false`. Ajout de
+  `ASSUREUR_COMPTABLE` / `ASSUREUR_COMPTABLE_ADJOINT` au jeu de test et d'un cas dédié
+  (`peutValider` true pour les titulaires, false pour les deux adjoints, `roleChain`
+  toujours héritée).
+- Front : suppression du contournement `ROLES_SANS_VALIDATION_FINALE` /
+  `peutValiderFinal()` (`lib/identity.ts`). `utilisateurs/page.tsx` et
+  `produits/[id]/page.tsx` lisent désormais `etat.identity.permissions.peutValider` —
+  même pattern que partout ailleurs. Commentaires de `informatique/layout.tsx` et
+  `dashboard-nav.ts` mis à jour.
+
+### Tests
+- **HTTP réel** : `GET /identity/me` pour un compte `ASSUREUR_INFORMATIQUE_ADJOINT` →
+  `peutValider: false` (était `true`), `roleChain = [ADJOINT, INFORMATIQUE]`,
+  `niveauAcces: ADMIN`, `dashboardRoute: /dashboard-assureur/informatique-adjoint`
+  (héritage intact). Compte éphémère supprimé, serveur arrêté.
+- **Jest complet** : `20 suites / 165 tests` — tous verts. Aucun module ne dépendait de
+  l'ancien comportement.
+- `tsc --noEmit` web : OK.
+
+Impact production : nul aujourd'hui (0 compte actif sur les 2 rôles adjoints concernés).

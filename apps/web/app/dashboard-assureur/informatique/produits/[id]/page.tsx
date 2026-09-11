@@ -11,7 +11,7 @@ import { PageTitre } from '@/components/page-titre';
 import { StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
-import { exigerIdentite, peutValiderFinal } from '@/lib/identity';
+import { exigerIdentite } from '@/lib/identity';
 
 export const metadata: Metadata = { title: 'Produit — Assurance Informatique' };
 
@@ -34,7 +34,7 @@ export default async function ProduitPage({
   if (res.status === 404) notFound();
   const produit = (await res.json()) as ProduitAvecGaranties;
   const peutPublier =
-    etat.kind === 'ok' ? peutValiderFinal(etat.identity.profil.role) : false;
+    etat.kind === 'ok' ? etat.identity.permissions.peutValider : false;
 
   return (
     <div className="space-y-6">

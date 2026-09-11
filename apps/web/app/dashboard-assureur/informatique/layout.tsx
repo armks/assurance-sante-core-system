@@ -18,10 +18,11 @@ export const metadata: Metadata = {
  * Les écrans réservés à l'informatique (cotisations, réseau de soins) renverront
  * un 403 côté API — ils ne figurent pas dans sa navigation.
  *
- * `ASSUREUR_INFORMATIQUE_ADJOINT` hérite du rôle informatique (accès API
- * identique) : mêmes écrans, sa vue d'ensemble propre est
- * `/dashboard-assureur/informatique-adjoint` et les boutons de validation
- * finale sont retirés dans chaque écran (`peutValiderFinal`).
+ * `ASSUREUR_INFORMATIQUE_ADJOINT` hérite du rôle informatique (roleChain,
+ * niveauAcces) : mêmes écrans, sa vue d'ensemble propre est
+ * `/dashboard-assureur/informatique-adjoint`. Son rôle propre porte
+ * `peut_valider = false` : les boutons de validation finale sont retirés dans
+ * chaque écran via `permissions.peutValider`.
  */
 const ROUTES_ADMIN_ASSUREUR = [
   '/dashboard-assureur/informatique',

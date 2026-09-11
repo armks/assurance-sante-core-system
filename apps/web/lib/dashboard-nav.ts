@@ -123,10 +123,10 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     },
   ],
   [INFORMATIQUE]: navInformatique(INFORMATIQUE),
-  // Informatique adjoint : rôle hérité de l'informatique (accès identique côté
-  // API). Mêmes écrans, seule la vue d'ensemble pointe vers sa propre route ;
-  // les boutons de validation finale sont retirés dans les écrans eux-mêmes
-  // (cf. `peutValiderFinal` dans `lib/identity.ts`).
+  // Informatique adjoint : rôle hérité de l'informatique (roleChain, niveauAcces).
+  // Mêmes écrans, seule la vue d'ensemble pointe vers sa propre route ; les
+  // boutons de validation finale sont retirés dans les écrans eux-mêmes via
+  // `permissions.peutValider` (false pour ce rôle).
   [INFORMATIQUE_ADJOINT]: navInformatique(INFORMATIQUE_ADJOINT),
 };
 

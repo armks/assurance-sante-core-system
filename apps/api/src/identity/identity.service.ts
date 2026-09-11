@@ -75,7 +75,12 @@ export class IdentityService {
     const permissions: PermissionsResume = {
       roleChain: chaine.map((r) => r.code),
       niveauAcces: this.niveauAccesEffectif(chaine),
-      peutValider: chaine.some((r) => r.peutValider),
+      // `peutValider` reflète la valeur PROPRE au rôle assigné au profil
+      // (`sous_roles.peut_valider` de `profil.role`), sans OR sur la chaîne
+      // d'héritage : un rôle adjoint qui porte `peut_valider = false` ne
+      // « peut pas valider », même si son rôle parent le peut. Le reste de la
+      // chaîne (roleChain, niveauAcces, dashboardRoute) remonte l'héritage.
+      peutValider: profil.sousRole.peutValider,
       dashboardRoute:
         chaine.find((r) => r.dashboardRoute)?.dashboardRoute ?? null,
       estRoleMedical: (ROLES_MEDICAUX as readonly string[]).includes(profil.role),

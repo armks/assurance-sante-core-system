@@ -42,6 +42,24 @@ const SOUS_ROLES: SousRoleRow[] = [
     peutValider: true,
     dashboardRoute: '/dashboard-assureur/medecin-souscripteur',
   },
+  {
+    code: 'ASSUREUR_COMPTABLE',
+    entiteCode: 'ASSUREUR',
+    libelle: 'Assurance Comptable',
+    roleParentCode: null,
+    niveauAcces: 'MODIFICATION',
+    peutValider: true,
+    dashboardRoute: '/dashboard-assureur/comptable',
+  },
+  {
+    code: 'ASSUREUR_COMPTABLE_ADJOINT',
+    entiteCode: 'ASSUREUR',
+    libelle: 'Assurance Comptable Adjointe',
+    roleParentCode: 'ASSUREUR_COMPTABLE',
+    niveauAcces: 'MODIFICATION',
+    peutValider: false,
+    dashboardRoute: '/dashboard-assureur/comptable-adjoint',
+  },
 ];
 
 const USER: AuthenticatedUser = {
@@ -108,13 +126,38 @@ describe('IdentityService.getMe', () => {
       'ASSUREUR_INFORMATIQUE',
     ]);
     expect(res.permissions?.niveauAcces).toBe('ADMIN'); // hérité du parent
-    expect(res.permissions?.peutValider).toBe(true);
+    // `peutValider` reste la valeur PROPRE au rôle assigné (adjoint : false),
+    // sans OR sur la chaîne d'héritage.
+    expect(res.permissions?.peutValider).toBe(false);
     expect(res.permissions?.dashboardRoute).toBe(
       '/dashboard-assureur/informatique-adjoint',
     );
     expect(res.permissions?.estRoleMedical).toBe(false);
     expect(res.profil.email).toBe('agent@assureur.ci');
     expect(res.profil.entite).toBe('ASSUREUR');
+  });
+
+  it('peutValider = valeur propre au rôle : true pour le titulaire, false pour l’adjoint', async () => {
+    prisma.profil.findFirst.mockResolvedValue(
+      makeProfil({ role: 'ASSUREUR_INFORMATIQUE' }),
+    );
+    expect((await service.getMe(USER)).permissions?.peutValider).toBe(true);
+
+    prisma.profil.findFirst.mockResolvedValue(
+      makeProfil({ role: 'ASSUREUR_COMPTABLE_ADJOINT' }),
+    );
+    const adjointComptable = await service.getMe(USER);
+    expect(adjointComptable.permissions?.peutValider).toBe(false);
+    // l'héritage continue de remonter pour le reste de la chaîne
+    expect(adjointComptable.permissions?.roleChain).toEqual([
+      'ASSUREUR_COMPTABLE_ADJOINT',
+      'ASSUREUR_COMPTABLE',
+    ]);
+
+    prisma.profil.findFirst.mockResolvedValue(
+      makeProfil({ role: 'ASSUREUR_COMPTABLE' }),
+    );
+    expect((await service.getMe(USER)).permissions?.peutValider).toBe(true);
   });
 
   it('marque estRoleMedical pour ASSUREUR_MEDECIN_SOUSCRIPTEUR', async () => {

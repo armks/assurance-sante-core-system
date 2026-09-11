@@ -274,4 +274,69 @@ describe('PreauthorizationService — Code de Facturation (garde de paiement)', 
       service.confirmerPaiement(USER, 'fac-1'),
     ).rejects.toBeInstanceOf(ConflictException);
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  obtenirFacture — fuite inter-adhérent corrigée (audit dashboard
+  //  adhérent) : ne vérifiait QUE organisationId, exposait montants +
+  //  adherentId à n'importe quel compte de l'organisation.
+  // ═══════════════════════════════════════════════════════════════════
+  const FACTURE = {
+    id: 'fac-1',
+    organisationId: 'org-1',
+    adherentId: ADH,
+    etablissementId: 'etab-1',
+    statut: 'EMISE',
+    codeFacturation: 'AB23CD45',
+    codeValideParPatient: false,
+    montantTotal: dec(25000),
+    montantAssurance: dec(20000),
+    montantPatient: dec(5000),
+  };
+
+  it('obtenirFacture par l’adhérent propriétaire → 200, code inclus', async () => {
+    identity.getMe.mockResolvedValue(
+      profil('ADHERENT_TITULAIRE', { adherentId: ADH }),
+    );
+    prisma.factureDossier.findFirst.mockResolvedValue(FACTURE);
+    const res = await service.obtenirFacture(USER, 'fac-1');
+    expect((res as any).codeFacturation).toBe('AB23CD45');
+  });
+
+  it('obtenirFacture par un AUTRE adhérent de la même organisation → 403 (pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      profil('ADHERENT_TITULAIRE', { adherentId: 'adh-2' }),
+    );
+    prisma.factureDossier.findFirst.mockResolvedValue(FACTURE);
+    await expect(
+      service.obtenirFacture(USER, 'fac-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('obtenirFacture par ASSUREUR_EXPLOITATION (staff habilité) → 200, code masqué', async () => {
+    identity.getMe.mockResolvedValue(profil('ASSUREUR_EXPLOITATION'));
+    prisma.factureDossier.findFirst.mockResolvedValue(FACTURE);
+    const res = await service.obtenirFacture(USER, 'fac-1');
+    expect((res as any).codeFacturation).toBeUndefined();
+    expect(res.montantTotal).toBeDefined();
+  });
+
+  it('obtenirFacture par CENTRE_MEDICAL_COMPTABLE d’un AUTRE établissement → 403', async () => {
+    identity.getMe.mockResolvedValue(
+      profil('CENTRE_MEDICAL_COMPTABLE', { etablissementId: 'autre-etab' }),
+    );
+    prisma.factureDossier.findFirst.mockResolvedValue(FACTURE);
+    await expect(
+      service.obtenirFacture(USER, 'fac-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('obtenirFacture par CENTRE_MEDICAL_MEDECIN (non habilité facturation) → 403', async () => {
+    identity.getMe.mockResolvedValue(
+      profil('CENTRE_MEDICAL_MEDECIN', { etablissementId: 'etab-1' }),
+    );
+    prisma.factureDossier.findFirst.mockResolvedValue(FACTURE);
+    await expect(
+      service.obtenirFacture(USER, 'fac-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
 });

@@ -987,6 +987,17 @@ export class PreauthorizationService {
     };
   }
 
+  /**
+   * Fuite inter-adhérent corrigée (audit dashboard adhérent, même famille que
+   * le fix reclamations du 2026-09-11) : cette méthode ne vérifiait QUE
+   * `organisationId` — n'importe quel compte authentifié de l'organisation
+   * (un AUTRE adhérent y compris) pouvait lire les montants, statut et
+   * `adherentId` de N'IMPORTE QUELLE facture, seul `codeFacturation` étant
+   * masqué. Désormais : l'adhérent propriétaire OU le personnel habilité à
+   * générer/gérer les factures (`ROLES_GENERATION_FACTURE`, scopé à son
+   * établissement pour le personnel de centre médical — même contrôle que
+   * `genererFacture`/`ajouterActe`) ; tout autre appelant → 403.
+   */
   async obtenirFacture(user: AuthenticatedUser, factureId: string) {
     const ctx = await this.contexteAppelant(user);
     const facture = await this.prisma.factureDossier.findFirst({
@@ -999,9 +1010,30 @@ export class PreauthorizationService {
     if (!facture) {
       throw new NotFoundException('Facture introuvable.');
     }
-    const { codeFacturation, ...reste } = facture;
+
+    const estLAdherent =
+      !!ctx.adherentId && ctx.adherentId === facture.adherentId;
+    const estStaffHabilite = ctx.roleChain.some((r) =>
+      (ROLES_GENERATION_FACTURE as readonly string[]).includes(r),
+    );
+    const estCentreMedical = ctx.roleChain.some((r) =>
+      (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r),
+    );
+    if (
+      estStaffHabilite &&
+      estCentreMedical &&
+      ctx.etablissementId !== facture.etablissementId
+    ) {
+      throw new ForbiddenException(
+        "Vous n'appartenez pas à l'établissement de cette facture.",
+      );
+    }
+    if (!estLAdherent && !estStaffHabilite) {
+      throw new ForbiddenException('Cette facture ne vous concerne pas.');
+    }
+
     // le code n'est visible que de l'adhérent (via listerMesFactures)
-    const estLAdherent = ctx.adherentId === facture.adherentId;
+    const { codeFacturation, ...reste } = facture;
     return estLAdherent ? facture : reste;
   }
 

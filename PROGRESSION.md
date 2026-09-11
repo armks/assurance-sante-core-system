@@ -2751,3 +2751,76 @@ adhérent « Konan Adjoua ») subsiste, comme prévu.
 
 ### 🎯 Jalon — les 6 écrans du dashboard adhérent sont désormais tous vérifiés avec des
 données réelles (plus seulement à l'état vide pour Ordonnances/Factures/Réclamations)
+
+---
+
+## 2026-09-11 (suite) — `/dashboard-centre-medical/administratif` : écran réel + fix sécurité care-episode
+
+`CENTRE_MEDICAL_ADMINISTRATIF` atterrissait sur une simple redirection vers `/accueil`
+sans contenu propre (identifié lors d'un audit). Avant de construire l'écran, audit précis
+de ce que ce rôle peut réellement appeler côté API (comme demandé) — deux failles de la
+même famille que celles corrigées plus tôt aujourd'hui ont été trouvées et corrigées en
+premier.
+
+### Audit des droits réels de CENTRE_MEDICAL_ADMINISTRATIF
+- `ROLES_GESTION_DOSSIER` (care-episode) : valider un code de consultation (ouvre le
+  dossier), ajouter une consultation, clôturer normalement — **pas** la clôture forcée
+  (réservée à `ASSUREUR_EXPLOITATION`).
+- `ROLES_AJOUT_ACTE` / `creerOrdonnance` (preauthorization) : ajouter un acte, établir une
+  ordonnance pour le compte du médecin de la consultation.
+- `ROLES_GENERATION_FACTURE` : générer la facture d'un ticket clôturé de **son propre**
+  établissement ; lire une facture (code masqué, comme le personnel non-adhérent).
+- `ROLES_GESTION_RESEAU` (provider) = `ASSUREUR_INFORMATIQUE` **seul** : ce rôle n'a
+  **aucun** droit d'écriture sur son établissement (nom, horaires, garde weekend, statut)
+  — uniquement lecture, comme tout le monde dans l'organisation. L'hypothèse de contenu du
+  prompt (« gestion administrative de l'établissement ») est donc **exclue** en écriture
+  de l'écran — vérifié par un vrai `PATCH` → 403 avant de conclure.
+- Toutes ces actions vivent déjà dans les écrans partagés `/accueil`, `/medecin`,
+  `/comptable` (nav commune aux 4 sous-rôles) — les reconstruire ici aurait dupliqué du
+  code déjà correctement scopé par rôle. La page ne duplique donc rien : elle affiche ce
+  que ce rôle ne trouve nulle part ailleurs (vue d'ensemble propre).
+
+### Fix sécurité découvert en auditant ce même périmètre (`care-episode/`)
+1. **Lecture** (`GET /care-episode/dossiers`, `/:id`) : ne vérifiait QUE `organisationId`
+   — aucun rôle, aucun établissement. N'importe quel compte authentifié de l'organisation
+   (adhérent, pharmacie, centre médical d'un AUTRE établissement…) pouvait lire n'importe
+   quel dossier de soins (diagnostic, motif — données de santé).
+2. **Écriture** (`ajouterConsultation`, `clotureNormale`) : vérifiait l'établissement du
+   MÉDECIN référencé, jamais celui de l'APPELANT — un compte `CENTRE_MEDICAL_*` de
+   n'importe quel établissement du réseau pouvait clôturer ou modifier le dossier d'un
+   AUTRE établissement.
+
+Corrigé : `ContexteAppelant` porte `etablissementId` ; `modeLectureDossiers()` (staff
+ASSUREUR habilité → toute l'organisation, personnel CENTRE_MEDICAL → son établissement
+seul, sinon 403) ; `assertEtablissementDossier()` ajoute le contrôle manquant sur
+l'appelant. 8 tests ajoutés (+ 2 existants adaptés). Suite complète : **20/20 suites,
+196/196 tests verts**, `tsc --noEmit` propre. Testé en HTTP réel (2 établissements +
+3 comptes éphémères) : cross-établissement refusé partout (403 écriture, 404 lecture,
+absent de la liste), staff ASSUREUR voit tout, le bon établissement fonctionne
+normalement — **9/9**. Dette différée et documentée (hors périmètre) :
+`validerCodeConsultation` ne vérifie pas que l'établissement APPELANT correspond à
+`code.etablissementId` — trouvé en auditant le même périmètre, dans un autre module,
+à traiter dans un prompt dédié. Commit séparé
+(`fix(care-episode): fuite inter-etablissement sur les dossiers de soins`).
+
+### Écran (`app/dashboard-centre-medical/administratif/`)
+`page.tsx` (server) + `administratif-ecran.tsx` (client, patterns réemployés) :
+- Carte établissement (nom, type, ville, statut, garde weekend) — **lecture seule**,
+  mention explicite « informations gérées par l'assureur… lecture seule pour ce rôle ».
+- `GrilleCartes` : dossiers ouverts / clôturés / total de l'établissement (scope désormais
+  garanti côté API par le fix ci-dessus).
+- `DataTable` des dossiers de l'établissement avec lien « Ouvrir » vers le détail partagé
+  `/medecin/[id]` (aucune duplication de la vue détail ni des actions).
+
+### Test — navigateur réel (établissement + compte `CENTRE_MEDICAL_ADMINISTRATIF`
+éphémères, adhérent de référence)
+HTTP réel (6/6) : lecture établissement OK, **écriture établissement → 403** (confirme
+l'exclusion de la fonctionnalité avant de construire l'écran), dossier ouvert via ce rôle
+apparaît dans sa propre liste, clôture forcée → 403. Rendu réel de la page avec session
+cookie (7/7) : `/dashboard` redirige bien vers `/dashboard-centre-medical/administratif` ;
+la page n'est plus une redirection vide — nom de l'établissement, badge « Garde le
+week-end », le dossier réel (statut Ouvert) et la mention lecture seule s'affichent tous
+réellement. Données et compte éphémères supprimés, serveurs arrêtés.
+
+### 🎯 Jalon — les 4 sous-rôles CENTRE_MEDICAL ont chacun un espace réel ; le module
+care-episode est désormais scopé par établissement comme le reste de l'application

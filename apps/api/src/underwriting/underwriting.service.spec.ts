@@ -44,7 +44,11 @@ describe('UnderwritingService', () => {
     souscripteur: { findFirst: jest.Mock };
     police: { findFirst: jest.Mock };
     grilleTarifaire: { findFirst: jest.Mock };
-    tarificationIndividuelle: { create: jest.Mock; findUnique: jest.Mock };
+    tarificationIndividuelle: {
+      create: jest.Mock;
+      findUnique: jest.Mock;
+      findMany: jest.Mock;
+    };
     $executeRaw: jest.Mock;
     $transaction: jest.Mock;
   };
@@ -64,6 +68,7 @@ describe('UnderwritingService', () => {
       tarificationIndividuelle: {
         create: jest.fn(),
         findUnique: jest.fn(),
+        findMany: jest.fn(),
       },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(prisma)),
@@ -180,6 +185,33 @@ describe('UnderwritingService', () => {
     await expect(
       service.evaluerQuestionnaire(USER, 'q1', { decision: 'ACCEPTE_SURPRIME' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('REFUSE (403) qu’un ASSUREUR_MEDECIN_CONSEIL liste les tarifications', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+
+    await expect(service.listerTarifications(USER)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.tarificationIndividuelle.findMany).not.toHaveBeenCalled();
+  });
+
+  it('AUTORISE un ASSUREUR_MEDECIN_SOUSCRIPTEUR à lister les tarifications (scopées org)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ASSUREUR_MEDECIN_SOUSCRIPTEUR']),
+    );
+    prisma.tarificationIndividuelle.findMany.mockResolvedValue([
+      { id: 't1', primeFinale: '12000.00' },
+    ]);
+
+    const res = await service.listerTarifications(USER);
+
+    expect(prisma.tarificationIndividuelle.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { police: { organisationId: 'org-1', deletedAt: null } },
+      }),
+    );
+    expect(res).toHaveLength(1);
   });
 
   it('calcule la prime individuelle = prime_base + surprime (20 %)', async () => {

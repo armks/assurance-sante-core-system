@@ -2374,3 +2374,55 @@ de `peutValider` est donc **sans effet sur l'autorisation API**.
 - `tsc --noEmit` web : OK.
 
 Impact production : nul aujourd'hui (0 compte actif sur les 2 rôles adjoints concernés).
+
+---
+
+## 2026-09-10 — `/dashboard-assureur/medecin-souscripteur` : correction du 404 (audit)
+
+Corrige l'écart bloquant identifié par l'audit de couverture frontend : le rôle
+`ASSUREUR_MEDECIN_SOUSCRIPTEUR` retombait sur un 404 après connexion — le backend
+(module `underwriting`, PROMPT 10) fonctionnait, mais aucun écran n'existait.
+
+### Backend — deux ajouts ciblés (le reste du module existait déjà)
+- `underwriting.service.ts` : `listerQuestionnaires` et `chargerQuestionnaireBrut`
+  incluent désormais `souscripteur: { id, nom, type }` (le nom du souscripteur était
+  absent des réponses — indispensable pour la liste et le détail côté écran).
+- **Nouveau** `GET /underwriting/tarifications` (`listerTarifications`) — lecture des
+  tarifications individuelles déjà calculées, réservée aux mêmes rôles que
+  `POST tarifications` (`ROLES_TARIFICATION_INDIVIDUELLE`, dont
+  `ASSUREUR_MEDECIN_SOUSCRIPTEUR`) ; aucun endpoint de lecture n'existait auparavant.
+- `underwriting.service.spec.ts` : 2 tests ajoutés (403 pour `ASSUREUR_MEDECIN_CONSEIL`,
+  lecture scopée organisation pour le médecin souscripteur).
+
+### Frontend — `/dashboard-assureur/medecin-souscripteur/*`
+- `layout.tsx` : garde stricte sur **`permissions.roleChain.includes('ASSUREUR_MEDECIN_SOUSCRIPTEUR')`**
+  (pas seulement `dashboardRoute`) — refus = redirection serveur vers le dashboard réel
+  du compte connecté, jamais un simple masquage client.
+- `page.tsx` + `components/dashboard/underwriting/questionnaires-ecran.tsx` : `GrilleCartes`
+  (en attente d'évaluation, décisions rendues ce mois, répartition ACCEPTE /
+  ACCEPTE_AVEC_EXCLUSION / ACCEPTE_SURPRIME / REFUSE) + `DataTable` (souscripteur, date de
+  soumission, `StatutBadge` statut, filtre par statut).
+- `[id]/page.tsx` + `questionnaire-detail.tsx` : réponses (clé/valeur), antécédents
+  déclarés, formulaire de décision (champs `surprimePourcent` / `exclusionsSpecifiques`
+  conditionnels au choix, cohérents avec les validations API) — remplacé par un encart
+  « décision déjà rendue » une fois `decision` non nulle (décision définitive, l'API
+  refuse toute réévaluation avec 409).
+- `tarifications/page.tsx` + `tarifications-liste.tsx` : lecture seule, aucune action.
+- `lib/underwriting.ts` (libellés/tons, miroir de `underwriting.types.ts`) ;
+  `lib/dashboard-nav.ts` : entrée `MEDECIN_SOUSCRIPTEUR` (Questionnaires + Tarifications).
+
+### Test — navigateur réel (comptes `ASSUREUR_MEDECIN_SOUSCRIPTEUR` +
+`ASSUREUR_MEDECIN_CONSEIL` éphémères, `numero_ordre_medecin` distincts)
+1. Médecin souscripteur : login → `/dashboard` **307 → /dashboard-assureur/medecin-souscripteur**
+   (**plus de 404**) → page **200**, toutes les cartes présentes.
+2. `POST /underwriting/questionnaires` (souscripteur INDIVIDUEL de test) → **201**,
+   listé sur l'écran ; détail **200** (réponses, antécédents, formulaire de décision).
+3. `POST …/evaluer {ACCEPTE_SURPRIME, 15 %}` → **201** ; détail après décision : encart
+   « déjà rendue », formulaire retiré. `/tarifications` → **200**.
+4. Médecin conseil (séparation stricte, v10 §3) : `GET /dashboard-assureur/medecin-souscripteur`
+   → **307 vers son propre dashboard** (refus serveur, pas un masquage optimiste) ; idem sur
+   le détail. Côté API : `GET questionnaires`, `GET questionnaires/:id`, `GET tarifications`,
+   `POST …/evaluer` → **403** partout.
+- **Jest complet** : `20 suites / 167 tests` — tous verts. `tsc --noEmit` web : OK.
+Questionnaire + souscripteur + comptes éphémères supprimés, base au référentiel
+(profils 3, souscripteurs 4, questionnaires 1), serveurs arrêtés.

@@ -66,6 +66,11 @@ export class UnderwritingController {
     return this.underwriting.evaluerQuestionnaire(user, id, dto);
   }
 
+  @Get('tarifications')
+  listerTarifications(@CurrentUser() user: AuthenticatedUser) {
+    return this.underwriting.listerTarifications(user);
+  }
+
   @Post('tarifications')
   calculerPrime(
     @CurrentUser() user: AuthenticatedUser,

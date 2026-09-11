@@ -198,6 +198,9 @@ export class UnderwritingService {
             : {}),
         },
         orderBy: { createdAt: 'desc' },
+        include: {
+          souscripteur: { select: { id: true, nom: true, type: true } },
+        },
       });
     }
 
@@ -205,6 +208,9 @@ export class UnderwritingService {
     if (ctx.societeId) {
       return this.prisma.questionnaireMedical.findMany({
         where: { souscripteurId: ctx.societeId, deletedAt: null },
+        include: {
+          souscripteur: { select: { id: true, nom: true, type: true } },
+        },
       });
     }
 
@@ -308,6 +314,34 @@ export class UnderwritingService {
     return this.prisma.tarificationIndividuelle.findUnique({ where: { id } });
   }
 
+  /** Tarifications individuelles déjà calculées de l'organisation (lecture). */
+  async listerTarifications(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    const autorise = ctx.roleChain.some((code) =>
+      (ROLES_TARIFICATION_INDIVIDUELLE as readonly string[]).includes(code),
+    );
+    if (!autorise) {
+      throw new ForbiddenException(
+        'Rôle insuffisant pour consulter les tarifications individuelles.',
+      );
+    }
+    return this.prisma.tarificationIndividuelle.findMany({
+      where: {
+        police: { organisationId: ctx.organisationId, deletedAt: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        police: {
+          select: {
+            numeroPolice: true,
+            souscripteur: { select: { nom: true } },
+          },
+        },
+        questionnaire: { select: { decision: true } },
+      },
+    });
+  }
+
   // --- Autorisation / chargement -------------------------------
 
   private async contexteAppelant(
@@ -350,6 +384,9 @@ export class UnderwritingService {
         id,
         deletedAt: null,
         souscripteur: { organisationId },
+      },
+      include: {
+        souscripteur: { select: { id: true, nom: true, type: true } },
       },
     });
     if (!q) {

@@ -1,5 +1,6 @@
 import {
   Building2,
+  ClipboardList,
   DoorOpen,
   FileText,
   HeartPulse,
@@ -44,6 +45,7 @@ const INFORMATIQUE = '/dashboard-assureur/informatique';
 const INFORMATIQUE_ADJOINT = '/dashboard-assureur/informatique-adjoint';
 const DIRECTION = '/dashboard-assureur/direction';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
+const MEDECIN_SOUSCRIPTEUR = '/dashboard-assureur/medecin-souscripteur';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 const CENTRE_MEDICAL = '/dashboard-centre-medical';
 const SOCIETE = '/dashboard-societe';
@@ -87,6 +89,18 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Réclamations en revue',
       href: `${MEDECIN_CONSEIL}/reclamations-revue`,
       icon: Scale,
+    },
+  ],
+  [MEDECIN_SOUSCRIPTEUR]: [
+    {
+      label: 'Questionnaires médicaux',
+      href: MEDECIN_SOUSCRIPTEUR,
+      icon: ClipboardList,
+    },
+    {
+      label: 'Tarifications',
+      href: `${MEDECIN_SOUSCRIPTEUR}/tarifications`,
+      icon: Wallet,
     },
   ],
   [PHARMACIEN_CONSEIL]: [

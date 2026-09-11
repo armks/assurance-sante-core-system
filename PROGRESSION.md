@@ -2895,3 +2895,62 @@ demandé.
 ### 🎯 Jalon — les 4 codes anti-fraude (v8) ont chacun leur scoping d'établissement vérifié
 et testé en HTTP réel ; plus aucune dette de sécurité connue et non documentée sur le
 parcours de soins côté établissement
+
+---
+
+## 2026-09-11 (suite) — Audit du même angle mort sur les 3 autres mécanismes anti-fraude
+
+Demande explicite de vérifier si le même angle mort que `validerCodeConsultation`
+(vérifier l'identité RÉELLE de l'appelant, pas seulement la cohérence interne du corps de
+la requête) existe sur `validerCodeOrdonnance`, la clôture d'un ticket de soins, et
+`confirmerPaiement`. Verdict pour chacun, avec la vérification empirique demandée :
+
+### 1. `validerCodeOrdonnance` / `marquerDispensation` — DÉJÀ CORRECT
+`assertPharmacie(ctx, dto.pharmacieId)` compare `ctx.pharmacieId` (chargé depuis le profil
+réel de l'appelant, `contexteAppelant()`) à `dto.pharmacieId` — c'est bien une vérification
+d'identité, pas seulement de cohérence de la requête. `marquerDispensation` va plus loin :
+il compare directement `code.pharmacieUtilisatriceId !== ctx.pharmacieId`, sans même passer
+par un champ du corps de la requête. Aucune dépendance à une valeur fournie par le client
+pour établir l'identité de la pharmacie appelante.
+
+**Vérifié en HTTP réel** (2 pharmacies + 1 établissement + accueil/médecin/2 pharmaciens
+éphémères, ordonnance réelle générée via consultation → acte → ordonnance) — 9/9 :
+Pharmacie B tente de valider en indiquant `pharmacieId: A` (usurpation) → **403** "Vous ne
+pouvez agir que pour votre propre pharmacie" (avant même toute lecture du code) ;
+Pharmacie A valide légitimement → 201, contenu révélé ; Pharmacie B retente ensuite
+honnêtement (`pharmacieId: B`) → 403 "déjà prise en charge par une autre pharmacie" ;
+Pharmacie B tente la dispensation du code de A → 403. **Aucun correctif nécessaire.**
+
+### 2. Clôture d'un ticket de soins — DÉJÀ CORRIGÉ (fix care-episode de ce même jour)
+Un ticket ne change JAMAIS de statut CLOTURE ailleurs que dans
+`CareEpisodeService.appliquerCloture`, appelée uniquement par `clotureNormale` (rôles
+CENTRE_MEDICAL_* + ASSUREUR_EXPLOITATION/INFORMATIQUE) et `clotureForcee` (réservée à
+ASSUREUR_EXPLOITATION seul — aucun rôle CENTRE_MEDICAL possible, donc aucune identité
+d'établissement à usurper sur cette voie). `clotureNormale` est exactement la méthode
+corrigée par `assertEtablissementDossier()` dans le commit
+`fix(care-episode): fuite inter-etablissement sur les dossiers de soins` de ce même jour —
+9/9 en HTTP réel déjà obtenu à ce moment-là (2 établissements, cross-établissement refusé
+en écriture y compris pour la clôture). **Rien à corriger de plus ici** — c'est le même
+mécanisme, déjà traité.
+
+### 3. `confirmerPaiement` (factures) — DÉJÀ CORRECT, pas d'angle mort analogue possible
+Vérifie `ctx.roleChain.includes('ASSUREUR_COMPTABLE')` puis scope la facture par
+`organisationId`. Contrairement à `CENTRE_MEDICAL_*` (`etablissement_id`) et `PHARMACIE_*`
+(`pharmacie_id`), le schéma **n'a aucune colonne d'affiliation** pour les rôles
+`ASSUREUR_*` (`profils.societe_id` est réservé aux rôles `SOCIETE_AFFILIEE`,
+`profils.etablissement_id`/`pharmacie_id` n'ont pas de sens pour un comptable de
+l'assureur). Il n'existe donc pas de dimension d'identité analogue à usurper — le rôle
+`ASSUREUR_COMPTABLE` est, par construction du schéma, un rôle transverse à toute
+l'organisation (même famille que `ASSUREUR_EXPLOITATION`/`INFORMATIQUE` ailleurs dans ce
+même fichier). Un scénario « deux comptables réels, tentative croisée » n'a pas
+d'équivalent ici : il n'y a qu'une seule organisation, pas de sous-périmètre à croiser.
+Couverture déjà existante : test unitaire « rôle ≠ ASSUREUR_COMPTABLE → 403 » + la garde
+anti-fraude bloquante `codeValideParPatient`. **Aucun correctif nécessaire.**
+
+### Conclusion
+Sur les 4 mécanismes anti-fraude (codes consultation/ordonnance/ticket/facturation),
+**seul `validerCodeConsultation` présentait l'angle mort** (corrigé dans le commit
+précédent) — les 3 autres avaient déjà, chacun dans son domaine, le bon réflexe de
+comparer l'identité réelle de l'appelant (`ctx.pharmacieId`/`ctx.etablissementId`) plutôt
+que de faire confiance à un champ du corps de la requête. Aucun nouveau commit de
+correctif requis pour ce prompt — audit et vérification HTTP réelle seuls.

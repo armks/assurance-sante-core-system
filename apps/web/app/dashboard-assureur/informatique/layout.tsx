@@ -17,9 +17,15 @@ export const metadata: Metadata = {
  * ces modules. Sa vue d'ensemble propre reste `/dashboard-assureur/direction`.
  * Les écrans réservés à l'informatique (cotisations, réseau de soins) renverront
  * un 403 côté API — ils ne figurent pas dans sa navigation.
+ *
+ * `ASSUREUR_INFORMATIQUE_ADJOINT` hérite du rôle informatique (accès API
+ * identique) : mêmes écrans, sa vue d'ensemble propre est
+ * `/dashboard-assureur/informatique-adjoint` et les boutons de validation
+ * finale sont retirés dans chaque écran (`peutValiderFinal`).
  */
 const ROUTES_ADMIN_ASSUREUR = [
   '/dashboard-assureur/informatique',
+  '/dashboard-assureur/informatique-adjoint',
   '/dashboard-assureur/direction',
 ];
 

@@ -4,10 +4,12 @@ import { useState, useTransition } from 'react';
 
 import {
   inviterUtilisateur,
+  rejeterInvitation,
   revoquerInvitation,
   validerProposition,
   type ResultatInvitation,
 } from '@/app/dashboard-assureur/informatique/utilisateurs/actions';
+import { ChampZone, FormulaireModal } from '@/components/dashboard/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,22 +65,30 @@ function Message({ res }: { res: ResultatInvitation | null }) {
   );
 }
 
+const STATUTS_CLOS = ['ACCEPTEE', 'REJETEE', 'REVOQUEE', 'EXPIREE'];
+
 export function UtilisateursPanneau({
   comptes,
   invitations,
   roles,
   erreur,
+  peutValider = true,
 }: {
   comptes: Compte[];
   invitations: Invitation[];
   roles: RoleProposable[];
   erreur: string | null;
+  /** `false` pour un rôle adjoint : masque « Valider » / « Rejeter ». */
+  peutValider?: boolean;
 }) {
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatInvitation | null>(null);
 
   const invitationsOuvertes = invitations.filter((i) =>
     ['EN_ATTENTE_VALIDATION_INFORMATIQUE', 'EN_ATTENTE'].includes(i.statut),
+  );
+  const invitationsCloses = invitations.filter((i) =>
+    STATUTS_CLOS.includes(i.statut),
   );
 
   return (
@@ -189,22 +199,62 @@ export function UtilisateursPanneau({
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span className="flex justify-end gap-2">
-                        {inv.statut ===
-                          'EN_ATTENTE_VALIDATION_INFORMATIQUE' && (
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            disabled={pending}
-                            onClick={() =>
-                              start(async () =>
-                                setRes(await validerProposition(inv.id)),
-                              )
-                            }
-                          >
-                            Valider
-                          </Button>
-                        )}
+                        {inv.statut === 'EN_ATTENTE_VALIDATION_INFORMATIQUE' &&
+                          peutValider && (
+                            <>
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                disabled={pending}
+                                onClick={() =>
+                                  start(async () =>
+                                    setRes(await validerProposition(inv.id)),
+                                  )
+                                }
+                              >
+                                Valider
+                              </Button>
+                              <FormulaireModal
+                                titre="Rejeter la proposition"
+                                mode="center"
+                                description={`Proposition de compte ${inv.rolePropose} pour ${inv.email}. Le motif est tracé dans l'audit.`}
+                                declencheur={
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant="ghost"
+                                    disabled={pending}
+                                  >
+                                    Rejeter
+                                  </Button>
+                                }
+                                libelleSoumettre="Rejeter"
+                                onSoumettre={async (fd) => {
+                                  const r = await rejeterInvitation(
+                                    inv.id,
+                                    String(fd.get('motif') ?? ''),
+                                  );
+                                  return r.ok
+                                    ? { ok: true, message: r.message }
+                                    : { ok: false, error: r.error };
+                                }}
+                                onSucces={(m) =>
+                                  setRes({
+                                    ok: true,
+                                    message: m ?? 'Proposition rejetée.',
+                                  })
+                                }
+                              >
+                                <ChampZone
+                                  name="motif"
+                                  label="Motif du rejet"
+                                  rows={3}
+                                  aide="Facultatif — communiqué en interne, tracé dans l'audit."
+                                />
+                              </FormulaireModal>
+                            </>
+                          )}
                         <Button
                           type="button"
                           size="xs"
@@ -219,6 +269,49 @@ export function UtilisateursPanneau({
                           Révoquer
                         </Button>
                       </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* --- Invitations traitées (historique) --- */}
+      {invitationsCloses.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Invitations traitées ({invitationsCloses.length})
+          </h2>
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">E-mail</th>
+                  <th className="px-3 py-2 font-medium">Rôle</th>
+                  <th className="px-3 py-2 font-medium">Statut</th>
+                  <th className="px-3 py-2 font-medium">Créée le</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invitationsCloses.map((inv) => (
+                  <tr key={inv.id} className="border-t">
+                    <td className="px-3 py-2">{inv.email}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {inv.rolePropose}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Badge
+                        variant={
+                          inv.statut === 'ACCEPTEE' ? 'secondary' : 'outline'
+                        }
+                      >
+                        {LIBELLE_STATUT[inv.statut] ?? inv.statut}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {new Date(inv.createdAt).toLocaleDateString('fr-FR')}
                     </td>
                   </tr>
                 ))}

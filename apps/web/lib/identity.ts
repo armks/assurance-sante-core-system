@@ -107,3 +107,20 @@ export async function aUneSession(): Promise<boolean> {
   const etat = await chargerIdentiteBrut();
   return etat.kind !== 'anonyme';
 }
+
+/**
+ * Rôles « adjoint » : leur accès est large (hérité du rôle parent, donc l'API
+ * leur accorde `peutValider` via la chaîne d'héritage) mais leur rôle propre
+ * porte `peut_valider = false`. L'UI retire malgré tout les boutons de
+ * validation finale (valider/rejeter une proposition, publier un produit…)
+ * pour rester cohérente avec le rôle propre.
+ */
+export const ROLES_SANS_VALIDATION_FINALE = new Set<string>([
+  'ASSUREUR_INFORMATIQUE_ADJOINT',
+  'ASSUREUR_COMPTABLE_ADJOINT',
+]);
+
+/** `false` pour un rôle adjoint : masque les boutons de validation finale. */
+export function peutValiderFinal(role: string | null | undefined): boolean {
+  return !role || !ROLES_SANS_VALIDATION_FINALE.has(role);
+}

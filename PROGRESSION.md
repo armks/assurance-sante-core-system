@@ -2283,3 +2283,51 @@ Deux écarts prioritaires de l'audit de couverture frontend traités.
    → **200** (garde élargie OK, plus de redirection).
 Organisation + invitation + comptes éphémères + codes de test supprimés, base au
 référentiel (adherents 3, profils 3, organisations 2), serveurs arrêtés.
+
+---
+
+## 2026-09-10 — Compléments écrans ASSUREUR_INFORMATIQUE : rejet d'invitation + espace adjoint
+
+### 1. Bouton « Rejeter » — `/dashboard-assureur/informatique/utilisateurs`
+- `utilisateurs/actions.ts` : `rejeterInvitation(id, motif?)` → `POST /invitations/:id/rejeter`.
+  ⚠️ L'API n'accepte le rejet **que** pour le statut `EN_ATTENTE_VALIDATION_INFORMATIQUE`
+  (une invitation déjà envoyée se « Révoque »). Le bouton est donc placé à côté de
+  « Valider », sur les propositions en attente de validation.
+- `utilisateurs-panneau.tsx` : bouton **« Rejeter »** ouvrant une `FormulaireModal`
+  centrée avec un champ **motif** (facultatif, tracé dans l'audit). Nouvelle section
+  **« Invitations traitées »** (historique : ACCEPTEE / REJETEE / REVOQUEE / EXPIREE)
+  — comble l'absence de visibilité sur les invitations closes relevée par l'audit.
+
+### 2. `/dashboard-assureur/informatique-adjoint`
+- Route `app/dashboard-assureur/informatique-adjoint/{layout,page}.tsx` : le rôle
+  `ASSUREUR_INFORMATIQUE_ADJOINT` y atterrit. Vue d'ensemble = composant partagé
+  `components/dashboard/informatique-vue-ensemble.tsx` (extrait de `informatique/page.tsx`,
+  réutilisé par les deux routes, `adjoint` en prop pour la mention explicative).
+- `informatique/layout.tsx` : garde élargie à `…/informatique-adjoint`.
+- `lib/dashboard-nav.ts` : `navInformatique(racine)` factorise la nav ; l'adjoint a les
+  **mêmes écrans**, seule la « Vue d'ensemble » pointe vers sa route.
+- **Boutons de validation finale retirés pour l'adjoint** via
+  `peutValiderFinal(role)` (`lib/identity.ts`, `Set` `ROLES_SANS_VALIDATION_FINALE`) :
+  - `utilisateurs` : « Valider » / « Rejeter » masqués (prop `peutValider`) ;
+  - `produits/[id]` : « Publier le produit » masqué (prop `peutPublier`), remplacé par
+    une note « réservé au titulaire ».
+  ⚠️ **Discordance constatée** : l'API renvoie `peutValider = true` pour l'adjoint
+  (héritage `chaine.some(r => r.peutValider)` dans `identity.service`, cf. test
+  `identity.service.spec.ts:111`), alors que le rôle propre porte `peut_valider = false`.
+  Le masquage UI est donc fait sur le **code du rôle**, pas sur `permissions.peutValider`.
+  À arbitrer côté API si l'on veut que l'adjoint reçoive réellement des 403.
+
+### Test — navigateur réel (comptes `ASSUREUR_INFORMATIQUE` + `…_ADJOINT` éphémères)
+1. Titulaire : `/utilisateurs` affiche 2 propositions avec « Valider » **et** « Rejeter ».
+2. `POST /invitations/:id/rejeter {motif}` → **201**, `GET /invitations` : statut **REJETEE**.
+3. `/utilisateurs` après rejet : la proposition **quitte « en cours »** (1 restante) et
+   **apparaît en « Invitations traitées » avec le badge « Rejetée »**.
+4. Adjoint : login → `/dashboard` **307 → /dashboard-assureur/informatique-adjoint** → 200
+   (mêmes cartes de navigation + mention « réservées au titulaire »).
+5. Adjoint `/utilisateurs` : la proposition restante est listée (**écran identique**),
+   « Valider » / « Rejeter » **absents**, « Révoquer » + formulaire « Inviter » présents.
+6. Adjoint `produits/[id]` (brouillon) : **« Publier le produit » absent**, note
+   « réservée au titulaire » ; titulaire (contrôle) : bouton **présent**.
+7. Adjoint : `souscripteurs` / `polices` / `cotisations` → **200** (écrans partagés OK).
+Invitations + comptes éphémères supprimés, base au référentiel (profils 3, invitations 0),
+serveurs arrêtés.

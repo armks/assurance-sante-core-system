@@ -81,7 +81,14 @@ function pourcent(v: string | number | null): string {
   return `${Number(v)} %`;
 }
 
-export function ProduitDetail({ produit }: { produit: ProduitAvecGaranties }) {
+export function ProduitDetail({
+  produit,
+  peutPublier = true,
+}: {
+  produit: ProduitAvecGaranties;
+  /** `false` pour un rôle adjoint : masque « Publier le produit ». */
+  peutPublier?: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -370,7 +377,7 @@ export function ProduitDetail({ produit }: { produit: ProduitAvecGaranties }) {
 
       {/* --- Actions de cycle de vie --- */}
       <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-        {brouillon && (
+        {brouillon && peutPublier && (
           <>
             <Button disabled={pending || sansGarantie} onClick={publier}>
               Publier le produit
@@ -382,6 +389,13 @@ export function ProduitDetail({ produit }: { produit: ProduitAvecGaranties }) {
               </p>
             )}
           </>
+        )}
+        {brouillon && !peutPublier && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Info className="size-3.5" />
+            La publication d’un produit est réservée au titulaire Assurance
+            Informatique.
+          </p>
         )}
         {versionnable && (
           <Button variant="outline" disabled={pending} onClick={nouvelleVersion}>

@@ -41,6 +41,7 @@ export interface NavItem {
  * la RLS Postgres refuserait ensuite (règle transverse du skill).
  */
 const INFORMATIQUE = '/dashboard-assureur/informatique';
+const INFORMATIQUE_ADJOINT = '/dashboard-assureur/informatique-adjoint';
 const DIRECTION = '/dashboard-assureur/direction';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
@@ -121,8 +122,22 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       minNiveau: 'ADMIN',
     },
   ],
-  [INFORMATIQUE]: [
-    { label: "Vue d'ensemble", href: INFORMATIQUE, icon: LayoutDashboard },
+  [INFORMATIQUE]: navInformatique(INFORMATIQUE),
+  // Informatique adjoint : rôle hérité de l'informatique (accès identique côté
+  // API). Mêmes écrans, seule la vue d'ensemble pointe vers sa propre route ;
+  // les boutons de validation finale sont retirés dans les écrans eux-mêmes
+  // (cf. `peutValiderFinal` dans `lib/identity.ts`).
+  [INFORMATIQUE_ADJOINT]: navInformatique(INFORMATIQUE_ADJOINT),
+};
+
+/**
+ * Navigation de l'espace Assurance Informatique. `racineVueEnsemble` distingue
+ * le titulaire (`/dashboard-assureur/informatique`) de l'adjoint
+ * (`/dashboard-assureur/informatique-adjoint`) : les autres écrans sont partagés.
+ */
+function navInformatique(racineVueEnsemble: string): NavItem[] {
+  return [
+    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
     {
       label: 'Souscripteurs',
       href: `${INFORMATIQUE}/souscripteurs`,
@@ -177,8 +192,8 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       icon: Users,
       minNiveau: 'ADMIN', // provisioning de comptes — modules identity + invitations
     },
-  ],
-};
+  ];
+}
 
 export function navPourDashboard(dashboardRoute: string | null): NavItem[] {
   return (dashboardRoute && NAV_PAR_DASHBOARD[dashboardRoute]) || [];

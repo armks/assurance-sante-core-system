@@ -8,6 +8,7 @@ import {
   type RoleProposable,
 } from '@/components/dashboard/utilisateurs-panneau';
 import { apiFetch, messageErreur } from '@/lib/api';
+import { exigerIdentite, peutValiderFinal } from '@/lib/identity';
 
 export const metadata: Metadata = {
   title: 'Utilisateurs — Assurance Informatique',
@@ -22,6 +23,10 @@ async function json<T>(path: string): Promise<{ data: T; erreur: string | null }
 }
 
 export default async function Utilisateurs() {
+  const etat = await exigerIdentite('/dashboard-assureur/informatique/utilisateurs');
+  const peutValider =
+    etat.kind === 'ok' ? peutValiderFinal(etat.identity.profil.role) : false;
+
   const [roles, comptes, invitations] = await Promise.all([
     json<RoleProposable[]>('/api/v1/identity/roles-proposables'),
     json<Compte[]>('/api/v1/identity/comptes'),
@@ -39,6 +44,7 @@ export default async function Utilisateurs() {
         comptes={comptes.data}
         invitations={invitations.data}
         erreur={comptes.erreur}
+        peutValider={peutValider}
       />
     </div>
   );

@@ -58,6 +58,27 @@ export async function validerProposition(
   return { ok: true, message: 'Proposition validée — invitation envoyée.' };
 }
 
+/**
+ * Rejette une proposition de compte en attente de validation informatique.
+ * L'API n'accepte cette action que pour le statut
+ * `EN_ATTENTE_VALIDATION_INFORMATIQUE` (une invitation déjà envoyée se « Révoque »).
+ */
+export async function rejeterInvitation(
+  id: string,
+  motif?: string,
+): Promise<ResultatInvitation> {
+  const corps = motif && motif.trim() ? { motif: motif.trim() } : {};
+  const res = await apiFetch(`/api/v1/invitations/${id}/rejeter`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+  if (!res.ok) {
+    return { ok: false, error: await messageErreur(res) };
+  }
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Proposition rejetée.' };
+}
+
 /** Révoque une invitation encore ouverte. */
 export async function revoquerInvitation(
   id: string,

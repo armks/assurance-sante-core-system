@@ -2690,3 +2690,64 @@ l'état de référence (0 établissement, 0 code, 0 réclamation, seul le profil
 référence persiste).
 
 ### 🎯 Jalon — dashboard adhérent disponible en UI, 3 failles de scoping fermées
+
+---
+
+## 2026-09-11 (suite) — Les 6 écrans du dashboard adhérent testés avec des données réelles
+
+La vérification précédente laissait Ordonnances/Factures/Réclamations testées à l'état
+vide seulement (aucune donnée réelle en base). Fermeture de ce gap : un épisode de soins
+réel et complet a été fabriqué en utilisant le parcours établissement déjà construit et
+testé (Phase 6), puis les 3 écrans relus avec la session réelle de l'adhérent de référence.
+
+### Parcours réel exécuté (API locale + Supabase réel, aucune donnée simulée)
+1 clinique de test + 4 comptes éphémères (`CENTRE_MEDICAL_ACCUEIL`/`_MEDECIN`
+`numero_ordre_medecin` renseigné/`_COMPTABLE`, `ASSUREUR_EXPLOITATION`) + l'adhérent de
+référence `armelk01+adherent@gmail.com` :
+1. adhérent → `POST codes-consultation` → code généré ;
+2. accueil → `POST codes-consultation/valider` → dossier ouvert + ticket créé
+   automatiquement (numéro de traitement généré) ;
+3. médecin → `POST care-episode/dossiers/:id/consultations` (consultation) →
+   `POST tickets-soins/:id/actes` (acte CONSULTATION, 15 000 F) →
+   `POST ordonnances` (1 ligne, Paracétamol — code **non renvoyé** au médecin) →
+   `POST care-episode/dossiers/:id/cloturer` → dossier + ticket `CLOTURE` ;
+4. comptable centre médical → `POST tickets-soins/:id/facture` → `EMISE`,
+   15 000 / 12 000 assurance / 3 000 patient, code **non renvoyé** à l'établissement ;
+5. adhérent → voit la facture avec son code (`GET codes-facturation`) → le valide
+   (`POST codes-facturation/valider`) → `VALIDEE` ;
+6. `ASSUREUR_EXPLOITATION` → `POST claims/reclamations/soumettre` (l'acte ci-dessus).
+
+**Limite assumée et documentée** : le microservice Java d'adjudication n'est pas
+démarrable dans cet environnement (aucun binaire Maven disponible, ni `mvn` ni wrapper
+`mvnw` — recherché via `where.exe` et les emplacements standards, sans résultat, bien que
+`~/.m2/repository` existe d'un usage antérieur sur cette machine). La soumission a donc
+été faite **pour de vrai** contre l'API réelle plutôt que simulée : réponse **503** réelle
+(microservice injoignable), et la réclamation reste réellement `SOUMISE` en base
+(`codes_rejet: ['ADJ_ECHEC']`) — donnée réelle et vérifiable, simplement sans décision
+d'adjudication complète (pas de `AUTO_ADJUDIQUE`/montant remboursé). Aucune ligne
+`reclamations`/`remboursements` n'a été insérée à la main pour simuler un résultat que le
+système n'a pas réellement produit.
+
+### Vérification — HTTP réel (17/17) puis rendu réel des pages (3/3)
+Avec la session de l'adhérent de référence (reconnexion réelle) :
+- `GET codes-ordonnance` → l'ordonnance réelle apparaît (statut `EMIS`, code visible) ;
+- `GET codes-facturation` → la facture réelle apparaît (`VALIDEE`) ;
+- `GET claims/reclamations` → la réclamation réelle apparaît (`SOUMISE`), `adherentId`
+  correct.
+Puis rendu réel des 3 pages Next.js (`next build` + `next start`, session cookie
+`@supabase/ssr`, comme pour le test du dashboard) : les 3 écrans affichent bien le contenu
+réel (plus le message d'état vide) — code d'ordonnance « Émis », facture 15 000 F
+« Validée », réclamation 15 000 F « Consultation » / « Soumise ».
+
+### Nettoyage
+Réclamation, facture, ordonnance + son code, acte, ticket, code de consultation,
+consultation, dossier de soins, établissement de test et les 4 comptes éphémères (auth +
+profils) supprimés (ordre FK respecté). Un oubli intermédiaire (une 1ʳᵉ itération du script
+avait été laissée volontairement en place le temps du test de rendu, puis une 2ᵉ itération
+lancée par erreur avant son nettoyage) a été repéré et corrigé : état final vérifié à 0 sur
+tous les compteurs (établissements, dossiers, réclamations, factures, profils centre
+médical/assureur éphémères). Seul le profil adhérent de référence (`armelk01+adherent@gmail.com`,
+adhérent « Konan Adjoua ») subsiste, comme prévu.
+
+### 🎯 Jalon — les 6 écrans du dashboard adhérent sont désormais tous vérifiés avec des
+données réelles (plus seulement à l'état vide pour Ordonnances/Factures/Réclamations)

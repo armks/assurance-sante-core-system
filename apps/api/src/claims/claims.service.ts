@@ -31,10 +31,14 @@ import {
   ROLE_REVUE_FINANCIERE,
   ROLE_REVUE_MEDICALE,
   ROLE_REVUE_SUPERVISION,
+  ROLES_ADHERENT_CLAIMS,
   ROLES_GESTION_CLAIMS,
   ROLES_LECTURE_CLAIMS,
   TYPES_RECLAMATION_MEDICAUX,
 } from './claims.types';
+
+/** Mode de lecture résolu par `modeLecture()` — voir son commentaire. */
+type ModeLecture = 'STAFF' | 'ADHERENT';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -284,11 +288,12 @@ export class ClaimsService {
     filtres: { statut?: string } = {},
   ) {
     const ctx = await this.contexteAppelant(user);
-    this.assertLecture(ctx);
+    const mode = this.modeLecture(ctx);
     return this.prisma.reclamation.findMany({
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
+        ...(mode === 'ADHERENT' ? { adherentId: ctx.adherentId } : {}),
         ...(filtres.statut ? { statut: filtres.statut } : {}),
       },
       orderBy: { createdAt: 'desc' },
@@ -298,8 +303,8 @@ export class ClaimsService {
 
   async obtenirReclamation(user: AuthenticatedUser, id: string) {
     const ctx = await this.contexteAppelant(user);
-    this.assertLecture(ctx);
-    return this.chargerReclamation(ctx, id);
+    const mode = this.modeLecture(ctx);
+    return this.chargerReclamation(ctx, id, mode);
   }
 
   /**
@@ -399,6 +404,7 @@ export class ClaimsService {
       userId: profil.id,
       organisationId: profil.organisationId,
       roleChain: permissions?.roleChain ?? [],
+      adherentId: profil.adherentId ?? null,
     };
   }
 
@@ -418,25 +424,43 @@ export class ClaimsService {
    * `listerReclamations`/`obtenirReclamation` ne vérifiaient QUE `organisationId`
    * — tout compte authentifié de l'organisation (y compris SOCIETE_*) lisait les
    * réclamations de TOUTES les sociétés clientes. `reclamations` n'ayant pas de
-   * colonne société/souscripteur, le scoping précis reste à faire (voir
-   * PROGRESSION.md) ; en attendant, la lecture est resserrée au personnel
-   * ASSUREUR habilité, comme la RLS `reclamations_lecture` aurait dû l'être
-   * (voir prisma/sql/025).
+   * colonne société/souscripteur, ce scoping-là reste à faire ; en attendant, la
+   * lecture « organisation entière » est resserrée au personnel ASSUREUR habilité,
+   * comme la RLS `reclamations_lecture` aurait dû l'être (voir prisma/sql/025).
+   *
+   * `reclamations` a en revanche bien une colonne `adherentId` : un compte
+   * ADHERENT (audit dashboard adhérent) est donc autorisé à lire — mais SCOPÉ
+   * STRICTEMENT sur ses propres réclamations (`chargerReclamation` mode
+   * `'ADHERENT'`), jamais celles d'un autre adhérent de l'organisation.
    */
-  private assertLecture(ctx: ContexteAppelant): void {
-    const autorise = ctx.roleChain.some((code) =>
+  private modeLecture(ctx: ContexteAppelant): ModeLecture {
+    const estStaff = ctx.roleChain.some((code) =>
       (ROLES_LECTURE_CLAIMS as readonly string[]).includes(code),
     );
-    if (!autorise) {
-      throw new ForbiddenException(
-        'Rôle insuffisant : la consultation des réclamations est réservée aux rôles ASSUREUR habilités (direction, exploitation, informatique, médecin-conseil).',
-      );
-    }
+    if (estStaff) return 'STAFF';
+
+    const estAdherent = ctx.roleChain.some((code) =>
+      (ROLES_ADHERENT_CLAIMS as readonly string[]).includes(code),
+    );
+    if (estAdherent && ctx.adherentId) return 'ADHERENT';
+
+    throw new ForbiddenException(
+      'Rôle insuffisant : la consultation des réclamations est réservée aux rôles ASSUREUR habilités (direction, exploitation, informatique, médecin-conseil) ou à l’adhérent concerné pour ses propres réclamations.',
+    );
   }
 
-  private async chargerReclamation(ctx: ContexteAppelant, id: string) {
+  private async chargerReclamation(
+    ctx: ContexteAppelant,
+    id: string,
+    mode: ModeLecture = 'STAFF',
+  ) {
     const reclamation = await this.prisma.reclamation.findFirst({
-      where: { id, organisationId: ctx.organisationId, deletedAt: null },
+      where: {
+        id,
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+        ...(mode === 'ADHERENT' ? { adherentId: ctx.adherentId } : {}),
+      },
       include: { remboursement: true },
     });
     if (!reclamation) {

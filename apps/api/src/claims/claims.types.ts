@@ -74,6 +74,18 @@ export const ROLES_LECTURE_CLAIMS = [
   ROLE_REVUE_MEDICALE,
 ] as const;
 
+/**
+ * Rôles ADHERENT (entité `ADHERENT`, v9 §ADDENDUM) autorisés à lire LEURS
+ * PROPRES réclamations (`GET /claims/reclamations`, `/:id`) — scope strict sur
+ * `adherentId`, jamais l'organisation entière (voir `ClaimsService.modeLecture`).
+ * Dupliqué localement plutôt qu'importé de `preauthorization` : un module =
+ * un domaine métier strict (règle transverse du skill).
+ */
+export const ROLES_ADHERENT_CLAIMS = [
+  'ADHERENT_TITULAIRE',
+  'SOUSCRIPTEUR_INDIVIDUEL',
+] as const;
+
 /** Code ajouté à `codes_rejet` quand un rejet est prononcé après revue manuelle. */
 export const CODE_REJET_MANUEL = 'REJET_MANUEL';
 
@@ -108,4 +120,6 @@ export interface ContexteAppelant {
   userId: string;
   organisationId: string;
   roleChain: string[];
+  /** `profils.adherent_id` — renseigné pour les rôles ADHERENT (self-service). */
+  adherentId: string | null;
 }

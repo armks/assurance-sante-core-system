@@ -2,6 +2,7 @@ import {
   BadGatewayException,
   ConflictException,
   ForbiddenException,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -25,8 +26,12 @@ const USER: AuthenticatedUser = {
   token: 'jwt',
 };
 
-const identite = (roleChain: string[], organisationId: string | null = 'org-1') => ({
-  profil: { id: 'u1', organisationId },
+const identite = (
+  roleChain: string[],
+  organisationId: string | null = 'org-1',
+  adherentId: string | null = null,
+) => ({
+  profil: { id: 'u1', organisationId, adherentId },
   permissions: roleChain.length ? { roleChain } : null,
 });
 
@@ -368,5 +373,64 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
     prisma.reclamation.findFirst.mockResolvedValue({ id: 'rec-1', organisationId: 'org-1' });
     const res = await service.obtenirReclamation(USER, 'rec-1');
     expect(res).toBeDefined();
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
+  //  Lecture ADHERENT (audit dashboard adhérent) : `reclamations` a bien une
+  //  colonne `adherentId` — un adhérent peut donc lire SES PROPRES réclamations,
+  //  mais strictement scopées, jamais celles d'un autre adhérent de l'organisation.
+  // ═════════════════════════════════════════════════════════════════════
+  it('ADHERENT_TITULAIRE liste SES réclamations, scopées par adherentId', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], 'org-1', 'adh-1'),
+    );
+    await service.listerReclamations(USER, {});
+    expect(prisma.reclamation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organisationId: 'org-1',
+          adherentId: 'adh-1',
+        }),
+      }),
+    );
+  });
+
+  it('ADHERENT_TITULAIRE lit sa propre réclamation par id', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], 'org-1', 'adh-1'),
+    );
+    prisma.reclamation.findFirst.mockResolvedValue({
+      id: 'rec-1',
+      organisationId: 'org-1',
+      adherentId: 'adh-1',
+    });
+    const res = await service.obtenirReclamation(USER, 'rec-1');
+    expect(res).toBeDefined();
+    expect(prisma.reclamation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'rec-1', adherentId: 'adh-1' }),
+      }),
+    );
+  });
+
+  it('ADHERENT_TITULAIRE ne peut PAS lire la réclamation d’un autre adhérent (404, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], 'org-1', 'adh-2'),
+    );
+    // le mock Prisma est scopé par adherentId dans le `where` : une réclamation
+    // d'un autre adhérent ne matche jamais → findFirst renvoie null.
+    prisma.reclamation.findFirst.mockResolvedValue(null);
+    await expect(
+      service.obtenirReclamation(USER, 'rec-autre-adherent'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('rôle ADHERENT sans adherentId rattaché → 403 (compte mal provisionné, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], 'org-1', null),
+    );
+    await expect(service.listerReclamations(USER, {})).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
   });
 });

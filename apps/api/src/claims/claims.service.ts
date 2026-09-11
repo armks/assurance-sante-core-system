@@ -32,6 +32,7 @@ import {
   ROLE_REVUE_MEDICALE,
   ROLE_REVUE_SUPERVISION,
   ROLES_GESTION_CLAIMS,
+  ROLES_LECTURE_CLAIMS,
   TYPES_RECLAMATION_MEDICAUX,
 } from './claims.types';
 
@@ -283,6 +284,7 @@ export class ClaimsService {
     filtres: { statut?: string } = {},
   ) {
     const ctx = await this.contexteAppelant(user);
+    this.assertLecture(ctx);
     return this.prisma.reclamation.findMany({
       where: {
         organisationId: ctx.organisationId,
@@ -296,6 +298,7 @@ export class ClaimsService {
 
   async obtenirReclamation(user: AuthenticatedUser, id: string) {
     const ctx = await this.contexteAppelant(user);
+    this.assertLecture(ctx);
     return this.chargerReclamation(ctx, id);
   }
 
@@ -406,6 +409,27 @@ export class ClaimsService {
     if (!autorise) {
       throw new ForbiddenException(
         'Rôle insuffisant : la soumission des réclamations est réservée aux rôles ASSUREUR habilités (direction, exploitation, informatique).',
+      );
+    }
+  }
+
+  /**
+   * Fuite inter-société corrigée (audit filière société, PROMPT SOCIETE_AFFILIEE) :
+   * `listerReclamations`/`obtenirReclamation` ne vérifiaient QUE `organisationId`
+   * — tout compte authentifié de l'organisation (y compris SOCIETE_*) lisait les
+   * réclamations de TOUTES les sociétés clientes. `reclamations` n'ayant pas de
+   * colonne société/souscripteur, le scoping précis reste à faire (voir
+   * PROGRESSION.md) ; en attendant, la lecture est resserrée au personnel
+   * ASSUREUR habilité, comme la RLS `reclamations_lecture` aurait dû l'être
+   * (voir prisma/sql/025).
+   */
+  private assertLecture(ctx: ContexteAppelant): void {
+    const autorise = ctx.roleChain.some((code) =>
+      (ROLES_LECTURE_CLAIMS as readonly string[]).includes(code),
+    );
+    if (!autorise) {
+      throw new ForbiddenException(
+        'Rôle insuffisant : la consultation des réclamations est réservée aux rôles ASSUREUR habilités (direction, exploitation, informatique, médecin-conseil).',
       );
     }
   }

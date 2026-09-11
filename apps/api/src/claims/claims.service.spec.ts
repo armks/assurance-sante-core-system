@@ -312,3 +312,61 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+//  Lecture des réclamations — fuite inter-société corrigée (audit filière
+//  société) : `organisationId` seul ne suffit pas, `reclamations` n'a pas de
+//  colonne société → en attendant ce scoping, la lecture est réservée au
+//  personnel ASSUREUR habilité (ROLES_LECTURE_CLAIMS).
+// ═══════════════════════════════════════════════════════════════════════
+describe('ClaimsService — autorisation de lecture (listerReclamations / obtenirReclamation)', () => {
+  let service: ClaimsService;
+  let prisma: any;
+  let identity: { getMe: jest.Mock };
+
+  beforeEach(async () => {
+    prisma = {
+      reclamation: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+    };
+    identity = { getMe: jest.fn() };
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ClaimsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: IdentityService, useValue: identity },
+        { provide: AdjudicationClientService, useValue: { evaluer: jest.fn() } },
+      ],
+    }).compile();
+    service = moduleRef.get(ClaimsService);
+  });
+
+  it('SOCIETE_ASSUREE ne peut PAS lister les réclamations → 403 (pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE']));
+    await expect(service.listerReclamations(USER, {})).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    expect(prisma.reclamation.findMany).not.toHaveBeenCalled();
+  });
+
+  it('SOCIETE_COMPTABLE ne peut PAS lire une réclamation par id → 403 (pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(identite(['SOCIETE_COMPTABLE']));
+    await expect(
+      service.obtenirReclamation(USER, 'rec-autre-societe'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.reclamation.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('ASSUREUR_EXPLOITATION liste normalement (rôle habilité, pas de régression)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    await expect(service.listerReclamations(USER, {})).resolves.toEqual([]);
+    expect(prisma.reclamation.findMany).toHaveBeenCalled();
+  });
+
+  it('ASSUREUR_MEDECIN_CONSEIL lit une réclamation par id (rôle habilité, revue médicale)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+    prisma.reclamation.findFirst.mockResolvedValue({ id: 'rec-1', organisationId: 'org-1' });
+    const res = await service.obtenirReclamation(USER, 'rec-1');
+    expect(res).toBeDefined();
+  });
+});

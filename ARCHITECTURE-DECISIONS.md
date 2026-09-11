@@ -101,6 +101,32 @@ C'est **intentionnel**, pas un oubli.
   partout » ; l'esprit de la règle (aucune fuite hors périmètre) est respecté
   *a fortiori*.
 
+### Vérification (2026-09-11)
+
+Le point 1 (« `postgres` contourne la RLS ») a été vérifié empiriquement, pas
+seulement supposé — à l'occasion de l'audit de la fuite inter-société sur
+`ClaimsService.listerReclamations`/`obtenirReclamation` (aucune restriction de
+rôle sur les endpoints `GET /claims/reclamations` et `/:id`, découverte après
+le correctif équivalent sur `AdherentService`, voir PROGRESSION.md) :
+
+```sql
+SELECT current_user AS role, rolsuper, rolbypassrls
+FROM pg_roles WHERE rolname = current_user;
+-- → { role: "postgres", rolsuper: false, rolbypassrls: true }
+```
+
+Confirmé : `rolbypassrls = true` sur le rôle `postgres` utilisé par la
+`DATABASE_URL` de `apps/api`. **Toute policy RLS `SELECT`/`UPDATE`/`DELETE` est
+donc totalement invisible pour NestJS/Prisma** — elle ne protège qu'un
+éventuel accès direct avec le rôle `authenticated` (PostgREST, client Supabase
+navigateur, hors NestJS). Conséquence pratique découverte au passage : la
+policy `reclamations_lecture` elle-même ne filtrait que par `organisation_id`,
+sans restriction de rôle — contrairement au pattern déjà établi ailleurs
+(`polices_lecture`, `cotisations_lecture`, `grilles_tarifaires_lecture` :
+`sr.entite_code = 'ASSUREUR'` via `profil_a_role()`). Corrigé dans
+`prisma/sql/025_fix_reclamations_rls_role_scope.sql` — un trou distinct et
+indépendant du bug applicatif (les deux corrections étaient nécessaires).
+
 ---
 
 ## ADR-003 — Grants de `svc_adjudication` : cette section est la **référence unique**

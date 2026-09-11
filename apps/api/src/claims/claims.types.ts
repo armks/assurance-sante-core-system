@@ -22,7 +22,9 @@ export type TypeReclamation = (typeof TYPES_RECLAMATION)[number];
 
 /**
  * Rôles ASSUREUR habilités à soumettre une réclamation à l'adjudication.
- * (Défense en profondeur en plus des policies RLS — NestJS passe par `postgres`.)
+ * (Seule défense réelle contre un appel direct : `postgres` a `BYPASSRLS`,
+ * voir ADR-002 dans ARCHITECTURE-DECISIONS.md — les policies RLS ne protègent
+ * PAS ce chemin, uniquement un éventuel accès direct `authenticated`.)
  */
 export const ROLES_GESTION_CLAIMS = [
   'ASSUREUR_DIRECTION',
@@ -57,6 +59,20 @@ export const TYPES_RECLAMATION_MEDICAUX = [
 export const ROLE_REVUE_MEDICALE = 'ASSUREUR_MEDECIN_CONSEIL';
 export const ROLE_REVUE_FINANCIERE = 'ASSUREUR_EXPLOITATION';
 export const ROLE_REVUE_SUPERVISION = 'ASSUREUR_DIRECTION';
+
+/**
+ * Rôles habilités à CONSULTER les réclamations (`GET /claims/reclamations`
+ * et `/:id`) — données de santé sensibles. `ROLES_GESTION_CLAIMS` + le
+ * médecin-conseil (revue médicale, ne soumet jamais mais doit pouvoir lister
+ * et lire une réclamation `REVUE_MANUELLE` avant `validerManuellement`).
+ * AUCUN rôle SOCIETE_* : `reclamations` n'a pas de colonne société/souscripteur
+ * (voir PROGRESSION.md, gap noté au prompt filière SOCIETE_AFFILIEE) — tant
+ * que ce scoping n'existe pas, la lecture reste réservée au personnel ASSUREUR.
+ */
+export const ROLES_LECTURE_CLAIMS = [
+  ...ROLES_GESTION_CLAIMS,
+  ROLE_REVUE_MEDICALE,
+] as const;
 
 /** Code ajouté à `codes_rejet` quand un rejet est prononcé après revue manuelle. */
 export const CODE_REJET_MANUEL = 'REJET_MANUEL';

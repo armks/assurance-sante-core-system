@@ -2520,3 +2520,65 @@ famille de bug que celle corrigée ici, mais dans le module réclamations/sinist
 santé). N'a pas été utilisé pour construire ces écrans (d'où l'absence du « plafond
 consommé » côté assurée) ; à corriger dans un prompt dédié avant d'exposer une vue
 réclamations à un rôle SOCIETE_*.
+
+---
+
+## 2026-09-11 — Fix sécurité prioritaire : fuite de lecture `ClaimsService` (gap ci-dessus)
+
+Suite à la revue du gap noté au prompt précédent, audit complet du module `claims/` avant
+de reprendre les dashboards.
+
+### Constat exact
+- `listerReclamations`/`obtenirReclamation` ne scopaient la lecture QUE par `organisationId`
+  — **aucun contrôle de rôle** sur `GET /claims/reclamations` et `/:id` (contrairement à
+  `soumettre`, qui a `assertGestion`). N'importe quel compte authentifié de l'organisation
+  — y compris `SOCIETE_ASSUREE`/`COMPTABLE`/`RECEPTION` — pouvait lister **toutes les
+  réclamations de toutes les sociétés clientes** et lire n'importe laquelle par id. Plus
+  large que le bug `AdherentService` : là il fallait être un rôle `SOCIETE_AFFILIEE` pour
+  fuiter, ici *aucune* restriction de rôle n'existait.
+- Vérification demandée sur la RLS comme deuxième ligne de défense potentielle :
+  - `postgres` (rôle de connexion NestJS/Prisma) a bien `rolbypassrls = true`, vérifié en
+    base (`SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user`) — **déjà
+    documenté** dans ADR-002 (`ARCHITECTURE-DECISIONS.md`), pas une découverte nouvelle.
+    RLS ne protège donc rien de ce qui passe par NestJS.
+  - **Deuxième trou distinct, celui-là nouveau** : la policy `reclamations_lecture`
+    elle-même n'avait aucune restriction de rôle (seulement `organisation_id = …`),
+    contrairement au pattern déjà établi ailleurs (`polices_lecture`, `cotisations_lecture`,
+    `grilles_tarifaires_lecture` : `sr.entite_code = 'ASSUREUR'` via `profil_a_role()`).
+    Corrigé dans `prisma/sql/025_fix_reclamations_rls_role_scope.sql`, appliqué en base
+    (`prisma db execute`) et vérifié (`pg_policy` relit `profil_a_role(...)` avec la même
+    liste de rôles que côté NestJS). Détail complet en addendum d'ADR-002.
+
+### Correction applicative (`apps/api/src/claims/`)
+- `claims.types.ts` : nouvelle constante `ROLES_LECTURE_CLAIMS` = `ROLES_GESTION_CLAIMS`
+  (direction, exploitation, informatique) + `ASSUREUR_MEDECIN_CONSEIL` (revue médicale,
+  ne soumet jamais mais doit pouvoir consulter une réclamation `REVUE_MANUELLE`).
+- `claims.service.ts` : nouvelle méthode `assertLecture()`, appelée en tête de
+  `listerReclamations` et `obtenirReclamation`. `validerManuellement` inchangé (son propre
+  contrôle de rôle par type de réclamation était déjà correct).
+- **Aucun rôle SOCIETE_*** dans `ROLES_LECTURE_CLAIMS` : `reclamations` n'a pas de colonne
+  société/souscripteur directe (`police_id`/`adherent_id` seulement) — tant que ce scoping
+  n'est pas construit (jointure `police_id → polices.souscripteur_id`), la lecture reste
+  fermée à ce périmètre plutôt que mal scopée. **Dette explicitement différée, pas
+  oubliée** — à faire dans le même prompt dédié que le gap ci-dessus, avant d'exposer une
+  vue réclamations à un rôle SOCIETE_*.
+- 4 tests ajoutés à `claims.service.spec.ts` (nouveau describe dédié) : rôle non habilité
+  refusé sur liste ET sur lecture par id (`ForbiddenException`, prisma jamais appelé — pas
+  de fuite même partielle), rôle habilité (`ASSUREUR_EXPLOITATION`) et médecin-conseil
+  toujours fonctionnels. Suite complète : **20/20 suites, 174/174 tests verts**.
+
+### Test — HTTP réel (2 comptes éphémères : `SOCIETE_ASSUREE`, `ASSUREUR_EXPLOITATION`)
+Comptes créés via l'API Admin Supabase (`auth.users` + `profils` insérés directement),
+connexion réelle (`grant_type=password`) pour obtenir un jeton, appels HTTP réels contre
+l'API NestJS locale (redémarrée pour charger le correctif — la précédente instance,
+lancée avant l'édition, ne l'avait pas rechargé malgré `--watch` ; premier essai refait
+après redémarrage) :
+- `SOCIETE_ASSUREE` → `GET /claims/reclamations` : **403**. `GET /claims/reclamations/:id`
+  (id arbitraire) : **403**.
+- `ASSUREUR_EXPLOITATION` → `GET /claims/reclamations` : **200**. `GET
+  /claims/reclamations/:id` (id inexistant) : **404** (rôle autorisé, ressource absente —
+  confirme que le rôle légitime n'est pas régressé).
+Comptes éphémères (auth + profils) supprimés après test.
+
+### Commit
+Correctif de sécurité isolé dans son propre commit, séparé de toute autre tâche.

@@ -17,6 +17,7 @@ import {
 } from './dto/member.dto';
 import {
   ContexteAppelant,
+  ENTITE_ADHERENT,
   ENTITE_SOCIETE_AFFILIEE,
   ROLE_GESTION_MEMBRE_SOCIETE,
   ROLES_GESTION_MEMBRE,
@@ -120,6 +121,12 @@ export class AdherentService {
         // SOCIETE_ADMINISTRATION, qui seul a le droit d'ÉCRIRE (assertGestion).
         ...(ctx.entite === ENTITE_SOCIETE_AFFILIEE
           ? { souscripteurId: ctx.societeId ?? '__aucun__' }
+          : {}),
+        // Fuite inter-adhérent corrigée (audit dashboard adhérent) : un compte
+        // ADHERENT ne liste jamais que lui-même, jamais le fichier des membres
+        // de toute l'organisation.
+        ...(ctx.entite === ENTITE_ADHERENT
+          ? { id: ctx.adherentId ?? '__aucun__' }
           : {}),
         ...(filtres.statut ? { statut: filtres.statut } : {}),
         ...(filtres.souscripteurId
@@ -422,6 +429,7 @@ export class AdherentService {
       roleChain: permissions?.roleChain ?? [],
       societeId: profil.societeId ?? null,
       entite: profil.entite ?? null,
+      adherentId: profil.adherentId ?? null,
     };
   }
 
@@ -502,6 +510,14 @@ export class AdherentService {
       ctx.entite === ENTITE_SOCIETE_AFFILIEE &&
       adherent.souscripteurId !== ctx.societeId
     ) {
+      throw new NotFoundException('Adhérent introuvable.');
+    }
+    // Fuite inter-adhérent corrigée (audit dashboard adhérent, même famille que
+    // le fix reclamations du 2026-09-11) : un compte ADHERENT ne voit que SON
+    // PROPRE enregistrement, jamais celui d'un autre adhérent de la même
+    // organisation même en appelant cette route avec son ID direct. 404 (pas
+    // 403) pour ne pas révéler qu'un autre adhérent existe à cet ID.
+    if (ctx.entite === ENTITE_ADHERENT && adherent.id !== ctx.adherentId) {
       throw new NotFoundException('Adhérent introuvable.');
     }
     return adherent;

@@ -22,13 +22,20 @@ const USER: AuthenticatedUser = {
 
 const identite = (
   roleChain: string[],
-  extra: { organisationId?: string | null; societeId?: string | null } = {},
+  extra: {
+    organisationId?: string | null;
+    societeId?: string | null;
+    entite?: string | null;
+    adherentId?: string | null;
+  } = {},
 ) => ({
   profil: {
     id: 'u1',
     organisationId:
       extra.organisationId === undefined ? 'org-1' : extra.organisationId,
     societeId: extra.societeId ?? null,
+    entite: extra.entite ?? null,
+    adherentId: extra.adherentId ?? null,
   },
   permissions: roleChain.length ? { roleChain } : null,
 });
@@ -183,6 +190,34 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
     await expect(
       service.genererCarteAdherent(USER, 'adh-1'),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Self-service ADHERENT (audit dashboard adhérent) : un adhérent peut
+  //  générer SA PROPRE carte, jamais celle d'un autre (même par ID direct).
+  // ═══════════════════════════════════════════════════════════════════
+  it('ADHERENT_TITULAIRE génère SA PROPRE carte', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], {
+        entite: 'ADHERENT',
+        adherentId: 'adh-1',
+      }),
+    );
+    const res = await service.genererCarteAdherent(USER, 'adh-1');
+    expect(res.numeroCarte).toBe('CM-0000000099');
+  });
+
+  it('ADHERENT_TITULAIRE ne peut PAS générer la carte d’un autre adhérent (404, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], {
+        entite: 'ADHERENT',
+        adherentId: 'adh-2',
+      }),
+    );
+    await expect(
+      service.genererCarteAdherent(USER, 'adh-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

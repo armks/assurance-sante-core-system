@@ -14,6 +14,7 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ContexteAppelant,
+  ENTITE_ADHERENT,
   ENTITE_SOCIETE_AFFILIEE,
   ROLE_GESTION_MEMBRE_SOCIETE,
   ROLES_GESTION_MEMBRE,
@@ -74,7 +75,11 @@ export class MemberCarteService {
   async genererCarteAdherent(user: AuthenticatedUser, adherentId: string) {
     const ctx = await this.contexteAppelant(user);
     const adherent = await this.chargerAdherentComplet(ctx, adherentId);
-    this.assertGestion(ctx, adherent.souscripteurId);
+    // Self-service : un adhérent peut générer SA PROPRE carte (chargerAdherentComplet
+    // a déjà renvoyé 404 si `adherentId` n'était pas le sien — voir ce garde-fou).
+    const estPropreCarte =
+      ctx.entite === ENTITE_ADHERENT && ctx.adherentId === adherentId;
+    this.assertGestion(ctx, adherent.souscripteurId, estPropreCarte);
     if (adherent.statut !== 'ACTIF') {
       throw new ConflictException(
         `Carte indisponible : l'adhérent est « ${adherent.statut} ». Seul un adhérent ACTIF a une carte valide.`,
@@ -427,6 +432,7 @@ export class MemberCarteService {
       roleChain: permissions?.roleChain ?? [],
       societeId: profil.societeId ?? null,
       entite: profil.entite ?? null,
+      adherentId: profil.adherentId ?? null,
     };
   }
 
@@ -439,7 +445,9 @@ export class MemberCarteService {
   private assertGestion(
     ctx: ContexteAppelant,
     souscripteurId: string | null,
+    estPropreCarte = false,
   ): void {
+    if (estPropreCarte) return;
     if (this.aRoleAssureur(ctx)) return;
     if (
       ctx.roleChain.includes(ROLE_GESTION_MEMBRE_SOCIETE) &&
@@ -449,7 +457,7 @@ export class MemberCarteService {
       return;
     }
     throw new ForbiddenException(
-      "La génération des cartes est réservée au personnel ASSUREUR habilité, ou à SOCIETE_ADMINISTRATION pour ses propres adhérents.",
+      "La génération des cartes est réservée au personnel ASSUREUR habilité, à SOCIETE_ADMINISTRATION pour ses propres adhérents, ou à l'adhérent pour sa propre carte.",
     );
   }
 
@@ -473,6 +481,12 @@ export class MemberCarteService {
       ctx.entite === ENTITE_SOCIETE_AFFILIEE &&
       adherent.souscripteurId !== ctx.societeId
     ) {
+      throw new NotFoundException('Adhérent introuvable.');
+    }
+    // Fuite inter-adhérent corrigée (audit dashboard adhérent) : un compte
+    // ADHERENT ne peut charger que SON PROPRE enregistrement — jamais celui
+    // d'un autre adhérent, même par ID direct (ex. sur /adherents/:id/carte).
+    if (ctx.entite === ENTITE_ADHERENT && adherent.id !== ctx.adherentId) {
       throw new NotFoundException('Adhérent introuvable.');
     }
     return adherent as AdherentComplet;

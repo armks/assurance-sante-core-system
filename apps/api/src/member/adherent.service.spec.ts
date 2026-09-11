@@ -20,6 +20,7 @@ const identite = (
     organisationId?: string | null;
     societeId?: string | null;
     entite?: string | null;
+    adherentId?: string | null;
   } = {},
 ) => ({
   profil: {
@@ -28,6 +29,7 @@ const identite = (
       extra.organisationId === undefined ? 'org-1' : extra.organisationId,
     societeId: extra.societeId ?? null,
     entite: extra.entite ?? null,
+    adherentId: extra.adherentId ?? null,
   },
   permissions: roleChain.length ? { roleChain } : null,
 });
@@ -247,5 +249,48 @@ describe('AdherentService — fichier des membres', () => {
     );
     const res = await service.obtenirAdherent(USER, 'adh-1');
     expect(res).toBeDefined();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Fuite inter-adhérent corrigée (audit dashboard adhérent, même famille
+  //  que le fix reclamations du 2026-09-11) : un compte ADHERENT ne doit
+  //  jamais voir/lister un adhérent autre que lui-même, même par ID direct.
+  // ═══════════════════════════════════════════════════════════════════
+  it('ADHERENT_TITULAIRE lit son propre enregistrement', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], {
+        entite: 'ADHERENT',
+        adherentId: 'adh-1',
+      }),
+    );
+    const res = await service.obtenirAdherent(USER, 'adh-1');
+    expect(res).toBeDefined();
+  });
+
+  it('ADHERENT_TITULAIRE ne peut PAS lire un autre adhérent par ID direct (404, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], {
+        entite: 'ADHERENT',
+        adherentId: 'adh-2',
+      }),
+    );
+    await expect(
+      service.obtenirAdherent(USER, 'adh-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('ADHERENT_TITULAIRE ne liste que lui-même (jamais le fichier des membres)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], {
+        entite: 'ADHERENT',
+        adherentId: 'adh-1',
+      }),
+    );
+    await service.listerAdherents(USER, {});
+    expect(prisma.adherent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'adh-1' }),
+      }),
+    );
   });
 });

@@ -41,6 +41,15 @@ export const ROLE_GESTION_MEMBRE_SOCIETE = 'SOCIETE_ADMINISTRATION';
 /** `sous_roles.entite_code` des 4 rôles société affiliée (v9 §ADDENDUM). */
 export const ENTITE_SOCIETE_AFFILIEE = 'SOCIETE_AFFILIEE';
 
+/**
+ * `sous_roles.entite_code` des rôles adhérent (`ADHERENT_TITULAIRE`,
+ * `SOUSCRIPTEUR_INDIVIDUEL` — v9 §ADDENDUM). Un compte de cette entité ne voit
+ * et ne gère jamais que SON PROPRE enregistrement `adherents` (`ctx.adherentId`),
+ * même par ID direct — fuite corrigée lors de l'audit du dashboard adhérent
+ * (même famille que le scope `ENTITE_SOCIETE_AFFILIEE` ci-dessus).
+ */
+export const ENTITE_ADHERENT = 'ADHERENT';
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;
@@ -50,4 +59,6 @@ export interface ContexteAppelant {
   /** `sous_roles.entite_code` du rôle propre — scope la LECTURE pour tout rôle
    * SOCIETE_AFFILIEE (pas seulement SOCIETE_ADMINISTRATION, qui seul écrit). */
   entite: string | null;
+  /** `profils.adherent_id` — renseigné pour les rôles ADHERENT (self-service). */
+  adherentId: string | null;
 }

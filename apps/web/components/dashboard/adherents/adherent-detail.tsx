@@ -146,13 +146,21 @@ export function AdherentDetail({
           <CardTitle className="text-base">Carte de membre & statut</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <CarteBouton
-            adherentId={adherent.id}
-            actif={actif}
-            raisonIndispo={`l’adhérent est ${
-              LIBELLE_STATUT_MEMBRE[adherent.statut] ?? adherent.statut
-            }`}
-          />
+          {peutGerer ? (
+            <CarteBouton
+              adherentId={adherent.id}
+              actif={actif}
+              raisonIndispo={`l’adhérent est ${
+                LIBELLE_STATUT_MEMBRE[adherent.statut] ?? adherent.statut
+              }`}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              N° carte : <span className="font-mono">{adherent.numeroCarte}</span>{' '}
+              — la génération de carte est réservée au personnel habilité
+              (assureur ou administration de votre société).
+            </p>
+          )}
 
           {peutGerer && (
             <div className="border-t pt-4">
@@ -269,20 +277,22 @@ export function AdherentDetail({
             }
             actionLigne={(b) => (
               <div className="flex items-center gap-2">
-                <CarteBouton
-                  adherentId={adherent.id}
-                  beneficiaireId={b.id}
-                  actif={actif && b.statut === 'ACTIF'}
-                  raisonIndispo={
-                    b.statut !== 'ACTIF'
-                      ? `le bénéficiaire est ${
-                          LIBELLE_STATUT_MEMBRE[b.statut] ?? b.statut
-                        }`
-                      : `l’adhérent titulaire est ${
-                          LIBELLE_STATUT_MEMBRE[adherent.statut] ?? adherent.statut
-                        }`
-                  }
-                />
+                {peutGerer && (
+                  <CarteBouton
+                    adherentId={adherent.id}
+                    beneficiaireId={b.id}
+                    actif={actif && b.statut === 'ACTIF'}
+                    raisonIndispo={
+                      b.statut !== 'ACTIF'
+                        ? `le bénéficiaire est ${
+                            LIBELLE_STATUT_MEMBRE[b.statut] ?? b.statut
+                          }`
+                        : `l’adhérent titulaire est ${
+                            LIBELLE_STATUT_MEMBRE[adherent.statut] ?? adherent.statut
+                          }`
+                    }
+                  />
+                )}
                 {peutGerer && b.statut !== 'RADIE' && (
                   <Button
                     size="xs"

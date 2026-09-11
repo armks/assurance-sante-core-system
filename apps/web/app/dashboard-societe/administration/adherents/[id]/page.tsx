@@ -1,17 +1,6 @@
 import type { Metadata } from 'next';
-import { ArrowLeft } from 'lucide-react';
-import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
 
-import { AdherentDetail } from '@/components/dashboard/adherents/adherent-detail';
-import type { AdherentDetail as AdherentDetailType } from '@/components/dashboard/adherents/types';
-import { PageTitre } from '@/components/page-titre';
-import { StatutBadge } from '@/components/dashboard/patterns';
-import { Button } from '@/components/ui/button';
-import { LIBELLE_STATUT_MEMBRE, TON_STATUT_MEMBRE } from '@/lib/member';
-import { apiFetch } from '@/lib/api';
-import { exigerIdentite } from '@/lib/identity';
-import { peutGererMembres } from '@/lib/member';
+import { AdherentSocieteDetail } from '@/components/dashboard/adherents/adherent-societe-detail';
 
 export const metadata: Metadata = { title: 'Adhérent — Société' };
 
@@ -23,37 +12,5 @@ export default async function AdherentSocietePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const etat = await exigerIdentite(`${BASE}/${id}`);
-  if (etat.kind !== 'ok') redirect('/dashboard');
-
-  const res = await apiFetch(`/api/v1/member/adherents/${id}`);
-  if (res.status === 404) notFound();
-  const adherent = (await res.json()) as AdherentDetailType;
-
-  return (
-    <div className="space-y-6">
-      <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href={BASE}>
-          <ArrowLeft className="size-4" />
-          Adhérents
-        </Link>
-      </Button>
-
-      <PageTitre
-        titre={`${adherent.nom} ${adherent.prenom}`}
-        action={
-          <StatutBadge
-            statut={adherent.statut}
-            map={TON_STATUT_MEMBRE}
-            libelles={LIBELLE_STATUT_MEMBRE}
-          />
-        }
-      />
-
-      <AdherentDetail
-        adherent={adherent}
-        peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
-      />
-    </div>
-  );
+  return <AdherentSocieteDetail id={id} basePath={BASE} />;
 }

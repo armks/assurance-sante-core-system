@@ -48,15 +48,38 @@ const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const MEDECIN_SOUSCRIPTEUR = '/dashboard-assureur/medecin-souscripteur';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 const CENTRE_MEDICAL = '/dashboard-centre-medical';
-const SOCIETE = '/dashboard-societe';
+const SOCIETE_ADMINISTRATION = '/dashboard-societe/administration';
+const SOCIETE_ASSUREE = '/dashboard-societe/assuree';
+const SOCIETE_COMPTABLE = '/dashboard-societe/comptable';
+const SOCIETE_RECEPTION = '/dashboard-societe/reception';
 
 export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
-  [SOCIETE]: [
+  [SOCIETE_ADMINISTRATION]: [
     {
       label: 'Adhérents',
-      href: `${SOCIETE}/administration/adherents`,
+      href: `${SOCIETE_ADMINISTRATION}/adherents`,
       icon: Users,
     },
+  ],
+  // Contact principal de l'entreprise cliente : vue d'ensemble propre +
+  // renvoi vers l'écran adhérents déjà construit pour SOCIETE_ADMINISTRATION
+  // (lecture seule pour ce rôle — l'API ne lui accorde pas l'écriture).
+  [SOCIETE_ASSUREE]: [
+    { label: "Vue d'ensemble", href: SOCIETE_ASSUREE, icon: LayoutDashboard },
+    {
+      label: 'Adhérents',
+      href: `${SOCIETE_ADMINISTRATION}/adherents`,
+      icon: Users,
+    },
+  ],
+  // Lecture des cotisations/factures de la société ; pas de confirmation de
+  // paiement (réservée à ASSUREUR_COMPTABLE / ASSUREUR_INFORMATIQUE côté API).
+  [SOCIETE_COMPTABLE]: [
+    { label: 'Cotisations', href: SOCIETE_COMPTABLE, icon: Wallet },
+  ],
+  // LECTURE_SEULE explicite (niveau posé en base) : aucune action d'écriture.
+  [SOCIETE_RECEPTION]: [
+    { label: 'Adhérents', href: SOCIETE_RECEPTION, icon: Users },
   ],
   // Parcours de soins côté établissement : nav commune aux 4 sous-rôles
   // CENTRE_MEDICAL. Chaque écran retire ensuite ses propres actions selon le

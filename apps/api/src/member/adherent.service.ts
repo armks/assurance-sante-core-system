@@ -17,6 +17,7 @@ import {
 } from './dto/member.dto';
 import {
   ContexteAppelant,
+  ENTITE_SOCIETE_AFFILIEE,
   ROLE_GESTION_MEMBRE_SOCIETE,
   ROLES_GESTION_MEMBRE,
 } from './member.types';
@@ -114,8 +115,10 @@ export class AdherentService {
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
-        ...(ctx.roleChain.includes(ROLE_GESTION_MEMBRE_SOCIETE) &&
-        !this.aRoleAssureur(ctx)
+        // Lecture scopée à SON souscripteur pour TOUT rôle SOCIETE_AFFILIEE
+        // (administration, assurée, comptable, réception) — pas seulement
+        // SOCIETE_ADMINISTRATION, qui seul a le droit d'ÉCRIRE (assertGestion).
+        ...(ctx.entite === ENTITE_SOCIETE_AFFILIEE
           ? { souscripteurId: ctx.societeId ?? '__aucun__' }
           : {}),
         ...(filtres.statut ? { statut: filtres.statut } : {}),
@@ -418,6 +421,7 @@ export class AdherentService {
       organisationId: profil.organisationId,
       roleChain: permissions?.roleChain ?? [],
       societeId: profil.societeId ?? null,
+      entite: profil.entite ?? null,
     };
   }
 
@@ -492,10 +496,10 @@ export class AdherentService {
     if (!adherent) {
       throw new NotFoundException('Adhérent introuvable.');
     }
-    // SOCIETE_ADMINISTRATION : ne voit que les adhérents de son souscripteur.
+    // Tout rôle SOCIETE_AFFILIEE (administration, assurée, comptable,
+    // réception) ne voit que les adhérents de SON souscripteur.
     if (
-      !this.aRoleAssureur(ctx) &&
-      ctx.roleChain.includes(ROLE_GESTION_MEMBRE_SOCIETE) &&
+      ctx.entite === ENTITE_SOCIETE_AFFILIEE &&
       adherent.souscripteurId !== ctx.societeId
     ) {
       throw new NotFoundException('Adhérent introuvable.');

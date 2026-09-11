@@ -8,9 +8,12 @@ const ROUTE_SOCIETE = '/dashboard-societe';
 
 /**
  * Layout du dashboard « société affiliée ». Garde : session + entité
- * SOCIETE_AFFILIEE + rôle provisionné. Nav commune ; chaque écran retire ensuite
- * les actions selon le rôle (SOCIETE_ADMINISTRATION gère le fichier des membres
- * de son propre souscripteur — cohérent avec la RLS `adherents_ecriture`).
+ * SOCIETE_AFFILIEE + rôle provisionné. La nav est propre à chaque rôle (clé =
+ * sa `dashboardRoute` réelle — administration / assurée / comptable /
+ * réception) : chaque écran retire ensuite ses actions selon le rôle
+ * (SOCIETE_ADMINISTRATION gère le fichier des membres de son propre
+ * souscripteur — cohérent avec la RLS `adherents_ecriture` — les 3 autres
+ * rôles n'y ont accès qu'en lecture).
  */
 export default async function DashboardSocieteLayout({
   children,
@@ -51,7 +54,7 @@ export default async function DashboardSocieteLayout({
       entite={profil.entite}
       niveauAcces={permissions.niveauAcces}
       peutValider={permissions.peutValider}
-      dashboardRoute={ROUTE_SOCIETE}
+      dashboardRoute={permissions.dashboardRoute ?? ROUTE_SOCIETE}
     >
       {children}
     </DashboardShell>

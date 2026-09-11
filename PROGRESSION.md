@@ -2426,3 +2426,97 @@ Corrige l'écart bloquant identifié par l'audit de couverture frontend : le rô
 - **Jest complet** : `20 suites / 167 tests` — tous verts. `tsc --noEmit` web : OK.
 Questionnaire + souscripteur + comptes éphémères supprimés, base au référentiel
 (profils 3, souscripteurs 4, questionnaires 1), serveurs arrêtés.
+
+---
+
+## 2026-09-10 — Filière SOCIETE_AFFILIEE complète : assurée, comptable, réception
+
+Les 3 rôles restants de la filière société (le dashboard `administration` existait déjà).
+
+### Correction de sécurité préalable — fuite de lecture inter-société (module `member/`)
+Avant de construire les écrans, vérification précise des droits API pour chaque rôle
+(demandée par le prompt) : `AdherentService.listerAdherents` et `.chargerAdherent`
+(+ l'équivalent dans `CarteService`) ne scopaient la lecture par `societe_id` que pour
+le rôle **exact** `SOCIETE_ADMINISTRATION` (`roleChain.includes(ROLE_GESTION_MEMBRE_SOCIETE)`).
+Les 3 autres rôles `SOCIETE_AFFILIEE` (assurée, comptable, réception) passaient donc ce
+filtre et lisaient **tous les adhérents de l'organisation, toutes sociétés clientes
+confondues** — une fuite de données de santé inter-entreprises au sein du même assureur.
+- Corrigé : la lecture scope désormais sur `ctx.entite === 'SOCIETE_AFFILIEE'` (tout rôle de
+  la filière), cohérent avec le pattern déjà utilisé ailleurs (`policy.service`,
+  `billing.service` : `ctx.entite !== 'ASSUREUR'`). **L'écriture reste réservée à
+  `SOCIETE_ADMINISTRATION` seule** (`assertGestion`, inchangé) — aucune régression de
+  permission, uniquement un resserrement de la lecture.
+- `member.types.ts` : `ContexteAppelant.entite` ajouté ; `ENTITE_SOCIETE_AFFILIEE` exporté.
+- 3 tests ajoutés à `adherent.service.spec.ts` (liste scopée, 404 cross-société, lecture OK
+  dans son périmètre) — suite complète : **20/20, 170 tests**.
+- Frontend, bug préexistant corrigé en le découvrant : `CarteBouton` (« Générer la carte »)
+  s'affichait **sans condition** dans `AdherentDetail`, y compris pour un rôle en lecture
+  seule (l'API l'aurait refusé en 403, mais c'est exactement le bouton-qui-échoue-toujours
+  que l'audit avait signalé comme anti-pattern) — désormais gaté par `peutGerer`, comme le
+  reste des actions.
+
+### 1. `/dashboard-societe/assuree` (contact principal, ADMIN, `peutValider=true`)
+- `assuree/{layout,page}.tsx` + `components/dashboard/societe/assuree-ecran.tsx` :
+  `GrilleCartes` (statut du contrat, reste à payer, cotisations en retard, raccourci
+  Adhérents) ; carte par police avec ses garanties (`GET /plan/produits/:id`, taux,
+  plafonds, franchise, réseau) ; tableau des cotisations. **Pas de plafond consommé** —
+  aucune source fiable côté API (nécessiterait de scoper `claims/reclamations`, non fait,
+  voir gap ci-dessous) : la carte présente les plafonds **contractuels** avec une mention
+  explicite de la limite.
+- « Gérer les adhérents » renvoie vers l'écran **déjà construit**
+  `/dashboard-societe/administration/adherents` (factorisé, pas dupliqué — mêmes composants
+  `AdherentsListe`/`AdherentDetail`, `peutCreer`/`peutGerer` dérivés de `peutGererMembres`
+  → lecture seule pour ce rôle, cohérent avec le pattern `informatique-adjoint`).
+
+### 2. `/dashboard-societe/comptable`
+- `comptable/{layout,page}.tsx` + `components/dashboard/societe/cotisations-societe-liste.tsx` :
+  lecture des cotisations de sa société (`GET /billing/cotisations`, déjà scopé
+  correctement par `entite !== 'ASSUREUR'`, aucun bug ici). **Pas de bouton de paiement** —
+  vérifié précisément : `POST /billing/cotisations/:id/paiement` exige
+  `ROLES_GESTION_BILLING = [ASSUREUR_COMPTABLE, ASSUREUR_INFORMATIQUE]`,
+  `SOCIETE_COMPTABLE` n'y figure pas → 403 confirmé en test. Mention explicite en tête
+  d'écran plutôt qu'un bouton silencieusement absent.
+
+### 3. `/dashboard-societe/reception` — LECTURE_SEULE explicite
+- `reception/{layout,page,[id]/page}.tsx` : réutilisent les composants factorisés
+  `AdherentsSociete` / `AdherentSocieteDetail` (extraits de l'écran administration existant)
+  avec `basePath="/dashboard-societe/reception"`. `peutGererMembres` renvoie `false` pour
+  ce rôle → **aucune action d'écriture nulle part** (créer, statut, carte, bénéficiaire),
+  vérifié à l'écran ET par 5 appels API directs (tous 403/404).
+
+### Factorisation (nouveaux composants partagés)
+`components/dashboard/adherents/adherents-societe.tsx` et `adherent-societe-detail.tsx`
+portent désormais la logique de fetch+rendu commune aux écrans `administration/adherents`
+et `reception` (paramétrée par `basePath`) — `administration/adherents/{page,[id]/page}.tsx`
+ont été réduits à de simples wrappers. `dashboard-societe/layout.tsx` transmet maintenant
+la vraie `permissions.dashboardRoute` du rôle connecté (au lieu du littéral
+`/dashboard-societe` partagé par les 4 rôles) ; `dashboard-nav.ts` a une entrée de nav par
+rôle réel.
+
+### Test — navigateur réel (5 comptes éphémères : assurée, comptable, réception ×2
+sociétés différentes, administration)
+1. **Assurée** : login → 307 → `/dashboard-societe/assuree` → 200 (statut police, reste à
+   payer, cotisations en retard, garanties de la police active) ; clic Adhérents → écran
+   administration en lecture seule (pas de « Nouvel adhérent ») ; `POST /member/adherents`
+   direct → **403**.
+2. **Comptable** : login → 307 → `/dashboard-societe/comptable` → 200 (cotisations de SA
+   société uniquement) ; aucun bouton de paiement ; `POST …/paiement` direct → **403** ;
+   tentative d'accéder à `/reception` avec ce compte → **redirigé** (pas 200).
+3. **Réception** : login → 307 → `/dashboard-societe/reception` → 200 (3 adhérents de sa
+   société) ; détail adhérent → 200 sans « Générer la carte »/« Changer le statut »/
+   « Ajouter un bénéficiaire » ; **5 appels API directs en écriture** (statut, carte,
+   bénéficiaire, création, suppression) → **tous 403 ou 404**.
+4. **Isolation inter-société** (2ᵉ compte réception, société différente) : liste **ne
+   contient pas** les adhérents de la première société ; lecture directe d'un adhérent de
+   l'autre société → **404** (page et API) — confirme le correctif de la fuite ci-dessus.
+5. **Non-régression** SOCIETE_ADMINISTRATION : écran adhérents inchangé, « Nouvel
+   adhérent » toujours présent.
+Comptes éphémères + profils supprimés (aucune donnée créée — tous les essais d'écriture ont
+échoué comme attendu), base au référentiel, serveurs arrêtés.
+
+### Gap identifié, non traité (hors périmètre de ce prompt)
+`ClaimsService.listerReclamations` ne scope pas non plus la lecture par société (même
+famille de bug que celle corrigée ici, mais dans le module réclamations/sinistres — data de
+santé). N'a pas été utilisé pour construire ces écrans (d'où l'absence du « plafond
+consommé » côté assurée) ; à corriger dans un prompt dédié avant d'exposer une vue
+réclamations à un rôle SOCIETE_*.

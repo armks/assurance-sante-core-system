@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
@@ -16,13 +16,18 @@ const USER: AuthenticatedUser = {
 
 const identite = (
   roleChain: string[],
-  extra: { organisationId?: string | null; societeId?: string | null } = {},
+  extra: {
+    organisationId?: string | null;
+    societeId?: string | null;
+    entite?: string | null;
+  } = {},
 ) => ({
   profil: {
     id: 'u1',
     organisationId:
       extra.organisationId === undefined ? 'org-1' : extra.organisationId,
     societeId: extra.societeId ?? null,
+    entite: extra.entite ?? null,
   },
   permissions: roleChain.length ? { roleChain } : null,
 });
@@ -199,5 +204,48 @@ describe('AdherentService — fichier des membres', () => {
     await expect(
       service.listerAdherents(USER, {}),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Lecture scopée à TOUT rôle SOCIETE_AFFILIEE (pas seulement
+  //  SOCIETE_ADMINISTRATION, qui seul a le droit d'écrire) — régression du
+  //  filtrage étroit sur ROLE_GESTION_MEMBRE_SOCIETE (audit filière société).
+  // ═══════════════════════════════════════════════════════════════════
+  it('SOCIETE_ASSUREE ne liste que les adhérents de SA société', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_ASSUREE'], {
+        societeId: 'sous-1',
+        entite: 'SOCIETE_AFFILIEE',
+      }),
+    );
+    await service.listerAdherents(USER, {});
+    expect(prisma.adherent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ souscripteurId: 'sous-1' }),
+      }),
+    );
+  });
+
+  it('SOCIETE_COMPTABLE ne peut PAS lire un adhérent d’une autre société (404, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_COMPTABLE'], {
+        societeId: 'une-autre-societe',
+        entite: 'SOCIETE_AFFILIEE',
+      }),
+    );
+    await expect(
+      service.obtenirAdherent(USER, 'adh-1'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('SOCIETE_RECEPTION lit un adhérent de SA société', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_RECEPTION'], {
+        societeId: 'sous-1',
+        entite: 'SOCIETE_AFFILIEE',
+      }),
+    );
+    const res = await service.obtenirAdherent(USER, 'adh-1');
+    expect(res).toBeDefined();
   });
 });

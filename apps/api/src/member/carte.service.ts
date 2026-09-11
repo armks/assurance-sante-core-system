@@ -14,6 +14,7 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ContexteAppelant,
+  ENTITE_SOCIETE_AFFILIEE,
   ROLE_GESTION_MEMBRE_SOCIETE,
   ROLES_GESTION_MEMBRE,
 } from './member.types';
@@ -425,6 +426,7 @@ export class MemberCarteService {
       organisationId: profil.organisationId,
       roleChain: permissions?.roleChain ?? [],
       societeId: profil.societeId ?? null,
+      entite: profil.entite ?? null,
     };
   }
 
@@ -468,8 +470,7 @@ export class MemberCarteService {
       throw new NotFoundException('Adhérent introuvable.');
     }
     if (
-      !this.aRoleAssureur(ctx) &&
-      ctx.roleChain.includes(ROLE_GESTION_MEMBRE_SOCIETE) &&
+      ctx.entite === ENTITE_SOCIETE_AFFILIEE &&
       adherent.souscripteurId !== ctx.societeId
     ) {
       throw new NotFoundException('Adhérent introuvable.');

@@ -38,10 +38,16 @@ export const ROLES_GESTION_MEMBRE = [
 
 export const ROLE_GESTION_MEMBRE_SOCIETE = 'SOCIETE_ADMINISTRATION';
 
+/** `sous_roles.entite_code` des 4 rôles société affiliée (v9 §ADDENDUM). */
+export const ENTITE_SOCIETE_AFFILIEE = 'SOCIETE_AFFILIEE';
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;
   roleChain: string[];
   /** `profils.societe_id` — renseigné pour les rôles SOCIETE_*. */
   societeId: string | null;
+  /** `sous_roles.entite_code` du rôle propre — scope la LECTURE pour tout rôle
+   * SOCIETE_AFFILIEE (pas seulement SOCIETE_ADMINISTRATION, qui seul écrit). */
+  entite: string | null;
 }

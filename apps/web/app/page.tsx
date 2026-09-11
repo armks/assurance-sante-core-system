@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { Brand } from '@/components/brand';
+import { ModeToggle } from '@/components/mode-toggle';
 import { Button } from '@/components/ui/button';
 import { aUneSession } from '@/lib/identity';
 
@@ -14,9 +15,12 @@ export default async function Accueil() {
     <div className="flex min-h-svh flex-col bg-gradient-to-b from-muted/40 to-background">
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
         <Brand />
-        <Button asChild size="sm">
-          <Link href="/login">Se connecter</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <ModeToggle />
+          <Button asChild size="sm">
+            <Link href="/login">Se connecter</Link>
+          </Button>
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-6 px-6 pb-24 text-center">

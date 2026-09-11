@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 
 import { Brand } from '@/components/brand';
 import { LogoutButton } from '@/components/logout-button';
+import { ModeToggle } from '@/components/mode-toggle';
 import { Badge } from '@/components/ui/badge';
 import {
   NavItem,
@@ -95,6 +96,7 @@ export function DashboardShell({
           <span className="ml-auto truncate text-sm text-muted-foreground">
             {email}
           </span>
+          <ModeToggle />
           <div className="md:hidden">
             <LogoutButton />
           </div>

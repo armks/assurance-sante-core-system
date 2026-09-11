@@ -12,6 +12,7 @@ import {
 
 import { Brand } from '@/components/brand';
 import { LogoutButton } from '@/components/logout-button';
+import { ModeToggle } from '@/components/mode-toggle';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -83,6 +84,7 @@ export function SuperadminShell({
           <span className="ml-auto truncate text-sm text-muted-foreground">
             {email}
           </span>
+          <ModeToggle />
           <div className="md:hidden">
             <LogoutButton />
           </div>

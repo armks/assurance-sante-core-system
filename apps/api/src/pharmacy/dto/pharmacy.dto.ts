@@ -10,6 +10,7 @@ import {
   IsString,
   IsUUID,
   Matches,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -62,4 +63,16 @@ export class DefinirPrixStockDto {
   @IsOptional()
   @IsBoolean()
   disponible?: boolean;
+}
+
+export class SubstituerMedicamentDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  nouveauMedicament!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  motif!: string;
 }

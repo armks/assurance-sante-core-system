@@ -32,6 +32,14 @@ export const STATUTS_DISPENSATION = [
 ] as const;
 export type StatutDispensation = (typeof STATUTS_DISPENSATION)[number];
 
+/** Une substitution de médicament n'est possible qu'avant confirmation du
+ * paiement — une fois VALIDEE (code confirmé par le patient) ou PAYEE, le
+ * contenu communiqué au patient ne peut plus changer sous silence. */
+export const STATUTS_DISPENSATION_MODIFIABLE = [
+  'EN_PREPARATION',
+  'EN_ATTENTE_VALIDATION_PATIENT',
+] as const;
+
 /** Alphabet du code — identique aux 4 codes anti-fraude déjà construits (v8). */
 export const ALPHABET_CODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const LONGUEUR_CODE = 8;

@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   DefinirPrixStockDto,
   LigneChoisieDto,
+  SubstituerMedicamentDto,
   ValiderCodeDispensationDto,
 } from './dto/pharmacy.dto';
 import {
@@ -24,6 +25,7 @@ import {
   ROLES_ADHERENT,
   ROLES_PHARMACIE,
   ROLE_PHARMACIEN_SEUL,
+  STATUTS_DISPENSATION_MODIFIABLE,
 } from './pharmacy.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -134,11 +136,17 @@ export class PharmacyService {
     };
   }
 
-  // --- Stock (PHARMACIE_PHARMACIEN exclusivement) -------------------
+  // --- Stock (lecture : les 3 rôles PHARMACIE ; écriture : pharmacien seul) -
 
+  /**
+   * Lecture ouverte aux 3 rôles PHARMACIE de la pharmacie (la caissière doit
+   * pouvoir vérifier, au moment de la dispensation, si un médicament est en
+   * stock et à quel prix — clarification métier). L'ÉCRITURE reste réservée
+   * au seul pharmacien (`definirPrixStock`, inchangé).
+   */
   async listerStock(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
-    this.assertPharmacien(ctx);
+    this.assertPharmacie(ctx);
     return this.prisma.stockMedicamentPharmacie.findMany({
       where: { pharmacieId: ctx.pharmacieId! },
       orderBy: { denominationMedicament: 'asc' },
@@ -249,7 +257,7 @@ export class PharmacyService {
           statut: 'EN_PREPARATION',
         },
       });
-      await this.audit(tx, ctx.userId, 'PREPARATION_DISPENSATION', d.id, {
+      await this.audit(tx, ctx.userId, 'PREPARATION_DISPENSATION', 'dispensations_pharmacie', d.id, {
         ordonnanceId,
         lignes: detail.map((x) => x.ligne.denominationMedicament),
       });
@@ -268,7 +276,7 @@ export class PharmacyService {
         where: { id: d.id },
         data: { statut: 'EN_ATTENTE_VALIDATION_PATIENT', codeConfirmation: code },
       });
-      await this.audit(tx, ctx.userId, 'GENERATION_CODE_DISPENSATION', d.id, {
+      await this.audit(tx, ctx.userId, 'GENERATION_CODE_DISPENSATION', 'dispensations_pharmacie', d.id, {
         montantTotal: montantTotal.toFixed(2),
       });
       return mis;
@@ -280,6 +288,48 @@ export class PharmacyService {
       statut: dispensation.statut,
       montantTotal: dispensation.montantTotal.toFixed(2),
       message: "Dispensation préparée. Le code de confirmation a été transmis au patient pour validation.",
+    };
+  }
+
+  /**
+   * Détail d'une dispensation, côté PHARMACIE — scopé à SA pharmacie
+   * uniquement (jamais celle d'une autre, même schéma que
+   * `confirmerPaiementDispensation`). Permet à l'écran caissière/pharmacien
+   * de suivre le statut (attente de validation patient → payable) et de
+   * lister les lignes pour proposer une substitution. Le code de confirmation
+   * n'est JAMAIS renvoyé ici (il ne part qu'au patient).
+   */
+  async obtenirDispensation(user: AuthenticatedUser, dispensationId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+
+    const dispensation = await this.prisma.dispensationPharmacie.findFirst({
+      where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
+      include: {
+        lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } } },
+      },
+    });
+    if (!dispensation) {
+      throw new NotFoundException('Dispensation introuvable.');
+    }
+
+    return {
+      id: dispensation.id,
+      statut: dispensation.statut,
+      montantTotal: dispensation.montantTotal.toFixed(2),
+      datePreparation: dispensation.datePreparation,
+      dateValidationPatient: dispensation.dateValidationPatient,
+      datePaiement: dispensation.datePaiement,
+      lignes: dispensation.lignes.map((l) => ({
+        id: l.id,
+        ligneOrdonnanceId: l.ligneOrdonnanceId,
+        denominationMedicament: l.ligneOrdonnance.denominationMedicament,
+        medicamentSubstitue: l.medicamentSubstitue,
+        motifSubstitution: l.motifSubstitution,
+        quantite: l.quantite,
+        prixUnitaire: l.prixUnitaire.toFixed(2),
+        montantLigne: l.montantLigne.toFixed(2),
+      })),
     };
   }
 
@@ -354,7 +404,7 @@ export class PharmacyService {
         where: { id: dispensation.id },
         data: { statut: 'VALIDEE', dateValidationPatient: new Date() },
       });
-      await this.audit(tx, ctx.userId, 'VALIDATION_CODE_DISPENSATION', d.id, null);
+      await this.audit(tx, ctx.userId, 'VALIDATION_CODE_DISPENSATION', 'dispensations_pharmacie', d.id, null);
       return d;
     });
 
@@ -414,7 +464,7 @@ export class PharmacyService {
         where: { id: dispensationId },
         data: { statut: 'PAYEE', datePaiement: new Date() },
       });
-      await this.audit(tx, ctx.userId, 'CONFIRMATION_PAIEMENT_DISPENSATION', d.id, {
+      await this.audit(tx, ctx.userId, 'CONFIRMATION_PAIEMENT_DISPENSATION', 'dispensations_pharmacie', d.id, {
         montantTotal: d.montantTotal.toFixed(2),
       });
       return d;
@@ -425,6 +475,66 @@ export class PharmacyService {
       statut: maj.statut,
       montantTotal: maj.montantTotal.toFixed(2),
       datePaiement: maj.datePaiement,
+    };
+  }
+
+  // --- Substitution de médicament (PHARMACIE_PHARMACIEN exclusivement) --
+
+  /**
+   * Remplace/ajuste le médicament d'une ligne de dispensation — réservé au
+   * PHARMACIEN (jamais la caissière ni le comptable, clarification métier :
+   * "concernant la modification ou la substitution d'un médicament le
+   * pharmacien doit valider"). Ne s'applique QUE tant que le paiement n'a pas
+   * été confirmé (EN_PREPARATION ou EN_ATTENTE_VALIDATION_PATIENT) — une fois
+   * VALIDEE par le patient (il a vu le total correspondant) ou PAYEE, le
+   * contenu ne peut plus changer en silence.
+   */
+  async substituerMedicament(
+    user: AuthenticatedUser,
+    ligneDispensationId: string,
+    dto: SubstituerMedicamentDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacien(ctx);
+
+    const ligne = await this.prisma.ligneDispensation.findFirst({
+      where: { id: ligneDispensationId, dispensation: { pharmacieId: ctx.pharmacieId! } },
+      include: { dispensation: true, ligneOrdonnance: true },
+    });
+    if (!ligne) {
+      throw new NotFoundException('Ligne de dispensation introuvable.');
+    }
+    if (!(STATUTS_DISPENSATION_MODIFIABLE as readonly string[]).includes(ligne.dispensation.statut)) {
+      throw new ConflictException(
+        `Substitution impossible : cette dispensation est déjà ${ligne.dispensation.statut} — le paiement ne peut plus être modifié en silence.`,
+      );
+    }
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const l = await tx.ligneDispensation.update({
+        where: { id: ligneDispensationId },
+        data: {
+          medicamentSubstitue: dto.nouveauMedicament,
+          motifSubstitution: dto.motif,
+          substitueParId: ctx.userId,
+          dateSubstitution: new Date(),
+        },
+      });
+      await this.audit(tx, ctx.userId, 'SUBSTITUTION_MEDICAMENT', 'lignes_dispensation', l.id, {
+        dispensationId: ligne.dispensationId,
+        medicamentOriginal: ligne.ligneOrdonnance.denominationMedicament,
+        nouveauMedicament: dto.nouveauMedicament,
+        motif: dto.motif,
+      });
+      return l;
+    });
+
+    return {
+      ligneDispensationId: maj.id,
+      medicamentOriginal: ligne.ligneOrdonnance.denominationMedicament,
+      medicamentSubstitue: maj.medicamentSubstitue,
+      motif: maj.motifSubstitution,
+      dateSubstitution: maj.dateSubstitution,
     };
   }
 
@@ -478,6 +588,7 @@ export class PharmacyService {
     db: Db,
     userId: string,
     action: string,
+    table: string,
     enregistrementId: string,
     details: Prisma.InputJsonValue | null,
   ): Promise<void> {
@@ -485,7 +596,7 @@ export class PharmacyService {
       await db.$executeRaw`
         SELECT log_audit(
           ${action}::text,
-          ${'dispensations_pharmacie'}::text,
+          ${table}::text,
           ${enregistrementId}::uuid,
           ${userId}::uuid,
           ${details === null ? null : JSON.stringify(details)}::jsonb

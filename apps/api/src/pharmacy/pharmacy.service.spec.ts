@@ -61,7 +61,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
       },
-      ligneDispensation: { createMany: jest.fn() },
+      ligneDispensation: { createMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -216,7 +216,19 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     expect(prisma.dispensationPharmacie.update).not.toHaveBeenCalled();
   });
 
-  // --- stock : PHARMACIE_PHARMACIEN exclusivement -----------------------
+  // --- stock : lecture ouverte aux 3 rôles, écriture pharmacien seul ----
+
+  it('la caissière PEUT lire le stock (nécessaire pour dispenser, clarification métier)', async () => {
+    identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+    prisma.stockMedicamentPharmacie.findMany.mockResolvedValue([
+      { id: 's1', denominationMedicament: 'Paracetamol', prixPharmacie: dec(500), disponible: true },
+    ]);
+    const res = await service.listerStock(USER);
+    expect(res).toHaveLength(1);
+    expect(prisma.stockMedicamentPharmacie.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pharmacieId: 'pharm-1' } }),
+    );
+  });
 
   it('la caissière NE PEUT PAS écrire le stock (réservé au pharmacien)', async () => {
     identity.getMe.mockResolvedValue(caissiere('pharm-1'));
@@ -251,5 +263,141 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     await expect(
       service.rechercherPrescriptionsParCarte(USER, 'CM-INCONNUE'),
     ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  // --- substituerMedicament (PHARMACIE_PHARMACIEN exclusivement) -----------
+
+  it('la CAISSIÈRE ne peut PAS substituer un médicament (réservé au pharmacien)', async () => {
+    identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+    await expect(
+      service.substituerMedicament(USER, 'ligne-disp-1', {
+        nouveauMedicament: 'Ibuprofène 400mg',
+        motif: 'Rupture de stock du princeps',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.ligneDispensation.update).not.toHaveBeenCalled();
+  });
+
+  it('le pharmacien REFUSE la substitution si la dispensation est déjà VALIDEE', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    prisma.ligneDispensation.findFirst.mockResolvedValue({
+      id: 'ligne-disp-1',
+      dispensationId: 'disp-1',
+      dispensation: { id: 'disp-1', pharmacieId: 'pharm-1', statut: 'VALIDEE' },
+      ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+    });
+    await expect(
+      service.substituerMedicament(USER, 'ligne-disp-1', {
+        nouveauMedicament: 'Ibuprofène 400mg',
+        motif: 'Rupture de stock du princeps',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.ligneDispensation.update).not.toHaveBeenCalled();
+  });
+
+  it('le pharmacien REFUSE la substitution si la dispensation est déjà PAYEE', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    prisma.ligneDispensation.findFirst.mockResolvedValue({
+      id: 'ligne-disp-1',
+      dispensationId: 'disp-1',
+      dispensation: { id: 'disp-1', pharmacieId: 'pharm-1', statut: 'PAYEE' },
+      ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+    });
+    await expect(
+      service.substituerMedicament(USER, 'ligne-disp-1', {
+        nouveauMedicament: 'Ibuprofène 400mg',
+        motif: 'Rupture de stock du princeps',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("refuse la substitution sur une ligne d'une AUTRE pharmacie (scope strict)", async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-2'));
+    prisma.ligneDispensation.findFirst.mockResolvedValue(null); // scopé pharmacieId dans le where -> introuvable
+    await expect(
+      service.substituerMedicament(USER, 'ligne-disp-1', {
+        nouveauMedicament: 'Ibuprofène 400mg',
+        motif: 'Rupture de stock du princeps',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.ligneDispensation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ dispensation: { pharmacieId: 'pharm-2' } }),
+      }),
+    );
+  });
+
+  it('le pharmacien peut substituer un médicament tant que la dispensation est EN_PREPARATION ou EN_ATTENTE_VALIDATION_PATIENT', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    prisma.ligneDispensation.findFirst.mockResolvedValue({
+      id: 'ligne-disp-1',
+      dispensationId: 'disp-1',
+      dispensation: { id: 'disp-1', pharmacieId: 'pharm-1', statut: 'EN_ATTENTE_VALIDATION_PATIENT' },
+      ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+    });
+    prisma.ligneDispensation.update.mockResolvedValue({
+      id: 'ligne-disp-1',
+      medicamentSubstitue: 'Ibuprofène 400mg',
+      motifSubstitution: 'Rupture de stock du princeps',
+      dateSubstitution: new Date('2026-09-12T00:00:00Z'),
+    });
+
+    const res = await service.substituerMedicament(USER, 'ligne-disp-1', {
+      nouveauMedicament: 'Ibuprofène 400mg',
+      motif: 'Rupture de stock du princeps',
+    });
+
+    expect(res.medicamentSubstitue).toBe('Ibuprofène 400mg');
+    expect(res.medicamentOriginal).toBe('Paracetamol 500mg');
+    expect(prisma.ligneDispensation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'ligne-disp-1' },
+        data: expect.objectContaining({
+          medicamentSubstitue: 'Ibuprofène 400mg',
+          motifSubstitution: 'Rupture de stock du princeps',
+          substitueParId: 'u1',
+        }),
+      }),
+    );
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
+
+  // --- obtenirDispensation (détail/statut, scopé pharmacie) -----------------
+
+  it("obtenirDispensation refuse une dispensation d'une AUTRE pharmacie (404, pas de fuite d'existence)", async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-2'));
+    prisma.dispensationPharmacie.findFirst.mockResolvedValue(null);
+    await expect(service.obtenirDispensation(USER, 'disp-1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.dispensationPharmacie.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'disp-1', pharmacieId: 'pharm-2' } }),
+    );
+  });
+
+  it('obtenirDispensation ne renvoie jamais le code de confirmation', async () => {
+    identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+    prisma.dispensationPharmacie.findFirst.mockResolvedValue({
+      id: 'disp-1',
+      statut: 'EN_ATTENTE_VALIDATION_PATIENT',
+      montantTotal: dec(500),
+      codeConfirmation: 'SECRET42',
+      datePreparation: new Date(),
+      dateValidationPatient: null,
+      datePaiement: null,
+      lignes: [
+        {
+          id: 'ligne-disp-1',
+          ligneOrdonnanceId: 'ligne-1',
+          medicamentSubstitue: null,
+          motifSubstitution: null,
+          quantite: 1,
+          prixUnitaire: dec(500),
+          montantLigne: dec(500),
+          ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+        },
+      ],
+    });
+    const res = await service.obtenirDispensation(USER, 'disp-1');
+    expect(res).not.toHaveProperty('codeConfirmation');
+    expect(res.lignes[0].denominationMedicament).toBe('Paracetamol 500mg');
   });
 });

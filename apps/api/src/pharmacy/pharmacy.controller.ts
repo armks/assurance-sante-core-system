@@ -15,6 +15,7 @@ import {
   DefinirPrixStockDto,
   PreparerDispensationDto,
   RechercherParCarteQueryDto,
+  SubstituerMedicamentDto,
   ValiderCodeDispensationDto,
 } from './dto/pharmacy.dto';
 import { PharmacyService } from './pharmacy.service';
@@ -67,6 +68,15 @@ export class PharmacyController {
     return this.pharmacy.listerMesDispensations(user);
   }
 
+  /** Côté PHARMACIE : détail/statut d'une dispensation de SA pharmacie. */
+  @Get('dispensations/:id')
+  obtenirDispensation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.obtenirDispensation(user, id);
+  }
+
   /** Côté ADHÉRENT : valide le code — passe à VALIDEE (pas encore payée). */
   @Post('dispensations/valider-code')
   validerCode(
@@ -83,5 +93,19 @@ export class PharmacyController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.pharmacy.confirmerPaiementDispensation(user, id);
+  }
+
+  /**
+   * Côté PHARMACIE_PHARMACIEN exclusivement : substitue/ajuste un médicament
+   * sur une ligne de dispensation — jamais la caissière ni le comptable.
+   * Impossible une fois le paiement validé par le patient.
+   */
+  @Post('dispensations/lignes/:id/substituer')
+  substituerMedicament(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SubstituerMedicamentDto,
+  ) {
+    return this.pharmacy.substituerMedicament(user, id, dto);
   }
 }

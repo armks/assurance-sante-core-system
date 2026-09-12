@@ -3206,3 +3206,71 @@ dans un prompt dédié si toujours pertinent.
 ### 🎯 Jalon — le verrou de dispensation pharmacie est désormais posé par ligne de
 médicament (et non plus par ordonnance entière), avec prix propres à chaque pharmacie et
 la même garde bloquante de paiement que les factures d'établissement
+
+## 2026-09-12 — Substitution de médicament (pharmacien seul) + reconstruction de
+`/dashboard-pharmacie/caissiere` selon le vrai parcours
+
+### 1. `substituerMedicament` — réservé EXCLUSIVEMENT à PHARMACIE_PHARMACIEN
+Point resté en suspens à la fin du prompt précédent (la révision majeure n'avait pas
+redemandé explicitement cet endpoint). Implémenté conformément à la clarification :
+« concernant la modification ou la substitution d'un médicament le pharmacien doit
+valider ». `PharmacyService.substituerMedicament(ligneDispensationId, nouveauMedicament,
+motif)` : `assertPharmacien` (jamais la caissière ni le comptable), scope strict à SA
+pharmacie, **ne s'applique que si la dispensation est encore EN_PREPARATION ou
+EN_ATTENTE_VALIDATION_PATIENT** (rejet `ConflictException` sinon — une fois VALIDEE par
+le patient ou PAYEE, le contenu ne peut plus changer en silence), motif obligatoire
+(`@IsNotEmpty`), audit `SUBSTITUTION_MEDICAMENT` sur la table `lignes_dispensation`.
+
+Migration `027_pharmacie_substitution_medicament.sql` : 4 colonnes ajoutées à
+`lignes_dispensation` (`medicament_substitue`, `motif_substitution`, `substitue_par_id`,
+`date_substitution`) ; RLS scindée en lecture (3 rôles pharmacie) / création (3 rôles,
+préparation) / modification (PHARMACIE_PHARMACIEN seul — la substitution).
+
+### 2. Reconstruction de `/dashboard-pharmacie/caissiere` — vrai parcours
+L'écran précédent (livré avant la révision majeure) utilisait encore l'ancien mécanisme
+`codes-ordonnance` (PROMPT 19, verrou par ordonnance entière). Reconstruit intégralement
+sur le nouveau module `pharmacy/` : recherche par numéro de carte → sélection d'une
+prescription → lignes DISPONIBLE/SERVIE (SERVIE grisée, non sélectionnable) → case à
+cocher sur les lignes en stock chez SA pharmacie avec prix pré-rempli (éditable pour le
+calcul affiché uniquement — le montant définitif reste calculé côté serveur depuis
+`stock_medicaments_pharmacie`, jamais un prix fourni par le client, inchangé) → total
+affiché → « Envoyer le code de confirmation au patient » → attente (sondage automatique
++ bouton « Rafraîchir le statut ») → « Confirmer le paiement », désactivé tant que le
+patient n'a pas validé son code. Bouton « Demander une substitution » par ligne, visible
+mais désactivé pour la caissière (« Réservé au pharmacien ») ; le composant
+(`DispensationFlowEcran`) est paramétré par rôle pour être réutilisable tel quel sur
+`/dashboard-pharmacie/pharmacien` dans un prompt dédié — cette page reste, pour l'instant,
+sur l'ancien écran (hors périmètre de cette reconstruction, non touchée).
+
+**Ajustement de sécurité nécessaire, découvert en construisant l'écran** : `listerStock`
+(`GET /pharmacy/stock`) était réservé au pharmacien seul (choix du prompt précédent). Or
+la caissière doit pouvoir vérifier, au moment de la dispensation, si un médicament est en
+stock et à quel prix — sans quoi elle ne peut ni cocher ni pré-remplir une ligne. Décision :
+**lecture** ouverte aux 3 rôles PHARMACIE de la pharmacie, **écriture**
+(`definirPrixStock`) inchangée, réservée au pharmacien. Migration
+`028_pharmacie_lecture_stock_et_detail_dispensation.sql` (nouvelle policy RLS de lecture,
+en plus de l'ancienne "for all" pharmacien-only qui continue de gouverner l'écriture).
+Nouvel endpoint `GET /pharmacy/dispensations/:id` (scopé à SA pharmacie, jamais le code de
+confirmation) ajouté pour permettre l'affichage du statut en temps réel côté écran.
+
+### Tests
+- Unitaires : 6 nouveaux tests (`substituerMedicament` bloqué pour la caissière, bloqué si
+  VALIDEE/PAYEE, scope pharmacie strict, cas nominal pharmacien ; `listerStock` lisible par
+  la caissière ; `obtenirDispensation` scope strict + ne renvoie jamais le code). Suite
+  complète : **21/21 suites, 222/222 tests**, `tsc --noEmit` propre (API et web).
+- Navigateur réel (Playwright/Chromium headless, installé temporairement pour ce test puis
+  retiré) — connexion réelle par le formulaire de login, parcours complet en tant que
+  caissière : recherche par carte → patient trouvé → sélection de la prescription → ligne
+  déjà servie ailleurs affichée grisée et décochable **désactivée** → ligne disponible
+  cochable avec prix pré-rempli → total mis à jour → code envoyé → « Confirmer le
+  paiement » désactivé avant validation → bouton de substitution visible mais désactivé
+  avec le message « Réservé au pharmacien » → **tentative directe de substitution via
+  l'API (contournant l'écran) → 403 confirmé** → validation du code (simulée côté API,
+  aucun écran adhérent dédié à ce jour) → rafraîchissement dans le navigateur → statut mis
+  à jour → paiement confirmé → ligne verrouillée en base sur la pharmacie de la caissière.
+  **12/12.** Données de test et 4 comptes éphémères supprimés, serveurs arrêtés.
+
+### 🎯 Jalon — la substitution de médicament est strictement réservée au pharmacien
+(vérifié au niveau service ET par un appel API direct contournant l'écran) ; l'écran
+caissière reflète enfin le vrai parcours de dispensation par ligne, avec un ajustement de
+sécurité documenté (lecture du stock ouverte, écriture toujours fermée)

@@ -45,6 +45,8 @@ export interface NavItem {
 const INFORMATIQUE = '/dashboard-assureur/informatique';
 const INFORMATIQUE_ADJOINT = '/dashboard-assureur/informatique-adjoint';
 const DIRECTION = '/dashboard-assureur/direction';
+const EXPLOITATION = '/dashboard-assureur/exploitation';
+const EXPLOITATION_CONJOINTE = '/dashboard-assureur/exploitation-conjointe';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const MEDECIN_SOUSCRIPTEUR = '/dashboard-assureur/medecin-souscripteur';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
@@ -201,6 +203,15 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       minNiveau: 'ADMIN',
     },
   ],
+  // Exploitation (+ conjointe, rôle hérité — même chaîne de rôles, mêmes
+  // droits API sur ces 4 modules, vérifié avant construction). Ni Produits
+  // (ROLES_GESTION_PRODUIT ne l'inclut pas), ni Cotisations/Réseau de soins
+  // (réservés à l'informatique) : ces écrans ne masquent pas encore leurs
+  // actions d'écriture selon le rôle, les exposer en lecture y afficherait
+  // des boutons que l'API refuserait. Pas de section Utilisateurs : niveau
+  // MODIFICATION, pas ADMIN.
+  [EXPLOITATION]: navExploitation(EXPLOITATION),
+  [EXPLOITATION_CONJOINTE]: navExploitation(EXPLOITATION_CONJOINTE),
   [INFORMATIQUE]: navInformatique(INFORMATIQUE),
   // Informatique adjoint : rôle hérité de l'informatique (roleChain, niveauAcces).
   // Mêmes écrans, seule la vue d'ensemble pointe vers sa propre route ; les
@@ -214,6 +225,29 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
  * le titulaire (`/dashboard-assureur/informatique`) de l'adjoint
  * (`/dashboard-assureur/informatique-adjoint`) : les autres écrans sont partagés.
  */
+/**
+ * Navigation Exploitation / Exploitation conjointe — droits API identiques
+ * sur ces 4 modules (`ROLES_GESTION_SOUSCRIPTEUR`/`ROLES_GESTION_POLICE`/
+ * `ROLES_GESTION_MEMBRE`/`ROLES_LECTURE_CLAIMS`), vérifié explicitement.
+ */
+function navExploitation(racineVueEnsemble: string): NavItem[] {
+  return [
+    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
+    {
+      label: 'Souscripteurs',
+      href: `${INFORMATIQUE}/souscripteurs`,
+      icon: Building2,
+    },
+    { label: 'Polices', href: `${INFORMATIQUE}/polices`, icon: FileText },
+    { label: 'Adhérents', href: `${INFORMATIQUE}/adherents`, icon: Users },
+    {
+      label: 'Réclamations',
+      href: `${INFORMATIQUE}/reclamations`,
+      icon: ReceiptText,
+    },
+  ];
+}
+
 function navInformatique(racineVueEnsemble: string): NavItem[] {
   return [
     { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },

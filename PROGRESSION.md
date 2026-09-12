@@ -3034,3 +3034,86 @@ serveurs arrêtés.
 ### 🎯 Jalon — les 3 sous-rôles PHARMACIE ont chacun un espace réel, scopé par pharmacie
 et vérifié en HTTP réel comme en navigateur réel ; 3 gaps documentés (stock, facturation,
 lecture pharmacie) plutôt qu'improvisés
+
+---
+
+## 2026-09-11 (suite) — `ASSUREUR_EXPLOITATION` / `ASSUREUR_EXPLOITATION_CONJOINTE`
+
+Aucun changement backend ce prompt — audit complet des droits API déjà existants,
+uniquement du frontend (nouvelle vue d'ensemble + extension d'une allowlist déjà en place).
+
+### Audit des droits réels d'ASSUREUR_EXPLOITATION (avant tout lien de nav)
+Vérifié module par module (grep + lecture des listes de rôles) :
+- **Souscripteurs** (`ROLES_GESTION_SOUSCRIPTEUR`), **Polices** (`ROLES_GESTION_POLICE`),
+  **Adhérents** (`ROLES_GESTION_MEMBRE`), **Réclamations** (`ROLES_GESTION_CLAIMS` +
+  `ROLES_LECTURE_CLAIMS` + `ROLE_REVUE_FINANCIERE` pour la revue manuelle non-médicale) :
+  droits **identiques à `ASSUREUR_DIRECTION`** sur ces 4 modules — confirmé par lecture
+  directe des constantes, pas supposé.
+- **Produits** (`ROLES_GESTION_PRODUIT` = DIRECTION + INFORMATIQUE), **Cotisations**
+  (`ROLES_GESTION_COTISATION` = COMPTABLE + INFORMATIQUE), **Réseau de soins**
+  (`ROLES_GESTION_RESEAU` = INFORMATIQUE seul) : **exploitation exclue de l'écriture**.
+  Or ces 3 écrans (`produits/page.tsx`, `cotisations/page.tsx`, `etablissements/page.tsx`,
+  `pharmacies/page.tsx`) **n'ont aucun contrôle de rôle côté frontend** — ils affichent
+  systématiquement les actions d'écriture, en confiance totale dans l'API. Les y exposer
+  en lecture à l'exploitation afficherait des boutons qui échoueraient en 403. **Non liés
+  dans sa navigation**, exactement comme `ASSUREUR_DIRECTION` les exclut déjà pour la
+  même raison (le commentaire du layout `informatique/` le documentait déjà pour
+  direction — étendu ici pour exploitation).
+- **Dossiers de soins / tickets / clôture forcée** (care-episode, préauthorization) :
+  droits API réels et complets (`ROLES_GESTION_DOSSIER`, `clotureForcee` même réservée
+  À exploitation exclusivement), mais **aucun écran assureur n'existe** pour ce
+  domaine — la seule UI est `/dashboard-centre-medical/*`, dont le layout redirige
+  toute entité ≠ `CENTRE_MEDICAL`. Constat noté, aucun nouvel écran construit (hors
+  périmètre : « écrans déjà existants »).
+- **Tarification individuelle** (`ROLES_TARIFICATION_INDIVIDUELLE` inclut exploitation) :
+  même constat — l'écran existant (`/dashboard-assureur/medecin-souscripteur/tarifications`)
+  est strictement gardé au seul `ASSUREUR_MEDECIN_SOUSCRIPTEUR` (`redirect` si rôle
+  différent), plus restrictif que l'API. Non accessible, non lié.
+
+### `ASSUREUR_EXPLOITATION_CONJOINTE` — vérification du double contrôle (v9 §3.3 introuvable)
+`roleParentCode = 'ASSUREUR_EXPLOITATION'` (addendum) : la chaîne de rôles
+(`identity.service.ts`, remontée par `roleParentCode`) inclut donc littéralement les deux
+codes — confirmé par lecture du calcul de `roleChain`, puis par un test HTTP réel (la
+conjointe voit exactement les mêmes réclamations que le titulaire). **Recherche explicite
+d'un mécanisme de double contrôle** (deuxième validateur obligatoire, colonne
+« validateur 2 », etc.) dans tout le schéma et le code métier : **aucun résultat**. Aucune
+table, aucune colonne, aucune logique applicative n'implémente un second regard. **Gap
+documenté, rien improvisé** : ce rôle a aujourd'hui, en pratique, exactement le même
+périmètre fonctionnel que le titulaire — pas un rôle de contre-validation. Mentionné
+explicitement dans la description de sa vue d'ensemble et le commentaire de son layout.
+
+### Frontend
+- `lib/dashboard-nav.ts` : `navExploitation()` (nouvelle fonction, mêmes 4 écrans que
+  `navInformatique` moins Produits/Cotisations/Réseau/Utilisateurs), réutilisée pour les
+  2 `dashboardRoute`.
+- `app/dashboard-assureur/informatique/layout.tsx` : `ROUTES_ADMIN_ASSUREUR` étendue aux
+  2 nouvelles routes (mécanisme déjà en place pour direction/informatique/adjoint —
+  aucun nouveau layout de gestion créé, réutilisation de l'existant).
+- `app/dashboard-assureur/exploitation(-conjointe)/` : layout (garde propre à la route,
+  même pattern que `direction/layout.tsx`) + page (vue d'ensemble). `ExploitationVueEnsemble`
+  (composant partagé) : `GrilleCartes` (en revue manuelle / en cours / traitées / rejetées),
+  file des réclamations `REVUE_MANUELLE` avec colonne « Traitable par vous » (réutilise
+  `peutTraiterRevue` de `lib/reclamations.ts`, déjà utilisé par l'écran de revue existant —
+  aucune logique dupliquée), lien vers la file complète + accès rapide aux 4 écrans.
+
+### Test — HTTP réel (établissement + 4 comptes éphémères, épisode réel jusqu'à l'acte)
+**12/12.** Réclamation soumise pour de vrai (503, microservice Java indisponible dans ce
+sandbox — limite déjà documentée) ; **transition manuelle SOUMISE → REVUE_MANUELLE
+appliquée directement en base pour tester le rendu de la file** (pas une décision
+d'adjudication simulée — clairement distingué : aucune ligne `remboursements` n'a été
+insérée, seul le statut a été changé, à seule fin de vérifier que l'écran affiche
+correctement une file non vide). Exploitation et exploitation conjointe voient toutes
+deux la réclamation (héritage de rôle confirmé) ; exploitation liste souscripteurs/
+polices/adhérents avec succès ; **`POST /plan/produits` → 403 réel**, confirmant que
+l'exclusion de Produits de sa navigation n'est pas arbitraire.
+
+### Test — navigateur réel (session cookie, 2 comptes) — 12/12
+`/dashboard` redirige chacun vers sa propre vue d'ensemble (jamais celle de l'autre) ;
+les deux affichent la réclamation réelle en revue manuelle avec le badge « Traitable par
+vous : Oui » (type non-médical) ; les deux accèdent aux 4 écrans partagés (200) ; la page
+conjointe affiche explicitement l'absence de mécanisme de double contrôle. Données et
+4 comptes éphémères supprimés, serveurs arrêtés.
+
+### 🎯 Jalon — `ASSUREUR_EXPLOITATION`/`_CONJOINTE` ont une vue d'ensemble réelle et un
+accès de navigation strictement aligné sur leurs droits API réels ; l'absence de double
+contrôle est documentée comme gap plutôt que simulée

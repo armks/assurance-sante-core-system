@@ -8,6 +8,7 @@ import { EmailModule } from './email/email.module';
 import { IdentityModule } from './identity/identity.module';
 import { InvitationsModule } from './invitations/invitations.module';
 import { MemberModule } from './member/member.module';
+import { PharmacyModule } from './pharmacy/pharmacy.module';
 import { PlanModule } from './plan/plan.module';
 import { PolicyModule } from './policy/policy.module';
 import { PreauthorizationModule } from './preauthorization/preauthorization.module';
@@ -36,6 +37,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     ReferenceModule,
     CareEpisodeModule,
     PreauthorizationModule,
+    PharmacyModule,
     ClaimsModule,
     SuperadminModule,
   ],

@@ -140,6 +140,7 @@ model Profil {
   actesPrescrits        ActeDossier[]
   facturesReglees       FactureDossier[]
   verificationsReseau   VerificationEtablissement[]
+  dispensationsPreparees DispensationPharmacie[]
 
   @@map("profils")
 }
@@ -617,6 +618,9 @@ model Pharmacie {
   organisation    Organisation     @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   codesOrdonnance CodeOrdonnance[]
   verifications   VerificationEtablissement[]
+  lignesServies   LigneOrdonnance[]
+  stockMedicaments StockMedicamentPharmacie[]
+  dispensations   DispensationPharmacie[]
 
   @@index([organisationId])
   @@index([statut])
@@ -844,12 +848,109 @@ model Ordonnance {
   consultation ConsultationDossier @relation(fields: [consultationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   medecin      Profil              @relation(fields: [medecinId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   codes        CodeOrdonnance[]
+  lignesOrdonnance LigneOrdonnance[]
+  dispensationsPharmacie DispensationPharmacie[]
 
   @@index([organisationId])
   @@index([dossierSoinsId])
   @@index([consultationId])
   @@index([statut])
   @@map("ordonnances")
+}
+
+/// lignes_ordonnance — révision majeure (clarification métier) : remplace
+/// `ordonnances.lignes` (jsonb) par une vraie table, pour un verrou PAR LIGNE
+/// (pas par ordonnance entière comme au PROMPT 19). `statut` ne passe à SERVIE
+/// qu'au règlement confirmé d'une dispensation (jamais à la préparation) —
+/// voir `PharmacyService.confirmerPaiementDispensation`. prisma/sql/026.
+model LigneOrdonnance {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ordonnanceId           String    @map("ordonnance_id") @db.Uuid
+  denominationMedicament String    @map("denomination_medicament")
+  dosage                 String?
+  posologie              String
+  duree                  String?
+  quantitePrescrite      Int       @default(1) @map("quantite_prescrite")
+  statut                 String    @default("DISPONIBLE") @map("statut") // DISPONIBLE | SERVIE
+  pharmacieServanteId    String?   @map("pharmacie_servante_id") @db.Uuid
+  quantiteServie         Int?      @map("quantite_servie")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  ordonnance       Ordonnance          @relation(fields: [ordonnanceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  pharmacieServante Pharmacie?         @relation(fields: [pharmacieServanteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lignesDispensation LigneDispensation[]
+
+  @@index([ordonnanceId])
+  @@index([statut])
+  @@index([pharmacieServanteId])
+  @@map("lignes_ordonnance")
+}
+
+/// stock_medicaments_pharmacie — chaque pharmacie fixe son propre prix par
+/// dénomination (texte libre, pas de FK vers le référentiel national). Gap
+/// documenté au prompt précédent, comblé ici. prisma/sql/026.
+model StockMedicamentPharmacie {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pharmacieId            String   @map("pharmacie_id") @db.Uuid
+  denominationMedicament String   @map("denomination_medicament")
+  prixPharmacie          Decimal? @map("prix_pharmacie") @db.Decimal(14, 2)
+  disponible             Boolean  @default(true)
+  dateMaj                DateTime @default(now()) @map("date_maj") @db.Timestamptz(6)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  pharmacie Pharmacie @relation(fields: [pharmacieId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([pharmacieId, denominationMedicament])
+  @@index([pharmacieId])
+  @@map("stock_medicaments_pharmacie")
+}
+
+/// dispensations_pharmacie — cycle de vie complet du nouveau flux pharmacie
+/// (EN_PREPARATION → EN_ATTENTE_VALIDATION_PATIENT → VALIDEE → PAYEE), même
+/// garde anti-fraude bloquante que les 4 codes déjà construits (v8) : paiement
+/// impossible sans validation du code par le patient (trigger
+/// verifier_dispensation_payable). prisma/sql/026.
+model DispensationPharmacie {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ordonnanceId          String    @map("ordonnance_id") @db.Uuid
+  pharmacieId           String    @map("pharmacie_id") @db.Uuid
+  /// utilisateur ayant préparé la dispensation (n'importe lequel des 3
+  /// sous-rôles PHARMACIE_*, nom de colonne conservé tel que spécifié).
+  caissiereId           String    @map("caissiere_id") @db.Uuid
+  montantTotal          Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
+  statut                String    @default("EN_PREPARATION") // EN_PREPARATION | EN_ATTENTE_VALIDATION_PATIENT | VALIDEE | PAYEE | ANNULEE
+  codeConfirmation      String?   @unique @map("code_confirmation")
+  datePreparation       DateTime  @default(now()) @map("date_preparation") @db.Timestamptz(6)
+  dateValidationPatient DateTime? @map("date_validation_patient") @db.Timestamptz(6)
+  datePaiement          DateTime? @map("date_paiement") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ordonnance Ordonnance          @relation(fields: [ordonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacie  Pharmacie           @relation(fields: [pharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  preparateur Profil             @relation(fields: [caissiereId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lignes     LigneDispensation[]
+
+  @@index([ordonnanceId])
+  @@index([pharmacieId])
+  @@index([statut])
+  @@map("dispensations_pharmacie")
+}
+
+model LigneDispensation {
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dispensationId    String  @map("dispensation_id") @db.Uuid
+  ligneOrdonnanceId String  @map("ligne_ordonnance_id") @db.Uuid
+  prixUnitaire      Decimal @map("prix_unitaire") @db.Decimal(14, 2)
+  quantite          Int     @default(1)
+  montantLigne      Decimal @map("montant_ligne") @db.Decimal(14, 2)
+
+  dispensation    DispensationPharmacie @relation(fields: [dispensationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ligneOrdonnance LigneOrdonnance       @relation(fields: [ligneOrdonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([dispensationId])
+  @@index([ligneOrdonnanceId])
+  @@map("lignes_dispensation")
 }
 
 /// codes_ordonnance — 2e des 4 codes anti-fraude (v8 §3). Sa validation par une

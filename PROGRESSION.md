@@ -3117,3 +3117,92 @@ conjointe affiche explicitement l'absence de mécanisme de double contrôle. Don
 ### 🎯 Jalon — `ASSUREUR_EXPLOITATION`/`_CONJOINTE` ont une vue d'ensemble réelle et un
 accès de navigation strictement aligné sur leurs droits API réels ; l'absence de double
 contrôle est documentée comme gap plutôt que simulée
+
+## 2026-09-11 (suite) — Révision majeure du flux pharmacie : verrou PAR LIGNE, pas par
+ordonnance entière (clarification métier)
+
+### Pourquoi
+Le verrou posé au PROMPT 19 fermait une ordonnance ENTIÈRE à la première pharmacie qui
+validait son code — une seule pharmacie pouvait servir toute la prescription. Clarification
+métier reçue : la vraie règle est un verrou **par ligne de médicament**. Des lignes
+différentes d'une même ordonnance peuvent être servies dans des pharmacies différentes ;
+une même ligne ne peut être servie qu'une seule fois, dans une seule pharmacie. Le
+mécanisme `codes_ordonnance`/`validerCodeOrdonnance` du PROMPT 19 (déverrouillage du
+contenu par code secret) reste **inchangé** — il continue de protéger la confidentialité
+du contenu de l'ordonnance ; c'est la dispensation qui change de granularité.
+
+### Schéma — 4 nouvelles tables (migration `026_pharmacie_dispensation_par_ligne.sql`)
+- **`lignes_ordonnance`** — remplace la colonne jsonb `ordonnances.lignes` comme source de
+  vérité (migration idempotente des lignes existantes, no-op ici car aucune ordonnance
+  n'existait encore). Champs clés : `statut` (`DISPONIBLE`/`SERVIE`),
+  `pharmacie_servante_id` (nullable, posé seulement à `SERVIE`), `quantite_servie`.
+  Contrainte : `DISPONIBLE` ⇒ `pharmacie_servante_id IS NULL`.
+- **`stock_medicaments_pharmacie`** — comble le gap identifié au prompt précédent : chaque
+  pharmacie fixe SON PROPRE prix par dénomination de médicament (`prix_pharmacie`,
+  `disponible`). Écriture/lecture réservées à `PHARMACIE_PHARMACIEN` de la pharmacie
+  propriétaire (ni caissière ni comptable — cohérent avec l'audit précédent qui réservait
+  déjà la modification/substitution de médicament au seul pharmacien).
+- **`dispensations_pharmacie`** — un cycle EN_PREPARATION → EN_ATTENTE_VALIDATION_PATIENT
+  → VALIDEE → PAYEE (ou ANNULEE), `code_confirmation` unique, trigger
+  `verifier_dispensation_payable()` bloquant tout passage à PAYEE si l'ancien statut n'est
+  pas VALIDEE (même principe que `verifier_facture_reglable()` du PROMPT 21).
+- **`lignes_dispensation`** — détail ligne par ligne (prix unitaire, quantité, montant) de
+  chaque dispensation.
+
+RLS sur les 4 tables ; `lignes_ordonnance` en lecture ouverte aux 3 rôles PHARMACIE (requis
+pour la recherche par carte), `stock_medicaments_pharmacie` fermée au pharmacien seul.
+
+### Nouveau module `pharmacy/` (NestJS)
+`rechercherPrescriptionsParCarte` (recherche par `numeroCarte` — PAS un code secret,
+c'est la caissière qui cherche, cohérent avec la description métier ; révèle les lignes en
+clair, gated uniquement par le rôle pharmacie) · `listerStock`/`definirPrixStock`
+(PHARMACIE_PHARMACIEN exclusivement, scopé `ctx.pharmacieId`) · `preparerDispensation`
+(vérifie que CHAQUE ligne choisie est `DISPONIBLE`, rejette explicitement les lignes déjà
+`SERVIE` avec leur nom, calcule le total depuis le stock de LA pharmacie appelante — jamais
+un prix fourni par le client — génère le code, l'envoie au patient, jamais à la pharmacie)
+· `listerMesDispensations` (côté adhérent, ne révèle le code que tant que
+`EN_ATTENTE_VALIDATION_PATIENT`) · `validerCodeDispensation` (côté adhérent, vérifie que
+l'appelant est bien le patient concerné, passe à VALIDEE — pas encore payée)
+· `confirmerPaiementDispensation` (**garde bloquante explicite** : refuse si statut ≠
+VALIDEE, comme `confirmerPaiement` sur les factures ; scope strict `pharmacieId` — une
+pharmacie ne peut solder que ses propres dispensations ; verrouille chaque ligne concernée
+par compare-and-swap `updateMany({statut:'DISPONIBLE'} → {statut:'SERVIE'})`, rejette si
+`count===0`, c'est-à-dire si une autre pharmacie a pris la ligne entre-temps).
+
+`preauthorization.service.ts` adapté (`creerOrdonnance`, `listerCodesOrdonnancePharmacie`,
+`validerCodeOrdonnance`) pour lire/écrire `lignesOrdonnance` au lieu du jsonb, en conservant
+exactement la même forme de réponse externe — le mécanisme `codes_ordonnance` du PROMPT 19
+n'a subi aucune régression.
+
+### Point resté en suspens (à clarifier, pas silencieusement abandonné)
+L'item « endpoint réservé au PHARMACIEN seul pour modifier/substituer un médicament sur
+l'ordonnance » (demandé avant la clarification métier) n'a pas été explicitement redemandé
+dans le message de révision. Il n'a **pas** été implémenté dans cette révision — seule la
+dispensation standard (partagée par les 3 rôles pharmacie) existe aujourd'hui. À traiter
+dans un prompt dédié si toujours pertinent.
+
+### Tests
+- Unitaires : 13 nouveaux tests `pharmacy.service.spec.ts` (verrou par ligne refusé si déjà
+  SERVIE, prix non défini rejeté, caissière autorisée à préparer, rôle non-adhérent refusé
+  sur la validation de code, patient non concerné refusé, garde bloquante paiement avant
+  validation, scope pharmacie strict sur la confirmation de paiement, compare-and-swap sur
+  concurrence, écriture stock réservée au pharmacien). Suite complète : **21/21 suites,
+  214/214 tests**, `tsc --noEmit` propre.
+- HTTP réel (établissement + 2 pharmacies + 4 comptes éphémères + le compte adhérent de
+  référence, ordonnance à 2 lignes réelle créée via le parcours complet
+  code-consultation → dossier → consultation → ordonnance) — **12/12** :
+  ordonnance à 2 lignes créée (Paracetamol / Amoxicilline) ; recherche par carte révèle la
+  liste avec son contenu (pas un code secret) ; Pharmacie A sert la ligne Paracetamol
+  (Amoxicilline refusée chez elle, 409, prix non défini) ; **paiement tenté AVANT
+  validation du code → 403** (garde bloquante) ; patient valide le code → VALIDEE ;
+  paiement confirmé → PAYEE, ligne Paracetamol verrouillée sur Pharmacie A, ligne
+  Amoxicilline reste DISPONIBLE ; Pharmacie B sert la ligne Amoxicilline restante avec
+  succès ; **Pharmacie B tente de reservir la ligne Paracetamol → 409 explicite** (déjà
+  SERVIE ailleurs) ; circuit complet validé pour B (verrouillage sur Pharmacie B confirmé
+  en base) ; **Pharmacie B tente de confirmer le paiement d'une dispensation de Pharmacie A
+  → 404** (scope strict par pharmacie). Données et 4 comptes éphémères supprimés, serveur
+  arrêté.
+
+### 🎯 Jalon — le verrou de dispensation pharmacie est désormais posé par ligne de
+médicament (et non plus par ordonnance entière), avec prix propres à chaque pharmacie et
+la même garde bloquante de paiement que les factures d'établissement

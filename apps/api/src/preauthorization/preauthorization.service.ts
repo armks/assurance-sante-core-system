@@ -364,9 +364,20 @@ export class PreauthorizationService {
           dossierSoinsId: dossier.id,
           consultationId: consultation.id,
           medecinId: dto.medecinId,
-          lignes: dto.lignes as unknown as Prisma.InputJsonValue,
           statut: 'ACTIVE',
         },
+      });
+      // Lignes normalisées (révision majeure, verrou par ligne plutôt que par
+      // ordonnance entière — module pharmacy/) : plus de jsonb.
+      await tx.ligneOrdonnance.createMany({
+        data: dto.lignes.map((l) => ({
+          ordonnanceId: ordonnance.id,
+          denominationMedicament: l.medicament,
+          dosage: l.dosage ?? null,
+          posologie: l.posologie,
+          duree: l.duree ?? null,
+          quantitePrescrite: l.quantite ?? 1,
+        })),
       });
       const ligneCode = await tx.codeOrdonnance.create({
         data: {
@@ -447,8 +458,8 @@ export class PreauthorizationService {
           select: {
             id: true,
             statut: true,
-            lignes: true,
             dossier: { select: { numeroTraitement: true } },
+            lignesOrdonnance: true,
           },
         },
       },
@@ -464,7 +475,15 @@ export class PreauthorizationService {
             id: c.ordonnance.id,
             statut: c.ordonnance.statut,
             numeroTraitement: c.ordonnance.dossier.numeroTraitement,
-            lignes: c.ordonnance.lignes,
+            // Lignes normalisées (révision majeure, module pharmacy/) : plus de jsonb.
+            lignes: c.ordonnance.lignesOrdonnance.map((l) => ({
+              medicament: l.denominationMedicament,
+              dosage: l.dosage,
+              posologie: l.posologie,
+              duree: l.duree,
+              quantite: l.quantitePrescrite,
+              statut: l.statut,
+            })),
           }
         : null,
     }));
@@ -525,6 +544,7 @@ export class PreauthorizationService {
           include: {
             medecin: { select: { id: true, role: true } },
             dossier: { select: { numeroTraitement: true } },
+            lignesOrdonnance: true,
           },
         })
       : null;
@@ -570,7 +590,15 @@ export class PreauthorizationService {
         dateValidite: ordonnance.dateValidite,
         medecinId: ordonnance.medecinId,
         numeroTraitement: ordonnance.dossier.numeroTraitement,
-        lignes: ordonnance.lignes,
+        // Lignes normalisées (révision majeure, module pharmacy/) : plus de jsonb.
+        lignes: ordonnance.lignesOrdonnance.map((l) => ({
+          medicament: l.denominationMedicament,
+          dosage: l.dosage,
+          posologie: l.posologie,
+          duree: l.duree,
+          quantite: l.quantitePrescrite,
+          statut: l.statut,
+        })),
       },
     };
   }

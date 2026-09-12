@@ -1,0 +1,87 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
+import {
+  DefinirPrixStockDto,
+  PreparerDispensationDto,
+  RechercherParCarteQueryDto,
+  ValiderCodeDispensationDto,
+} from './dto/pharmacy.dto';
+import { PharmacyService } from './pharmacy.service';
+
+/**
+ * Endpoints REST du module pharmacy/ — révision majeure du flux pharmacie
+ * (verrou par ligne de médicament). Coexiste avec `preauthorization/`
+ * (codes-ordonnance, PROMPT 19), inchangé.
+ */
+@Controller('pharmacy')
+@UseGuards(SupabaseAuthGuard)
+export class PharmacyController {
+  constructor(private readonly pharmacy: PharmacyService) {}
+
+  /** Côté PHARMACIE (3 sous-rôles) : recherche par numéro de carte — pas un code secret. */
+  @Get('prescriptions/rechercher-par-carte')
+  rechercherParCarte(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() dto: RechercherParCarteQueryDto,
+  ) {
+    return this.pharmacy.rechercherPrescriptionsParCarte(user, dto.numeroCarte);
+  }
+
+  /** Côté PHARMACIE_PHARMACIEN exclusivement : son stock (prix/disponibilité). */
+  @Get('stock')
+  listerStock(@CurrentUser() user: AuthenticatedUser) {
+    return this.pharmacy.listerStock(user);
+  }
+
+  @Post('stock')
+  definirPrixStock(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DefinirPrixStockDto,
+  ) {
+    return this.pharmacy.definirPrixStock(user, dto);
+  }
+
+  /** Côté PHARMACIE (3 sous-rôles) : prépare une dispensation par ligne(s) choisie(s). */
+  @Post('dispensations')
+  preparerDispensation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: PreparerDispensationDto,
+  ) {
+    return this.pharmacy.preparerDispensation(user, dto.ordonnanceId, dto.lignes);
+  }
+
+  /** Côté ADHÉRENT : ses dispensations en attente (avec le code). */
+  @Get('dispensations/mes-dispensations')
+  mesDispensations(@CurrentUser() user: AuthenticatedUser) {
+    return this.pharmacy.listerMesDispensations(user);
+  }
+
+  /** Côté ADHÉRENT : valide le code — passe à VALIDEE (pas encore payée). */
+  @Post('dispensations/valider-code')
+  validerCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ValiderCodeDispensationDto,
+  ) {
+    return this.pharmacy.validerCodeDispensation(user, dto);
+  }
+
+  /** Côté PHARMACIE : confirme le paiement — bloqué si le code n'est pas validé. */
+  @Post('dispensations/:id/confirmer-paiement')
+  confirmerPaiement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.confirmerPaiementDispensation(user, id);
+  }
+}

@@ -1,0 +1,46 @@
+/**
+ * Types du module `pharmacy/` — révision majeure du flux pharmacie
+ * (clarification métier) : verrou PAR LIGNE de médicament, pas par ordonnance
+ * entière (PROMPT 19). `codes_ordonnance`/`validerCodeOrdonnance` (module
+ * preauthorization/) restent en place, inchangés — ce module les remplace en
+ * pratique pour le vrai flux de dispensation, sans les supprimer.
+ */
+
+/** Les 3 sous-rôles PHARMACIE ont des droits identiques sauf mention contraire
+ * explicite (vérifié à l'audit du dashboard pharmacie). */
+export const ROLES_PHARMACIE = [
+  'PHARMACIE_PHARMACIEN',
+  'PHARMACIE_CAISSIERE',
+  'PHARMACIE_COMPTABLE',
+] as const;
+
+/** Gestion du stock (prix/disponibilité) et modification d'une ordonnance :
+ * réservées explicitement au seul pharmacien (clarification métier). */
+export const ROLE_PHARMACIEN_SEUL = 'PHARMACIE_PHARMACIEN';
+
+export const ROLES_ADHERENT = ['ADHERENT_TITULAIRE', 'SOUSCRIPTEUR_INDIVIDUEL'] as const;
+
+export const STATUTS_LIGNE_ORDONNANCE = ['DISPONIBLE', 'SERVIE'] as const;
+export type StatutLigneOrdonnance = (typeof STATUTS_LIGNE_ORDONNANCE)[number];
+
+export const STATUTS_DISPENSATION = [
+  'EN_PREPARATION',
+  'EN_ATTENTE_VALIDATION_PATIENT',
+  'VALIDEE',
+  'PAYEE',
+  'ANNULEE',
+] as const;
+export type StatutDispensation = (typeof STATUTS_DISPENSATION)[number];
+
+/** Alphabet du code — identique aux 4 codes anti-fraude déjà construits (v8). */
+export const ALPHABET_CODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+export const LONGUEUR_CODE = 8;
+
+export interface ContexteAppelant {
+  userId: string;
+  organisationId: string;
+  role: string | null;
+  roleChain: string[];
+  pharmacieId: string | null;
+  adherentId: string | null;
+}

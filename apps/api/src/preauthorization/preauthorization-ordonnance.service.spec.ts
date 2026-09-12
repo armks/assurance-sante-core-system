@@ -51,6 +51,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
     prisma = {
       consultationDossier: { findFirst: jest.fn() },
       ordonnance: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+      ligneOrdonnance: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       codeOrdonnance: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
@@ -176,7 +177,16 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
       datePrescription: new Date(),
       dateValidite: DANS_7J,
       medecinId: 'med-1',
-      lignes: LIGNES,
+      lignesOrdonnance: [
+        {
+          denominationMedicament: 'Amoxicilline',
+          dosage: '500 mg',
+          posologie: '1 gél. x3/j, 7 j',
+          duree: null,
+          quantitePrescrite: 1,
+          statut: 'DISPONIBLE',
+        },
+      ],
       deletedAt: null,
       dossier: { numeroTraitement: 'TRT-2026-09-000001' },
       medecin: { id: 'med-1', role: 'CENTRE_MEDICAL_MEDECIN' },
@@ -187,7 +197,16 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
       pharmacieId: 'pharm-1',
     });
 
-    expect(res.ordonnance.lignes).toEqual(LIGNES);
+    expect(res.ordonnance.lignes).toEqual([
+      {
+        medicament: 'Amoxicilline',
+        dosage: '500 mg',
+        posologie: '1 gél. x3/j, 7 j',
+        duree: null,
+        quantite: 1,
+        statut: 'DISPONIBLE',
+      },
+    ]);
     expect(res.code.statut).toBe('PRESENTE_PHARMACIE');
     expect(prisma.codeOrdonnance.update).toHaveBeenCalledWith(
       expect.objectContaining({

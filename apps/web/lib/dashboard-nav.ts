@@ -78,14 +78,15 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     { label: 'Réclamations', href: `${ADHERENT}/reclamations`, icon: Scale },
     { label: 'Ma carte', href: `${ADHERENT}/carte`, icon: CreditCard },
   ],
-  // Espace PHARMACIE. Pharmacien et caissière ont des droits API identiques
-  // sur la validation de code / dispensation (ROLES_PHARMACIE ne distingue
-  // pas ces 2 rôles, vérifié explicitement — voir PROGRESSION.md) : même
-  // écran de fonction, seule la page « Médicaments remboursables » est
-  // propre au pharmacien. Le comptable n'a qu'un suivi en lecture seule
-  // (aucun module de facturation pharmacie n'existe dans l'application).
+  // Espace PHARMACIE — module `pharmacy/` (verrou par ligne). Pharmacien et
+  // caissière partagent le même écran de dispensation (`DispensationFlowEcran`,
+  // ROLES_PHARMACIE ne distingue pas ces 2 rôles sur la préparation, vérifié) ;
+  // seuls « Mon stock » (écriture réservée au pharmacien, `assertPharmacien`)
+  // et « Médicaments remboursables » (référentiel national, lecture seule)
+  // sont propres au pharmacien.
   [PHARMACIEN]: [
     { label: "Vue d'ensemble", href: PHARMACIEN, icon: LayoutDashboard },
+    { label: 'Mon stock', href: `${PHARMACIEN}/stock`, icon: Wallet },
     {
       label: 'Médicaments remboursables',
       href: `${PHARMACIEN}/medicaments`,

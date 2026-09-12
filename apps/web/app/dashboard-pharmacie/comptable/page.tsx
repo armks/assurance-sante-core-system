@@ -1,28 +1,32 @@
 import type { Metadata } from 'next';
 
-import { ComptableEcran } from '@/components/dashboard/pharmacie/comptable-ecran';
-import type { CodeOrdonnancePharmacie } from '@/app/dashboard-pharmacie/types';
+import { listerDispensationsPharmacie } from '@/app/dashboard-pharmacie/dispensation-actions';
+import { DispensationsListeEcran } from '@/components/dashboard/pharmacie/dispensations-liste-ecran';
 import { PageTitre } from '@/components/page-titre';
-import { apiFetch, messageErreur } from '@/lib/api';
 
 export const metadata: Metadata = { title: 'Suivi des dispensations — Comptable' };
 
+/**
+ * Bascule sur le module `pharmacy/` (verrou par ligne) — corrige
+ * l'incohérence relevée à l'audit : cet écran lisait encore l'ancien
+ * mécanisme `codes_ordonnance` (PROMPT 19), qui ne reçoit plus d'écriture
+ * depuis la révision majeure. Lecture seule des dispensations PAYEE
+ * uniquement (filtré côté serveur) — cohérent avec le rôle déjà en place
+ * avant cette bascule, aucune action de préparation/paiement ici.
+ */
 export default async function ComptablePage() {
-  const res = await apiFetch('/api/v1/preauthorization/codes-ordonnance/pharmacie');
-  const codes: CodeOrdonnancePharmacie[] = res.ok ? await res.json() : [];
-  const erreur = res.ok ? null : await messageErreur(res);
+  const dispensations = await listerDispensationsPharmacie('PAYEE');
 
   return (
     <div className="space-y-8">
       <PageTitre
         titre="Suivi des dispensations"
-        description="Vue d’ensemble des dispensations de votre pharmacie."
+        description="Dispensations réglées de votre pharmacie — montants et historique."
       />
-      {erreur ? (
-        <p className="text-sm text-destructive">{erreur}</p>
-      ) : (
-        <ComptableEcran codes={codes} />
-      )}
+      <DispensationsListeEcran
+        dispensations={dispensations}
+        vide="Aucune dispensation réglée pour l’instant."
+      />
     </div>
   );
 }

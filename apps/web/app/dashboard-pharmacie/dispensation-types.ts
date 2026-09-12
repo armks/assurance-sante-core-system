@@ -71,3 +71,28 @@ export interface DispensationDetail {
   datePaiement: string | null;
   lignes: LigneDispensationDetail[];
 }
+
+export interface PatientDispensation {
+  nom: string;
+  prenom: string;
+  numeroCarte: string;
+}
+
+export interface LigneDispensationResume {
+  denominationMedicament: string;
+  quantite: number;
+  montantLigne: string;
+}
+
+/** Ligne de la liste `GET /pharmacy/dispensations` — pharmacien (tous statuts) /
+ * comptable (statut=PAYEE). Le code de confirmation n'est jamais inclus. */
+export interface DispensationResume {
+  id: string;
+  statut: StatutDispensation;
+  montantTotal: string;
+  datePreparation: string;
+  dateValidationPatient: string | null;
+  datePaiement: string | null;
+  patient: PatientDispensation | null;
+  lignes: LigneDispensationResume[];
+}

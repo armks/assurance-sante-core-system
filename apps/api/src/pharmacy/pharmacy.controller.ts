@@ -13,6 +13,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   DefinirPrixStockDto,
+  ListerDispensationsQueryDto,
   PreparerDispensationDto,
   RechercherParCarteQueryDto,
   SubstituerMedicamentDto,
@@ -60,6 +61,18 @@ export class PharmacyController {
     @Body() dto: PreparerDispensationDto,
   ) {
     return this.pharmacy.preparerDispensation(user, dto.ordonnanceId, dto.lignes);
+  }
+
+  /**
+   * Côté PHARMACIE (3 sous-rôles) : liste des dispensations de SA pharmacie,
+   * filtre optionnel par statut (`?statut=PAYEE` pour le comptable).
+   */
+  @Get('dispensations')
+  listerDispensations(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() dto: ListerDispensationsQueryDto,
+  ) {
+    return this.pharmacy.listerDispensationsPharmacie(user, dto);
   }
 
   /** Côté ADHÉRENT : ses dispensations en attente (avec le code). */

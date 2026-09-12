@@ -6,8 +6,10 @@ import type { ResultatSoumission } from '@/components/dashboard/patterns';
 import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
 import type {
   DispensationDetail,
+  DispensationResume,
   LigneStock,
   RecherchePrescriptionsResultat,
+  StatutDispensation,
 } from './dispensation-types';
 
 /**
@@ -32,6 +34,35 @@ export async function rechercherParCarte(
 export async function obtenirStock(): Promise<LigneStock[]> {
   const res = await apiFetch('/api/v1/pharmacy/stock');
   return res.ok ? ((await res.json()) as LigneStock[]) : [];
+}
+
+/** Réservée au pharmacien côté API (403 sinon) — voir `PharmacyService.definirPrixStock`. */
+export async function definirPrixStock(
+  input: { denominationMedicament: string; prixPharmacie?: number; disponible?: boolean },
+  cible: string,
+): Promise<ResultatSoumission> {
+  const res = await apiFetch('/api/v1/pharmacy/stock', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(cible);
+  return { ok: true, message: 'Tarif enregistré.' };
+}
+
+/**
+ * Liste des dispensations de SA pharmacie — corrige l'incohérence relevée à
+ * l'audit : le pharmacien/comptable lisaient encore l'ancien mécanisme
+ * `codes_ordonnance` (PROMPT 19), qui ne reçoit plus d'écriture depuis la
+ * révision du flux par ligne. `statut` filtre côté serveur (le comptable ne
+ * veut que PAYEE).
+ */
+export async function listerDispensationsPharmacie(
+  statut?: StatutDispensation,
+): Promise<DispensationResume[]> {
+  const qs = statut ? `?statut=${statut}` : '';
+  const res = await apiFetch(`/api/v1/pharmacy/dispensations${qs}`);
+  return res.ok ? ((await res.json()) as DispensationResume[]) : [];
 }
 
 export async function preparerDispensation(

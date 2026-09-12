@@ -3361,3 +3361,68 @@ affiché. Comptes éphémères supprimés, serveurs arrêtés.
 ### 🎯 Jalon — le 404 d'`ASSUREUR_COMPTABLE` est corrigé ; son périmètre de navigation (et
 celui de son adjoint) correspond exactement aux droits API vérifiés, avec les gaps
 (facturation sans écran, rapports financiers inexistants) documentés plutôt qu'improvisés
+
+## 2026-09-12 (suite) — Audit de couverture frontend complet (état actuel, post-9-étapes)
+puis correction de l'incohérence pharmacien/comptable qu'il a identifiée
+
+### Audit (lecture seule, aucune correction à ce stade)
+Refait sur les 6 mêmes sections que l'audit initial de cette séquence, sur l'état réel du
+code (`HEAD` `324c149`). Constats marquants :
+- **`/dashboard-pharmacie/pharmacien` et `/comptable` lisaient encore l'ancien mécanisme
+  `codes_ordonnance`** (PROMPT 19) alors que la dispensation réelle passe désormais par
+  `dispensations_pharmacie`/`lignes_dispensation` (module `pharmacy/`) — seule la caissière
+  avait été migrée. Conséquence concrète vérifiée : ces deux écrans pouvaient afficher un
+  état vide alors que des dispensations réelles avaient eu lieu, dès qu'une pharmacie
+  n'utilisait que le nouvel écran caissière.
+- **Le gap de facturation `ASSUREUR_COMPTABLE`** (`confirmerPaiement`/`obtenirFacture`,
+  v8 §5) est confirmé inchangé — toujours zéro référence dans `apps/web`, exactement comme
+  documenté au prompt précédent.
+- **Un 404 réel restait** sur `SOUSCRIPTEUR_INDIVIDUEL` (`dashboardRoute =
+  /dashboard-adherent/individuel`, aucune page) — sur les 25 sous-rôles, c'est le seul.
+  Finding nouveau au passage : `underwriting.service.ts::soumettreQuestionnaire` autorise
+  déjà ce rôle à soumettre son propre questionnaire médical en self-service
+  (`estLeSouscripteur`), sans aucune UI — hors périmètre de ce prompt (dédié à
+  l'incohérence pharmacie), non traité ici.
+- Gaps déjà connus reconfirmés inchangés : `ClaimsService` sans scope société, clôture
+  forcée sans écran assureur.
+
+### Correction de l'incohérence pharmacien/comptable (seule correction de ce prompt)
+- **Nouveau `GET /pharmacy/dispensations`** (`listerDispensationsPharmacie`, filtre
+  `?statut=` optionnel) : scope strict `ctx.pharmacieId`, jamais le code de confirmation.
+  Renvoie aussi le patient (nom/prénom/numéro de carte) et le nom du médicament
+  **substitué** si applicable (jamais l'original dans ce cas). 4 tests ajoutés (scope,
+  filtre statut, rôle non-pharmacie refusé, substitution affichée). Suite complète :
+  **21/21 suites, 226/226 tests verts**, `tsc --noEmit` propre (API et web).
+- `/dashboard-pharmacie/pharmacien` : bascule sur `pharmacy/` — réutilise
+  `DispensationFlowEcran` (partagé avec la caissière, substitution active pour ce rôle,
+  conçu paramétrable par rôle exprès pour ce cas) + nouvel historique complet (tous
+  statuts) via `DispensationsListeEcran` (nouveau composant, `DataTable` réemployé).
+- **`/dashboard-pharmacie/pharmacien/stock`** (nouvelle route + nav « Mon stock ») :
+  `StockEcran` (nouveau), gestion réelle de `stock_medicaments_pharmacie` (les endpoints
+  existaient déjà, aucune UI ne les exposait) — `definirPrixStock` reste réservé au
+  pharmacien côté API, vérifié inchangé.
+- `/dashboard-pharmacie/comptable` : bascule sur `pharmacy/`, lecture seule des
+  dispensations `PAYEE` uniquement (`DispensationsListeEcran`, filtre serveur) — cohérent
+  avec le rôle déjà en place avant cette bascule (aucune action de préparation/paiement).
+- Fichiers désormais orphelins supprimés (plus aucune référence après la bascule des 2
+  dernières pages) : `dispensation-ecran.tsx`, `comptable-ecran.tsx`,
+  `app/dashboard-pharmacie/actions.ts`, `app/dashboard-pharmacie/types.ts` (ancien
+  mécanisme `codes_ordonnance` côté frontend — le mécanisme backend, lui, reste inchangé
+  et continue de protéger le contenu de l'ordonnance comme avant).
+
+### Test — navigateur réel (Playwright/Chromium headless, installé temporairement puis
+retiré) — scénario complet demandé, 12/12
+Établissement + 1 pharmacie + 5 comptes éphémères (accueil, médecin, caissière,
+**pharmacien et comptable de la MÊME pharmacie**), ordonnance réelle via le parcours
+établissement complet : la caissière traite une dispensation de bout en bout (recherche
+par carte → sélection → code envoyé → validation patient → paiement confirmé, comme au
+prompt précédent) → **le pharmacien voit réellement la dispensation** (médicament,
+patient, statut Payée) dans son historique, plus d'état vide trompeur → l'écran « Mon
+stock » du pharmacien affiche le tarif défini plus tôt → **le comptable de la même
+pharmacie voit la même dispensation, PAYEE, avec le bon montant** → contrôle négatif :
+`?statut=EN_PREPARATION` renvoie bien une liste vide côté serveur (aucune dispensation
+résiduelle à ce statut). Données et 5 comptes éphémères supprimés, serveurs arrêtés.
+
+### 🎯 Jalon — l'incohérence relevée à l'audit est corrigée : les 3 rôles PHARMACIE
+regardent désormais la même source de vérité (`pharmacy/`), plus aucun écran de cette
+filière ne peut afficher un état vide trompeur pendant qu'une activité réelle a lieu

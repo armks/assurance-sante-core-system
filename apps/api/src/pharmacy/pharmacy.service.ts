@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   DefinirPrixStockDto,
   LigneChoisieDto,
+  ListerDispensationsQueryDto,
   SubstituerMedicamentDto,
   ValiderCodeDispensationDto,
 } from './dto/pharmacy.dto';
@@ -331,6 +332,61 @@ export class PharmacyService {
         montantLigne: l.montantLigne.toFixed(2),
       })),
     };
+  }
+
+  /**
+   * Liste des dispensations de SA pharmacie — corrige l'incohérence relevée
+   * à l'audit : `pharmacien`/`comptable` lisaient encore l'ancien mécanisme
+   * `codes_ordonnance` (PROMPT 19), qui ne reçoit plus d'écriture depuis que
+   * la dispensation réelle passe par ce module. Filtre optionnel par statut
+   * (le comptable ne veut que PAYEE). Le code de confirmation n'est JAMAIS
+   * renvoyé ici (il ne part qu'au patient).
+   */
+  async listerDispensationsPharmacie(user: AuthenticatedUser, dto: ListerDispensationsQueryDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+
+    const dispensations = await this.prisma.dispensationPharmacie.findMany({
+      where: {
+        pharmacieId: ctx.pharmacieId!,
+        ...(dto.statut ? { statut: dto.statut } : {}),
+      },
+      include: {
+        ordonnance: {
+          include: {
+            dossier: {
+              select: {
+                adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
+                beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true } },
+              },
+            },
+          },
+        },
+        lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } } },
+      },
+      orderBy: { datePreparation: 'desc' },
+      take: 100,
+    });
+
+    return dispensations.map((d) => {
+      const patient = d.ordonnance.dossier.adherent ?? d.ordonnance.dossier.beneficiaire;
+      return {
+        id: d.id,
+        statut: d.statut,
+        montantTotal: d.montantTotal.toFixed(2),
+        datePreparation: d.datePreparation,
+        dateValidationPatient: d.dateValidationPatient,
+        datePaiement: d.datePaiement,
+        patient: patient
+          ? { nom: patient.nom, prenom: patient.prenom, numeroCarte: patient.numeroCarte }
+          : null,
+        lignes: d.lignes.map((l) => ({
+          denominationMedicament: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
+          quantite: l.quantite,
+          montantLigne: l.montantLigne.toFixed(2),
+        })),
+      };
+    });
   }
 
   // --- Côté ADHÉRENT : ses dispensations en attente (avec le code) --

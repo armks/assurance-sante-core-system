@@ -60,6 +60,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         update: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       ligneDispensation: { createMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       $executeRaw: jest.fn().mockResolvedValue(1),
@@ -399,5 +400,81 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     const res = await service.obtenirDispensation(USER, 'disp-1');
     expect(res).not.toHaveProperty('codeConfirmation');
     expect(res.lignes[0].denominationMedicament).toBe('Paracetamol 500mg');
+  });
+
+  // --- listerDispensationsPharmacie (corrige l'incohérence pharmacien/comptable) ---
+
+  it('scope strict à SA pharmacie et ne renvoie jamais le code de confirmation', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    prisma.dispensationPharmacie.findMany.mockResolvedValue([
+      {
+        id: 'disp-1',
+        statut: 'PAYEE',
+        montantTotal: dec(500),
+        codeConfirmation: 'SECRET42',
+        datePreparation: new Date(),
+        dateValidationPatient: new Date(),
+        datePaiement: new Date(),
+        ordonnance: { dossier: { adherent: { nom: 'Konan', prenom: 'Adjoua', numeroCarte: 'CM-1' }, beneficiaire: null } },
+        lignes: [
+          {
+            medicamentSubstitue: null,
+            quantite: 1,
+            montantLigne: dec(500),
+            ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+          },
+        ],
+      },
+    ]);
+
+    const res = await service.listerDispensationsPharmacie(USER, {});
+
+    expect(prisma.dispensationPharmacie.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pharmacieId: 'pharm-1' } }),
+    );
+    expect(res).not.toEqual(expect.arrayContaining([expect.objectContaining({ codeConfirmation: expect.anything() })]));
+    expect(res[0].patient).toEqual({ nom: 'Konan', prenom: 'Adjoua', numeroCarte: 'CM-1' });
+    expect(res[0].lignes[0].denominationMedicament).toBe('Paracetamol 500mg');
+  });
+
+  it('filtre par statut quand demandé (comptable : PAYEE uniquement)', async () => {
+    identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+    await service.listerDispensationsPharmacie(USER, { statut: 'PAYEE' });
+    expect(prisma.dispensationPharmacie.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { pharmacieId: 'pharm-1', statut: 'PAYEE' } }),
+    );
+  });
+
+  it("un rôle non-pharmacie ne peut pas lister les dispensations d'une pharmacie", async () => {
+    identity.getMe.mockResolvedValue(adherent());
+    await expect(service.listerDispensationsPharmacie(USER, {})).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.dispensationPharmacie.findMany).not.toHaveBeenCalled();
+  });
+
+  it('affiche le nom du médicament substitué (pas l’original) dans la liste', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    prisma.dispensationPharmacie.findMany.mockResolvedValue([
+      {
+        id: 'disp-1',
+        statut: 'PAYEE',
+        montantTotal: dec(1200),
+        codeConfirmation: null,
+        datePreparation: new Date(),
+        dateValidationPatient: new Date(),
+        datePaiement: new Date(),
+        ordonnance: { dossier: { adherent: null, beneficiaire: { nom: 'Traore', prenom: 'Awa', numeroCarte: 'CM-2' } } },
+        lignes: [
+          {
+            medicamentSubstitue: 'Ibuprofène 400mg',
+            quantite: 1,
+            montantLigne: dec(1200),
+            ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+          },
+        ],
+      },
+    ]);
+    const res = await service.listerDispensationsPharmacie(USER, {});
+    expect(res[0].lignes[0].denominationMedicament).toBe('Ibuprofène 400mg');
+    expect(res[0].patient).toEqual({ nom: 'Traore', prenom: 'Awa', numeroCarte: 'CM-2' });
   });
 });

@@ -3,6 +3,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -14,6 +15,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { STATUTS_DISPENSATION } from '../pharmacy.types';
 
 export class RechercherParCarteQueryDto {
   @IsString()
@@ -63,6 +65,12 @@ export class DefinirPrixStockDto {
   @IsOptional()
   @IsBoolean()
   disponible?: boolean;
+}
+
+export class ListerDispensationsQueryDto {
+  @IsOptional()
+  @IsIn(STATUTS_DISPENSATION)
+  statut?: (typeof STATUTS_DISPENSATION)[number];
 }
 
 export class SubstituerMedicamentDto {

@@ -47,6 +47,8 @@ const INFORMATIQUE_ADJOINT = '/dashboard-assureur/informatique-adjoint';
 const DIRECTION = '/dashboard-assureur/direction';
 const EXPLOITATION = '/dashboard-assureur/exploitation';
 const EXPLOITATION_CONJOINTE = '/dashboard-assureur/exploitation-conjointe';
+const COMPTABLE = '/dashboard-assureur/comptable';
+const COMPTABLE_ADJOINT = '/dashboard-assureur/comptable-adjoint';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const MEDECIN_SOUSCRIPTEUR = '/dashboard-assureur/medecin-souscripteur';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
@@ -212,6 +214,15 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   // MODIFICATION, pas ADMIN.
   [EXPLOITATION]: navExploitation(EXPLOITATION),
   [EXPLOITATION_CONJOINTE]: navExploitation(EXPLOITATION_CONJOINTE),
+  // Comptable (+ adjoint) : le SEUL écran partagé où ce rôle a une écriture
+  // réelle est Cotisations (`ROLES_GESTION_BILLING` = COMPTABLE + INFORMATIQUE,
+  // vérifié). Ni Souscripteurs/Polices/Adhérents/Produits/Réseau (aucune
+  // écriture, même raison que l'exclusion Exploitation ci-dessus), ni
+  // Réclamations (`ROLES_LECTURE_CLAIMS` ne l'inclut PAS — contrairement à
+  // Exploitation, aucun accès du tout, pas même en lecture), ni Utilisateurs
+  // (jamais créateur ni validateur dans `regles_provisioning`).
+  [COMPTABLE]: navComptable(COMPTABLE),
+  [COMPTABLE_ADJOINT]: navComptable(COMPTABLE_ADJOINT),
   [INFORMATIQUE]: navInformatique(INFORMATIQUE),
   // Informatique adjoint : rôle hérité de l'informatique (roleChain, niveauAcces).
   // Mêmes écrans, seule la vue d'ensemble pointe vers sa propre route ; les
@@ -245,6 +256,18 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
       href: `${INFORMATIQUE}/reclamations`,
       icon: ReceiptText,
     },
+  ];
+}
+
+/**
+ * Navigation Comptable / Comptable adjoint — un seul écran partagé où ce rôle
+ * a une écriture réelle vérifiée (`ROLES_GESTION_BILLING`). Voir le
+ * commentaire de `NAV_PAR_DASHBOARD` pour le détail des exclusions.
+ */
+function navComptable(racineVueEnsemble: string): NavItem[] {
+  return [
+    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
+    { label: 'Cotisations', href: `${INFORMATIQUE}/cotisations`, icon: Wallet },
   ];
 }
 

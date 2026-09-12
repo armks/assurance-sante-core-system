@@ -3274,3 +3274,90 @@ confirmation) ajouté pour permettre l'affichage du statut en temps réel côté
 (vérifié au niveau service ET par un appel API direct contournant l'écran) ; l'écran
 caissière reflète enfin le vrai parcours de dispensation par ligne, avec un ajustement de
 sécurité documenté (lecture du stock ouverte, écriture toujours fermée)
+
+## 2026-09-12 (suite) — `/dashboard-assureur/comptable` + `/comptable-adjoint` : correction
+du 404 identifié lors de la relecture complète de `PROGRESSION.md`
+
+### Constat de départ
+`ASSUREUR_COMPTABLE` a un `dashboardRoute` configuré en base (`/dashboard-assureur/comptable`,
+confirmé via `sous_roles`), mais **aucune page frontend n'existait** pour cette route — un
+compte réel avec ce rôle atterrissait sur un 404 après connexion. Repéré lors de la lecture
+complète demandée de l'état du projet, jamais documenté comme gap avant ce prompt.
+
+### Audit précis des droits API réels d'`ASSUREUR_COMPTABLE` (avant toute construction)
+Vérifié module par module (lecture directe des constantes de rôle, pas supposé) :
+- **Cotisations (`billing/`)** : `ROLES_GESTION_BILLING` = `ASSUREUR_COMPTABLE` +
+  `ASSUREUR_INFORMATIQUE` — écriture réelle et complète (calcul de cotisation, grilles
+  tarifaires, enregistrement de paiement). **Seul module où ce rôle a une écriture réelle.**
+- **Facturation établissement (`preauthorization/`)** : `genererFacture`
+  (`ROLES_GENERATION_FACTURE` l'inclut, non scopé établissement puisque non
+  `CENTRE_MEDICAL_*`) et surtout `confirmerPaiement`, **réservé À LUI SEUL**
+  (`ROLE_CONFIRMATION_PAIEMENT = 'ASSUREUR_COMPTABLE'`, ni exploitation ni informatique).
+  Droits réels et même exclusifs, mais **aucun écran n'existe nulle part dans l'app pour ce
+  domaine côté assureur** (confirmé : aucune référence à `genererFacture`/`confirmerPaiement`
+  dans `apps/web`) — gap documenté, non construit ici (hors périmètre : accès aux écrans
+  déjà existants uniquement).
+- **Souscripteurs/Polices/Adhérents/Produits/Réseau de soins** : `ROLES_GESTION_
+  {SOUSCRIPTEUR,POLICE,MEMBRE,PRODUIT,RESEAU}` ne l'incluent **dans aucun cas** — lecture
+  ouverte (comme tout le monde dans l'entité ASSUREUR) mais aucune écriture. Non liés dans
+  la navigation, même raison déjà appliquée à `ASSUREUR_EXPLOITATION` sur produits/
+  cotisations/réseau : ces écrans n'ont aucun garde-fou de rôle côté frontend (boutons
+  d'écriture toujours affichés), les exposer en lecture y montrerait des actions qui
+  échoueraient en 403.
+- **Réclamations (`claims/`)** : `ROLES_LECTURE_CLAIMS` (= `ROLES_GESTION_CLAIMS` +
+  médecin-conseil) **ne l'inclut PAS** — contrairement à `ASSUREUR_EXPLOITATION`, ce rôle
+  n'a **aucun accès, pas même en lecture**. Vérifié en HTTP réel : `GET
+  /claims/reclamations` → 403.
+- **Utilisateurs (`invitations/regles_provisioning`)** : jamais créateur ni validateur
+  (`regleProvisioning` interrogée pour `ASSUREUR_COMPTABLE(_ADJOINT)` comme `roleCreateur`
+  ET `roleValidateur` → aucun résultat dans les deux cas). Zéro droit, non lié.
+- **Rapports financiers** : aucun module `reporting`/`rapport` n'existe dans l'API —
+  gap complet documenté, rien à lier.
+- **`ASSUREUR_COMPTABLE_ADJOINT`** (`roleParentCode = ASSUREUR_COMPTABLE`,
+  `peut_valider = false` contre `true` pour le titulaire, `dashboardRoute =
+  /dashboard-assureur/comptable-adjoint`, confirmé en base) : hérite du rôle via
+  `roleChain`. **Vérifié explicitement** (contrairement à ce qui a d'abord été fait pour
+  `informatique-adjoint`, corrigé plus tôt dans cette séquence) : `ROLES_GESTION_BILLING`
+  teste l'appartenance à la chaîne de rôles, jamais `permissions.peutValider` — et **aucune
+  action du périmètre Cotisations n'a de notion de « validation finale »** (pas de
+  workflow brouillon/proposition → validation sur les cotisations ni les grilles
+  tarifaires, contrairement à « Valider une proposition » ou « Publier un produit » côté
+  informatique-adjoint). Le principe demandé (masquer les boutons de validation finale via
+  `peutValider`) est câblé sur l'écran (`peutValider` passé en prop, note explicite
+  affichée si `false`), mais **concrètement rien n'est masqué aujourd'hui** — gap constaté
+  et documenté plutôt qu'un masquage fictif inventé pour une action qui n'existe pas.
+
+### Frontend
+- `lib/dashboard-nav.ts` : `navComptable()` (nouvelle fonction) — seulement « Vue
+  d'ensemble » + « Cotisations », réutilisée pour les 2 `dashboardRoute`.
+- `app/dashboard-assureur/informatique/layout.tsx` : `ROUTES_ADMIN_ASSUREUR` étendue aux
+  2 nouvelles routes (mécanisme déjà en place pour direction/exploitation — aucun nouveau
+  layout de gestion créé, réutilisation de l'écran Cotisations existant).
+- `app/dashboard-assureur/comptable(-adjoint)/` : layout (garde propre à la route, même
+  pattern que `exploitation/layout.tsx`) + page (vue d'ensemble). `ComptableVueEnsemble`
+  (composant partagé) : `GrilleCartes` (à payer / payées / en retard / reste à encaisser,
+  calculées depuis `GET billing/cotisations`), un seul « Accès rapide » (Cotisations), et
+  une carte de périmètre explicite listant les exclusions vérifiées ci-dessus (réclamations
+  non accessibles, confirmation de paiement sans écran, rapports financiers inexistants,
+  note spécifique pour l'adjoint sur l'absence de validation finale dans ce domaine).
+
+### Test — HTTP réel (2 comptes éphémères, sans établissement/pharmacie nécessaire)
+**14/14** (7 par rôle, comptable et adjoint identiques) : `GET billing/cotisations` → 200 ;
+`POST billing/cotisations/:id/paiement` (id fictif) → **404, pas 403** (le rôle passe bien
+le contrôle, seule la ressource n'existe pas — preuve que l'écriture cotisations est
+réellement autorisée, sans avoir à créer de donnée financière) ; `GET claims/reclamations`
+→ 403 ; `POST tenant/souscripteurs` / `policy/polices` / `plan/produits` /
+`provider/etablissements` → 403 chacun.
+
+### Test — navigateur réel (Playwright/Chromium headless, installé temporairement puis
+retiré, comme pour le test caissière) — 16/16
+Pour chacun des 2 rôles : connexion réelle par le formulaire de login → redirection vers
+sa propre route (**plus de 404**) → page 200 → vue d'ensemble avec les 4 cartes cotisations
+affichées → lien « Cotisations » présent, **aucun** lien Souscripteurs/Produits/Polices/
+Adhérents/Établissements/Pharmacies/Utilisateurs/Réclamations dans la nav ni les accès
+rapides → clic sur Cotisations → navigation réelle vers l'écran existant, 200, contenu
+affiché. Comptes éphémères supprimés, serveurs arrêtés.
+
+### 🎯 Jalon — le 404 d'`ASSUREUR_COMPTABLE` est corrigé ; son périmètre de navigation (et
+celui de son adjoint) correspond exactement aux droits API vérifiés, avec les gaps
+(facturation sans écran, rapports financiers inexistants) documentés plutôt qu'improvisés

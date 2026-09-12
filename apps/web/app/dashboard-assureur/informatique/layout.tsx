@@ -34,6 +34,19 @@ export const metadata: Metadata = {
  * `ROLES_GESTION_RESEAU` ne l'incluent pas) et ces écrans ne masquent pas
  * encore leurs actions d'écriture selon le rôle — les y exposer en lecture
  * afficherait des boutons que l'API refuserait (403).
+ *
+ * `ASSUREUR_COMPTABLE`(_ADJOINT) ne partage QUE Cotisations
+ * (`ROLES_GESTION_BILLING` = COMPTABLE + INFORMATIQUE, vérifié — chaque action
+ * du formulaire cotisations/grilles tarifaires passe par ce contrôle). Ni
+ * Souscripteurs/Polices/Adhérents/Produits/Réseau (aucune écriture, même
+ * raison que l'exclusion Exploitation ci-dessus), ni Réclamations
+ * (`ROLES_LECTURE_CLAIMS` ne l'inclut PAS — contrairement à l'exploitation,
+ * ce rôle n'a AUCUN accès, pas même en lecture), ni Utilisateurs (jamais
+ * créateur ni validateur dans `regles_provisioning`) ne figurent dans sa
+ * navigation. L'adjoint hérite du rôle titulaire (roleChain) : mêmes droits
+ * réels sur Cotisations (`ROLES_GESTION_BILLING` teste l'appartenance à la
+ * chaîne, pas `peutValider` — vérifié, aucune action de ce domaine n'a de
+ * notion de « validation finale » contrairement à informatique-adjoint).
  */
 const ROUTES_ADMIN_ASSUREUR = [
   '/dashboard-assureur/informatique',
@@ -41,6 +54,8 @@ const ROUTES_ADMIN_ASSUREUR = [
   '/dashboard-assureur/direction',
   '/dashboard-assureur/exploitation',
   '/dashboard-assureur/exploitation-conjointe',
+  '/dashboard-assureur/comptable',
+  '/dashboard-assureur/comptable-adjoint',
 ];
 
 export default async function InformatiqueLayout({

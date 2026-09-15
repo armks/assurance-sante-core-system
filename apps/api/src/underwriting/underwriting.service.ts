@@ -314,20 +314,33 @@ export class UnderwritingService {
     return this.prisma.tarificationIndividuelle.findUnique({ where: { id } });
   }
 
-  /** Tarifications individuelles déjà calculées de l'organisation (lecture). */
+  /**
+   * Tarifications individuelles déjà calculées. Lecture ouverte à
+   * `ROLES_TARIFICATION_INDIVIDUELLE` (toute l'organisation) OU, comme pour
+   * `listerQuestionnaires`, au souscripteur concerné (`ctx.societeId`) —
+   * scopé strictement à ses propres polices. La prime n'existe que si le
+   * questionnaire a déjà été évalué et accepté (`calculerPrime` le vérifie),
+   * donc rien à masquer ici au-delà du scope.
+   */
   async listerTarifications(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
     const autorise = ctx.roleChain.some((code) =>
       (ROLES_TARIFICATION_INDIVIDUELLE as readonly string[]).includes(code),
     );
-    if (!autorise) {
+
+    if (!autorise && !ctx.societeId) {
       throw new ForbiddenException(
         'Rôle insuffisant pour consulter les tarifications individuelles.',
       );
     }
+
     return this.prisma.tarificationIndividuelle.findMany({
       where: {
-        police: { organisationId: ctx.organisationId, deletedAt: null },
+        police: {
+          organisationId: ctx.organisationId,
+          deletedAt: null,
+          ...(autorise ? {} : { souscripteurId: ctx.societeId! }),
+        },
       },
       orderBy: { createdAt: 'desc' },
       include: {

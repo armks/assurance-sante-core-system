@@ -3426,3 +3426,87 @@ résiduelle à ce statut). Données et 5 comptes éphémères supprimés, serveu
 ### 🎯 Jalon — l'incohérence relevée à l'audit est corrigée : les 3 rôles PHARMACIE
 regardent désormais la même source de vérité (`pharmacy/`), plus aucun écran de cette
 filière ne peut afficher un état vide trompeur pendant qu'une activité réelle a lieu
+
+## 2026-09-15 — `/dashboard-adherent/individuel` : corrige le 404 SOUSCRIPTEUR_INDIVIDUEL
+(dette laissée ouverte par l'audit de couverture frontend)
+
+### Vérification préalable demandée : le provisioning pose-t-il correctement `profil.societeId` ?
+Réponse : **il n'existe tout simplement aucun chemin de provisioning applicatif pour
+l'entité ADHERENT**, ni pour `ADHERENT_TITULAIRE` ni pour `SOUSCRIPTEUR_INDIVIDUEL`.
+`regles_provisioning` couvrait 22 des 25 sous-rôles ; ces deux-là en étaient absents.
+`member/adherent.service.ts::creerAdherent` ne crée que la fiche métier (`Adherent`),
+jamais de compte Supabase/`Profil` lié. Le compte de référence utilisé dans toute cette
+séquence (`armelk01+adherent@gmail.com`) avait lui-même été créé à la main, hors
+application — ce n'était donc pas un bug de valeur mal posée, mais l'absence totale du
+chemin de création. **Décision (validée avec l'utilisateur)** : traiter un souscripteur
+individuel exactement comme une société cliente — un `souscripteurs` de type `INDIVIDUEL`
+avec sa propre police personnalisable, provisionné par `ASSUREUR_INFORMATIQUE` (déjà
+créateur direct de tous les rôles `SOCIETE_*`).
+
+### Correctif (priorité, avant l'écran)
+- Migration `029_provisioning_souscripteur_individuel.sql` : ajoute la règle
+  `ASSUREUR_INFORMATIQUE → SOUSCRIPTEUR_INDIVIDUEL` (`scope_verifie = organisation_id`,
+  `CREATION_DIRECTE`, aucun validateur) — même règle exacte que les 4 rôles `SOCIETE_*`.
+  Aucun code applicatif à modifier : `resoudreScope()`/`accepterInvitation()`
+  (`invitations.service.ts`) traitent déjà génériquement `societeId`+`adherentId` pour
+  toute règle `organisation_id`, et `peut_inviter_role()` (RLS, prisma/sql/008) lit la
+  même table — une seule source de vérité, les deux couches se mettent à jour ensemble.
+- **Vérifié en creusant le schéma** : la RLS de `tarification_individuelle` et de
+  `questionnaires_medicaux` (prisma/sql/007, PROMPT 10) anticipait déjà un accès
+  self-service (`pol.souscripteur_id = (select societe_id from profils …)`) — cette
+  fonctionnalité était conçue pour l'auto-service dès l'origine, seuls le provisioning, un
+  bout de service NestJS et l'écran manquaient.
+- **Gap NestJS trouvé au passage** : `UnderwritingService.listerTarifications` n'avait
+  *aucune* branche self-service (contrairement à `listerQuestionnaires`, qui l'a déjà) —
+  un souscripteur ne pouvait pas lire sa propre prime malgré une RLS qui l'autorisait déjà.
+  Corrigé : lecture ouverte à `ROLES_TARIFICATION_INDIVIDUELLE` (toute l'org) **ou** au
+  souscripteur concerné (`ctx.societeId`), strictement scopée à ses propres polices. 2
+  tests ajoutés. Suite complète : **21/21 suites, 227/227 tests verts**, `tsc --noEmit`
+  propre (API et web).
+
+### Écran (`app/dashboard-adherent/individuel/`)
+Un seul écran combinant les 3 états demandés (`IndividuelVueEnsemble`, réutilise
+`StatutBadge`/`lib/underwriting.ts` déjà utilisés côté médecin-souscripteur) :
+1. **Pas encore soumis** → formulaire (mêmes champs que la structure `reponses`/
+   `antecedentsDeclares` affichée côté médecin-souscripteur — `reponses` est un JSON libre
+   sans schéma fixe dans ce projet, donc un jeu de questions représentatif plutôt qu'un
+   formulaire figé imposé par le backend).
+2. **Soumis, en attente** → statut affiché, **aucune section décision rendue** — vérifié
+   que la règle v4 §3.1 tient réellement : `decision` est `null` en base tant que le
+   médecin souscripteur n'a pas statué (contrainte CHECK `decision ⟺ date_decision`),
+   `evaluerQuestionnaire` est le seul point d'écriture et reste réservé à
+   `ASSUREUR_MEDECIN_SOUSCRIPTEUR` — rien à masquer côté UI qui ne le soit déjà côté
+   donnée.
+3. **Décision rendue** → décision + surprime/exclusions, et la prime
+   (`tarification_individuelle`, si déjà calculée) avec le détail prime de base +
+   surprime médicale + prime finale ; sinon message explicite (« tarification en cours »),
+   jamais de prime inventée.
+- `lib/dashboard-nav.ts` : nouvelle entrée `/dashboard-adherent/individuel` (un seul item,
+  « Vue d'ensemble ») — note explicite que les 5 écrans de soins partagés avec
+  `ADHERENT_TITULAIRE` (consultation/ordonnances/factures/réclamations/carte) sont
+  API-accessibles à ce rôle (`ROLES_ADHERENT` les traite déjà à l'identique) mais non
+  branchés ici, hors périmètre de ce prompt.
+
+### Test — HTTP réel + navigateur réel (Playwright/Chromium headless, installé
+temporairement puis retiré) — parcours complet demandé, 21/21
+Provisioning réel de bout en bout (comme documenté ci-dessus, pas de raccourci) :
+`ASSUREUR_INFORMATIQUE` crée le souscripteur `INDIVIDUEL` → une police (devis) →
+l'adhérent → invite le compte `SOUSCRIPTEUR_INDIVIDUEL` (**la nouvelle règle fonctionne,
+201**) → acceptation réelle de l'invitation → **`profil.societeId` et `profil.adherentId`
+vérifiés en base, tous deux corrects**. Puis navigateur réel : connexion → **redirection
+vers `/dashboard-adherent/individuel`, plus de 404** → formulaire affiché → soumission
+réelle du questionnaire dans le navigateur → statut « En attente d'évaluation », **aucune
+section décision visible** (vérifié aussi en base : `decision IS NULL`) → le médecin
+souscripteur rend sa décision (`ACCEPTE_SURPRIME`, 15 %) par API → retour navigateur :
+décision maintenant visible, tarification pas encore calculée → calcul de la prime
+(12 000 F base + 15 % = 13 800 F) → retour navigateur : **prime de base, surprime et
+prime finale toutes affichées avec le bon montant** → contrôle négatif : un second
+souscripteur individuel éphémère interroge `GET /underwriting/tarifications` et reçoit une
+liste **vide** (pas la prime d'autrui). Données et comptes éphémères supprimés (ordre FK
+particulier respecté : invitation avant profils, profils avant adhérent/souscripteur),
+serveurs arrêtés.
+
+### 🎯 Jalon — le 404 `SOUSCRIPTEUR_INDIVIDUEL` est corrigé avec un vrai provisioning
+(pas un contournement), la fonctionnalité self-service anticipée dès la RLS d'origine
+(PROMPT 10) est enfin exposée de bout en bout, et la confidentialité de la décision avant
+son rendu est vérifiée au niveau donnée, pas seulement à l'écran

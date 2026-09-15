@@ -214,6 +214,22 @@ describe('UnderwritingService', () => {
     expect(res).toHaveLength(1);
   });
 
+  it('AUTORISE le souscripteur concerné (ctx.societeId) à lister SA SEULE tarification', async () => {
+    identity.getMe.mockResolvedValue(identite([], { societeId: 's1' }));
+    prisma.tarificationIndividuelle.findMany.mockResolvedValue([
+      { id: 't1', primeFinale: '12000.00' },
+    ]);
+
+    const res = await service.listerTarifications(USER);
+
+    expect(prisma.tarificationIndividuelle.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { police: { organisationId: 'org-1', deletedAt: null, souscripteurId: 's1' } },
+      }),
+    );
+    expect(res).toHaveLength(1);
+  });
+
   it('calcule la prime individuelle = prime_base + surprime (20 %)', async () => {
     identity.getMe.mockResolvedValue(
       identite(['ASSUREUR_MEDECIN_SOUSCRIPTEUR']),

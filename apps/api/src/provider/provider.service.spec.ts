@@ -127,6 +127,57 @@ describe('ProviderService', () => {
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+  // --- validerEtablissement : EN_ATTENTE_VALIDATION → ACTIF ------------
+
+  it('validerEtablissement : fait passer EN_ATTENTE_VALIDATION à ACTIF et audite VALIDATION_ETABLISSEMENT', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({
+      id: 'e1',
+      statut: 'EN_ATTENTE_VALIDATION',
+    });
+
+    const res = await service.validerEtablissement(USER, 'e1');
+
+    expect(prisma.etablissementSante.update).toHaveBeenCalledWith({
+      where: { id: 'e1' },
+      data: { statut: 'ACTIF' },
+    });
+    expect(prisma.$executeRaw).toHaveBeenCalled(); // log_audit(VALIDATION_ETABLISSEMENT, …)
+    expect(res.id).toBe('e1');
+  });
+
+  it('validerEtablissement : refuse (409) un établissement qui n’est pas EN_ATTENTE_VALIDATION', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({
+      id: 'e1',
+      statut: 'ACTIF',
+    });
+
+    await expect(service.validerEtablissement(USER, 'e1')).rejects.toThrow(
+      "n'est pas en attente de validation",
+    );
+    expect(prisma.etablissementSante.update).not.toHaveBeenCalled();
+  });
+
+  it('validerEtablissement : refuse un rôle non ASSUREUR_INFORMATIQUE', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+
+    await expect(
+      service.validerEtablissement(USER, 'e1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.etablissementSante.update).not.toHaveBeenCalled();
+  });
+
+  it('validerEtablissement : 404 si l’établissement n’appartient pas à l’organisation de l’appelant', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.validerEtablissement(USER, 'e-autre-org'),
+    ).rejects.toThrow('Établissement introuvable.');
+    expect(prisma.etablissementSante.update).not.toHaveBeenCalled();
+  });
+
   it('recherche géolocalisée : résultats triés par distance croissante, hors rayon exclus', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
     // Abidjan Plateau ~ (5.32, -4.02)

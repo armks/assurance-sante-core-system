@@ -3775,3 +3775,45 @@ Données et compte éphémères supprimés, Playwright désinstallé.
 ### 🎯 Jalon — impossible d'inviter un CENTRE_MEDICAL_*/PHARMACIE_*/SOCIETE_ADMINISTRATION
 sans rattachement, ni depuis l'écran (bouton désactivé) ni en contournant l'écran (rejet
 serveur avec vérification cross-organisation)
+
+## 2026-09-16 (suite 5) — Validation ASSUREUR_INFORMATIQUE des établissements EN_ATTENTE_VALIDATION
+
+### Vérification préalable (avant tout code)
+Aucun endpoint ne permettait de faire passer un établissement/une pharmacie de
+`EN_ATTENTE_VALIDATION` à `ACTIF` — seul un `PATCH` générique existait
+(`modifierEtablissement`/`modifierPharmacie`), sans action dédiée ni audit spécifique.
+Vérification supplémentaire faite AVANT de coder le pendant « pharmacie » demandé :
+la contrainte `CHECK` de la table `pharmacies` (migration 009) n'autorise que
+`ACTIVE | SUSPENDUE | RESILIEE` — **`EN_ATTENTE_VALIDATION` n'existe pas pour les
+pharmacies** (contrairement aux établissements, qui l'ont dans leur `CHECK`). Un
+`validerPharmacie(id)` pour cette transition précise aurait donc été du code mort.
+Sur confirmation de l'utilisateur : seul `validerEtablissement(id)` a été construit.
+
+### Backend
+`ProviderService.validerEtablissement(user, id)` : réservé à `ASSUREUR_INFORMATIQUE`
+(réutilise `assertGestion`/`ROLES_GESTION_RESEAU`, déjà strictement limité à ce rôle),
+refuse `409` si l'établissement n'est pas `EN_ATTENTE_VALIDATION`, `404` s'il n'appartient
+pas à l'organisation de l'appelant, puis passe `statut → ACTIF` et audite
+`VALIDATION_ETABLISSEMENT`. Route dédiée `POST /provider/etablissements/:id/valider`
+(même style que les actions d'état déjà en place dans `invitations/`). 4 nouveaux tests
+unitaires (`provider.service.spec.ts`, 16/16).
+
+### Frontend (`reseau-panneau.tsx`)
+Nouvelle colonne d'action dans le tableau des établissements : bouton « Valider »,
+visible uniquement pour une entrée `EN_ATTENTE_VALIDATION`, disparaît une fois `ACTIF`.
+
+### Test — navigateur réel + bout en bout métier
+Les 2 établissements réellement bloqués dans cet environnement (**FARAH**,
+**HMA garde WE**, tous deux `EN_ATTENTE_VALIDATION`) validés en navigateur réel par un
+compte `ASSUREUR_INFORMATIQUE` : statut affiché passe à `ACTIF`, bouton « Valider »
+disparaît, confirmé en base (`statut = ACTIF` × 2) et dans `audit_log`
+(2 entrées `VALIDATION_ETABLISSEMENT`). Vérification métier demandée explicitement :
+un adhérent éphémère réel, rattaché à une police `ACTIVE` existante de cette
+organisation, appelle `POST /preauthorization/codes-consultation` en ciblant FARAH —
+**`201`, code de consultation émis sans aucun blocage** (le blocage « Établissement non
+actif » qui empêchait jusqu'ici l'ouverture d'un dossier de soins a bien disparu).
+Backend 250/250. Données de test éphémères supprimées ; FARAH et HMA restent
+volontairement `ACTIF` (c'est l'objectif de la tâche, pas un résidu à nettoyer).
+
+### 🎯 Jalon — FARAH et HMA garde WE sont ACTIF, un dossier de soins peut réellement s'y
+ouvrir désormais (vérifié de bout en bout, pas seulement au niveau du statut)

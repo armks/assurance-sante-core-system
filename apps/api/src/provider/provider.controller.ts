@@ -82,6 +82,15 @@ export class ProviderController {
     return this.provider.modifierEtablissement(user, id, dto);
   }
 
+  /** Fait passer un établissement EN_ATTENTE_VALIDATION à ACTIF (ASSUREUR_INFORMATIQUE). */
+  @Post('etablissements/:id/valider')
+  validerEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.validerEtablissement(user, id);
+  }
+
   @Delete('etablissements/:id')
   @HttpCode(204)
   supprimerEtablissement(

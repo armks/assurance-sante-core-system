@@ -182,6 +182,43 @@ export class ProviderService {
     return this.chargerEtablissement(ctx.organisationId, id);
   }
 
+  /**
+   * Fait passer un établissement `EN_ATTENTE_VALIDATION` à `ACTIF` — action
+   * dédiée (distincte du PATCH générique) pour rester exclusivement réservée à
+   * ASSUREUR_INFORMATIQUE et tracée par un audit dédié (`VALIDATION_ETABLISSEMENT`).
+   */
+  async validerEtablissement(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const etablissement = await this.assertEtablissementDansPerimetre(
+      ctx.organisationId,
+      id,
+    );
+
+    if (etablissement.statut !== 'EN_ATTENTE_VALIDATION') {
+      throw new ConflictException(
+        `Cet établissement n'est pas en attente de validation (statut : ${etablissement.statut}).`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.etablissementSante.update({
+        where: { id },
+        data: { statut: 'ACTIF' },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'VALIDATION_ETABLISSEMENT',
+        id,
+        { ancienStatut: 'EN_ATTENTE_VALIDATION', nouveauStatut: 'ACTIF' },
+        'etablissements_sante',
+      );
+    });
+
+    return this.chargerEtablissement(ctx.organisationId, id);
+  }
+
   async supprimerEtablissement(
     user: AuthenticatedUser,
     id: string,

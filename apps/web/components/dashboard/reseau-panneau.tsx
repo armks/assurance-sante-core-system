@@ -6,6 +6,7 @@ import {
   creerEtablissement,
   creerPharmacie,
   reverifierObsoletes,
+  validerEtablissement,
   type ResultatReseau,
 } from '@/app/dashboard-assureur/informatique/reseau-actions';
 import { StatutBadge } from '@/components/dashboard/patterns';
@@ -235,6 +236,7 @@ export function ReseauPanneau({
                   <th className="px-3 py-2 font-medium">Statut</th>
                   <th className="px-3 py-2 font-medium">Vérif.</th>
                   <th className="px-3 py-2 font-medium">Géo</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -296,13 +298,30 @@ export function ReseauPanneau({
                         ? `${l.latitude.toFixed(3)}, ${l.longitude.toFixed(3)}`
                         : '—'}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      {estEtab && l.statut === 'EN_ATTENTE_VALIDATION' && (
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() =>
+                            start(async () =>
+                              setRes(await validerEtablissement(l.id)),
+                            )
+                          }
+                        >
+                          Valider
+                        </Button>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {lieux.length === 0 && (
                   <tr className="border-t">
                     <td
                       className="px-3 py-6 text-center text-muted-foreground"
-                      colSpan={estEtab ? 7 : 6}
+                      colSpan={estEtab ? 8 : 7}
                     >
                       Aucune entrée.
                     </td>

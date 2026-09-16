@@ -87,6 +87,17 @@ export async function creerPharmacie(input: {
   return { ok: true, message: messageCreation(p, true) };
 }
 
+/** Fait passer un établissement EN_ATTENTE_VALIDATION à ACTIF. */
+export async function validerEtablissement(id: string): Promise<ResultatReseau> {
+  const res = await apiFetch(`/api/v1/provider/etablissements/${id}/valider`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const e = (await res.json()) as { nom: string };
+  revalidatePath(`${RACINE}/etablissements`);
+  return { ok: true, message: `« ${e.nom} » est maintenant ACTIF.` };
+}
+
 /** Tâche déclenchable : marque « À revérifier » les entrées trop anciennes. */
 export async function reverifierObsoletes(): Promise<ResultatReseau> {
   const res = await apiFetch('/api/v1/provider/verifications/reverifier-obsoletes', {

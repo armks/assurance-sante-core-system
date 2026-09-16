@@ -33,8 +33,13 @@ export default async function ProduitPage({
   ]);
   if (res.status === 404) notFound();
   const produit = (await res.json()) as ProduitAvecGaranties;
-  const peutPublier =
-    etat.kind === 'ok' ? etat.identity.permissions.peutValider : false;
+  // Miroir exact de ROLES_GESTION_PLAN côté API (plan.types.ts) — jamais
+  // peutValider, qui reflète une tout autre habilitation (validation
+  // d'invitations) et vaut `true` pour des rôles comme ASSUREUR_COMPTABLE.
+  const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
+  const peutGererPlan = roleChain.some((r) =>
+    ['ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE'].includes(r),
+  );
 
   return (
     <div className="space-y-6">
@@ -55,7 +60,7 @@ export default async function ProduitPage({
         }
       />
 
-      <ProduitDetail produit={produit} peutPublier={peutPublier} />
+      <ProduitDetail produit={produit} peutGererPlan={peutGererPlan} />
     </div>
   );
 }

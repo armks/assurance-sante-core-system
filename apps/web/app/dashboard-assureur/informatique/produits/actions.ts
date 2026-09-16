@@ -99,6 +99,43 @@ export async function publierProduit(
   return { ok: true };
 }
 
+/** Archive le produit (quel que soit son statut, sauf déjà ARCHIVE — 409 sinon). */
+export async function archiverProduit(
+  produitId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/plan/produits/${produitId}/archiver`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(`${CIBLE}/${produitId}`);
+  revalidatePath(CIBLE);
+  return { ok: true };
+}
+
+/** Modifie une garantie existante d'un produit BROUILLON (409 sinon côté API). */
+export async function modifierGarantie(
+  produitId: string,
+  garantieId: string,
+  input: GarantieInput,
+): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(
+    Object.entries(input).filter(
+      ([, v]) =>
+        v !== undefined &&
+        v !== '' &&
+        !(Array.isArray(v) && v.length === 0) &&
+        !(typeof v === 'number' && Number.isNaN(v)),
+    ),
+  );
+  const res = await apiFetch(
+    `/api/v1/plan/produits/${produitId}/garanties/${garantieId}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(`${CIBLE}/${produitId}`);
+  return { ok: true, message: 'Garantie modifiée.' };
+}
+
 /** Crée un nouveau BROUILLON version+1 en clonant produit + garanties. */
 export async function creerNouvelleVersion(
   produitId: string,

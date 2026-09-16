@@ -5,11 +5,24 @@ import { useState, useTransition } from 'react';
 import {
   creerEtablissement,
   creerPharmacie,
+  modifierEtablissement,
+  modifierPharmacie,
+  rechercheGeolocalisee,
   reverifierObsoletes,
+  supprimerEtablissement,
+  supprimerPharmacie,
   validerEtablissement,
+  type ResultatRechercheGeo,
   type ResultatReseau,
 } from '@/app/dashboard-assureur/informatique/reseau-actions';
-import { StatutBadge } from '@/components/dashboard/patterns';
+import {
+  ChampCheckbox,
+  ChampNombre,
+  ChampSelect,
+  ChampTexte,
+  FormulaireModal,
+  StatutBadge,
+} from '@/components/dashboard/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -76,6 +89,10 @@ export function ReseauPanneau({
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatReseau | null>(null);
   const [resVerif, setResVerif] = useState<ResultatReseau | null>(null);
+  const [resGeo, setResGeo] = useState<
+    { ok: true; resultat: ResultatRechercheGeo } | { ok: false; error: string } | null
+  >(null);
+  const [pendingGeo, startGeo] = useTransition();
   const estEtab = kind === 'etablissements';
   const aReverifier = lieux.filter(
     (l) => l.verificationStatut === 'A_REVERIFIER',
@@ -92,6 +109,115 @@ export function ReseauPanneau({
           </span>
         </div>
       )}
+
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          Recherche géolocalisée
+        </h2>
+        <form
+          className="grid gap-3 sm:grid-cols-[8rem_8rem_8rem_10rem_auto] sm:items-end"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            const lat = num(f.get('lat'));
+            const lng = num(f.get('lng'));
+            if (lat === undefined || lng === undefined) return;
+            startGeo(async () => {
+              setResGeo(
+                await rechercheGeolocalisee({
+                  lat,
+                  lng,
+                  rayonKm: num(f.get('rayonKm')),
+                  cible: String(f.get('cible') ?? 'TOUS') as
+                    | 'ETABLISSEMENTS'
+                    | 'PHARMACIES'
+                    | 'TOUS',
+                }),
+              );
+            });
+          }}
+        >
+          <div className="grid gap-2">
+            <Label htmlFor="lat">Latitude</Label>
+            <Input id="lat" name="lat" required inputMode="decimal" placeholder="5.32" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="lng">Longitude</Label>
+            <Input id="lng" name="lng" required inputMode="decimal" placeholder="-4.02" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="rayonKm">Rayon (km)</Label>
+            <Input id="rayonKm" name="rayonKm" inputMode="decimal" defaultValue="5" />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="cible">Cible</Label>
+            <select
+              id="cible"
+              name="cible"
+              defaultValue="TOUS"
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="TOUS">Tout le réseau</option>
+              <option value="ETABLISSEMENTS">Établissements</option>
+              <option value="PHARMACIES">Pharmacies</option>
+            </select>
+          </div>
+          <Button type="submit" variant="outline" disabled={pendingGeo}>
+            {pendingGeo ? 'Recherche…' : 'Rechercher'}
+          </Button>
+        </form>
+        {resGeo && !resGeo.ok && (
+          <p className="text-sm text-destructive">{resGeo.error}</p>
+        )}
+        {resGeo?.ok && (
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Type</th>
+                  <th className="px-3 py-2 font-medium">Nom</th>
+                  <th className="px-3 py-2 font-medium">Ville</th>
+                  <th className="px-3 py-2 font-medium">Distance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ...(resGeo.resultat.etablissements ?? []).map((r) => ({
+                    ...r,
+                    type: 'Établissement',
+                  })),
+                  ...(resGeo.resultat.pharmacies ?? []).map((r) => ({
+                    ...r,
+                    type: 'Pharmacie',
+                  })),
+                ]
+                  .sort((a, b) => a.distanceKm - b.distanceKm)
+                  .map((r) => (
+                    <tr key={`${r.type}-${r.id}`} className="border-t">
+                      <td className="px-3 py-2 text-muted-foreground">{r.type}</td>
+                      <td className="px-3 py-2">{r.nom}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {[r.commune, r.ville].filter(Boolean).join(', ') || '—'}
+                      </td>
+                      <td className="px-3 py-2">{r.distanceKm.toFixed(2)} km</td>
+                    </tr>
+                  ))}
+                {(resGeo.resultat.etablissements?.length ?? 0) === 0 &&
+                  (resGeo.resultat.pharmacies?.length ?? 0) === 0 && (
+                    <tr className="border-t">
+                      <td
+                        className="px-3 py-6 text-center text-muted-foreground"
+                        colSpan={4}
+                      >
+                        Aucun établissement ni pharmacie ACTIF dans ce rayon.
+                      </td>
+                    </tr>
+                  )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between gap-3">
@@ -299,21 +425,113 @@ export function ReseauPanneau({
                         : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {estEtab && l.statut === 'EN_ATTENTE_VALIDATION' && (
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          disabled={pending}
-                          onClick={() =>
-                            start(async () =>
-                              setRes(await validerEtablissement(l.id)),
-                            )
+                      <span className="flex justify-end gap-2">
+                        {estEtab && l.statut === 'EN_ATTENTE_VALIDATION' && (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="outline"
+                            disabled={pending}
+                            onClick={() =>
+                              start(async () =>
+                                setRes(await validerEtablissement(l.id)),
+                              )
+                            }
+                          >
+                            Valider
+                          </Button>
+                        )}
+                        <FormulaireModal
+                          titre={estEtab ? "Modifier l'établissement" : 'Modifier la pharmacie'}
+                          declencheur={
+                            <Button type="button" size="xs" variant="ghost">
+                              Modifier
+                            </Button>
                           }
+                          libelleSoumettre="Enregistrer"
+                          onSoumettre={async (fd) => {
+                            const input = {
+                              nom: String(fd.get('nom') ?? '') || undefined,
+                              ville: String(fd.get('ville') ?? '') || undefined,
+                              commune: String(fd.get('commune') ?? '') || undefined,
+                              adresseComplete:
+                                String(fd.get('adresseComplete') ?? '') || undefined,
+                              telephone:
+                                String(fd.get('telephone') ?? '') || undefined,
+                              gardeWeekend: fd.get('gardeWeekend') === 'on',
+                            };
+                            const r = estEtab
+                              ? await modifierEtablissement(l.id, {
+                                  ...input,
+                                  typeEtablissement:
+                                    String(fd.get('typeEtablissement') ?? '') ||
+                                    undefined,
+                                })
+                              : await modifierPharmacie(l.id, input);
+                            return r.ok
+                              ? { ok: true, message: r.message }
+                              : { ok: false, error: r.error };
+                          }}
                         >
-                          Valider
-                        </Button>
-                      )}
+                          <ChampTexte name="nom" label="Nom" required defaultValue={l.nom} />
+                          {estEtab && (
+                            <ChampSelect
+                              name="typeEtablissement"
+                              label="Type"
+                              defaultValue={l.typeEtablissement}
+                              options={TYPES_ETABLISSEMENT.map((t) => ({
+                                valeur: t,
+                                libelle: t.replaceAll('_', ' ').toLowerCase(),
+                              }))}
+                            />
+                          )}
+                          <div className="grid grid-cols-2 gap-3">
+                            <ChampTexte
+                              name="ville"
+                              label="Ville"
+                              defaultValue={l.ville ?? undefined}
+                            />
+                            <ChampTexte
+                              name="commune"
+                              label="Commune"
+                              defaultValue={l.commune ?? undefined}
+                            />
+                          </div>
+                          <ChampTexte
+                            name="adresseComplete"
+                            label="Adresse complète"
+                          />
+                          <ChampTexte name="telephone" label="Téléphone" />
+                          <ChampCheckbox
+                            name="gardeWeekend"
+                            label="Garde le week-end"
+                            defaultChecked={l.gardeWeekend}
+                          />
+                        </FormulaireModal>
+                        <FormulaireModal
+                          titre={estEtab ? "Supprimer l'établissement" : 'Supprimer la pharmacie'}
+                          mode="center"
+                          declencheur={
+                            <Button type="button" size="xs" variant="ghost">
+                              Supprimer
+                            </Button>
+                          }
+                          libelleSoumettre="Supprimer"
+                          onSoumettre={async () => {
+                            const r = estEtab
+                              ? await supprimerEtablissement(l.id)
+                              : await supprimerPharmacie(l.id);
+                            return r.ok
+                              ? { ok: true, message: 'Supprimé.' }
+                              : { ok: false, error: r.error };
+                          }}
+                        >
+                          <p className="text-sm text-muted-foreground">
+                            « {l.nom} » sera retiré du réseau. Action tracée
+                            dans l’audit.
+                          </p>
+                        </FormulaireModal>
+                      </span>
                     </td>
                   </tr>
                 ))}

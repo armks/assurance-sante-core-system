@@ -7,6 +7,8 @@ import {
   homologuerMedicament,
   reproposerActe,
   reproposerMedicament,
+  retirerActe,
+  retirerMedicament,
   suspendreActe,
   suspendreMedicament,
   type ResultatReference,
@@ -147,6 +149,16 @@ export function HomologationPanneau({
                           Suspendre
                         </Button>
                       )}
+                      {a.statut !== 'RETIRE' && (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() => run(() => retirerActe(a.id))}
+                        >
+                          Retirer
+                        </Button>
+                      )}
                       {(a.statut === 'SUSPENDU' || a.statut === 'RETIRE') && (
                         <Button
                           size="xs"
@@ -211,6 +223,16 @@ export function HomologationPanneau({
                           onClick={() => run(() => suspendreMedicament(m.id))}
                         >
                           Suspendre
+                        </Button>
+                      )}
+                      {m.statutHomologation !== 'RETIRE' && (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={pending}
+                          onClick={() => run(() => retirerMedicament(m.id))}
+                        >
+                          Retirer
                         </Button>
                       )}
                       {(m.statutHomologation === 'SUSPENDU' ||

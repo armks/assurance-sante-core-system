@@ -7,6 +7,8 @@ import {
   ajouterBeneficiaire,
   changerStatutAdherent,
   changerStatutBeneficiaire,
+  modifierBeneficiaire,
+  supprimerBeneficiaire,
 } from '@/app/dashboard-assureur/adherents-actions';
 import {
   ChampSelect,
@@ -293,6 +295,68 @@ export function AdherentDetail({
                     }
                   />
                 )}
+                {peutGerer && (
+                  <FormulaireModal
+                    titre="Modifier le bénéficiaire"
+                    description="Identité de l'ayant droit."
+                    declencheur={
+                      <Button type="button" size="xs" variant="ghost">
+                        Modifier
+                      </Button>
+                    }
+                    libelleSoumettre="Enregistrer"
+                    onSoumettre={async (fd) =>
+                      modifierBeneficiaire(adherent.id, b.id, {
+                        lienParente: String(fd.get('lienParente') ?? ''),
+                        nom: String(fd.get('nom') ?? ''),
+                        prenom: String(fd.get('prenom') ?? ''),
+                        dateNaissance: String(fd.get('dateNaissance') ?? ''),
+                        sexe: String(fd.get('sexe') ?? ''),
+                      })
+                    }
+                    onSucces={() => router.refresh()}
+                  >
+                    <ChampSelect
+                      name="lienParente"
+                      label="Lien de parenté"
+                      required
+                      defaultValue={b.lienParente}
+                      options={LIENS_PARENTE}
+                    />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <ChampTexte
+                        name="nom"
+                        label="Nom"
+                        required
+                        maxLength={120}
+                        defaultValue={b.nom}
+                      />
+                      <ChampTexte
+                        name="prenom"
+                        label="Prénom"
+                        required
+                        maxLength={120}
+                        defaultValue={b.prenom}
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <ChampTexte
+                        name="dateNaissance"
+                        label="Date de naissance"
+                        type="date"
+                        required
+                        defaultValue={b.dateNaissance.slice(0, 10)}
+                      />
+                      <ChampSelect
+                        name="sexe"
+                        label="Sexe"
+                        required
+                        defaultValue={b.sexe}
+                        options={SEXES}
+                      />
+                    </div>
+                  </FormulaireModal>
+                )}
                 {peutGerer && b.statut !== 'RADIE' && (
                   <Button
                     size="xs"
@@ -313,6 +377,30 @@ export function AdherentDetail({
                   >
                     {b.statut === 'ACTIF' ? 'Suspendre' : 'Réactiver'}
                   </Button>
+                )}
+                {peutGerer && (
+                  <FormulaireModal
+                    titre="Supprimer le bénéficiaire"
+                    mode="center"
+                    declencheur={
+                      <Button type="button" size="xs" variant="ghost">
+                        Supprimer
+                      </Button>
+                    }
+                    libelleSoumettre="Supprimer"
+                    onSoumettre={async () => {
+                      const r = await supprimerBeneficiaire(adherent.id, b.id);
+                      return r.ok
+                        ? { ok: true, message: 'Bénéficiaire supprimé.' }
+                        : { ok: false, error: r.error };
+                    }}
+                    onSucces={() => router.refresh()}
+                  >
+                    <p className="text-sm text-muted-foreground">
+                      « {b.nom} {b.prenom} » sera retiré du fichier des
+                      membres. Action tracée dans l’audit.
+                    </p>
+                  </FormulaireModal>
                 )}
               </div>
             )}

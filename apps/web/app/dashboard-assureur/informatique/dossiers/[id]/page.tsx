@@ -1,0 +1,56 @@
+import type { Metadata } from 'next';
+import { ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+
+import {
+  DossierSupervisionDetail,
+  type DossierSupervisionDetail as DossierSupervisionDetailType,
+} from '@/components/dashboard/exploitation/dossier-supervision-detail';
+import { PageTitre } from '@/components/page-titre';
+import { StatutBadge } from '@/components/dashboard/patterns';
+import { Button } from '@/components/ui/button';
+import { apiFetch } from '@/lib/api';
+import { exigerIdentite } from '@/lib/identity';
+
+export const metadata: Metadata = { title: 'Dossier de soins — Assurance Exploitation' };
+
+/** Droit exclusif côté API — care-episode.types.ts, ROLE_CLOTURE_FORCEE. */
+const ROLE_CLOTURE_FORCEE = 'ASSUREUR_EXPLOITATION';
+
+export default async function DossierSupervisionPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const [etat, res] = await Promise.all([
+    exigerIdentite(`/dashboard-assureur/informatique/dossiers/${id}`),
+    apiFetch(`/api/v1/care-episode/dossiers/${id}`),
+  ]);
+  if (res.status === 404) notFound();
+  const dossier = (await res.json()) as DossierSupervisionDetailType;
+  const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
+  const peutCloturerForce = roleChain.includes(ROLE_CLOTURE_FORCEE);
+
+  return (
+    <div className="space-y-6">
+      <Button asChild variant="ghost" size="sm" className="-ml-2">
+        <Link href="/dashboard-assureur/informatique/dossiers">
+          <ArrowLeft className="size-4" />
+          Dossiers de soins
+        </Link>
+      </Button>
+
+      <PageTitre
+        titre={dossier.numeroTraitement}
+        action={<StatutBadge statut={dossier.statut} />}
+      />
+
+      <DossierSupervisionDetail
+        dossier={dossier}
+        peutCloturerForce={peutCloturerForce}
+      />
+    </div>
+  );
+}

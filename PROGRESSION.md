@@ -3817,3 +3817,90 @@ volontairement `ACTIF` (c'est l'objectif de la tâche, pas un résidu à nettoye
 
 ### 🎯 Jalon — FARAH et HMA garde WE sont ACTIF, un dossier de soins peut réellement s'y
 ouvrir désormais (vérifié de bout en bout, pas seulement au niveau du statut)
+
+## 2026-09-16 (suite 6) — 6 compléments d'audit indépendants (plan, billing, member,
+care-episode, reference, provider)
+
+### Constat général
+Pour les 6 points, l'endpoint backend existait déjà (souvent depuis longtemps) —
+`archiver`/`modifierGarantie` (plan), `marquer-en-retard` (billing),
+`modifierBeneficiaire`/`supprimerBeneficiaire` (member), `cloture-forcee` (care-episode),
+`retirerActe`/`retirerMedicament` (reference), `modifierEtablissement`/`supprimerEtablissement`/
+`rechercheGeolocalisee` (provider). Le vrai manque était systématiquement **frontend** :
+aucun bouton, aucun écran. Seules deux exceptions ont nécessité du code API : (1) `reference/`
+n'avait AUCUNE création directe d'acte/médicament exposée nulle part (ni import catalogue
+national, ni création directe) côté informatique — écran entièrement absent, pas seulement
+incomplet ; (2) `care-episode/` n'avait AUCUN écran assureur du tout pour les dossiers de
+soins (uniquement centre médical) — la clôture forcée n'était donc exerçable par personne
+en pratique malgré son existence en base de code.
+
+Chaque rôle réel a été vérifié dans le code AVANT d'afficher le bouton correspondant
+(jamais supposé) :
+- plan/ : `ROLES_GESTION_PLAN = [ASSUREUR_DIRECTION, ASSUREUR_INFORMATIQUE]` — la page
+  produit utilisait `peutValider` (mauvaise habilitation : vaut `true` aussi pour
+  ASSUREUR_COMPTABLE/EXPLOITATION). Corrigé en un `peutGererPlan` dérivé de `roleChain`,
+  appliqué uniformément à Renommer/Publier/Nouvelle version/Archiver/Garanties — ces 2
+  derniers boutons étaient d'ailleurs déjà non gatés du tout avant ce correctif.
+- billing/ : `ROLES_GESTION_BILLING` (comptable + informatique) — écran déjà entièrement
+  non gaté par bouton (accès uniquement via la route), cohérent avec le pattern documenté
+  dans `informatique/layout.tsx`.
+- member/ : `peutGererMembres()` déjà exact (ROLES_GESTION_MEMBRE + SOCIETE_ADMINISTRATION
+  sur son propre souscripteur) — réutilisé tel quel.
+- care-episode/ : `ROLE_CLOTURE_FORCEE = ASSUREUR_EXPLOITATION` (roleChain, donc
+  EXPLOITATION_CONJOINTE aussi, héritage confirmé en base). Nouvel écran ajouté
+  UNIQUEMENT à la navigation Exploitation — Direction/Informatique/Médecin-conseil ont un
+  accès LECTURE via l'API mais aucun besoin métier documenté ne justifiait de leur ajouter
+  cet écran.
+- reference/ : `ROLE_PROPOSITION = ASSUREUR_INFORMATIQUE` (création directe),
+  `ROLE_HOMOLOGATION_ACTE`/`ROLE_HOMOLOGATION_MEDICAMENT` (Retirer, déjà exactement gatés
+  par route pour les écrans homologation existants).
+- provider/ : `ROLES_GESTION_RESEAU = [ASSUREUR_INFORMATIQUE]` (déjà le seul rôle avec accès
+  à l'écran réseau, donc pas de gating par bouton nécessaire, cohérent avec l'existant).
+
+### 1. plan/produits — bouton Archiver + édition de garantie existante
+`archiverProduit`/`modifierGarantie` (server actions) + bouton « Archiver » et « Modifier »
+sur chaque ligne de garantie (`produit-detail.tsx`, formulaire factorisé `ChampsGarantie`
+réutilisé pour ajout ET modification).
+
+### 2. billing/ — déclencheur "marquer les cotisations en retard"
+Bouton sur l'écran Cotisations appelant `POST cotisations/marquer-en-retard` (jusque-là
+seulement invocable en tâche batch, sans aucune interface).
+
+### 3. member/ — édition et suppression de l'identité d'un bénéficiaire
+Boutons « Modifier » (identité complète : nom, prénom, naissance, sexe, lien de parenté)
+et « Supprimer » sur chaque ligne de bénéficiaire (`adherent-detail.tsx`).
+
+### 4. care-episode/ — bouton "Clôture forcée" (ASSUREUR_EXPLOITATION)
+Nouvel écran de supervision `/dashboard-assureur/informatique/dossiers` (liste + détail),
+ajouté à la navigation Exploitation uniquement. Motif obligatoire (`ChampZone required
+minLength={5}`, miroir exact de `ClotureForceeDto`).
+
+### 5. reference/ — création directe d'actes/médicaments + action "Retirer"
+Nouvel écran `/dashboard-assureur/informatique/referentiel-medical` (création directe,
+sans passer par le catalogue national) + boutons « Retirer » ajoutés sur les écrans
+d'homologation existants (médecin conseil / pharmacien conseil), distincts de
+« Suspendre » (RETIRE vs SUSPENDU, déjà 2 statuts séparés côté API).
+
+### 6. provider/ — recherche géolocalisée + édition/suppression unitaire
+Section « Recherche géolocalisée » (lat/lng/rayon/cible) ajoutée sur l'écran réseau,
+exploitant `GET provider/recherche` (jamais appelé jusqu'ici) ; boutons « Modifier » et
+« Supprimer » ajoutés sur chaque ligne établissement/pharmacie.
+
+### Test — chacun des 6 ajouts testé séparément en navigateur réel, un seul script couvrant
+les 6 scénarios distincts (comptes éphémères ASSUREUR_INFORMATIQUE/EXPLOITATION/
+MEDECIN_CONSEIL/PHARMACIEN_CONSEIL/CENTRE_MEDICAL_ACCUEIL) :
+1. Garantie éditée (taux 70→85, vérifié en base) puis produit archivé (statut ARCHIVE).
+2. Cotisation de test (échue, A_PAYER) → clic → EN_RETARD confirmé en base.
+3. Bénéficiaire édité (nom modifié, vérifié en base) puis supprimé (`deletedAt` posé).
+4. Dossier de soins réellement ouvert (code de consultation généré + validé à l'accueil de
+   FARAH) → bouton visible pour EXPLOITATION → clôture forcée avec motif → `FORCE_CLOS`
+   confirmé en base.
+5. Acte et médicament créés directement (statut initial PROPOSE confirmé) → retirés par
+   médecin conseil / pharmacien conseil respectivement → `RETIRE` confirmé en base.
+6. Recherche géolocalisée autour de FARAH → FARAH trouvé dans les résultats ; établissement
+   jetable créé → modifié (nom persisté) → supprimé (`deletedAt` posé).
+Backend 250/250. Toutes les données de test éphémères supprimées (comptes Supabase,
+profils, adhérents, produit, cotisation, dossier, acte, médicament, établissement).
+
+### 🎯 Jalon — les 6 manques identifiés par les audits sont comblés, chacun avec le bon
+rôle vérifié dans le code avant l'affichage du bouton, et testé séparément de bout en bout

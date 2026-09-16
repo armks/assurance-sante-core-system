@@ -6,10 +6,13 @@ import { useState, useTransition } from 'react';
 
 import {
   ajouterGarantie,
+  archiverProduit,
   creerNouvelleVersion,
+  modifierGarantie,
   publierProduit,
   renommerProduit,
   supprimerGarantie,
+  type GarantieInput,
 } from '@/app/dashboard-assureur/informatique/produits/actions';
 import {
   ChampNombre,
@@ -72,6 +75,103 @@ const LIBELLE_STATUT: Record<string, string> = {
   ARCHIVE: 'Archivé',
 };
 
+/** Champs communs au formulaire d'ajout/modification d'une garantie. */
+function ChampsGarantie({ defaut }: { defaut?: Garantie }) {
+  return (
+    <>
+      <ChampSelect
+        name="categorieActe"
+        label="Catégorie d’acte"
+        required
+        placeholder="Choisir une catégorie…"
+        defaultValue={defaut?.categorieActe}
+        options={CATEGORIES_ACTE.map((c) => ({
+          valeur: c,
+          libelle: c.replace(/_/g, ' '),
+        }))}
+      />
+      <ChampNombre
+        name="tauxCouverture"
+        label="Taux de couverture (%)"
+        min={0}
+        max={100}
+        step="0.01"
+        defaultValue={defaut?.tauxCouverture ?? undefined}
+      />
+      <ChampNombre
+        name="plafondParActe"
+        label="Plafond par acte (FCFA)"
+        min={0}
+        defaultValue={defaut?.plafondParActe ?? undefined}
+      />
+      <ChampNombre
+        name="plafondAnnuel"
+        label="Plafond annuel (FCFA)"
+        min={0}
+        defaultValue={defaut?.plafondAnnuel ?? undefined}
+      />
+      <ChampNombre
+        name="franchise"
+        label="Franchise (FCFA)"
+        min={0}
+        defaultValue={defaut?.franchise ?? undefined}
+      />
+      <ChampNombre
+        name="ticketModerateur"
+        label="Ticket modérateur (%)"
+        min={0}
+        max={100}
+        step="0.01"
+        defaultValue={defaut?.ticketModerateur ?? undefined}
+      />
+      <ChampNombre
+        name="delaiCarenceJours"
+        label="Délai de carence (jours)"
+        min={0}
+        step={1}
+        defaultValue={defaut?.delaiCarenceJours ?? undefined}
+      />
+      <ChampSelect
+        name="reseauSoins"
+        label="Réseau de soins"
+        defaultValue={defaut?.reseauSoins ?? 'TOUT_RESEAU'}
+        options={[
+          { valeur: 'TOUT_RESEAU', libelle: 'Tout réseau' },
+          { valeur: 'CONVENTIONNE_SEUL', libelle: 'Conventionné seul' },
+        ]}
+      />
+      <ChampZone
+        name="exclusions"
+        label="Exclusions"
+        aide="Une exclusion par ligne."
+        placeholder={'Actes esthétiques\nCures thermales'}
+        defaultValue={defaut?.exclusions?.join('\n')}
+      />
+    </>
+  );
+}
+
+function lireGarantieFormData(fd: FormData): GarantieInput {
+  const num = (k: string) => {
+    const v = fd.get(k);
+    return v === null || v === '' ? undefined : Number(v);
+  };
+  return {
+    categorieActe: String(fd.get('categorieActe') ?? ''),
+    tauxCouverture: num('tauxCouverture'),
+    plafondParActe: num('plafondParActe'),
+    plafondAnnuel: num('plafondAnnuel'),
+    franchise: num('franchise'),
+    ticketModerateur: num('ticketModerateur'),
+    delaiCarenceJours: num('delaiCarenceJours'),
+    reseauSoins: String(fd.get('reseauSoins') ?? 'TOUT_RESEAU'),
+    exclusions: String(fd.get('exclusions') ?? '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  };
+}
+
 function montant(v: string | number | null): string {
   if (v === null || v === undefined || v === '') return '—';
   return `${Number(v).toLocaleString('fr-FR')} F`;
@@ -83,17 +183,21 @@ function pourcent(v: string | number | null): string {
 
 export function ProduitDetail({
   produit,
-  peutPublier = true,
+  peutGererPlan = true,
 }: {
   produit: ProduitAvecGaranties;
-  /** `false` pour un rôle adjoint : masque « Publier le produit ». */
-  peutPublier?: boolean;
+  /** `false` si le rôle n'est ni ASSUREUR_DIRECTION ni ASSUREUR_INFORMATIQUE
+   * (seuls rôles habilités côté API, `ROLES_GESTION_PLAN`) : masque toutes les
+   * actions d'écriture (renommer, publier, archiver, nouvelle version,
+   * garanties). */
+  peutGererPlan?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
 
   const brouillon = produit.statut === 'BROUILLON';
+  const archive = produit.statut === 'ARCHIVE';
   const versionnable =
     produit.statut === 'PUBLIE' || produit.statut === 'ARCHIVE';
   const sansGarantie = produit.garanties.length === 0;
@@ -173,6 +277,14 @@ export function ProduitDetail({
       else setErreur(r.error);
     });
 
+  const archiver = () =>
+    start(async () => {
+      setErreur(null);
+      const r = await archiverProduit(produit.id);
+      if (r.ok) router.refresh();
+      else setErreur(r.error);
+    });
+
   return (
     <div className="space-y-6">
       {/* --- Bandeau lecture seule (cohérent avec le 409 de l'API) --- */}
@@ -197,7 +309,7 @@ export function ProduitDetail({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
           <CardTitle className="text-base">Informations</CardTitle>
-          {brouillon && (
+          {brouillon && peutGererPlan && (
             <FormulaireModal
               titre="Renommer le produit"
               mode="center"
@@ -255,118 +367,62 @@ export function ProduitDetail({
             parPage={0}
             colonnes={colonnes}
             actions={
-              brouillon ? (
+              brouillon && peutGererPlan ? (
                 <FormulaireModal
                   titre="Ajouter une garantie"
                   description="Une ligne de couverture par catégorie d’acte."
                   declencheurLabel="Ajouter une garantie"
                   libelleSoumettre="Ajouter la garantie"
-                  onSoumettre={async (fd) => {
-                    const num = (k: string) => {
-                      const v = fd.get(k);
-                      return v === null || v === '' ? undefined : Number(v);
-                    };
-                    return ajouterGarantie(produit.id, {
-                      categorieActe: String(fd.get('categorieActe') ?? ''),
-                      tauxCouverture: num('tauxCouverture'),
-                      plafondParActe: num('plafondParActe'),
-                      plafondAnnuel: num('plafondAnnuel'),
-                      franchise: num('franchise'),
-                      ticketModerateur: num('ticketModerateur'),
-                      delaiCarenceJours: num('delaiCarenceJours'),
-                      reseauSoins: String(fd.get('reseauSoins') ?? 'TOUT_RESEAU'),
-                      exclusions: String(fd.get('exclusions') ?? '')
-                        .split('\n')
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    });
-                  }}
+                  onSoumettre={async (fd) =>
+                    ajouterGarantie(produit.id, lireGarantieFormData(fd))
+                  }
                   onSucces={() => router.refresh()}
                 >
-                  <ChampSelect
-                    name="categorieActe"
-                    label="Catégorie d’acte"
-                    required
-                    placeholder="Choisir une catégorie…"
-                    options={CATEGORIES_ACTE.map((c) => ({
-                      valeur: c,
-                      libelle: c.replace(/_/g, ' '),
-                    }))}
-                  />
-                  <ChampNombre
-                    name="tauxCouverture"
-                    label="Taux de couverture (%)"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                  />
-                  <ChampNombre
-                    name="plafondParActe"
-                    label="Plafond par acte (FCFA)"
-                    min={0}
-                  />
-                  <ChampNombre
-                    name="plafondAnnuel"
-                    label="Plafond annuel (FCFA)"
-                    min={0}
-                  />
-                  <ChampNombre
-                    name="franchise"
-                    label="Franchise (FCFA)"
-                    min={0}
-                  />
-                  <ChampNombre
-                    name="ticketModerateur"
-                    label="Ticket modérateur (%)"
-                    min={0}
-                    max={100}
-                    step="0.01"
-                  />
-                  <ChampNombre
-                    name="delaiCarenceJours"
-                    label="Délai de carence (jours)"
-                    min={0}
-                    step={1}
-                  />
-                  <ChampSelect
-                    name="reseauSoins"
-                    label="Réseau de soins"
-                    defaultValue="TOUT_RESEAU"
-                    options={[
-                      { valeur: 'TOUT_RESEAU', libelle: 'Tout réseau' },
-                      {
-                        valeur: 'CONVENTIONNE_SEUL',
-                        libelle: 'Conventionné seul',
-                      },
-                    ]}
-                  />
-                  <ChampZone
-                    name="exclusions"
-                    label="Exclusions"
-                    aide="Une exclusion par ligne."
-                    placeholder={'Actes esthétiques\nCures thermales'}
-                  />
+                  <ChampsGarantie />
                 </FormulaireModal>
               ) : undefined
             }
             actionLigne={
-              brouillon
+              brouillon && peutGererPlan
                 ? (g) => (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      disabled={pending}
-                      onClick={() =>
-                        start(async () => {
-                          setErreur(null);
-                          const r = await supprimerGarantie(produit.id, g.id);
-                          if (r.ok) router.refresh();
-                          else setErreur(r.error);
-                        })
-                      }
-                    >
-                      Retirer
-                    </Button>
+                    <span className="flex justify-end gap-2">
+                      <FormulaireModal
+                        titre="Modifier la garantie"
+                        description="Produit encore en brouillon — modification directe."
+                        declencheur={
+                          <Button type="button" size="xs" variant="ghost">
+                            Modifier
+                          </Button>
+                        }
+                        libelleSoumettre="Enregistrer"
+                        onSoumettre={async (fd) =>
+                          modifierGarantie(
+                            produit.id,
+                            g.id,
+                            lireGarantieFormData(fd),
+                          )
+                        }
+                        onSucces={() => router.refresh()}
+                      >
+                        <ChampsGarantie defaut={g} />
+                      </FormulaireModal>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="ghost"
+                        disabled={pending}
+                        onClick={() =>
+                          start(async () => {
+                            setErreur(null);
+                            const r = await supprimerGarantie(produit.id, g.id);
+                            if (r.ok) router.refresh();
+                            else setErreur(r.error);
+                          })
+                        }
+                      >
+                        Retirer
+                      </Button>
+                    </span>
                   )
                 : undefined
             }
@@ -377,7 +433,7 @@ export function ProduitDetail({
 
       {/* --- Actions de cycle de vie --- */}
       <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-        {brouillon && peutPublier && (
+        {brouillon && peutGererPlan && (
           <>
             <Button disabled={pending || sansGarantie} onClick={publier}>
               Publier le produit
@@ -390,16 +446,21 @@ export function ProduitDetail({
             )}
           </>
         )}
-        {brouillon && !peutPublier && (
+        {brouillon && !peutGererPlan && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Info className="size-3.5" />
-            La publication d’un produit est réservée au titulaire Assurance
-            Informatique.
+            La gestion des produits est réservée à la Direction et à
+            l’Assurance Informatique.
           </p>
         )}
-        {versionnable && (
+        {versionnable && peutGererPlan && (
           <Button variant="outline" disabled={pending} onClick={nouvelleVersion}>
             Créer une nouvelle version
+          </Button>
+        )}
+        {!archive && peutGererPlan && (
+          <Button variant="outline" disabled={pending} onClick={archiver}>
+            Archiver
           </Button>
         )}
       </div>

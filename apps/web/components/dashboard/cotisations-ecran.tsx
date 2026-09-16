@@ -10,6 +10,7 @@ import {
   creerGrille,
   enregistrerPaiement,
   genererCotisation,
+  marquerCotisationsEnRetard,
 } from '@/app/dashboard-assureur/informatique/cotisations/actions';
 import type { Calcul } from '@/app/dashboard-assureur/informatique/cotisations/types';
 import {
@@ -22,6 +23,7 @@ import {
   GrilleCartes,
   StatutBadge,
   type ColonneTable,
+  type ResultatSoumission,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -96,6 +98,8 @@ export function CotisationsEcran({
   produits: OptionRef[];
 }) {
   const router = useRouter();
+  const [pendingRetard, startRetard] = useTransition();
+  const [resRetard, setResRetard] = useState<ResultatSoumission | null>(null);
 
   const nb = (s: string) => cotisations.filter((c) => c.statut === s).length;
   const totalDu = cotisations
@@ -211,6 +215,34 @@ export function CotisationsEcran({
           indice={`${nb('PAYEE')} payée(s)`}
         />
       </GrilleCartes>
+
+      {/* --- Passage EN_RETARD (tâche déclenchable manuellement) --- */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={pendingRetard}
+          onClick={() =>
+            startRetard(async () =>
+              setResRetard(await marquerCotisationsEnRetard()),
+            )
+          }
+        >
+          {pendingRetard ? 'Traitement…' : 'Marquer les cotisations en retard'}
+        </Button>
+        {resRetard && (
+          <p
+            className={
+              resRetard.ok
+                ? 'text-sm text-emerald-700 dark:text-emerald-400'
+                : 'text-sm text-destructive'
+            }
+          >
+            {resRetard.ok ? resRetard.message : resRetard.error}
+          </p>
+        )}
+      </div>
 
       {/* --- Cotisations --- */}
       <DataTable

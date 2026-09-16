@@ -576,6 +576,7 @@ export class CareEpisodeService {
           ? { etablissementId: ctx.etablissementId }
           : {}),
       },
+      include: { etablissement: { select: { nom: true } } },
       orderBy: { dateOuverture: 'desc' },
     });
   }
@@ -675,6 +676,7 @@ export class CareEpisodeService {
         ...(etablissementId ? { etablissementId } : {}),
       },
       include: {
+        etablissement: { select: { nom: true } },
         consultations: {
           where: { deletedAt: null },
           orderBy: { dateConsultation: 'asc' },

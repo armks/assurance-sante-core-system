@@ -79,6 +79,26 @@ export async function enregistrerPaiement(
   };
 }
 
+/**
+ * Déclenche manuellement le passage EN_RETARD des cotisations A_PAYER échues
+ * (tâche jusqu'ici uniquement batch, sans interface).
+ */
+export async function marquerCotisationsEnRetard(): Promise<ResultatSoumission> {
+  const res = await apiFetch('/api/v1/billing/cotisations/marquer-en-retard', {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const r = (await res.json()) as { misEnRetard: number };
+  revalidatePath(CIBLE);
+  return {
+    ok: true,
+    message:
+      r.misEnRetard > 0
+        ? `${r.misEnRetard} cotisation(s) passée(s) EN_RETARD.`
+        : 'Aucune cotisation échue à marquer en retard.',
+  };
+}
+
 /** Crée une grille tarifaire négociée (souscripteur renseigné) ou standard. */
 export async function creerGrille(input: {
   produitId: string;

@@ -268,6 +268,17 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
       href: `${INFORMATIQUE}/reclamations`,
       icon: ReceiptText,
     },
+    // Écran ajouté pour exercer un droit déjà existant côté API mais jusque-là
+    // sans aucune interface : la clôture forcée est réservée à
+    // ASSUREUR_EXPLOITATION (ROLE_CLOTURE_FORCEE, care-episode.types.ts).
+    // Direction/Informatique/Médecin-conseil peuvent aussi LIRE tous les
+    // dossiers côté API (ROLES_LECTURE_DOSSIER_STAFF) mais n'ont pas ce
+    // besoin métier documenté — écran non ajouté à leur navigation.
+    {
+      label: 'Dossiers de soins',
+      href: `${INFORMATIQUE}/dossiers`,
+      icon: Stethoscope,
+    },
   ];
 }
 
@@ -320,6 +331,15 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
       label: 'Pharmacies',
       href: `${INFORMATIQUE}/pharmacies`,
       icon: Pill,
+      minNiveau: 'LECTURE_SEULE',
+    },
+    // Création directe d'actes/médicaments (ROLE_PROPOSITION = ASSUREUR_INFORMATIQUE,
+    // reference.types.ts) — homologation restant réservée au médecin conseil /
+    // pharmacien conseil sur leurs propres écrans.
+    {
+      label: 'Référentiel médical',
+      href: `${INFORMATIQUE}/referentiel-medical`,
+      icon: Stethoscope,
       minNiveau: 'LECTURE_SEULE',
     },
     {

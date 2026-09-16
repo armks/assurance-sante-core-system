@@ -70,6 +70,46 @@ export async function ajouterBeneficiaire(
   return { ok: true, message: 'Bénéficiaire ajouté.' };
 }
 
+/** Modifie l'identité d'un bénéficiaire existant (nom, prénom, naissance, sexe, lien). */
+export async function modifierBeneficiaire(
+  adherentId: string,
+  beneficiaireId: string,
+  input: {
+    lienParente?: string;
+    nom?: string;
+    prenom?: string;
+    dateNaissance?: string;
+    sexe?: string;
+  },
+): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(
+    Object.entries(input).filter(([, v]) => v !== undefined && v !== ''),
+  );
+  const res = await apiFetch(
+    `/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalider(`/${adherentId}`);
+  return { ok: true, message: 'Bénéficiaire modifié.' };
+}
+
+/** Supprime (soft delete) un bénéficiaire. */
+export async function supprimerBeneficiaire(
+  adherentId: string,
+  beneficiaireId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(
+    `/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok && res.status !== 204) {
+    return { ok: false, error: await messageErreur(res) };
+  }
+  revalider(`/${adherentId}`);
+  return { ok: true };
+}
+
 export async function changerStatutBeneficiaire(
   adherentId: string,
   beneficiaireId: string,

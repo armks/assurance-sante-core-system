@@ -10,7 +10,7 @@ export type ResultatReseau =
   | { ok: true; message: string }
   | { ok: false; error: string };
 
-function nettoyer(input: Record<string, unknown>) {
+function nettoyer<T extends object>(input: T) {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(input)) {
     if (v === '' || v === undefined || v === null) continue;
@@ -85,6 +85,102 @@ export async function creerPharmacie(input: {
   const p = (await res.json()) as LieuCree;
   revalidatePath(`${RACINE}/pharmacies`);
   return { ok: true, message: messageCreation(p, true) };
+}
+
+interface ModifierLieuInput {
+  nom?: string;
+  ville?: string;
+  commune?: string;
+  adresseComplete?: string;
+  telephone?: string;
+  email?: string;
+  latitude?: number;
+  longitude?: number;
+  gardeWeekend?: boolean;
+}
+
+export async function modifierEtablissement(
+  id: string,
+  input: ModifierLieuInput & { typeEtablissement?: string },
+): Promise<ResultatReseau> {
+  const res = await apiFetch(`/api/v1/provider/etablissements/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(nettoyer(input)),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(`${RACINE}/etablissements`);
+  return { ok: true, message: 'Établissement modifié.' };
+}
+
+export async function modifierPharmacie(
+  id: string,
+  input: ModifierLieuInput,
+): Promise<ResultatReseau> {
+  const res = await apiFetch(`/api/v1/provider/pharmacies/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(nettoyer(input)),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(`${RACINE}/pharmacies`);
+  return { ok: true, message: 'Pharmacie modifiée.' };
+}
+
+export async function supprimerEtablissement(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/provider/etablissements/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok && res.status !== 204) {
+    return { ok: false, error: await messageErreur(res) };
+  }
+  revalidatePath(`${RACINE}/etablissements`);
+  return { ok: true };
+}
+
+export async function supprimerPharmacie(
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/provider/pharmacies/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok && res.status !== 204) {
+    return { ok: false, error: await messageErreur(res) };
+  }
+  revalidatePath(`${RACINE}/pharmacies`);
+  return { ok: true };
+}
+
+export interface ResultatLieu {
+  id: string;
+  nom: string;
+  ville: string | null;
+  commune: string | null;
+  distanceKm: number;
+}
+export interface ResultatRechercheGeo {
+  centre: { lat: number; lng: number };
+  rayonKm: number;
+  etablissements?: ResultatLieu[];
+  pharmacies?: ResultatLieu[];
+}
+
+/** Recherche géolocalisée dans le réseau (endpoint déjà existant, jamais exposé côté écran). */
+export async function rechercheGeolocalisee(input: {
+  lat: number;
+  lng: number;
+  rayonKm?: number;
+  cible?: 'ETABLISSEMENTS' | 'PHARMACIES' | 'TOUS';
+}): Promise<{ ok: true; resultat: ResultatRechercheGeo } | { ok: false; error: string }> {
+  const params = new URLSearchParams({
+    lat: String(input.lat),
+    lng: String(input.lng),
+  });
+  if (input.rayonKm !== undefined) params.set('rayonKm', String(input.rayonKm));
+  if (input.cible) params.set('cible', input.cible);
+  const res = await apiFetch(`/api/v1/provider/recherche?${params.toString()}`);
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  return { ok: true, resultat: (await res.json()) as ResultatRechercheGeo };
 }
 
 /** Fait passer un établissement EN_ATTENTE_VALIDATION à ACTIF. */

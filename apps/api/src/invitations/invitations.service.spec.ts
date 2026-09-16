@@ -50,6 +50,7 @@ describe('InvitationsService', () => {
       profil: { findUnique: jest.fn().mockResolvedValue(null) },
       sousRole: { findUnique: jest.fn().mockResolvedValue(null) },
       organisation: { findFirst: jest.fn() },
+      adherent: { findFirst: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([{ count: 0n }]),
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(tx)),
@@ -179,6 +180,95 @@ describe('InvitationsService', () => {
         }),
       }),
     );
+  });
+
+  it('scope societe_id : SOCIETE_ADMINISTRATION invite un ADHERENT_TITULAIRE de SA PROPRE société', async () => {
+    connecte({
+      role: 'SOCIETE_ADMINISTRATION',
+      entite: 'SOCIETE_AFFILIEE',
+      organisationId: 'org-1',
+      societeId: 'soc-1',
+      roleChain: ['SOCIETE_ADMINISTRATION'],
+    });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'societe_id',
+      roleValidateur: null,
+    });
+    prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-1', souscripteurId: 'soc-1' });
+    prisma._tx.invitation.create.mockImplementation(({ data }: any) => ({
+      id: 'inv-3',
+      ...data,
+      expireLe: DANS_72H,
+      accepteLe: null,
+      createdAt: new Date(),
+    }));
+
+    const res = await service.creerInvitation(USER, {
+      email: 'adherent@societe.ci',
+      rolePropose: 'ADHERENT_TITULAIRE',
+      adherentId: 'adh-1',
+    });
+
+    expect(prisma.adherent.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 'adh-1', souscripteurId: 'soc-1' }) }),
+    );
+    expect(res.statut).toBe('EN_ATTENTE');
+    expect(prisma._tx.invitation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ societeId: 'soc-1', adherentId: 'adh-1' }),
+      }),
+    );
+  });
+
+  it('scope societe_id : REFUSE (404) un adherentId appartenant à une AUTRE société — jamais fait confiance à la requête', async () => {
+    connecte({
+      role: 'SOCIETE_ADMINISTRATION',
+      entite: 'SOCIETE_AFFILIEE',
+      organisationId: 'org-1',
+      societeId: 'soc-1',
+      roleChain: ['SOCIETE_ADMINISTRATION'],
+    });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'societe_id',
+      roleValidateur: null,
+    });
+    // L'adhérent existe bien, mais appartient à une AUTRE société (soc-2) —
+    // le findFirst scopé sur souscripteurId: 'soc-1' ne le trouve donc pas.
+    prisma.adherent.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'intrus@autre-societe.ci',
+        rolePropose: 'ADHERENT_TITULAIRE',
+        adherentId: 'adh-dune-autre-societe',
+      }),
+    ).rejects.toThrow('Adhérent introuvable pour votre société.');
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('scope societe_id : REFUSE (403) un compte sans société rattachée', async () => {
+    connecte({
+      role: 'SOCIETE_ADMINISTRATION',
+      entite: 'SOCIETE_AFFILIEE',
+      organisationId: 'org-1',
+      societeId: null,
+      roleChain: ['SOCIETE_ADMINISTRATION'],
+    });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'societe_id',
+      roleValidateur: null,
+    });
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'adherent@societe.ci',
+        rolePropose: 'ADHERENT_TITULAIRE',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
   });
 
   it('validerProposition : refusée si l’appelant n’a pas le rôle validateur', async () => {

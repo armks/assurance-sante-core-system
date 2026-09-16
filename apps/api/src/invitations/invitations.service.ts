@@ -408,6 +408,7 @@ export class InvitationsService {
       entite: profil.entite,
       organisationId: profil.organisationId,
       pharmacieId: profil.pharmacieId,
+      societeId: profil.societeId,
       roleChain: permissions?.roleChain ?? [],
     };
   }
@@ -452,6 +453,36 @@ export class InvitationsService {
       }
       scope.organisationId = ctx.organisationId;
       scope.pharmacieId = ctx.pharmacieId;
+      return scope;
+    }
+
+    if (regle.scopeVerifie === 'societe_id') {
+      if (!ctx.societeId) {
+        throw new ForbiddenException(
+          "Votre compte n'est rattaché à aucune société.",
+        );
+      }
+      // L'adhérent invité doit réellement appartenir à CETTE société — jamais
+      // faire confiance à un `adherentId` fourni par l'appelant sans le
+      // revérifier contre son propre périmètre (même famille de contrôle que
+      // les fuites inter-établissement/pharmacie déjà corrigées ailleurs).
+      if (dto.adherentId) {
+        const adherent = await this.prisma.adherent.findFirst({
+          where: {
+            id: dto.adherentId,
+            souscripteurId: ctx.societeId,
+            deletedAt: null,
+          },
+        });
+        if (!adherent) {
+          throw new NotFoundException(
+            "Adhérent introuvable pour votre société.",
+          );
+        }
+      }
+      scope.organisationId = ctx.organisationId;
+      scope.societeId = ctx.societeId;
+      scope.adherentId = dto.adherentId ?? null;
       return scope;
     }
 

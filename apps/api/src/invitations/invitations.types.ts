@@ -19,6 +19,7 @@ export interface ContexteAppelant {
   entite: string | null;
   organisationId: string | null;
   pharmacieId: string | null;
+  societeId: string | null;
   /** rôle propre + parents (héritage adjoint, v6 §3). */
   roleChain: string[];
 }

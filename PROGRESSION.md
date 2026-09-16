@@ -3510,3 +3510,64 @@ serveurs arrêtés.
 (pas un contournement), la fonctionnalité self-service anticipée dès la RLS d'origine
 (PROMPT 10) est enfin exposée de bout en bout, et la confidentialité de la décision avant
 son rendu est vérifiée au niveau donnée, pas seulement à l'écran
+
+## 2026-09-16 — Provisioning réel pour `ADHERENT_TITULAIRE` (même dette que
+`SOUSCRIPTEUR_INDIVIDUEL`, comblée à son tour)
+
+### Vérification demandée : `ADHERENT_TITULAIRE` a-t-il une règle dans `regles_provisioning` ?
+**Non, confirmé précisément** (`regleProvisioning.findMany({ where: { roleCree:
+'ADHERENT_TITULAIRE' } })` → tableau vide). Même absence que celle déjà comblée pour
+`SOUSCRIPTEUR_INDIVIDUEL` au prompt précédent.
+
+### Ce qui a rendu ce cas différent (pas une simple ligne en base)
+Contrairement à `SOUSCRIPTEUR_INDIVIDUEL` (scope `organisation_id`, déjà pleinement géré),
+la règle demandée pour `SOCIETE_ADMINISTRATION` utilise un scope **`societe_id`, qui
+n'existait dans AUCUNE des couches du mécanisme générique** :
+- `InvitationsService.resoudreScope()` ne gérait que `organisation_id`/`pharmacie_id`.
+- `ContexteAppelant` ne portait même pas `societeId`.
+- `peut_inviter_role()` (RLS, défense en profondeur) ne le reconnaissait pas non plus.
+- La contrainte CHECK sur `regles_provisioning.scope_verifie` n'autorisait que
+  `organisation_id`/`pharmacie_id`/`etablissement_id` — une tentative d'insertion brute
+  avec `societe_id` a d'ailleurs été rejetée par cette contrainte, confirmant l'absence
+  totale du support, avant toute correction de code.
+Une insertion SQL seule aurait donc soit échoué, soit — pire — laissé un
+`SOCIETE_ADMINISTRATION` inviter un adhérent en fournissant l'id de **n'importe quelle
+société** dans la requête, sans aucune vérification. Corrigé en dérivant le scope
+**exclusivement du profil de l'appelant** (`ctx.societeId`), jamais de la requête — même
+principe que `pharmacie_id`, et même famille de contrôle que les fuites
+inter-établissement/pharmacie déjà corrigées cette session.
+
+### Correctifs
+- `invitations.types.ts`/`invitations.service.ts` : `ContexteAppelant.societeId` ajouté ;
+  nouvelle branche `resoudreScope()` pour `scope_verifie = 'societe_id'` — refuse si
+  l'appelant n'a pas de société propre, et si un `adherentId` est fourni, **revérifie
+  qu'il appartient réellement à cette société** (`Adherent.souscripteurId === ctx.societeId`)
+  avant de l'accepter — sinon 404 anti-énumération, jamais un 403 qui confirmerait
+  l'existence de l'adhérent chez un tiers.
+- Migration `030_provisioning_adherent_titulaire.sql` : élargit la contrainte CHECK à
+  `societe_id`, recrée `peut_inviter_role()` (4 paramètres, ajout `p_societe_id`) et la
+  policy `invitations_insert` qui l'appelle, puis insère les 2 règles :
+  `ASSUREUR_INFORMATIQUE → ADHERENT_TITULAIRE` (`organisation_id`, aucun code
+  supplémentaire nécessaire — déjà générique) et
+  `SOCIETE_ADMINISTRATION → ADHERENT_TITULAIRE` (`societe_id`, nouveau).
+- 3 tests unitaires ajoutés (invitation réussie pour son propre adhérent ; rejet 404 sur
+  l'adhérent d'une autre société ; rejet 403 sans société rattachée). Suite complète :
+  **21/21 suites, 230/230 tests verts**, `tsc --noEmit` propre.
+
+### Test — HTTP réel (2 sociétés distinctes, 1 compte informatique + 1 compte
+SOCIETE_ADMINISTRATION + 2 adhérents réels éphémères) — 14/14
+Informatique crée 2 sociétés réelles + un adhérent réel dans chacune, provisionne un
+compte `SOCIETE_ADMINISTRATION` pour la société A (règle déjà existante, inchangée) →
+**ce compte invite réellement son propre adhérent** (`POST /invitations` → 201, la
+nouvelle règle fonctionne) → `invitation.societeId` confirmé dérivé du profil appelant
+(pas de la requête) → acceptation réelle → **`profil.societeId`/`profil.adherentId`
+vérifiés en base, tous deux corrects** → le nouveau compte adhérent peut lire sa propre
+fiche (200). **Contrôle négatif** : la même société A tente d'inviter avec l'`adherentId`
+de la société B → **404** (« Adhérent introuvable pour votre société »), confirmant que la
+requête n'est jamais crue sur parole. Données et 3 comptes éphémères supprimés (ordre FK
+respecté), serveur arrêté.
+
+### 🎯 Jalon — les 2 créateurs légitimes d'`ADHERENT_TITULAIRE` (informatique et société
+cliente) ont désormais un provisioning réel et vérifié en HTTP, avec le même niveau de
+rigueur anti-fuite que le reste de l'application — le scope `societe_id` du mécanisme
+générique d'invitations est réutilisable pour tout futur rôle qui en aurait besoin

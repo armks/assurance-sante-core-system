@@ -3571,3 +3571,70 @@ respecté), serveur arrêté.
 cliente) ont désormais un provisioning réel et vérifié en HTTP, avec le même niveau de
 rigueur anti-fuite que le reste de l'application — le scope `societe_id` du mécanisme
 générique d'invitations est réutilisable pour tout futur rôle qui en aurait besoin
+
+## 2026-09-16 (suite) — Diagnostic du bug d'invitation signalé, puis activation du
+bouton « Valider » pour l'informaticien sur ASSUREUR_EXPLOITATION
+
+### Diagnostic (demandé explicitement avant toute correction) — le bug ne s'est PAS reproduit
+Scénario signalé : un collaborateur invité en `CREATION_DIRECTE` (hors `PROPOSITION`)
+accepte l'invitation, crée son mot de passe, mais ne peut ensuite pas se connecter ;
+l'informaticien ne trouve aucune action « approuver ». Reproduit avec un cas réel
+(`ASSUREUR_INFORMATIQUE` invite `armelk01@hotmail.fr` en `ASSUREUR_EXPLOITATION`), selon
+**deux protocoles** :
+1. Appel API direct (création → acceptation → connexion) : tout fonctionne, `profils`
+   créé correctement, connexion réelle réussie, `/identity/me` correct.
+2. **Reproduction plus poussée en navigateur réel**, ciblant l'hypothèse la plus
+   plausible : quand Supabase envoie réellement son e-mail natif d'invitation
+   (`/auth/v1/invite`), le lien cliqué ajoute un fragment `#access_token=...&type=invite`
+   à l'URL de retour — jamais exercé par un test API pur. Découverte au passage : l'envoi
+   réel d'e-mails Supabase est **rate-limité (429, `over_email_send_rate_limit`)** dans cet
+   environnement (pas de SMTP personnalisé), ce qui explique le repli systématique
+   (`emailEnvoye: false`) observé lors des tests précédents. Contourné avec
+   `admin/generate_link` pour obtenir un vrai lien Supabase pointant vers notre vrai
+   token, cliqué avec un navigateur réel : le fragment était bien présent, mais la
+   connexion et la redirection vers `/dashboard-assureur/exploitation` ont malgré tout
+   abouti.
+
+**Conclusion** : aucune anomalie fonctionnelle trouvée dans le code (`resoudreScope`,
+`accepterInvitation`, `AccepterInvitationForm`) après relecture complète et double
+reproduction réaliste. Rien corrigé sur ce point précis — inventer un correctif sans
+cause identifiée aurait été contraire à la rigueur déjà appliquée dans cette séquence.
+
+### Clarification obtenue : le vrai besoin n'était pas un bug mais une fonctionnalité absente
+L'informaticien attend un flux à **deux temps par le même rôle** — « il peut envoyer un
+lien d'invitation qu'il va approuver par la suite » — distinct de la délégation déjà
+utilisée pour `PHARMACIE_CAISSIERE` (validée par un rôle *différent*,
+`ASSUREUR_INFORMATIQUE`). Ce flux à deux temps par la même personne est déjà le principe
+retenu ailleurs dans ce projet pour les actions sensibles (confirmation à deux temps des
+actions superadmin, PROMPT 22).
+
+### Correctif — migration de données uniquement, aucun code applicatif changé
+`ValiderProposition()` autorise déjà quiconque porte le rôle `roleValidateur` dans sa
+chaîne — y compris le rôle créateur lui-même — et le panneau Utilisateurs affiche déjà
+« Valider »/« Rejeter » pour toute invitation `EN_ATTENTE_VALIDATION_INFORMATIQUE` dès que
+le rôle du visualiseur correspond au validateur. Un seul changement de donnée suffisait :
+- Migration `031_exploitation_proposition_autoapprobation.sql` : bascule les règles
+  `ASSUREUR_INFORMATIQUE → ASSUREUR_EXPLOITATION` et `→ _CONJOINTE` de `CREATION_DIRECTE`
+  vers `PROPOSITION` avec `roleValidateur = ASSUREUR_INFORMATIQUE` (auto-approbation, pas
+  une délégation). Portée volontairement limitée à ces 2 rôles — les autres rôles créés
+  par l'informatique restent en `CREATION_DIRECTE`, inchangés (pas de changement de
+  comportement plus large que ce qui a été demandé).
+
+### Test — HTTP réel (12/12) + navigateur réel (5/5)
+Informatique crée la proposition → **statut `EN_ATTENTE_VALIDATION_INFORMATIQUE`, aucun
+compte Supabase créé à ce stade** → la proposition apparaît dans `GET /invitations` →
+l'informaticien **approuve lui-même** (`POST /invitations/:id/valider`) → **c'est
+SEULEMENT à ce moment que le compte Supabase est créé** → le collaborateur accepte et se
+connecte réellement (200), `dashboardRoute` correct. **Contrôle négatif** : un compte
+`ASSUREUR_EXPLOITATION` (pas informatique) tente de valider une proposition → **403**.
+Puis en navigateur réel : connexion informatique → `/dashboard-assureur/informatique/
+utilisateurs` → **le bouton « Valider » est bien visible** pour la proposition en attente
+→ clic réel → statut passe à « Invitation envoyée » dans le navigateur, confirmé en base
+(compte Supabase créé). Données et comptes éphémères supprimés (dont le nettoyage d'un
+oubli du diagnostic précédent : le compte réel `armelk01@hotmail.fr` créé lors du premier
+test, repéré et supprimé), serveurs arrêtés.
+
+### 🎯 Jalon — l'informaticien peut désormais créer une proposition ASSUREUR_EXPLOITATION
+et l'approuver lui-même en deux temps, avec un bouton « Valider » réellement visible et
+fonctionnel — corrigé sans écrire une seule ligne de code applicatif, uniquement en
+réutilisant le mécanisme générique déjà en place

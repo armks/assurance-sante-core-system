@@ -51,6 +51,9 @@ describe('InvitationsService', () => {
       sousRole: { findUnique: jest.fn().mockResolvedValue(null) },
       organisation: { findFirst: jest.fn() },
       adherent: { findFirst: jest.fn() },
+      etablissementSante: { findFirst: jest.fn() },
+      pharmacie: { findFirst: jest.fn() },
+      souscripteur: { findFirst: jest.fn() },
       $queryRaw: jest.fn().mockResolvedValue([{ count: 0n }]),
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(tx)),
@@ -268,6 +271,148 @@ describe('InvitationsService', () => {
         rolePropose: 'ADHERENT_TITULAIRE',
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  // --- scope organisation_id : champ de rattachement obligatoire ---------
+  // (CENTRE_MEDICAL_*, PHARMACIE_*, SOCIETE_ADMINISTRATION créés par
+  // ASSUREUR_INFORMATIQUE — cf. formulaire "Inviter un utilisateur")
+
+  it('scope organisation_id : REFUSE un rôle CENTRE_MEDICAL_* sans etablissementId', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'organisation_id',
+      roleValidateur: null,
+    });
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'medecin@centre.ci',
+        rolePropose: 'CENTRE_MEDICAL_MEDECIN',
+      }),
+    ).rejects.toThrow('Un établissement doit être sélectionné pour ce rôle.');
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('scope organisation_id : REFUSE (404) un etablissementId appartenant à une AUTRE organisation', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'organisation_id',
+      roleValidateur: null,
+    });
+    prisma.etablissementSante.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'medecin@centre.ci',
+        rolePropose: 'CENTRE_MEDICAL_MEDECIN',
+        etablissementId: 'etab-dune-autre-org',
+      }),
+    ).rejects.toThrow('Établissement introuvable dans votre organisation.');
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('scope organisation_id : accepte un rôle CENTRE_MEDICAL_* avec un etablissementId valide', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'organisation_id',
+      roleValidateur: null,
+    });
+    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'etab-1', organisationId: 'org-1' });
+    prisma._tx.invitation.create.mockImplementation(({ data }: any) => ({
+      id: 'inv-cm',
+      ...data,
+      expireLe: DANS_72H,
+      accepteLe: null,
+      createdAt: new Date(),
+    }));
+
+    const res = await service.creerInvitation(USER, {
+      email: 'medecin@centre.ci',
+      rolePropose: 'CENTRE_MEDICAL_MEDECIN',
+      etablissementId: 'etab-1',
+    });
+
+    expect(res.statut).toBe('EN_ATTENTE');
+    expect(prisma._tx.invitation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ etablissementId: 'etab-1' }),
+      }),
+    );
+  });
+
+  it('scope organisation_id : REFUSE un rôle PHARMACIE_* sans pharmacieId', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'organisation_id',
+      roleValidateur: null,
+    });
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'pharmacien@pharm.ci',
+        rolePropose: 'PHARMACIE_PHARMACIEN',
+      }),
+    ).rejects.toThrow('Une pharmacie doit être sélectionnée pour ce rôle.');
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('scope organisation_id : REFUSE (404) un pharmacieId appartenant à une AUTRE organisation', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'organisation_id',
+      roleValidateur: null,
+    });
+    prisma.pharmacie.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'pharmacien@pharm.ci',
+        rolePropose: 'PHARMACIE_PHARMACIEN',
+        pharmacieId: 'pharm-dune-autre-org',
+      }),
+    ).rejects.toThrow('Pharmacie introuvable dans votre organisation.');
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('scope organisation_id : REFUSE un SOCIETE_ADMINISTRATION sans societeId', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'organisation_id',
+      roleValidateur: null,
+    });
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'admin@societe.ci',
+        rolePropose: 'SOCIETE_ADMINISTRATION',
+      }),
+    ).rejects.toThrow('Un souscripteur doit être sélectionné pour ce rôle.');
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('scope organisation_id : REFUSE (404) un societeId (souscripteur) appartenant à une AUTRE organisation', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.regleProvisioning.findFirst.mockResolvedValue({
+      mode: 'CREATION_DIRECTE',
+      scopeVerifie: 'organisation_id',
+      roleValidateur: null,
+    });
+    prisma.souscripteur.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.creerInvitation(USER, {
+        email: 'admin@societe.ci',
+        rolePropose: 'SOCIETE_ADMINISTRATION',
+        societeId: 'soc-dune-autre-org',
+      }),
+    ).rejects.toThrow('Souscripteur introuvable dans votre organisation.');
     expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
   });
 

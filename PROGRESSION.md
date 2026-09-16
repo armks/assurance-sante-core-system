@@ -3702,3 +3702,76 @@ supprimés, Playwright désinstallé, serveurs arrêtés.
 ### 🎯 Jalon — un échec d'envoi d'e-mail n'est plus invisible : badge, renvoi explicite et
 lien de secours copiable, avec un bug réel de repli en cascade trouvé et corrigé grâce au
 test en conditions réelles exigé pour cette tâche
+
+## 2026-09-16 (suite 3) — Changement d'e-mail SUPERADMIN_PRINCIPAL : connexion réelle confirmée
+
+Suite de la tâche laissée en attente en tout début de journée : l'e-mail du compte
+`SUPERADMIN_PRINCIPAL` a été changé via l'API Admin Supabase
+(`armelk01+superadmin@gmail.com` → `armelk01@gmail.com`, `email_confirm: true`), mais la
+connexion réelle n'avait alors pas pu être vérifiée (mot de passe existant inconnu, pas de
+réinitialisation autorisée à ce moment-là).
+
+- Vérification de configuration : `SUPERADMIN_EMAIL=armelk01@gmail.com` dans
+  `apps/api/.env` (déjà correct), **aucune** référence à l'ancienne adresse dans le code ou
+  la configuration active — seules des entrées historiques datées subsistent plus haut
+  dans ce fichier (jamais réécrites, conformément à la règle de ce document).
+- Premier essai de connexion réelle avec le mot de passe supposé existant → **échec**
+  (`400 invalid_credentials`, confirmé à la fois via un appel direct à l'API Supabase et
+  via `/login` en navigateur réel) ; compte vérifié sain par ailleurs (`email_confirmed_at`
+  cohérent avec l'heure du changement, pas de `banned_until`).
+- Sur demande explicite de l'utilisateur : mot de passe réinitialisé via l'API Admin
+  Supabase (`PUT /auth/v1/admin/users/:id`), généré aléatoirement (20 caractères), affiché
+  une seule fois à l'utilisateur pour qu'il le note.
+- **Connexion réelle confirmée** avec le nouveau mot de passe : navigateur réel via
+  `/login` → atterrit sur `/superadmin`, titre « Super administration », e-mail
+  `armelk01@gmail.com` affiché dans l'en-tête.
+
+### 🎯 Jalon — le compte SUPERADMIN_PRINCIPAL fonctionne intégralement sous sa nouvelle
+adresse `armelk01@gmail.com`, connexion réelle vérifiée de bout en bout
+
+## 2026-09-16 (suite 4) — Champ de rattachement obligatoire dans le formulaire d'invitation
+
+### Constat
+Le formulaire « Inviter un compte » (`/dashboard-assureur/informatique/utilisateurs`) ne
+demandait qu'un e-mail et un rôle. Or `CreerInvitationDto` accepte `etablissementId` /
+`pharmacieId` / `societeId` en champs **tous optionnels**, et `resoudreScope()` (branche
+`scope_verifie = organisation_id`) les reprenait tels quels **sans jamais vérifier qu'ils
+étaient renseignés ni qu'ils appartenaient à l'organisation de l'appelant** — un
+CENTRE_MEDICAL_MEDECIN, un PHARMACIE_PHARMACIEN ou un SOCIETE_ADMINISTRATION pouvait donc
+être créé sans aucun rattachement (compte orphelin, permissions scopées cassées), ou pire,
+rattaché à un établissement/une pharmacie/un souscripteur d'une AUTRE organisation si l'ID
+était deviné ou falsifié.
+
+### Correctif backend (défense en profondeur, même famille que le contrôle déjà en place
+sur `adherentId` dans la branche `societe_id`)
+`resoudreScope()` : pour tout rôle `CENTRE_MEDICAL_*` → `etablissementId` obligatoire et
+revérifié (`findFirst` scopé sur `organisationId` de l'appelant) ; tout rôle `PHARMACIE_*`
+→ même contrôle sur `pharmacieId` ; `SOCIETE_ADMINISTRATION` → même contrôle sur
+`societeId` (le souscripteur). Absent → `400`, appartenant à une autre organisation →
+`404` (jamais un `500` ni une création silencieuse avec un champ `null`). 7 nouveaux tests
+unitaires (`invitations.service.spec.ts`) : requis manquant, cross-organisation refusé,
+cas nominal, pour les 3 familles de rôles.
+
+### Correctif frontend (`utilisateurs-panneau.tsx`)
+Le rôle choisi est maintenant suivi en état React ; selon son préfixe
+(`CENTRE_MEDICAL_*` → Établissement, `PHARMACIE_*` → Pharmacie, `SOCIETE_ADMINISTRATION`
+→ Souscripteur), un champ de sélection **apparaît dynamiquement**, alimenté par les
+listes déjà exposées (`GET /provider/etablissements`, `GET /provider/pharmacies`,
+`GET /tenant/souscripteurs`, chargées dans `page.tsx`). Le bouton « Inviter » reste
+**réellement désactivé** (`disabled`, pas seulement une popup de validation HTML) tant que
+ce champ n'est pas rempli pour les rôles concernés — la validation serveur reste en place
+en secours, mais n'est plus la seule ligne de défense contre l'oubli.
+
+### Test — navigateur réel (Playwright)
+Compte `ASSUREUR_INFORMATIQUE` éphémère connecté réellement. Rôle `CENTRE_MEDICAL_MEDECIN`
+sélectionné → champ « Établissement » apparaît → bouton **désactivé** tant qu'aucun
+établissement n'est choisi → tentative de clic **rejetée par le navigateur lui-même**
+(Playwright confirme l'échec du clic) → **0 invitation créée en base** malgré la
+tentative. Établissement choisi → bouton réactivé → soumission réelle → invitation
+créée avec `etablissementId` correctement renseigné (vérifié en base). Changement de rôle
+vers `PHARMACIE_PHARMACIEN` → le champ bascule bien sur « Pharmacie ». Backend 246/246.
+Données et compte éphémères supprimés, Playwright désinstallé.
+
+### 🎯 Jalon — impossible d'inviter un CENTRE_MEDICAL_*/PHARMACIE_*/SOCIETE_ADMINISTRATION
+sans rattachement, ni depuis l'écran (bouton désactivé) ni en contournant l'écran (rejet
+serveur avec vérification cross-organisation)

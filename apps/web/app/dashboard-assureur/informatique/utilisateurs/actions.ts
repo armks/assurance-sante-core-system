@@ -14,6 +14,9 @@ const CIBLE = '/dashboard-assureur/informatique/utilisateurs';
 export async function inviterUtilisateur(input: {
   email: string;
   rolePropose: string;
+  etablissementId?: string;
+  pharmacieId?: string;
+  societeId?: string;
 }): Promise<ResultatInvitation> {
   const res = await apiFetch('/api/v1/invitations', {
     method: 'POST',

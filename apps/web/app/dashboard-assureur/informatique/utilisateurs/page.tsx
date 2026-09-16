@@ -27,11 +27,15 @@ export default async function Utilisateurs() {
   const peutValider =
     etat.kind === 'ok' ? etat.identity.permissions.peutValider : false;
 
-  const [roles, comptes, invitations] = await Promise.all([
-    json<RoleProposable[]>('/api/v1/identity/roles-proposables'),
-    json<Compte[]>('/api/v1/identity/comptes'),
-    json<Invitation[]>('/api/v1/invitations'),
-  ]);
+  const [roles, comptes, invitations, etablissements, pharmacies, souscripteurs] =
+    await Promise.all([
+      json<RoleProposable[]>('/api/v1/identity/roles-proposables'),
+      json<Compte[]>('/api/v1/identity/comptes'),
+      json<Invitation[]>('/api/v1/invitations'),
+      json<{ id: string; nom: string }[]>('/api/v1/provider/etablissements'),
+      json<{ id: string; nom: string }[]>('/api/v1/provider/pharmacies'),
+      json<{ id: string; nom: string }[]>('/api/v1/tenant/souscripteurs'),
+    ]);
 
   return (
     <div className="space-y-8">
@@ -45,6 +49,9 @@ export default async function Utilisateurs() {
         invitations={invitations.data}
         erreur={comptes.erreur}
         peutValider={peutValider}
+        etablissements={etablissements.data}
+        pharmacies={pharmacies.data}
+        souscripteurs={souscripteurs.data}
       />
     </div>
   );

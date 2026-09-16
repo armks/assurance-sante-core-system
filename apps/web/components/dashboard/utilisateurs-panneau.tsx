@@ -23,6 +23,27 @@ export interface RoleProposable {
   mode: 'CREATION_DIRECTE' | 'PROPOSITION';
 }
 
+export interface Ressource {
+  id: string;
+  nom: string;
+}
+
+type TypeChampScope = 'etablissement' | 'pharmacie' | 'souscripteur';
+
+/** Rôle → champ de rattachement obligatoire à l'invitation (formulaire ET API). */
+function typeChampScope(role: string): TypeChampScope | null {
+  if (role.startsWith('CENTRE_MEDICAL_')) return 'etablissement';
+  if (role.startsWith('PHARMACIE_')) return 'pharmacie';
+  if (role === 'SOCIETE_ADMINISTRATION') return 'souscripteur';
+  return null;
+}
+
+const LIBELLE_CHAMP_SCOPE: Record<TypeChampScope, string> = {
+  etablissement: 'Établissement',
+  pharmacie: 'Pharmacie',
+  souscripteur: 'Souscripteur',
+};
+
 export interface Compte {
   id: string;
   role: string | null;
@@ -76,6 +97,9 @@ export function UtilisateursPanneau({
   roles,
   erreur,
   peutValider = true,
+  etablissements = [],
+  pharmacies = [],
+  souscripteurs = [],
 }: {
   comptes: Compte[];
   invitations: Invitation[];
@@ -83,9 +107,26 @@ export function UtilisateursPanneau({
   erreur: string | null;
   /** `false` pour un rôle adjoint : masque « Valider » / « Rejeter ». */
   peutValider?: boolean;
+  etablissements?: Ressource[];
+  pharmacies?: Ressource[];
+  souscripteurs?: Ressource[];
 }) {
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatInvitation | null>(null);
+  const [role, setRole] = useState('');
+  const [champScope, setChampScope] = useState('');
+
+  const typeChampRequis = typeChampScope(role);
+  const ressourcesParType: Record<TypeChampScope, Ressource[]> = {
+    etablissement: etablissements,
+    pharmacie: pharmacies,
+    souscripteur: souscripteurs,
+  };
+  const optionsChampScope = typeChampRequis
+    ? ressourcesParType[typeChampRequis]
+    : [];
+  const boutonInviterDesactive =
+    pending || (typeChampRequis !== null && !champScope);
 
   const invitationsOuvertes = invitations.filter((i) =>
     ['EN_ATTENTE_VALIDATION_INFORMATIQUE', 'EN_ATTENTE'].includes(i.statut),
@@ -119,7 +160,7 @@ export function UtilisateursPanneau({
           </p>
         ) : (
           <form
-            className="grid gap-3 sm:grid-cols-[1fr_16rem_auto] sm:items-end"
+            className="flex flex-wrap items-end gap-3"
             onSubmit={(e) => {
               e.preventDefault();
               const f = new FormData(e.currentTarget);
@@ -127,14 +168,27 @@ export function UtilisateursPanneau({
               start(async () => {
                 const r = await inviterUtilisateur({
                   email: String(f.get('email') ?? ''),
-                  rolePropose: String(f.get('role') ?? ''),
+                  rolePropose: role,
+                  ...(typeChampRequis === 'etablissement'
+                    ? { etablissementId: champScope }
+                    : {}),
+                  ...(typeChampRequis === 'pharmacie'
+                    ? { pharmacieId: champScope }
+                    : {}),
+                  ...(typeChampRequis === 'souscripteur'
+                    ? { societeId: champScope }
+                    : {}),
                 });
                 setRes(r);
-                if (r.ok) form.reset();
+                if (r.ok) {
+                  form.reset();
+                  setRole('');
+                  setChampScope('');
+                }
               });
             }}
           >
-            <div className="grid gap-2">
+            <div className="grid min-w-[14rem] flex-1 gap-2">
               <Label htmlFor="email">E-mail</Label>
               <Input
                 id="email"
@@ -144,14 +198,18 @@ export function UtilisateursPanneau({
                 placeholder="collaborateur@assureur.ci"
               />
             </div>
-            <div className="grid gap-2">
+            <div className="grid w-64 gap-2">
               <Label htmlFor="role">Rôle</Label>
               <select
                 id="role"
                 name="role"
                 required
+                value={role}
+                onChange={(e) => {
+                  setRole(e.target.value);
+                  setChampScope('');
+                }}
                 className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                defaultValue=""
               >
                 <option value="" disabled>
                   Choisir un rôle…
@@ -164,10 +222,41 @@ export function UtilisateursPanneau({
                 ))}
               </select>
             </div>
-            <Button type="submit" disabled={pending}>
+            {typeChampRequis && (
+              <div className="grid w-64 gap-2">
+                <Label htmlFor="champScope">
+                  {LIBELLE_CHAMP_SCOPE[typeChampRequis]}
+                </Label>
+                <select
+                  id="champScope"
+                  name="champScope"
+                  required
+                  value={champScope}
+                  onChange={(e) => setChampScope(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  <option value="" disabled>
+                    Choisir…
+                  </option>
+                  {optionsChampScope.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.nom}
+                    </option>
+                  ))}
+                </select>
+                {optionsChampScope.length === 0 && (
+                  <p className="text-xs text-destructive">
+                    Aucun{typeChampRequis === 'etablissement' ? '' : 'e'}{' '}
+                    {LIBELLE_CHAMP_SCOPE[typeChampRequis].toLowerCase()}{' '}
+                    disponible.
+                  </p>
+                )}
+              </div>
+            )}
+            <Button type="submit" disabled={boutonInviterDesactive}>
               {pending ? 'Envoi…' : 'Inviter'}
             </Button>
-            <div className="sm:col-span-3">
+            <div className="basis-full">
               <Message res={res} />
             </div>
           </form>

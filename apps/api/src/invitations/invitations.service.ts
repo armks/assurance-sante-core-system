@@ -488,9 +488,74 @@ export class InvitationsService {
         );
       }
       scope.organisationId = ctx.organisationId;
-      scope.societeId = dto.societeId ?? null;
-      scope.etablissementId = dto.etablissementId ?? null;
-      scope.pharmacieId = dto.pharmacieId ?? null;
+
+      // Rôles rattachés à un établissement/pharmacie/souscripteur précis : le
+      // champ est obligatoire, et — même règle que pour `adherentId` plus bas
+      // — jamais de confiance dans un ID fourni sans vérifier qu'il appartient
+      // bien à l'organisation de l'appelant (pas de rattachement croisé).
+      if (dto.rolePropose.startsWith('CENTRE_MEDICAL_')) {
+        if (!dto.etablissementId) {
+          throw new BadRequestException(
+            'Un établissement doit être sélectionné pour ce rôle.',
+          );
+        }
+        const etablissement = await this.prisma.etablissementSante.findFirst({
+          where: {
+            id: dto.etablissementId,
+            organisationId: ctx.organisationId,
+            deletedAt: null,
+          },
+        });
+        if (!etablissement) {
+          throw new NotFoundException(
+            'Établissement introuvable dans votre organisation.',
+          );
+        }
+        scope.etablissementId = etablissement.id;
+      } else if (dto.rolePropose.startsWith('PHARMACIE_')) {
+        if (!dto.pharmacieId) {
+          throw new BadRequestException(
+            'Une pharmacie doit être sélectionnée pour ce rôle.',
+          );
+        }
+        const pharmacie = await this.prisma.pharmacie.findFirst({
+          where: {
+            id: dto.pharmacieId,
+            organisationId: ctx.organisationId,
+            deletedAt: null,
+          },
+        });
+        if (!pharmacie) {
+          throw new NotFoundException(
+            'Pharmacie introuvable dans votre organisation.',
+          );
+        }
+        scope.pharmacieId = pharmacie.id;
+      } else if (dto.rolePropose === 'SOCIETE_ADMINISTRATION') {
+        if (!dto.societeId) {
+          throw new BadRequestException(
+            'Un souscripteur doit être sélectionné pour ce rôle.',
+          );
+        }
+        const souscripteur = await this.prisma.souscripteur.findFirst({
+          where: {
+            id: dto.societeId,
+            organisationId: ctx.organisationId,
+            deletedAt: null,
+          },
+        });
+        if (!souscripteur) {
+          throw new NotFoundException(
+            'Souscripteur introuvable dans votre organisation.',
+          );
+        }
+        scope.societeId = souscripteur.id;
+      } else {
+        scope.societeId = dto.societeId ?? null;
+        scope.etablissementId = dto.etablissementId ?? null;
+        scope.pharmacieId = dto.pharmacieId ?? null;
+      }
+
       scope.adherentId = dto.adherentId ?? null;
       return scope;
     }

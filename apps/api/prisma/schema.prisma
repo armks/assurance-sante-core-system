@@ -529,6 +529,9 @@ model Invitation {
   roleValidateur  String?   @map("role_validateur")
   authUserId      String?   @map("auth_user_id") @db.Uuid
   motifRejet      String?   @map("motif_rejet")
+  /// NULL = aucun essai d'envoi réel encore tenté (proposition en attente,
+  /// ou ligne historique antérieure à cette colonne).
+  emailEnvoye     Boolean?  @map("email_envoye")
   expireLe        DateTime  @default(dbgenerated("(now() + '72:00:00'::interval)")) @map("expire_le") @db.Timestamptz(6)
   accepteLe       DateTime? @map("accepte_le") @db.Timestamptz(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

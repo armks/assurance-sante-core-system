@@ -127,6 +127,7 @@ export class InvitationsService {
           statut: 'EN_ATTENTE',
           mode: 'CREATION_DIRECTE',
           authUserId,
+          emailEnvoye,
         },
       });
       await this.audit(tx, ctx.userId, 'CREATION_INVITATION', i.id, {
@@ -137,11 +138,7 @@ export class InvitationsService {
       return i;
     });
 
-    return {
-      ...this.presenter(inv, { avecToken: true }),
-      emailEnvoye,
-      lienAcceptation: `/accepter-invitation/${token}`,
-    };
+    return this.presenter(inv, { avecToken: true });
   }
 
   // --- Validation d'une proposition -----------------------------------
@@ -177,7 +174,7 @@ export class InvitationsService {
     const maj = await this.prisma.$transaction(async (tx) => {
       const i = await tx.invitation.update({
         where: { id },
-        data: { statut: 'EN_ATTENTE', authUserId },
+        data: { statut: 'EN_ATTENTE', authUserId, emailEnvoye },
       });
       await this.audit(tx, ctx.userId, 'VALIDATION_PROPOSITION_INVITATION', id, {
         email: inv.email,
@@ -187,7 +184,7 @@ export class InvitationsService {
       return i;
     });
 
-    return { ...this.presenter(maj, { avecToken: true }), emailEnvoye };
+    return this.presenter(maj, { avecToken: true });
   }
 
   async rejeterProposition(
@@ -256,6 +253,56 @@ export class InvitationsService {
     return this.presenter(maj, { avecToken: false });
   }
 
+  /**
+   * Retente l'envoi réel de l'e-mail pour une invitation déjà émise
+   * (`EN_ATTENTE`, compte Supabase déjà créé) — corrige la visibilité d'un
+   * échec silencieux (ex. rate-limit SMTP par défaut Supabase, confirmé en
+   * conditions réelles : `429 over_email_send_rate_limit`). Un seul essai
+   * explicite par appel — jamais de boucle de retentative automatique ; le
+   * résultat (succès ou nouvel échec) est immédiatement reflété dans
+   * `emailEnvoye`, jamais masqué.
+   */
+  async renvoyerEmail(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    const inv = await this.charger(id);
+
+    if (inv.invitePar !== ctx.userId) {
+      throw new ForbiddenException(
+        "Seul l'émetteur de l'invitation peut renvoyer l'e-mail.",
+      );
+    }
+    if (inv.statut !== 'EN_ATTENTE') {
+      throw new ConflictException(
+        `Impossible de renvoyer l'e-mail : invitation au statut ${inv.statut}.`,
+      );
+    }
+    if (!inv.authUserId) {
+      throw new InternalServerErrorException(
+        'Invitation incomplète : compte Supabase manquant.',
+      );
+    }
+
+    const { emailEnvoye } = await this.admin.inviterUtilisateur(
+      inv.email,
+      `${WEB_URL}/accepter-invitation/${inv.token}`,
+      { invitation_token: inv.token, role_propose: inv.rolePropose },
+    );
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const i = await tx.invitation.update({
+        where: { id },
+        data: { emailEnvoye },
+      });
+      await this.audit(tx, ctx.userId, 'RENVOI_EMAIL_INVITATION', id, {
+        email: inv.email,
+        emailEnvoye,
+      });
+      return i;
+    });
+
+    return this.presenter(maj, { avecToken: true });
+  }
+
   // --- Listing --------------------------------------------------------
 
   async listerMesInvitations(user: AuthenticatedUser) {
@@ -276,7 +323,10 @@ export class InvitationsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return invitations.map((inv) => this.presenter(inv, { avecToken: false }));
+    // `avecToken: true` : nécessaire pour l'action "Copier le lien" (secours
+    // manuel si l'e-mail échoue) — même donnée déjà retournée UNE FOIS au
+    // même appelant à la création/validation, pas une nouvelle exposition.
+    return invitations.map((inv) => this.presenter(inv, { avecToken: true }));
   }
 
   /** Contexte public affiché sur /accepter-invitation/[token] — aucun secret. */
@@ -548,6 +598,7 @@ export class InvitationsService {
       roleValidateur: string | null;
       authUserId?: string | null;
       token: string;
+      emailEnvoye?: boolean | null;
       expireLe: Date;
       accepteLe: Date | null;
       createdAt: Date;
@@ -563,10 +614,15 @@ export class InvitationsService {
       statut: inv.statut,
       mode: inv.mode,
       roleValidateur: inv.roleValidateur,
+      // NULL = aucun envoi réel encore tenté (proposition en attente, ou
+      // ligne historique antérieure à ce suivi) — distinct de `false`.
+      emailEnvoye: inv.emailEnvoye ?? null,
       expireLe: inv.expireLe,
       accepteLe: inv.accepteLe,
       createdAt: inv.createdAt,
-      ...(opts.avecToken ? { token: inv.token } : {}),
+      ...(opts.avecToken
+        ? { token: inv.token, lienAcceptation: `/accepter-invitation/${inv.token}` }
+        : {}),
     };
   }
 

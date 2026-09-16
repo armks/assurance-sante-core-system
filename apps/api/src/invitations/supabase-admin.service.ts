@@ -84,8 +84,24 @@ export class SupabaseAdminService {
     this.logger.warn(
       `inviteUserByEmail a échoué (${res.status}: ${detail.slice(0, 200)}) — repli sur admin/users.`,
     );
-    const cree = await this.creerUtilisateur(email, metadata);
-    return { authUserId: cree.id, emailEnvoye: false };
+    try {
+      const cree = await this.creerUtilisateur(email, metadata);
+      return { authUserId: cree.id, emailEnvoye: false };
+    } catch (erreur) {
+      // Cas d'un renvoi : le compte auth existe déjà (créé par une tentative
+      // précédente) mais le premier appel /invite a échoué pour une AUTRE
+      // raison que « exists » (ex. rate limit encore actif) — admin/users
+      // échoue alors lui aussi avec « exists ». Dernier repli : le retrouver
+      // plutôt que de faire remonter une erreur technique brute.
+      const existant = await this.trouverParEmail(email);
+      if (existant) {
+        this.logger.warn(
+          `admin/users a aussi échoué mais ${email} existe déjà dans auth.users — réutilisation.`,
+        );
+        return { authUserId: existant.id, emailEnvoye: false };
+      }
+      throw erreur;
+    }
   }
 
   /** Création directe d'un compte auth sans mot de passe (repli). */

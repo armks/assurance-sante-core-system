@@ -3638,3 +3638,67 @@ test, repéré et supprimé), serveurs arrêtés.
 et l'approuver lui-même en deux temps, avec un bouton « Valider » réellement visible et
 fonctionnel — corrigé sans écrire une seule ligne de code applicatif, uniquement en
 réutilisant le mécanisme générique déjà en place
+
+## 2026-09-16 (suite 2) — Visibilité de l'échec d'envoi d'e-mail sur les invitations
+
+### Constat
+`emailEnvoye` (résultat de `SupabaseAdminService.inviterUtilisateur`) n'était retourné
+qu'**une fois**, dans la réponse immédiate de `creerInvitation`/`validerProposition` —
+jamais persisté, jamais exposé par `GET /invitations`. Un échec d'envoi (confirmé
+reproductible dans cet environnement : le relais e-mail partagé Supabase renvoie `429
+over_email_send_rate_limit` dès quelques invitations rapprochées) devenait donc
+silencieusement indiscernable d'un envoi réussi dès que l'informaticien rechargeait
+l'écran Utilisateurs — aucune action de secours (renvoi, lien manuel) n'existait.
+
+### Correctif backend
+- Migration `032_invitations_email_envoye.sql` : colonne `invitations.email_envoye`
+  (nullable — `NULL` = aucun essai réel encore tenté, jamais une valeur inventée pour les
+  lignes historiques antérieures à la colonne).
+- `InvitationsService` : `emailEnvoye` désormais persisté à chaque tentative d'envoi
+  réelle (`creerInvitation`, `validerProposition`, et la nouvelle méthode
+  `renvoyerEmail`). `presenter()` centralise `emailEnvoye` (toujours renvoyé) et
+  `lienAcceptation` (renvoyé avec le token à la création ET dans `listerMesInvitations`,
+  pas seulement à l'instant de la création — l'émetteur a déjà vu ce token une fois, ce
+  n'est pas une nouvelle exposition).
+- Nouvel endpoint `POST /invitations/:id/renvoyer` (`renvoyerEmail`) : réservé à
+  l'émetteur de l'invitation, uniquement pour une invitation encore `EN_ATTENTE`, un seul
+  essai explicite (jamais de boucle), résultat persisté et audité
+  (`RENVOI_EMAIL_INVITATION`).
+
+### Bug réel trouvé et corrigé pendant le test en navigateur réel
+Le test « Renvoyer l'email » sur une invitation déjà en échec faisait remonter une
+**exception technique brute** (« Création du compte Supabase impossible (422:
+email_exists…) ») au lieu du message d'échec explicite attendu. Cause racine dans
+`SupabaseAdminService.inviterUtilisateur()` : sur un renvoi, le compte auth existe déjà
+(créé par la tentative précédente) ; si le nouvel appel `/invite` échoue pour une raison
+**autre** que « exists » (ex. rate limit encore actif), le code retombait sur
+`creerUtilisateur()` (`POST admin/users`) — qui échoue *forcément* lui aussi, puisque
+l'e-mail existe déjà, mais sans le repli déjà en place pour ce cas précis. Corrigé en
+ajoutant le même repli (`trouverParEmail`) autour de l'appel à `creerUtilisateur()` :
+si ce dernier échoue aussi et que le compte est bien retrouvable, `emailEnvoye:false` est
+renvoyé proprement plutôt que de laisser remonter l'exception. 5 tests unitaires ajoutés
+dans le nouveau `supabase-admin.service.spec.ts` (succès direct, réutilisation directe,
+repli simple, repli en cascade — le cas du bug —, échec irrécupérable).
+
+### Frontend (`utilisateurs-panneau.tsx`)
+Sur les invitations `EN_ATTENTE` : badge d'alerte « Email non envoyé » quand
+`emailEnvoye === false`, bouton « Renvoyer l'email » (retente l'envoi, affiche
+explicitement un nouvel échec ou un succès — jamais silencieux), bouton « Copier le
+lien » (presse-papiers, disponible dès qu'un `lienAcceptation` existe, indépendamment du
+succès de l'e-mail — secours immédiat pour transmission manuelle SMS/WhatsApp).
+
+### Test — navigateur réel (Playwright), backend 239/239
+Compte `ASSUREUR_INFORMATIQUE` éphémère → invitation `CENTRE_MEDICAL_ACCUEIL` créée en
+conditions réelles → limite Supabase déjà atteinte dans cet environnement,
+`emailEnvoye:false` dès la 1ʳᵉ tentative → confirmé dans `GET /invitations`. En
+navigateur : badge « Email non envoyé » **visible**. Clic « Renvoyer » → nouvel échec
+affiché explicitement (« Nouvel échec de l'envoi… ») **après correction du bug
+ci-dessus** (avant correction : exception brute affichée). Clic « Copier le lien » → lien
+copié dans le presse-papiers **vérifié identique** au `lienAcceptation` de l'API. Lien
+utilisé pour une acceptation réelle (mot de passe posé) puis connexion API directe avec ce
+mot de passe → **200, compte réellement fonctionnel**. Données et comptes éphémères
+supprimés, Playwright désinstallé, serveurs arrêtés.
+
+### 🎯 Jalon — un échec d'envoi d'e-mail n'est plus invisible : badge, renvoi explicite et
+lien de secours copiable, avec un bug réel de repli en cascade trouvé et corrigé grâce au
+test en conditions réelles exigé pour cette tâche

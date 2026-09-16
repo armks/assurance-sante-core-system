@@ -391,4 +391,107 @@ describe('InvitationsService', () => {
       dashboardRoute: '/dashboard-assureur/informatique',
     });
   });
+
+  // --- renvoyerEmail : visibilité de l'échec d'envoi ---------------------
+
+  it('renvoyerEmail : refuse si l’appelant n’est pas l’émetteur de l’invitation', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.invitation.findFirst.mockResolvedValue({
+      id: 'inv-1',
+      invitePar: 'un-autre-utilisateur',
+      statut: 'EN_ATTENTE',
+      authUserId: 'auth-1',
+      email: 'x@y.ci',
+      rolePropose: 'CENTRE_MEDICAL_ACCUEIL',
+      token: 'tok',
+    });
+
+    await expect(service.renvoyerEmail(USER, 'inv-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('renvoyerEmail : refuse si l’invitation n’est pas au statut EN_ATTENTE', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.invitation.findFirst.mockResolvedValue({
+      id: 'inv-1',
+      invitePar: USER.sub,
+      statut: 'ACCEPTEE',
+      authUserId: 'auth-1',
+      email: 'x@y.ci',
+      rolePropose: 'CENTRE_MEDICAL_ACCUEIL',
+      token: 'tok',
+    });
+
+    await expect(service.renvoyerEmail(USER, 'inv-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('renvoyerEmail : retente l’envoi et reflète un NOUVEL échec explicitement (pas de boucle, pas de succès inventé)', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.invitation.findFirst.mockResolvedValue({
+      id: 'inv-1',
+      invitePar: USER.sub,
+      statut: 'EN_ATTENTE',
+      authUserId: 'auth-1',
+      email: 'x@y.ci',
+      rolePropose: 'CENTRE_MEDICAL_ACCUEIL',
+      token: 'tok',
+      emailEnvoye: false,
+    });
+    admin.inviterUtilisateur.mockResolvedValue({ authUserId: 'auth-1', emailEnvoye: false });
+    prisma._tx.invitation.update.mockImplementation(({ data }: any) => ({
+      id: 'inv-1',
+      statut: 'EN_ATTENTE',
+      mode: 'CREATION_DIRECTE',
+      email: 'x@y.ci',
+      rolePropose: 'CENTRE_MEDICAL_ACCUEIL',
+      organisationId: 'org-1',
+      roleValidateur: null,
+      token: 'tok',
+      expireLe: DANS_72H,
+      accepteLe: null,
+      createdAt: new Date(),
+      ...data,
+    }));
+
+    const res = await service.renvoyerEmail(USER, 'inv-1');
+
+    expect(admin.inviterUtilisateur).toHaveBeenCalledTimes(1);
+    expect(prisma._tx.invitation.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { emailEnvoye: false } }),
+    );
+    expect(res.emailEnvoye).toBe(false);
+  });
+
+  it('renvoyerEmail : succès réel reflété correctement', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.invitation.findFirst.mockResolvedValue({
+      id: 'inv-1',
+      invitePar: USER.sub,
+      statut: 'EN_ATTENTE',
+      authUserId: 'auth-1',
+      email: 'x@y.ci',
+      rolePropose: 'CENTRE_MEDICAL_ACCUEIL',
+      token: 'tok',
+      emailEnvoye: false,
+    });
+    admin.inviterUtilisateur.mockResolvedValue({ authUserId: 'auth-1', emailEnvoye: true });
+    prisma._tx.invitation.update.mockImplementation(({ data }: any) => ({
+      id: 'inv-1',
+      statut: 'EN_ATTENTE',
+      mode: 'CREATION_DIRECTE',
+      email: 'x@y.ci',
+      rolePropose: 'CENTRE_MEDICAL_ACCUEIL',
+      organisationId: 'org-1',
+      roleValidateur: null,
+      token: 'tok',
+      expireLe: DANS_72H,
+      accepteLe: null,
+      createdAt: new Date(),
+      ...data,
+    }));
+
+    const res = await service.renvoyerEmail(USER, 'inv-1');
+    expect(res.emailEnvoye).toBe(true);
+  });
 });

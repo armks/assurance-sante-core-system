@@ -72,6 +72,16 @@ export class InvitationsController {
     return this.invitations.revoquer(user, id);
   }
 
+  /** Retente l'envoi réel de l'e-mail — un seul essai explicite, jamais de boucle. */
+  @Post(':id/renvoyer')
+  @UseGuards(SupabaseAuthGuard)
+  renvoyer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invitations.renvoyerEmail(user, id);
+  }
+
   // --- Public : parcours d'acceptation --------------------------------
 
   @Get('token/:token')

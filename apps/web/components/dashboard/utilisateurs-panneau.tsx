@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react';
 import {
   inviterUtilisateur,
   rejeterInvitation,
+  renvoyerEmail,
   revoquerInvitation,
   validerProposition,
   type ResultatInvitation,
@@ -39,6 +40,8 @@ export interface Invitation {
   roleValidateur: string | null;
   expireLe: string;
   createdAt: string;
+  emailEnvoye?: boolean | null;
+  lienAcceptation?: string;
 }
 
 const LIBELLE_STATUT: Record<string, string> = {
@@ -90,6 +93,18 @@ export function UtilisateursPanneau({
   const invitationsCloses = invitations.filter((i) =>
     STATUTS_CLOS.includes(i.statut),
   );
+
+  const copierLien = (lien: string) => {
+    const url = `${window.location.origin}${lien}`;
+    navigator.clipboard.writeText(url).then(
+      () => setRes({ ok: true, message: 'Lien copié dans le presse-papiers.' }),
+      () =>
+        setRes({
+          ok: false,
+          error: `Copie automatique impossible. Lien : ${url}`,
+        }),
+    );
+  };
 
   return (
     <div className="space-y-10">
@@ -184,21 +199,27 @@ export function UtilisateursPanneau({
                       {inv.rolePropose}
                     </td>
                     <td className="px-3 py-2">
-                      <Badge
-                        variant={
-                          inv.statut === 'EN_ATTENTE_VALIDATION_INFORMATIQUE'
-                            ? 'outline'
-                            : 'secondary'
-                        }
-                      >
-                        {LIBELLE_STATUT[inv.statut] ?? inv.statut}
-                      </Badge>
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <Badge
+                          variant={
+                            inv.statut === 'EN_ATTENTE_VALIDATION_INFORMATIQUE'
+                              ? 'outline'
+                              : 'secondary'
+                          }
+                        >
+                          {LIBELLE_STATUT[inv.statut] ?? inv.statut}
+                        </Badge>
+                        {inv.statut === 'EN_ATTENTE' &&
+                          inv.emailEnvoye === false && (
+                            <Badge variant="danger">Email non envoyé</Badge>
+                          )}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {new Date(inv.expireLe).toLocaleDateString('fr-FR')}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <span className="flex justify-end gap-2">
+                      <span className="flex flex-wrap justify-end gap-2">
                         {inv.statut === 'EN_ATTENTE_VALIDATION_INFORMATIQUE' &&
                           peutValider && (
                             <>
@@ -255,6 +276,32 @@ export function UtilisateursPanneau({
                               </FormulaireModal>
                             </>
                           )}
+                        {inv.statut === 'EN_ATTENTE' &&
+                          inv.emailEnvoye === false && (
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="outline"
+                              disabled={pending}
+                              onClick={() =>
+                                start(async () =>
+                                  setRes(await renvoyerEmail(inv.id)),
+                                )
+                              }
+                            >
+                              Renvoyer l’email
+                            </Button>
+                          )}
+                        {inv.statut === 'EN_ATTENTE' && inv.lienAcceptation && (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="outline"
+                            onClick={() => copierLien(inv.lienAcceptation!)}
+                          >
+                            Copier le lien
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           size="xs"

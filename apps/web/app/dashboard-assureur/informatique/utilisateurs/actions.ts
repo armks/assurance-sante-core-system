@@ -92,3 +92,27 @@ export async function revoquerInvitation(
   revalidatePath(CIBLE);
   return { ok: true, message: 'Invitation révoquée.' };
 }
+
+/**
+ * Retente l'envoi réel de l'e-mail d'invitation. Un seul essai — l'échec
+ * (ex. limite Supabase atteinte) est renvoyé explicitement, jamais masqué
+ * en succès.
+ */
+export async function renvoyerEmail(id: string): Promise<ResultatInvitation> {
+  const res = await apiFetch(`/api/v1/invitations/${id}/renvoyer`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    return { ok: false, error: await messageErreur(res) };
+  }
+  const inv = (await res.json()) as { emailEnvoye?: boolean | null };
+  revalidatePath(CIBLE);
+  if (!inv.emailEnvoye) {
+    return {
+      ok: false,
+      error:
+        "Nouvel échec de l'envoi. Utilisez « Copier le lien » pour le transmettre manuellement.",
+    };
+  }
+  return { ok: true, message: 'E-mail renvoyé avec succès.' };
+}

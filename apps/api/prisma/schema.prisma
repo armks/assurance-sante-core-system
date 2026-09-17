@@ -57,6 +57,7 @@ model Organisation {
   codesOrdonnance   CodeOrdonnance[]
   ticketsSoins      TicketSoins[]
   facturesDossier   FactureDossier[]
+  lignesFacturation LigneFacturation[]
   licence           LicenceOrganisation?
 
   @@map("organisations")
@@ -1047,7 +1048,9 @@ model TicketSoins {
   dossier      DossierSoins    @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   organisation Organisation    @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   actes        ActeDossier[]
-  facture      FactureDossier?
+  /// Plusieurs cycles de facturation possibles depuis prisma/sql/039 (facturation
+  /// par sélection d'actes, paiement partiel) — plus une facture unique.
+  factures     FactureDossier[]
 
   @@index([statut])
   @@index([organisationId])
@@ -1092,6 +1095,7 @@ model ActeDossier {
   ticket       TicketSoins          @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   consultation ConsultationDossier? @relation(fields: [consultationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   prescripteur Profil?              @relation(fields: [medecinPrescripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lignesFacturation LigneFacturation[]
 
   @@index([dossierSoinsId])
   @@index([ticketSoinsId])
@@ -1099,14 +1103,20 @@ model ActeDossier {
   @@map("actes_dossier")
 }
 
-/// factures_dossier — 4e et dernier des 4 codes anti-fraude (v8 §5). Une facture
-/// par ticket de soins clôturé. Le règlement est IMPOSSIBLE tant que l'adhérent
-/// n'a pas validé `code_facturation` (garde applicative + trigger). prisma/sql/015.
+/// factures_dossier — 4e des 4 codes anti-fraude (v8 §5). Le règlement est
+/// IMPOSSIBLE tant que l'adhérent n'a pas validé `code_facturation` (garde
+/// applicative + trigger). prisma/sql/015.
+///
+/// DEPUIS prisma/sql/039 : un dossier peut avoir PLUSIEURS cycles de
+/// facturation successifs (facturation par sélection d'actes, paiement
+/// partiel) — `ticketSoinsId` n'est donc plus `@unique`. Chaque ligne
+/// représente UN cycle (un code, une sélection d'actes, un règlement) ; le
+/// détail acte par acte vit dans `LigneFacturation`.
 model FactureDossier {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId        String    @map("organisation_id") @db.Uuid
   dossierSoinsId        String    @map("dossier_soins_id") @db.Uuid
-  ticketSoinsId         String    @unique @map("ticket_soins_id") @db.Uuid
+  ticketSoinsId         String    @map("ticket_soins_id") @db.Uuid
   etablissementId       String    @map("etablissement_id") @db.Uuid
   adherentId            String?   @map("adherent_id") @db.Uuid
   beneficiaireId        String?   @map("beneficiaire_id") @db.Uuid
@@ -1130,12 +1140,42 @@ model FactureDossier {
   regleParProfil Profil?            @relation(fields: [reglePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
   adherent       Adherent?          @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   beneficiaire   Beneficiaire?      @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lignesFacturation LigneFacturation[]
 
   @@index([organisationId])
   @@index([adherentId])
   @@index([etablissementId])
   @@index([statut])
+  @@index([ticketSoinsId])
   @@map("factures_dossier")
+}
+
+/// lignes_facturation — détail acte par acte d'un cycle de facturation
+/// (facturation par sélection d'actes, paiement partiel, prisma/sql/039).
+/// `factureDossierId` nullable : une ligne « réclame » un acte pour un cycle,
+/// mais reste rattachable/ré-attachable à un cycle (ex. un acte resélectionné
+/// après un cycle abandonné avant validation réutilise sa ligne A_PAYER
+/// existante plutôt que d'en dupliquer une). Au plus UNE ligne A_PAYER par
+/// acte à la fois (index unique partiel, prisma/sql/039).
+model LigneFacturation {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId   String    @map("organisation_id") @db.Uuid
+  factureDossierId String?   @map("facture_dossier_id") @db.Uuid
+  acteDossierId    String    @map("acte_dossier_id") @db.Uuid
+  montantReclame   Decimal   @map("montant_reclame") @db.Decimal(14, 2)
+  statut           String    @default("A_PAYER") @map("statut") // A_PAYER | PAYE
+  datePaiement     DateTime? @map("date_paiement") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factureDossier FactureDossier? @relation(fields: [factureDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  acteDossier    ActeDossier     @relation(fields: [acteDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([factureDossierId])
+  @@index([acteDossierId])
+  @@index([statut])
+  @@map("lignes_facturation")
 }
 
 /// licences_organisation — administration SaaS (v14 §5). Une licence par tenant.

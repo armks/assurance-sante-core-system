@@ -1,9 +1,9 @@
 'use client';
 
+import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
 
-import { genererFacture } from '@/app/dashboard-centre-medical/comptable/actions';
+import { genererFactureSelection } from '@/app/dashboard-centre-medical/comptable/actions';
 import {
   DataTable,
   StatutBadge,
@@ -13,6 +13,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LIBELLE_PREAUTORISATION, TON_PREAUTORISATION } from '@/lib/centre-medical';
 
+interface LigneFacturationActe {
+  id: string;
+  statut: string; // A_PAYER | PAYE
+  montantReclame: string;
+  datePaiement: string | null;
+}
 interface Acte {
   id: string;
   libelle: string;
@@ -21,8 +27,9 @@ interface Acte {
   montantPrescrit: string | null;
   statutPreautorisation: string;
   statut: string;
+  lignesFacturation: LigneFacturationActe[];
 }
-interface Facture {
+interface CycleFacturation {
   id: string;
   montantTotal: string;
   montantAssurance: string;
@@ -31,6 +38,7 @@ interface Facture {
   codeValideParPatient: boolean;
   dateValidationPatient: string | null;
   dateReglement: string | null;
+  createdAt: string;
 }
 export interface DossierFacturation {
   id: string;
@@ -38,7 +46,9 @@ export interface DossierFacturation {
   statut: string;
   dateCloture: string | null;
   actes: Acte[];
-  ticket: { id: string; statut: string; facture: Facture | null } | null;
+  /** Présent uniquement via `GET /care-episode/dossiers/:id` (détail). */
+  soldeRestantDu?: string;
+  ticket: { id: string; statut: string; factures: CycleFacturation[] } | null;
 }
 
 const montant = (v: string | null) =>
@@ -55,6 +65,23 @@ function Ligne({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** Un acte est facturable si sa pré-autorisation ne le bloque pas et qu'il n'est pas déjà réglé. */
+function estFacturable(a: Acte): boolean {
+  if (['EN_ATTENTE_VALIDATION', 'REFUSEE'].includes(a.statutPreautorisation)) return false;
+  if (a.lignesFacturation.some((l) => l.statut === 'PAYE')) return false;
+  return true;
+}
+
+function statutFacturationActe(a: Acte): { label: string; ton: 'succes' | 'attention' | 'neutre' | 'danger' } {
+  if (['EN_ATTENTE_VALIDATION', 'REFUSEE'].includes(a.statutPreautorisation)) {
+    return { label: 'Non facturable (pré-autorisation)', ton: 'danger' };
+  }
+  const ligne = a.lignesFacturation[0]; // trié du plus récent au plus ancien côté API
+  if (ligne?.statut === 'PAYE') return { label: 'Payé', ton: 'succes' };
+  if (ligne?.statut === 'A_PAYER') return { label: 'Code généré (en attente)', ton: 'attention' };
+  return { label: 'À sélectionner', ton: 'neutre' };
+}
+
 export function TicketDetail({
   dossier,
   peutFacturer,
@@ -65,48 +92,84 @@ export function TicketDetail({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [selection, setSelection] = useState<Set<string>>(new Set());
 
   const ticket = dossier.ticket;
-  const facture = ticket?.facture ?? null;
-  const ticketCloture = ticket?.statut === 'CLOTURE';
+  const cycles = ticket?.factures ?? [];
+  const soldeRestantDu = Number(dossier.soldeRestantDu ?? 0);
+  const dossierSolde = soldeRestantDu <= 0;
   const totalActes = dossier.actes.reduce(
     (s, a) => s + Number(a.montantPrescrit ?? 0) * a.quantite,
     0,
   );
+  const montantSelectionne = dossier.actes
+    .filter((a) => selection.has(a.id))
+    .reduce((s, a) => s + Number(a.montantPrescrit ?? 0) * a.quantite, 0);
 
-  const colActes: ColonneTable<Acte>[] = [
-    { cle: 'libelle', entete: 'Libellé', triable: true },
-    {
-      cle: 'categorieActe',
-      entete: 'Catégorie',
-      rendu: (a) => a.categorieActe.replace(/_/g, ' '),
-    },
-    { cle: 'quantite', entete: 'Qté', aligneDroite: true },
-    {
-      cle: 'montantPrescrit',
-      entete: 'Montant',
-      aligneDroite: true,
-      valeur: (a) => Number(a.montantPrescrit ?? 0),
-      rendu: (a) => montant(a.montantPrescrit),
-    },
-    {
-      cle: 'statutPreautorisation',
-      entete: 'Pré-autorisation',
-      rendu: (a) =>
-        a.statutPreautorisation === 'NON_REQUISE' ? (
-          '—'
-        ) : (
-          <StatutBadge
-            statut={a.statutPreautorisation}
-            map={TON_PREAUTORISATION}
-            libelles={LIBELLE_PREAUTORISATION}
-          />
-        ),
-    },
-  ];
+  function basculer(acteId: string) {
+    setSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(acteId)) next.delete(acteId);
+      else next.add(acteId);
+      return next;
+    });
+  }
 
-  const actesExclus = dossier.actes.filter((a) =>
-    ['EN_ATTENTE_VALIDATION', 'REFUSEE'].includes(a.statutPreautorisation),
+  const colActes: ColonneTable<Acte>[] = useMemo(
+    () => [
+      {
+        cle: 'select',
+        entete: '',
+        rendu: (a) =>
+          estFacturable(a) && peutFacturer ? (
+            <input
+              type="checkbox"
+              className="size-4"
+              checked={selection.has(a.id)}
+              onChange={() => basculer(a.id)}
+              aria-label={`Sélectionner ${a.libelle}`}
+            />
+          ) : null,
+      },
+      { cle: 'libelle', entete: 'Libellé', triable: true },
+      {
+        cle: 'categorieActe',
+        entete: 'Catégorie',
+        rendu: (a) => a.categorieActe.replace(/_/g, ' '),
+      },
+      { cle: 'quantite', entete: 'Qté', aligneDroite: true },
+      {
+        cle: 'montantPrescrit',
+        entete: 'Montant',
+        aligneDroite: true,
+        valeur: (a) => Number(a.montantPrescrit ?? 0),
+        rendu: (a) => montant(a.montantPrescrit),
+      },
+      {
+        cle: 'statutPreautorisation',
+        entete: 'Pré-autorisation',
+        rendu: (a) =>
+          a.statutPreautorisation === 'NON_REQUISE' ? (
+            '—'
+          ) : (
+            <StatutBadge
+              statut={a.statutPreautorisation}
+              map={TON_PREAUTORISATION}
+              libelles={LIBELLE_PREAUTORISATION}
+            />
+          ),
+      },
+      {
+        cle: 'facturation',
+        entete: 'Facturation',
+        rendu: (a) => {
+          const { label, ton } = statutFacturationActe(a);
+          return <StatutBadge statut={label} ton={ton} libelle={label} />;
+        },
+      },
+    ],
+    [selection, peutFacturer],
   );
 
   return (
@@ -114,6 +177,11 @@ export function TicketDetail({
       {erreur && (
         <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
           {erreur}
+        </div>
+      )}
+      {message && (
+        <div className="rounded-md border border-emerald-300/70 bg-emerald-50/50 p-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-400">
+          {message}
         </div>
       )}
 
@@ -133,106 +201,116 @@ export function TicketDetail({
           <Ligne label="Total actes prescrits">
             {montant(String(totalActes))}
           </Ligne>
+          {dossier.soldeRestantDu !== undefined && (
+            <Ligne label="Solde restant dû">
+              <span className={dossierSolde ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}>
+                {montant(dossier.soldeRestantDu)}
+              </span>
+            </Ligne>
+          )}
         </CardContent>
+        {dossier.soldeRestantDu !== undefined && !dossierSolde && (
+          <CardContent className="pt-0">
+            <p className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              Dossier non soldé — clôture impossible tant que le solde restant
+              dû n’est pas à zéro.
+            </p>
+          </CardContent>
+        )}
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Actes</CardTitle>
+          <CardTitle className="text-base">Actes — sélection pour facturation</CardTitle>
         </CardHeader>
         <CardContent>
-          {actesExclus.length > 0 && (
-            <p className="mb-3 text-sm text-amber-700 dark:text-amber-400">
-              {actesExclus.length} acte(s) en attente ou refusé(s) en
-              pré-autorisation — exclus du montant de la facture tant que le
-              médecin conseil n’a pas statué (aucun paiement patient possible
-              sur ces actes).
-            </p>
-          )}
+          <p className="mb-3 text-sm text-muted-foreground">
+            Cochez les actes à régler maintenant. Les actes non facturables
+            (pré-autorisation en attente/refusée, ou déjà payés) ne sont pas
+            sélectionnables.
+          </p>
           <DataTable
             donnees={dossier.actes}
             cleLigne={(a) => a.id}
             parPage={0}
             colonnes={colActes}
-            vide="Aucun acte sur ce ticket."
+            vide="Aucun acte sur ce dossier."
           />
+
+          {peutFacturer && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
+              <span className="text-sm">
+                Montant sélectionné :{' '}
+                <span className="font-semibold">{montant(String(montantSelectionne))}</span>
+                {' '}({selection.size} acte{selection.size > 1 ? 's' : ''})
+              </span>
+              <Button
+                size="sm"
+                disabled={pending || selection.size === 0}
+                onClick={() =>
+                  start(async () => {
+                    setErreur(null);
+                    setMessage(null);
+                    const r = await genererFactureSelection(dossier.id, [...selection]);
+                    if (r.ok) {
+                      setMessage(r.message ?? 'Code de facturation généré.');
+                      setSelection(new Set());
+                      router.refresh();
+                    } else {
+                      setErreur(r.error);
+                    }
+                  })
+                }
+              >
+                {pending ? 'Génération…' : 'Générer le code de facturation'}
+              </Button>
+            </div>
+          )}
+          <p className="mt-2 text-xs text-muted-foreground">
+            Le code de facturation est transmis à l’adhérent (dashboard —
+            e-mail et SMS à raccorder séparément) pour validation ; il ne
+            s’affiche jamais ici.
+          </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Facture</CardTitle>
+          <CardTitle className="text-base">Cycles de facturation</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {facture ? (
-            <>
-              <div className="divide-y">
-                <Ligne label="Montant total">
-                  {montant(facture.montantTotal)}
-                </Ligne>
-                <Ligne label="Part assurance">
-                  {montant(facture.montantAssurance)}
-                </Ligne>
-                <Ligne label="Part patient">
-                  {montant(facture.montantPatient)}
-                </Ligne>
-                <Ligne label="Statut">
-                  <StatutBadge statut={facture.statut} />
-                </Ligne>
-              </div>
-              <p className="text-sm">
-                {facture.codeValideParPatient ? (
-                  <span className="text-emerald-700 dark:text-emerald-400">
-                    Code validé par le patient le{' '}
-                    {dateFr(facture.dateValidationPatient)}.
-                  </span>
-                ) : (
-                  <span className="text-amber-700 dark:text-amber-400">
-                    En attente de validation du code par le patient.
-                  </span>
-                )}
-              </p>
-              {facture.dateReglement && (
-                <p className="text-sm text-muted-foreground">
-                  Réglée le {dateFr(facture.dateReglement)}.
-                </p>
-              )}
-            </>
-          ) : !ticket ? (
+        <CardContent className="space-y-4">
+          {cycles.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Aucun ticket de soins associé à ce dossier.
-            </p>
-          ) : !ticketCloture ? (
-            <p className="text-sm text-muted-foreground">
-              Le ticket de soins ({ticket.statut}) doit être clôturé avant la
-              facturation.
-            </p>
-          ) : !peutFacturer ? (
-            <p className="text-sm text-muted-foreground">
-              La facture est émise par un comptable ou l’administratif du centre
-              (ou de l’assurance).
+              Aucun cycle de facturation généré pour l’instant.
             </p>
           ) : (
-            <Button
-              disabled={pending}
-              onClick={() =>
-                start(async () => {
-                  setErreur(null);
-                  const r = await genererFacture(dossier.id, ticket.id);
-                  if (r.ok) router.refresh();
-                  else setErreur(r.error);
-                })
-              }
-            >
-              {pending ? 'Génération…' : 'Générer la facture'}
-            </Button>
-          )}
-          {facture == null && ticketCloture && peutFacturer && (
-            <p className="text-xs text-muted-foreground">
-              Les montants sont calculés par l’API depuis les actes et les
-              garanties. Le code de facturation est transmis à l’adhérent pour
-              validation — il ne s’affiche pas ici.
-            </p>
+            cycles.map((f) => (
+              <div key={f.id} className="divide-y rounded-md border p-3">
+                <Ligne label="Créé le">{dateFr(f.createdAt)}</Ligne>
+                <Ligne label="Montant total">{montant(f.montantTotal)}</Ligne>
+                <Ligne label="Part assurance">{montant(f.montantAssurance)}</Ligne>
+                <Ligne label="Part patient">{montant(f.montantPatient)}</Ligne>
+                <Ligne label="Statut">
+                  <StatutBadge statut={f.statut} />
+                </Ligne>
+                <div className="pt-2 text-sm">
+                  {f.codeValideParPatient ? (
+                    <span className="text-emerald-700 dark:text-emerald-400">
+                      Code validé par le patient le {dateFr(f.dateValidationPatient)}.
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 dark:text-amber-400">
+                      En attente de validation du code par le patient.
+                    </span>
+                  )}
+                </div>
+                {f.dateReglement && (
+                  <p className="pt-1 text-sm text-muted-foreground">
+                    Réglée le {dateFr(f.dateReglement)}.
+                  </p>
+                )}
+              </div>
+            ))
           )}
         </CardContent>
       </Card>

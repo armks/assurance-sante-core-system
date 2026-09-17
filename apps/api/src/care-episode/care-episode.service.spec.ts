@@ -74,6 +74,7 @@ describe('CareEpisodeService', () => {
           .fn()
           .mockResolvedValue({ statut: 'ACTIF', adherent: { statut: 'ACTIF' } }),
       },
+      acteDossier: { findMany: jest.fn().mockResolvedValue([]) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -317,6 +318,71 @@ describe('CareEpisodeService', () => {
     await expect(
       service.ouvrirDossier(USER, dtoOuverture),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Solde restant dû — décision actée : un dossier reste ouvert
+  //  indéfiniment tant qu'il n'est pas intégralement soldé (facturation par
+  //  sélection d'actes, paiement partiel).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('clôture bloquée tant que le solde restant dû n’est pas nul', () => {
+    it('REFUSE clotureNormale si un acte n’a jamais été réglé (jamais sélectionné dans aucun cycle)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT', etablissementId: 'etab-1',
+      });
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { montantPrescrit: { toString: () => '15000' }, quantite: 1, lignesFacturation: [] },
+      ]);
+
+      await expect(
+        service.clotureNormale(USER, 'dos-1', { motif: 'tentative' }),
+      ).rejects.toMatchObject({ response: { message: expect.stringContaining('15000.00') } });
+      expect(prisma.dossierSoins.update).not.toHaveBeenCalled();
+    });
+
+    it('REFUSE clotureNormale si un acte a une ligne A_PAYER (facture générée, pas encore réglée)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT', etablissementId: 'etab-1',
+      });
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { montantPrescrit: { toString: () => '8000' }, quantite: 1, lignesFacturation: [] },
+      ]);
+
+      await expect(
+        service.clotureNormale(USER, 'dos-1', { motif: 'tentative' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('AUTORISE clotureNormale quand tous les actes ont une ligne PAYE (solde nul)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findFirst
+        .mockResolvedValueOnce({ id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT', etablissementId: 'etab-1' })
+        .mockResolvedValueOnce({ id: 'dos-1', statut: 'CLOTURE', consultations: [] });
+      prisma.dossierSoins.update.mockResolvedValue({});
+      prisma.consultationDossier.updateMany.mockResolvedValue({});
+      // Acte réglé : une ligne PAYE existe → exclu du calcul du solde.
+      prisma.acteDossier.findMany.mockResolvedValue([]);
+
+      const res = await service.clotureNormale(USER, 'dos-1', { motif: 'Solde réglé' });
+      expect(res.statut).toBe('CLOTURE');
+    });
+
+    it('REFUSE clotureForcee elle aussi si le solde restant dû n’est pas nul', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-1', organisationId: 'org-1', statut: 'OUVERT',
+      });
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { montantPrescrit: { toString: () => '5000' }, quantite: 2, lignesFacturation: [] },
+      ]);
+
+      await expect(
+        service.clotureForcee(USER, 'dos-1', { motif: 'Abandon de soins constaté' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.dossierSoins.update).not.toHaveBeenCalled();
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════

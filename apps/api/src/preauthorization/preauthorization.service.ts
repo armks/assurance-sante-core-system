@@ -15,7 +15,10 @@ import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AjouterActeDto, ValiderPreautorisationDto } from './dto/acte.dto';
-import { ValiderCodeFacturationDto } from './dto/facture.dto';
+import {
+  GenererFactureSelectionDto,
+  ValiderCodeFacturationDto,
+} from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
   DispensationDto,
@@ -1039,12 +1042,23 @@ export class PreauthorizationService {
   // =====================================================================
 
   /**
-   * Génère la facture d'un épisode : refuse si le ticket est encore OUVERT,
-   * calcule les montants depuis les actes, émet le `code_facturation`. Le code
-   * part vers l'ADHÉRENT (jamais l'établissement) ; il le récupère via
-   * `GET /preauthorization/codes-facturation`.
+   * Facturation par SÉLECTION D'ACTES, paiement partiel (v8 §5 étendu) : le
+   * comptable de l'établissement coche, parmi tous les actes du dossier, ceux
+   * à régler MAINTENANT — plusieurs cycles successifs sont possibles sur le
+   * même dossier (remplace l'ancienne facturation unique par ticket). EXCLUT
+   * automatiquement, quelle que soit la sélection envoyée par le client :
+   * - tout acte `EN_ATTENTE_VALIDATION`/`REFUSEE` en pré-autorisation (garde
+   *   posée pour les analyses/examens médicaux) ;
+   * - tout acte déjà réglé (`LigneFacturation` à `PAYE`).
+   * Un acte déjà réclamé par un cycle abandonné (ligne `A_PAYER` orpheline,
+   * jamais validée/réglée) est RÉATTACHÉ au nouveau cycle plutôt que dupliqué
+   * (au plus une ligne `A_PAYER` par acte, contrainte posée en base).
    */
-  async genererFacture(user: AuthenticatedUser, ticketSoinsId: string) {
+  async genererFactureSelection(
+    user: AuthenticatedUser,
+    dossierSoinsId: string,
+    dto: GenererFactureSelectionDto,
+  ) {
     const ctx = await this.contexteAppelant(user);
     if (
       !ctx.roleChain.some((r) =>
@@ -1056,64 +1070,67 @@ export class PreauthorizationService {
       );
     }
 
-    const ticket = await this.prisma.ticketSoins.findFirst({
-      where: { id: ticketSoinsId },
-      include: {
-        dossier: { include: { police: true } },
-        facture: true,
-      },
+    const dossier = await this.prisma.dossierSoins.findFirst({
+      where: { id: dossierSoinsId, organisationId: ctx.organisationId, deletedAt: null },
+      include: { police: true, ticket: true },
     });
-    if (!ticket || ticket.dossier.organisationId !== ctx.organisationId) {
-      throw new NotFoundException('Ticket de soins introuvable.');
+    if (!dossier) {
+      throw new NotFoundException('Dossier de soins introuvable.');
     }
-    // Personnel de centre médical : uniquement les tickets de SON établissement
-    // (même contrôle que l'ajout d'acte).
+    if (!dossier.ticket) {
+      throw new NotFoundException('Aucun ticket de soins pour ce dossier.');
+    }
     const estCentreMedical = ctx.roleChain.some((r) =>
       (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r),
     );
-    if (
-      estCentreMedical &&
-      ctx.etablissementId !== ticket.dossier.etablissementId
-    ) {
+    if (estCentreMedical && ctx.etablissementId !== dossier.etablissementId) {
       throw new ForbiddenException(
-        "Vous n'appartenez pas à l'établissement de ce ticket de soins.",
+        "Vous n'appartenez pas à l'établissement de ce dossier de soins.",
       );
     }
-    if (ticket.statut === 'OUVERT') {
-      throw new ConflictException(
-        "Impossible de facturer : le ticket de soins est encore OUVERT. Il doit d'abord être clôturé.",
-      );
-    }
-    if (ticket.statut === 'ANNULE') {
+    if (dossier.ticket.statut === 'ANNULE') {
       throw new ConflictException(
         'Le ticket de soins est ANNULÉ — aucune facturation possible.',
       );
     }
-    if (ticket.facture) {
-      throw new ConflictException(
-        'Une facture a déjà été générée pour ce ticket de soins.',
+
+    const acteIdsDemandes = [...new Set(dto.acteIds)];
+    const actesDemandes = await this.prisma.acteDossier.findMany({
+      where: {
+        id: { in: acteIdsDemandes },
+        dossierSoinsId,
+        deletedAt: null,
+        statut: { not: 'ANNULE' },
+      },
+      include: {
+        lignesFacturation: { where: { statut: { in: ['A_PAYER', 'PAYE'] } } },
+      },
+    });
+    if (actesDemandes.length !== acteIdsDemandes.length) {
+      throw new BadRequestException(
+        "Un ou plusieurs actes sélectionnés n'appartiennent pas à ce dossier (ou sont annulés).",
       );
     }
 
-    const {
-      montantTotal,
-      montantAssurance,
-      montantPatient,
-      actesExclusPreautorisation,
-      aucunActeFacturable,
-    } = await this.calculerMontants(ticket.dossier.police.produitId, ticketSoinsId);
-
-    // GARDE BLOQUANTE : si le ticket contient des actes mais qu'AUCUN n'est
-    // facturable (tous EN_ATTENTE_VALIDATION ou REFUSEE), on refuse plutôt que
-    // de générer une facture à 0 F qui occuperait définitivement l'unique
-    // emplacement de facture du ticket (v3 §5 étendu).
-    if (aucunActeFacturable) {
+    const nonFacturables: readonly string[] = STATUTS_PREAUTORISATION_NON_FACTURABLES;
+    const actesEligibles = actesDemandes.filter(
+      (a) =>
+        !nonFacturables.includes(a.statutPreautorisation) &&
+        !a.lignesFacturation.some((l) => l.statut === 'PAYE'),
+    );
+    const acteIdsExclus = acteIdsDemandes.filter(
+      (id) => !actesEligibles.some((a) => a.id === id),
+    );
+    if (actesEligibles.length === 0) {
       throw new ConflictException({
         message:
-          "Facturation impossible : tous les actes de ce ticket sont en attente ou ont été refusés en pré-autorisation. Aucun paiement patient n'est possible avant décision du médecin conseil.",
-        actesExclusPreautorisation,
+          "Aucun des actes sélectionnés n'est facturable (en attente ou refusé en pré-autorisation, ou déjà réglé).",
+        acteIdsExclus,
       });
     }
+
+    const { montantTotal, montantAssurance, montantPatient } =
+      await this.calculerMontantsPourActes(dossier.police.produitId, actesEligibles);
 
     const code = await this.genererCodeFacturationUnique();
 
@@ -1121,11 +1138,11 @@ export class PreauthorizationService {
       const f = await tx.factureDossier.create({
         data: {
           organisationId: ctx.organisationId,
-          dossierSoinsId: ticket.dossierSoinsId,
-          ticketSoinsId,
-          etablissementId: ticket.dossier.etablissementId,
-          adherentId: ticket.dossier.adherentId,
-          beneficiaireId: ticket.dossier.beneficiaireId,
+          dossierSoinsId,
+          ticketSoinsId: dossier.ticket!.id,
+          etablissementId: dossier.etablissementId,
+          adherentId: dossier.adherentId,
+          beneficiaireId: dossier.beneficiaireId,
           montantTotal,
           montantAssurance,
           montantPatient,
@@ -1133,37 +1150,63 @@ export class PreauthorizationService {
           codeFacturation: code,
         },
       });
+
+      for (const acte of actesEligibles) {
+        const ligneAPayer = acte.lignesFacturation.find((l) => l.statut === 'A_PAYER');
+        const montantReclame = new Decimal(acte.montantPrescrit?.toString() ?? '0')
+          .mul(acte.quantite)
+          .toFixed(2);
+        if (ligneAPayer) {
+          // Cycle abandonné réattaché — jamais de doublon pour le même acte.
+          await tx.ligneFacturation.update({
+            where: { id: ligneAPayer.id },
+            data: { factureDossierId: f.id, montantReclame },
+          });
+        } else {
+          await tx.ligneFacturation.create({
+            data: {
+              organisationId: ctx.organisationId,
+              factureDossierId: f.id,
+              acteDossierId: acte.id,
+              montantReclame,
+              statut: 'A_PAYER',
+            },
+          });
+        }
+      }
+
       await this.audit(
         tx,
         ctx.userId,
         'GENERATION_CODE_FACTURATION',
         f.id,
         {
-          ticketSoinsId,
+          dossierSoinsId,
+          acteIdsInclus: actesEligibles.map((a) => a.id),
+          acteIdsExclus,
           montantTotal,
           montantPatient,
-          actesExclusPreautorisation,
         },
         'factures_dossier',
       );
       return f;
     });
 
-    // Réponse à l'ASSUREUR : montants, PAS le code. `actesExclus` signale les
-    // actes ANALYSES_EXAMENS_MEDICAUX non encore validés (ou refusés) par le
-    // médecin conseil, exclus du calcul (garde bloquante v3 §5 étendu).
+    // Réponse à l'ASSUREUR : montants, PAS le code (transmis à l'adhérent —
+    // dashboard dès maintenant, e-mail/SMS à raccorder séparément).
     return {
       factureId: facture.id,
       statut: facture.statut,
       montantTotal: facture.montantTotal.toFixed(2),
       montantAssurance: facture.montantAssurance.toFixed(2),
       montantPatient: facture.montantPatient.toFixed(2),
-      actesExclusPreautorisation,
+      acteIdsInclus: actesEligibles.map((a) => a.id),
+      acteIdsExclus,
       message:
-        actesExclusPreautorisation.length > 0
-          ? "Facture générée. Le code de facturation a été transmis à l'adhérent pour validation. " +
-            `${actesExclusPreautorisation.length} acte(s) en attente ou refusé(s) en pré-autorisation ont été exclus du calcul.`
-          : "Facture générée. Le code de facturation a été transmis à l'adhérent pour validation.",
+        acteIdsExclus.length > 0
+          ? "Facture générée pour les actes sélectionnés facturables. Le code de facturation a été transmis à l'adhérent pour validation. " +
+            `${acteIdsExclus.length} acte(s) sélectionné(s) exclu(s) (en attente/refusé de pré-autorisation, ou déjà réglé).`
+          : "Facture générée pour les actes sélectionnés. Le code de facturation a été transmis à l'adhérent pour validation.",
     };
   }
 
@@ -1314,6 +1357,12 @@ export class PreauthorizationService {
           reglePar: ctx.userId,
         },
       });
+      // Marque PAYE uniquement les lignes de CE cycle précis — jamais les
+      // autres cycles (facturation par sélection d'actes, paiement partiel).
+      const lignes = await tx.ligneFacturation.updateMany({
+        where: { factureDossierId: factureId, statut: 'A_PAYER' },
+        data: { statut: 'PAYE', datePaiement: new Date() },
+      });
       await this.audit(
         tx,
         ctx.userId,
@@ -1322,11 +1371,14 @@ export class PreauthorizationService {
         {
           montantAssurance: f.montantAssurance.toFixed(2),
           montantPatient: f.montantPatient.toFixed(2),
+          lignesPayees: lignes.count,
         },
         'factures_dossier',
       );
       return f;
     });
+
+    const soldeRestantDu = await this.calculerSoldeRestantDu(maj.dossierSoinsId);
 
     return {
       factureId: maj.id,
@@ -1334,7 +1386,33 @@ export class PreauthorizationService {
       montantAssurance: maj.montantAssurance.toFixed(2),
       montantPatient: maj.montantPatient.toFixed(2),
       dateReglement: maj.dateReglement,
+      soldeRestantDu: soldeRestantDu.toFixed(2),
     };
+  }
+
+  /**
+   * Solde restant dû du dossier — somme des actes non annulés qui n'ont
+   * jamais été réglés (aucune `LigneFacturation` à `PAYE`), y compris ceux
+   * qui n'ont jamais été sélectionnés dans aucun cycle. Même formule que
+   * `CareEpisodeService.calculerSoldeRestantDu` (dupliquée, comme les autres
+   * ensembles de rôles/formules partagés dans ce projet — pas de dépendance
+   * croisée entre les deux modules).
+   */
+  private async calculerSoldeRestantDu(dossierSoinsId: string): Promise<Decimal> {
+    const actes = await this.prisma.acteDossier.findMany({
+      where: { dossierSoinsId, deletedAt: null, statut: { not: 'ANNULE' } },
+      include: {
+        lignesFacturation: { where: { statut: 'PAYE' }, select: { id: true } },
+      },
+    });
+    let solde = new Decimal(0);
+    for (const acte of actes) {
+      if (acte.lignesFacturation.length > 0) continue;
+      solde = solde.add(
+        new Decimal(acte.montantPrescrit?.toString() ?? '0').mul(acte.quantite),
+      );
+    }
+    return solde;
   }
 
   /**
@@ -1388,42 +1466,16 @@ export class PreauthorizationService {
   }
 
   /**
-   * Montants d'une facture — calcul provisoire (adjudication fine : Phase 7).
-   *
-   * GARDE BLOQUANTE (v3 §5 étendu, pré-autorisation obligatoire analyses/
-   * examens médicaux) : tout acte dont `statutPreautorisation` vaut
-   * `EN_ATTENTE_VALIDATION` ou `REFUSEE` est EXCLU de la somme — seuls
-   * `NON_REQUISE` et `APPROUVEE` sont facturables. Aucun paiement patient
-   * n'est donc possible sur un acte non encore validé par le médecin conseil.
-   * Cette même exclusion devra être reprise telle quelle par tout futur
-   * mécanisme de sélection d'un acte pour paiement (Prompt 3, pas encore
-   * construit) — ne pas l'oublier.
+   * Montants (total / part assurance / part patient) pour un ENSEMBLE d'actes
+   * déjà résolu comme facturable par l'appelant (`genererFactureSelection` a
+   * déjà écarté les actes en attente/refusés de pré-autorisation et ceux déjà
+   * réglés) — pure fonction de calcul, réutilisable pour n'importe quelle
+   * sélection.
    */
-  private async calculerMontants(
+  private async calculerMontantsPourActes(
     produitId: string,
-    ticketSoinsId: string,
-  ): Promise<{
-    montantTotal: string;
-    montantAssurance: string;
-    montantPatient: string;
-    actesExclusPreautorisation: string[];
-    /** true si le ticket contient des actes mais qu'AUCUN n'est facturable. */
-    aucunActeFacturable: boolean;
-  }> {
-    const tousLesActes = await this.prisma.acteDossier.findMany({
-      where: {
-        ticketSoinsId,
-        deletedAt: null,
-        statut: { not: 'ANNULE' },
-      },
-    });
-    const nonFacturables: readonly string[] = STATUTS_PREAUTORISATION_NON_FACTURABLES;
-    const actes = tousLesActes.filter(
-      (a) => !nonFacturables.includes(a.statutPreautorisation),
-    );
-    const actesExclusPreautorisation = tousLesActes
-      .filter((a) => nonFacturables.includes(a.statutPreautorisation))
-      .map((a) => a.id);
+    actes: { montantPrescrit: Prisma.Decimal | null; quantite: number; categorieActe: string }[],
+  ): Promise<{ montantTotal: string; montantAssurance: string; montantPatient: string }> {
     const garanties = await this.prisma.garantie.findMany({
       where: { produitId, deletedAt: null },
     });
@@ -1454,8 +1506,6 @@ export class PreauthorizationService {
       montantTotal: total.toFixed(2),
       montantAssurance: assurance.toFixed(2),
       montantPatient: patient.toFixed(2),
-      actesExclusPreautorisation,
-      aucunActeFacturable: tousLesActes.length > 0 && actes.length === 0,
     };
   }
 

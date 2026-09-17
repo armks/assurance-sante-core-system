@@ -46,6 +46,18 @@ export function FacturationEcran({ dossiers }: { dossiers: DossierClot[] }) {
         champs: ['numeroTraitement'],
       }}
       colonnes={colonnes}
+      filtres={[
+        {
+          cle: 'statut',
+          libelle: 'Statut',
+          options: [
+            { valeur: 'OUVERT', libelle: 'Ouvert' },
+            { valeur: 'SUSPENDU', libelle: 'Suspendu' },
+            { valeur: 'CLOTURE', libelle: 'Clôturé' },
+            { valeur: 'FORCE_CLOS', libelle: 'Clôturé (forcé)' },
+          ],
+        },
+      ]}
       actionLigne={(d) => (
         <Button asChild size="xs" variant="ghost">
           <Link href={`/dashboard-centre-medical/comptable/${d.id}`}>
@@ -53,7 +65,7 @@ export function FacturationEcran({ dossiers }: { dossiers: DossierClot[] }) {
           </Link>
         </Button>
       )}
-      vide="Aucun dossier clôturé à facturer."
+      vide="Aucun dossier à facturer."
     />
   );
 }

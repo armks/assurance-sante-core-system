@@ -18,25 +18,21 @@ export default async function ComptablePage() {
   const etablissementId = etat.identity.permissions.scope
     .etablissementId as string;
 
-  const [rc, rf] = await Promise.all([
-    apiFetch(
-      `/api/v1/care-episode/dossiers?statut=CLOTURE&etablissementId=${etablissementId}`,
-    ),
-    apiFetch(
-      `/api/v1/care-episode/dossiers?statut=FORCE_CLOS&etablissementId=${etablissementId}`,
-    ),
-  ]);
-  const dossiers: DossierClot[] = [
-    ...(rc.ok ? await rc.json() : []),
-    ...(rf.ok ? await rf.json() : []),
-  ];
-  const erreur = rc.ok ? null : await messageErreur(rc);
+  // Facturation par sélection d'actes, paiement partiel : un dossier OUVERT
+  // peut déjà être facturé/réglé au fil du traitement (la clôture, elle,
+  // reste bloquée tant que le solde n'est pas nul) — donc pas de filtre de
+  // statut ici, tous les dossiers de l'établissement sont éligibles.
+  const res = await apiFetch(
+    `/api/v1/care-episode/dossiers?etablissementId=${etablissementId}`,
+  );
+  const dossiers: DossierClot[] = res.ok ? await res.json() : [];
+  const erreur = res.ok ? null : await messageErreur(res);
 
   return (
     <div className="space-y-8">
       <PageTitre
         titre="Facturation"
-        description="Les dossiers clôturés de votre établissement. Ouvrez-en un pour consulter les actes, générer la facture, et suivre la validation du patient."
+        description="Les dossiers de votre établissement. Ouvrez-en un pour sélectionner les actes à régler, générer un code de facturation, et suivre le solde restant dû."
       />
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>

@@ -4112,3 +4112,77 @@ aucune exclusion. Test navigateur réel (Playwright) : badge « En attente » vi
 visibles), décision Approuver via la modale → acte disparaît de la file, statut confirmé
 en base. Toutes les données de test éphémères supprimées, absence de résidu vérifiée
 indépendamment.
+
+## 2026-09-17 (suite 3) — Facturation par sélection d'actes, paiement partiel
+
+Remplace la facturation unique par ticket (v8 §5) par un cycle de facturation itératif :
+le comptable de l'établissement facture les actes au fil du traitement, pas seulement une
+fois le dossier terminé.
+
+### 1. `lignes_facturation` (prisma/sql/039) — cycles multiples par dossier
+`factures_dossier.ticket_soins_id` n'est plus `@unique` : un dossier peut désormais avoir
+plusieurs cycles de facturation successifs (chaque `FactureDossier` = un cycle = un code,
+une sélection d'actes, un règlement). Nouvelle table `lignes_facturation` (id,
+`facture_dossier_id` nullable, `acte_dossier_id`, `montant_reclame`, `statut`
+A_PAYER/PAYE, `date_paiement`) : le détail acte par acte d'un cycle. Contrainte forte posée
+en base — un index unique partiel garantit au plus UNE ligne `A_PAYER` par acte à la fois
+(empêche toute double-réclamation). RLS même esprit que `factures_dossier` (lecture
+établissement/adhérent/assureur, écriture ASSUREUR habilité).
+
+### 2. `genererFactureSelection(dossierSoinsId, acteIds[])` — remplace `genererFacture`
+Le comptable coche les actes à régler MAINTENANT parmi tous ceux du dossier — plus besoin
+que le ticket soit clôturé (nécessaire puisque la clôture est désormais elle-même
+conditionnée au solde nul, cf. point 4 : facturer doit rester possible pendant que le
+dossier est encore OUVERT). EXCLUT automatiquement, quelle que soit la sélection envoyée
+par le client : tout acte `EN_ATTENTE_VALIDATION`/`REFUSEE` en pré-autorisation (garde du
+prompt précédent) et tout acte déjà réglé (`LigneFacturation` à `PAYE`) — 409 explicite si
+plus aucun acte sélectionné n'est facturable. Un acte déjà réclamé par un cycle abandonné
+(code jamais validé) est RÉATTACHÉ au nouveau cycle plutôt que dupliqué. Calcule le cumul
+(montant total / part assurance / part patient, même logique de garantie que l'ancien
+`calculerMontants`, généralisée à un ensemble d'actes quelconque) et génère le
+`code_facturation` pour CE montant précis — transmis à l'adhérent (dashboard dès
+maintenant ; e-mail/SMS restent à raccorder séparément, cohérent avec le fait qu'aucun des
+3 autres codes anti-fraude de ce projet n'émet réellement d'e-mail/SMS non plus à ce jour).
+
+### 3. `confirmerPaiement` — marque uniquement les lignes DE CE CYCLE, expose le solde
+Ne touche que les `lignesFacturation` liées à la `FactureDossier` réglée (jamais les autres
+cycles). Calcule et renvoie `soldeRestantDu` : somme des actes non annulés qui n'ont
+JAMAIS été réglés (aucune ligne `PAYE`), qu'ils aient déjà une ligne `A_PAYER` en cours ou
+qu'ils n'aient jamais été sélectionnés dans aucun cycle. `validerCodeFacturation` inchangé
+dans son principe (le patient valide un code, peu importe le cycle).
+
+### 4. Clôture bloquée tant que le solde n'est pas nul — décision actée
+`CareEpisodeService.clotureNormale` ET `clotureForcee` refusent désormais explicitement
+(409, montant exact dans le message) si `soldeRestantDu(dossier) > 0`. **Conséquence
+explicite et assumée** : un dossier reste ouvert INDÉFINIMENT tant qu'il n'est pas
+intégralement soldé — y compris si le médecin conseil ne statue jamais sur un acte
+`EN_ATTENTE_VALIDATION` (il ne devient alors jamais facturable, donc jamais soldable). La
+contrainte déjà en place depuis le PROMPT 17 (« aucun dossier déjà ouvert » dans le
+`MoteurOuvertureDossier`) bloque alors tout nouveau dossier pour CE patient tant que
+l'ancien reste ouvert, dans n'importe quel établissement du réseau — assumé, décision
+actée avant implémentation, pas un bug.
+
+### 5. Écran comptable établissement (`ticket-detail.tsx`, `/dashboard-centre-medical/comptable`)
+Renommé « Actes — sélection pour facturation » : case à cocher par acte (uniquement sur les
+actes facturables — pré-autorisation/déjà payé grisés), montant cumulé de la sélection mis
+à jour en direct, bouton « Générer le code de facturation ». Carte « Dossier » : ligne
+« Solde restant dû » (rouge si > 0, vert si 0) + bandeau « Dossier non soldé — clôture
+impossible » quand applicable. Carte « Cycles de facturation » (remplace l'ancienne carte
+« Facture » unique) : historique de tous les cycles (montants, validation patient,
+règlement). Liste `/dashboard-centre-medical/comptable` étendue aux dossiers OUVERT/
+SUSPENDU (plus seulement CLOTURE/FORCE_CLOS), avec filtre de statut — nécessaire puisque la
+facturation se fait maintenant PENDANT le traitement.
+
+### Tests
+Backend : 300/300 (`npx jest`, 27 nouveaux : sélection/exclusion/réattachement de lignes,
+garde de clôture bloquante côté care-episode). `npx tsc --noEmit` propre API et Web. Test
+HTTP réel (établissement FARAH, dossier à 3 actes 10 000/15 000/8 000 F) : clôture refusée
+AVANT toute facturation (409, solde 33 000 F) ; cycle 1 sur 2 actes → 25 000 F facturés,
+code validé par l'adhérent, paiement confirmé → solde restant 8 000 F (le 3ᵉ acte, jamais
+sélectionné) ; clôture refusée à nouveau (409, solde 8 000 F) ; cycle 2 sur le 3ᵉ acte →
+validé, réglé → solde à 0 ; clôture désormais acceptée (dossier CLOTURE), vérifié
+indépendamment en base (3 lignes PAYE). Test navigateur réel (Playwright) sur l'écran
+comptable : 2 cases à cocher affichées, montant cumulé 17 000 F après sélection, badge
+« Code généré (en attente) » après génération, solde restant dû et bandeau « Dossier non
+soldé » visibles avant paiement. Toutes les données de test éphémères supprimées, absence
+de résidu vérifiée indépendamment.

@@ -1,4 +1,4 @@
-import { IsString, Matches } from 'class-validator';
+import { ArrayNotEmpty, ArrayUnique, IsString, IsUUID, Matches } from 'class-validator';
 
 export class ValiderCodeFacturationDto {
   /** Code de facturation, saisi par l'adhérent lui-même. */
@@ -7,4 +7,12 @@ export class ValiderCodeFacturationDto {
     message: 'Le code doit contenir 6 à 8 caractères alphanumériques.',
   })
   code!: string;
+}
+
+export class GenererFactureSelectionDto {
+  /** Actes du dossier cochés par le comptable pour ce cycle de facturation. */
+  @ArrayNotEmpty()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  acteIds!: string[];
 }

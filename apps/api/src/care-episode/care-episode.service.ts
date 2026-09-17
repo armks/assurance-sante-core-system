@@ -8,6 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -494,6 +495,7 @@ export class CareEpisodeService {
         `Ce dossier ne peut pas être clôturé (statut actuel : ${dossier.statut}).`,
       );
     }
+    await this.assertSolde(dossierId);
     return this.appliquerCloture(
       ctx,
       dossierId,
@@ -521,6 +523,7 @@ export class CareEpisodeService {
         `Ce dossier est déjà clôturé (statut : ${dossier.statut}).`,
       );
     }
+    await this.assertSolde(dossierId);
     return this.appliquerCloture(
       ctx,
       dossierId,
@@ -528,6 +531,23 @@ export class CareEpisodeService {
       'FORCEE',
       dto.motif,
     );
+  }
+
+  /**
+   * REFUSE explicitement toute clôture (normale OU forcée) tant que le
+   * dossier n'est pas intégralement soldé — décision actée : un dossier reste
+   * ouvert indéfiniment tant qu'il n'est pas soldé, même si cela bloque un
+   * futur dossier pour ce patient (contrainte « aucun dossier déjà ouvert »,
+   * v1 §15.4, déjà en place).
+   */
+  private async assertSolde(dossierId: string): Promise<void> {
+    const solde = await this.calculerSoldeRestantDu(dossierId);
+    if (solde.gt(0)) {
+      throw new ConflictException(
+        `Clôture impossible : il reste ${solde.toFixed(2)} F à régler sur ce dossier. ` +
+          "Réglez le solde restant (facturation par sélection d'actes) avant de clôturer.",
+      );
+    }
   }
 
   private async appliquerCloture(
@@ -631,11 +651,40 @@ export class CareEpisodeService {
   async obtenirDossier(user: AuthenticatedUser, id: string) {
     const ctx = await this.contexteAppelant(user);
     const mode = this.modeLectureDossiers(ctx);
-    return this.chargerDossier(
+    const dossier = await this.chargerDossier(
       ctx.organisationId,
       id,
       mode === 'CENTRE_MEDICAL' ? ctx.etablissementId : null,
     );
+    const soldeRestantDu = await this.calculerSoldeRestantDu(id);
+    return { ...dossier, soldeRestantDu: soldeRestantDu.toFixed(2) };
+  }
+
+  /**
+   * Solde restant dû du dossier — somme des actes non annulés qui n'ont
+   * jamais été réglés (aucune `LigneFacturation` à `PAYE`), qu'ils aient déjà
+   * été sélectionnés dans un cycle A_PAYER ou jamais sélectionnés du tout.
+   * Facturation par sélection d'actes, paiement partiel (prisma/sql/039) :
+   * un dossier peut désormais avoir plusieurs cycles de facturation
+   * successifs, la clôture reste GELÉE tant que ce solde n'est pas à zéro
+   * (décision actée : même si cela bloque un futur dossier pour ce patient,
+   * cf. la contrainte d'unicité « aucun dossier déjà ouvert » déjà en place).
+   */
+  private async calculerSoldeRestantDu(dossierSoinsId: string): Promise<Decimal> {
+    const actes = await this.prisma.acteDossier.findMany({
+      where: { dossierSoinsId, deletedAt: null, statut: { not: 'ANNULE' } },
+      include: {
+        lignesFacturation: { where: { statut: 'PAYE' }, select: { id: true } },
+      },
+    });
+    let solde = new Decimal(0);
+    for (const acte of actes) {
+      if (acte.lignesFacturation.length > 0) continue; // déjà réglé
+      solde = solde.add(
+        new Decimal(acte.montantPrescrit?.toString() ?? '0').mul(acte.quantite),
+      );
+    }
+    return solde;
   }
 
   // --- Helpers -----------------------------------------
@@ -728,13 +777,15 @@ export class CareEpisodeService {
           where: { deletedAt: null },
           orderBy: { dateConsultation: 'asc' },
         },
-        // `ticket.facture` : la vue comptable du centre affiche l'état de la
-        // facture (montants, validation patient) sans endpoint dédié. Le
-        // `code_facturation` reste EXCLU — il n'est visible que de l'adhérent
-        // (anti-fraude v8 §5).
+        // `ticket.factures` : la vue comptable du centre affiche l'historique
+        // des cycles de facturation (montants, validation patient) sans
+        // endpoint dédié. Le `code_facturation` reste EXCLU — il n'est
+        // visible que de l'adhérent (anti-fraude v8 §5). Plusieurs cycles
+        // possibles depuis prisma/sql/039 (facturation par sélection d'actes,
+        // paiement partiel) — d'où la liste, triée du plus récent au plus ancien.
         ticket: {
           include: {
-            facture: {
+            factures: {
               select: {
                 id: true,
                 ticketSoinsId: true,
@@ -747,12 +798,19 @@ export class CareEpisodeService {
                 dateReglement: true,
                 createdAt: true,
               },
+              orderBy: { createdAt: 'desc' },
             },
           },
         },
         actes: {
           where: { deletedAt: null },
           orderBy: { datePrescription: 'asc' },
+          include: {
+            lignesFacturation: {
+              select: { id: true, statut: true, montantReclame: true, datePaiement: true },
+              orderBy: { createdAt: 'desc' },
+            },
+          },
         },
       },
     });

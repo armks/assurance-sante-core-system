@@ -2,28 +2,34 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { apiFetch, messageErreur } from '@/lib/api';
+import { apiFetch, detailErreur } from '@/lib/api';
 
 /**
- * Génère la facture d'un ticket de soins CLÔTURÉ. Montants calculés côté serveur
- * depuis les actes + garanties ; le code de facturation part vers l'adhérent
- * (jamais l'établissement).
+ * Génère un cycle de facturation pour les actes sélectionnés (facturation par
+ * sélection d'actes, paiement partiel — plusieurs cycles successifs possibles
+ * sur le même dossier). Montants calculés côté serveur depuis les actes +
+ * garanties ; le code de facturation part vers l'adhérent (jamais
+ * l'établissement).
  */
-export async function genererFacture(
+export async function genererFactureSelection(
   dossierId: string,
-  ticketSoinsId: string,
+  acteIds: string[],
 ): Promise<
-  | { ok: true; montantTotal: string; montantPatient: string }
+  | { ok: true; montantTotal: string; montantPatient: string; message: string }
   | { ok: false; error: string }
 > {
   const res = await apiFetch(
-    `/api/v1/preauthorization/tickets-soins/${ticketSoinsId}/facture`,
-    { method: 'POST' },
+    `/api/v1/preauthorization/dossiers/${dossierId}/facture-selection`,
+    { method: 'POST', body: JSON.stringify({ acteIds }) },
   );
-  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  if (!res.ok) {
+    const { error } = await detailErreur(res);
+    return { ok: false, error };
+  }
   const body = (await res.json()) as {
     montantTotal: string;
     montantPatient: string;
+    message: string;
   };
   revalidatePath(`/dashboard-centre-medical/comptable/${dossierId}`);
   revalidatePath('/dashboard-centre-medical/comptable');
@@ -31,5 +37,6 @@ export async function genererFacture(
     ok: true,
     montantTotal: body.montantTotal,
     montantPatient: body.montantPatient,
+    message: body.message,
   };
 }

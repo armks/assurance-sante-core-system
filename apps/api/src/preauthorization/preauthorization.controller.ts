@@ -11,7 +11,10 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { AjouterActeDto, ValiderPreautorisationDto } from './dto/acte.dto';
-import { ValiderCodeFacturationDto } from './dto/facture.dto';
+import {
+  GenererFactureSelectionDto,
+  ValiderCodeFacturationDto,
+} from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
   DispensationDto,
@@ -153,15 +156,20 @@ export class PreauthorizationController {
     return this.preauth.validerPreautorisation(user, id, dto);
   }
 
-  // --- Code de Facturation (v8 §5) — 4e et dernier code anti-fraude ---
+  // --- Code de Facturation (v8 §5) — facturation par sélection d'actes ---
 
-  /** Côté ASSUREUR : génère la facture d'un ticket CLÔTURÉ (+ le code, non renvoyé ici). */
-  @Post('tickets-soins/:id/facture')
-  genererFacture(
+  /**
+   * Côté ASSUREUR/COMPTABLE : génère un cycle de facturation pour les actes
+   * cochés (+ le code, non renvoyé ici). Plusieurs cycles successifs possibles
+   * sur le même dossier — paiement partiel.
+   */
+  @Post('dossiers/:id/facture-selection')
+  genererFactureSelection(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GenererFactureSelectionDto,
   ) {
-    return this.preauth.genererFacture(user, id);
+    return this.preauth.genererFactureSelection(user, id, dto);
   }
 
   /** Côté ADHÉRENT : ses factures, avec le code de facturation et la synthèse. */

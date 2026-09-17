@@ -38,6 +38,9 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       ticketSoins: { findFirst: jest.fn() },
       consultationDossier: { findFirst: jest.fn() },
       acteDossier: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
+      garantie: { findFirst: jest.fn().mockResolvedValue(null) },
+      referentielActe: { findFirst: jest.fn().mockResolvedValue(null) },
+      tarifConventionne: { findFirst: jest.fn().mockResolvedValue(null) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -59,7 +62,11 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
     id: 'tkt-1',
     statut,
     dossierSoinsId: 'dos-1',
-    dossier: { organisationId: 'org-1', etablissementId: 'etab-1' },
+    dossier: {
+      organisationId: 'org-1',
+      etablissementId: 'etab-1',
+      police: { produitId: 'prod-1' },
+    },
   });
 
   it('ajoute un acte quand le ticket est OUVERT', async () => {
@@ -127,5 +134,201 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
     await expect(service.ajouterActe(USER, 'tkt-1', ACTE)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Simulation INDICATIVE (v3 §5 étendu) : ticket_moderateur, part_assure,
+  //  part_assurance calculés à l'ajout de l'acte — tarif conventionné
+  //  (s'il existe) plafonnant le montant facturé, puis taux de couverture de
+  //  la garantie. Ne bloque JAMAIS l'ajout de l'acte (renvoie null si rien
+  //  n'est simulable).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('simulation du montant (ajouterActe)', () => {
+    const ACTE_AVEC_MONTANT = {
+      categorieActe: 'CONSULTATION' as const,
+      libelle: 'Consultation généraliste',
+      quantite: 1,
+      montantPrescrit: 10000,
+    };
+
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_MEDECIN'));
+      prisma.ticketSoins.findFirst.mockResolvedValue(ticket('OUVERT'));
+      prisma.acteDossier.create.mockResolvedValue({ id: 'acte-1' });
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1' });
+    });
+
+    it('sans montantPrescrit → aucune simulation (null sur les 3 colonnes)', async () => {
+      await service.ajouterActe(USER, 'tkt-1', ACTE);
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            montantSimuleAssurance: null,
+            montantSimulePatient: null,
+            ticketModerateurSimule: null,
+          }),
+        }),
+      );
+      expect(prisma.garantie.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('sans garantie correspondant à la catégorie d’acte → aucune simulation', async () => {
+      prisma.garantie.findFirst.mockResolvedValue(null);
+      await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            montantSimuleAssurance: null,
+            montantSimulePatient: null,
+            ticketModerateurSimule: null,
+          }),
+        }),
+      );
+    });
+
+    it('sans tarif conventionné → simule sur le montant facturé', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: '80',
+        ticketModerateur: '20',
+        plafondParActe: null,
+      });
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
+
+      expect(prisma.tarifConventionne.findFirst).not.toHaveBeenCalled();
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            montantSimuleAssurance: '8000.00',
+            montantSimulePatient: '2000.00',
+            ticketModerateurSimule: '2000.00',
+          }),
+        }),
+      );
+    });
+
+    it('sans codeActe → ne cherche pas de tarif conventionné (même avec une garantie)', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: '80',
+        ticketModerateur: '20',
+        plafondParActe: null,
+      });
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
+
+      expect(prisma.referentielActe.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('avec tarif conventionné INFÉRIEUR au montant facturé → plafonne la base de calcul', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: '80',
+        ticketModerateur: '20',
+        plafondParActe: null,
+      });
+      prisma.referentielActe.findFirst.mockResolvedValue({ id: 'ref-1' });
+      prisma.tarifConventionne.findFirst.mockResolvedValue({
+        tarifConvention: '6000.00',
+      });
+
+      await service.ajouterActe(USER, 'tkt-1', {
+        ...ACTE_AVEC_MONTANT,
+        codeActe: 'CONS-GEN',
+      });
+
+      expect(prisma.tarifConventionne.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            referentielActeId: 'ref-1',
+            etablissementId: 'etab-1',
+          }),
+        }),
+      );
+      // Base plafonnée à 6000 (au lieu des 10000 facturés) × 80 % = 4800.
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            montantSimuleAssurance: '4800.00',
+            montantSimulePatient: '1200.00',
+            ticketModerateurSimule: '1200.00',
+          }),
+        }),
+      );
+    });
+
+    it('avec tarif conventionné SUPÉRIEUR au montant facturé → garde le montant facturé (jamais de majoration)', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: '80',
+        ticketModerateur: '20',
+        plafondParActe: null,
+      });
+      prisma.referentielActe.findFirst.mockResolvedValue({ id: 'ref-1' });
+      prisma.tarifConventionne.findFirst.mockResolvedValue({
+        tarifConvention: '50000.00',
+      });
+
+      await service.ajouterActe(USER, 'tkt-1', {
+        ...ACTE_AVEC_MONTANT,
+        codeActe: 'CONS-GEN',
+      });
+
+      // Base reste 10000 (le montant facturé, plus petit que le tarif conventionné) × 80 % = 8000.
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ montantSimuleAssurance: '8000.00' }),
+        }),
+      );
+    });
+
+    it('applique le plafond par acte de la garantie sur le montant simulé assurance', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: '80',
+        ticketModerateur: '20',
+        plafondParActe: '3000.00',
+      });
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
+
+      // 80 % de 10000 = 8000, plafonné à 3000.
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            montantSimuleAssurance: '3000.00',
+            montantSimulePatient: '7000.00',
+          }),
+        }),
+      );
+    });
+
+    it('la simulation est incluse dans le détail de l’audit', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: '80',
+        ticketModerateur: '20',
+        plafondParActe: null,
+      });
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
+
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+    });
+
+    it('codeActe sans référentiel homologué dans l’organisation → simule sur le montant facturé (pas de blocage)', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: '80',
+        ticketModerateur: '20',
+        plafondParActe: null,
+      });
+      prisma.referentielActe.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.ajouterActe(USER, 'tkt-1', { ...ACTE_AVEC_MONTANT, codeActe: 'INCONNU' }),
+      ).resolves.toMatchObject({ id: 'acte-1' });
+
+      expect(prisma.tarifConventionne.findFirst).not.toHaveBeenCalled();
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ montantSimuleAssurance: '8000.00' }),
+        }),
+      );
+    });
   });
 });

@@ -41,6 +41,7 @@ export async function ajouterActe(
   input: {
     categorieActe: string;
     libelle: string;
+    codeActe?: string;
     consultationId?: string;
     medecinPrescripteurId?: string;
     quantite?: number;
@@ -57,6 +58,24 @@ export async function ajouterActe(
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(cible(dossierId));
   return { ok: true, message: 'Acte ajouté au ticket de soins.' };
+}
+
+/**
+ * Choisit le type de visite — UNE SEULE FOIS, à l'intérieur du dossier, après
+ * son ouverture (l'API refuse avec un 409 si déjà défini, ou si le dossier
+ * n'est plus OUVERT).
+ */
+export async function definirTypeVisite(
+  dossierId: string,
+  typeVisite: string,
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(
+    `/api/v1/care-episode/dossiers/${dossierId}/type-visite`,
+    { method: 'POST', body: JSON.stringify({ typeVisite }) },
+  );
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(cible(dossierId));
+  return { ok: true, message: 'Type de visite enregistré.' };
 }
 
 /**

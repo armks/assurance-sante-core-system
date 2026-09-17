@@ -24,9 +24,14 @@ export default async function DossierPage({
   const etat = await exigerIdentite(`/dashboard-centre-medical/medecin/${id}`);
   if (etat.kind !== 'ok') redirect('/dashboard');
 
-  const res = await apiFetch(`/api/v1/care-episode/dossiers/${id}`);
+  const [res, resActes] = await Promise.all([
+    apiFetch(`/api/v1/care-episode/dossiers/${id}`),
+    apiFetch('/api/v1/reference/actes?statut=HOMOLOGUE'),
+  ]);
   if (res.status === 404) notFound();
   const dossier = (await res.json()) as DossierComplet;
+  const actesDisponibles: { id: string; code: string; libelle: string }[] =
+    resActes.ok ? await resActes.json() : [];
 
   const { profil, permissions } = etat.identity;
 
@@ -48,6 +53,7 @@ export default async function DossierPage({
         dossier={dossier}
         moiId={profil.id}
         roleChain={permissions.roleChain}
+        actesDisponibles={actesDisponibles}
       />
     </div>
   );

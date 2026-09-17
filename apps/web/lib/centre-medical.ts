@@ -61,3 +61,21 @@ export const CATEGORIES_ACTE = [
   'TRANSPORT',
   'AUTRE',
 ];
+
+/** member : `ROLE_RECHERCHE_CARTE` — réservé exclusivement à l'accueil du centre médical. */
+export const ROLE_RECHERCHE_CARTE = 'CENTRE_MEDICAL_ACCUEIL';
+
+/**
+ * care-episode : `TYPES_VISITE` — choisi UNE FOIS, à l'intérieur du dossier,
+ * après son ouverture (jamais avant : l'ouverture reste conditionnée au seul
+ * code de consultation).
+ */
+export const TYPES_VISITE = [
+  { valeur: 'CONSULTATION_GENERALISTE', libelle: 'Consultation généraliste' },
+  { valeur: 'CONSULTATION_SPECIALISTE', libelle: 'Consultation spécialiste' },
+  { valeur: 'HOSPITALISATION_MEDICALE', libelle: 'Hospitalisation médicale' },
+  { valeur: 'ANALYSES_EXAMENS_MEDICAUX', libelle: 'Analyses / examens médicaux' },
+  { valeur: 'ACTES_DENTAIRES', libelle: 'Actes dentaires' },
+  { valeur: 'CONSULTATION_DENTAIRE', libelle: 'Consultation dentaire' },
+  { valeur: 'PRESCRIPTION_MEDICALE', libelle: 'Prescription médicale' },
+];

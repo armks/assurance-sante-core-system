@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -20,6 +21,7 @@ import {
   ENTITE_ADHERENT,
   ENTITE_SOCIETE_AFFILIEE,
   ROLE_GESTION_MEMBRE_SOCIETE,
+  ROLE_RECHERCHE_CARTE,
   ROLES_GESTION_MEMBRE,
 } from './member.types';
 
@@ -161,6 +163,76 @@ export class AdherentService {
   async obtenirAdherent(user: AuthenticatedUser, id: string) {
     const ctx = await this.contexteAppelant(user);
     return this.chargerAdherent(ctx, id);
+  }
+
+  /**
+   * Identification par numéro de carte à l'accueil du centre médical — ADDITIF
+   * au code de consultation (ne le remplace pas). Purement informatif :
+   * renvoie le statut de l'adhérent OU du bénéficiaire portant ce numéro (les
+   * deux partagent la même séquence `cartes_membre_numero_seq`, donc jamais
+   * d'ambiguïté entre les deux tables) — n'ouvre aucun dossier, ne crée ni ne
+   * modifie rien. Réservé exclusivement à CENTRE_MEDICAL_ACCUEIL (pas les
+   * autres rôles CENTRE_MEDICAL_*, ni le personnel ASSUREUR).
+   */
+  async rechercherParNumeroCarte(user: AuthenticatedUser, numeroCarte: string) {
+    if (!numeroCarte || !numeroCarte.trim()) {
+      throw new BadRequestException('numeroCarte est requis.');
+    }
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_RECHERCHE_CARTE)) {
+      throw new ForbiddenException(
+        "La recherche par numéro de carte est réservée à l'accueil du centre médical.",
+      );
+    }
+
+    const adherent = await this.prisma.adherent.findFirst({
+      where: {
+        numeroCarte,
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        nom: true,
+        prenom: true,
+        statut: true,
+        numeroCarte: true,
+        numeroAdherent: true,
+      },
+    });
+    if (adherent) {
+      return { type: 'ADHERENT_TITULAIRE' as const, ...adherent };
+    }
+
+    const beneficiaire = await this.prisma.beneficiaire.findFirst({
+      where: {
+        numeroCarte,
+        deletedAt: null,
+        adherent: { organisationId: ctx.organisationId, deletedAt: null },
+      },
+      select: {
+        id: true,
+        nom: true,
+        prenom: true,
+        statut: true,
+        numeroCarte: true,
+        lienParente: true,
+        adherent: {
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            statut: true,
+            numeroAdherent: true,
+          },
+        },
+      },
+    });
+    if (beneficiaire) {
+      return { type: 'BENEFICIAIRE' as const, ...beneficiaire };
+    }
+
+    throw new NotFoundException('Aucun membre trouvé pour ce numéro de carte.');
   }
 
   async modifierAdherent(

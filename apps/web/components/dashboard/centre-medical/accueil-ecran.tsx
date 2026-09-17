@@ -2,10 +2,14 @@
 
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, Search, XCircle } from 'lucide-react';
 
-import { validerCodeConsultation } from '@/app/dashboard-centre-medical/accueil/actions';
-import { ChampTexte } from '@/components/dashboard/patterns';
+import {
+  rechercherParNumeroCarte,
+  validerCodeConsultation,
+  type MembreTrouve,
+} from '@/app/dashboard-centre-medical/accueil/actions';
+import { ChampTexte, StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -13,12 +17,84 @@ type Resultat =
   | { ok: true; dossierId: string; numeroTraitement: string }
   | { ok: false; error: string; blocages: string[] };
 
+type ResultatRecherche =
+  | { ok: true; membre: MembreTrouve }
+  | { ok: false; error: string };
+
+function RechercheCarte() {
+  const [enCours, demarrer] = useTransition();
+  const [resultat, setResultat] = useState<ResultatRecherche | null>(null);
+
+  function soumettre(formData: FormData) {
+    const numeroCarte = String(formData.get('numeroCarte') ?? '').trim();
+    demarrer(async () => {
+      setResultat(null);
+      setResultat(await rechercherParNumeroCarte(numeroCarte));
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Search className="size-4" />
+          Identification par numéro de carte
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Consultation purement informative — n’ouvre aucun dossier et ne crée
+          rien. Utile pour vérifier le statut d’un adhérent ou bénéficiaire
+          avant de lui demander son code de consultation.
+        </p>
+        <form action={soumettre} className="flex flex-wrap items-end gap-4">
+          <ChampTexte
+            name="numeroCarte"
+            label="Numéro de carte"
+            required
+            autoComplete="off"
+            placeholder="CM-0000000042"
+            className="max-w-xs"
+          />
+          <Button type="submit" variant="outline" disabled={enCours}>
+            {enCours ? 'Recherche…' : 'Rechercher'}
+          </Button>
+        </form>
+
+        {resultat?.ok && (
+          <div className="rounded-md border p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="font-medium">
+                  {resultat.membre.prenom} {resultat.membre.nom}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {resultat.membre.type === 'ADHERENT_TITULAIRE'
+                    ? `Adhérent titulaire · ${resultat.membre.numeroAdherent}`
+                    : `Bénéficiaire (${resultat.membre.lienParente}) de ${resultat.membre.adherent.prenom} ${resultat.membre.adherent.nom}`}
+                </p>
+              </div>
+              <StatutBadge statut={resultat.membre.statut} />
+            </div>
+          </div>
+        )}
+
+        {resultat && !resultat.ok && (
+          <p className="text-sm text-destructive">{resultat.error}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function AccueilEcran({
   etablissementId,
   peutValider,
+  peutRechercherCarte,
 }: {
   etablissementId: string;
   peutValider: boolean;
+  peutRechercherCarte: boolean;
 }) {
   const [enCours, demarrer] = useTransition();
   const [resultat, setResultat] = useState<Resultat | null>(null);
@@ -51,6 +127,8 @@ export function AccueilEcran({
 
   return (
     <div className="space-y-6">
+      {peutRechercherCarte && <RechercheCarte />}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Valider un code</CardTitle>

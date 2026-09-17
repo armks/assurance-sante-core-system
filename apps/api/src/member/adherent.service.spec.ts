@@ -1,4 +1,8 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
@@ -292,5 +296,92 @@ describe('AdherentService — fichier des membres', () => {
         where: expect.objectContaining({ id: 'adh-1' }),
       }),
     );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Recherche par numéro de carte (accueil centre médical) — ADDITIF au
+  //  code de consultation, purement informatif, réservé à
+  //  CENTRE_MEDICAL_ACCUEIL exclusivement.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('rechercherParNumeroCarte', () => {
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(
+        identite(['CENTRE_MEDICAL_ACCUEIL']),
+      );
+      prisma.adherent.findFirst.mockResolvedValue(null);
+      prisma.beneficiaire = {
+        ...prisma.beneficiaire,
+        findFirst: jest.fn().mockResolvedValue(null),
+      };
+    });
+
+    it('renvoie le statut d’un adhérent titulaire trouvé par numéro de carte', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({
+        id: 'adh-1',
+        nom: 'Konan',
+        prenom: 'Yao',
+        statut: 'ACTIF',
+        numeroCarte: 'CM-0000000042',
+        numeroAdherent: 'ADH-2026-000007',
+      });
+
+      const res = await service.rechercherParNumeroCarte(USER, 'CM-0000000042');
+
+      expect(res).toMatchObject({ type: 'ADHERENT_TITULAIRE', statut: 'ACTIF' });
+      expect(prisma.beneficiaire.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('renvoie le statut d’un bénéficiaire trouvé par numéro de carte (adhérent introuvable)', async () => {
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1',
+        nom: 'Konan',
+        prenom: 'Awa',
+        statut: 'SUSPENDU',
+        numeroCarte: 'CM-0000000043',
+        lienParente: 'CONJOINT',
+        adherent: { id: 'adh-1', nom: 'Konan', prenom: 'Yao', statut: 'ACTIF' },
+      });
+
+      const res = await service.rechercherParNumeroCarte(USER, 'CM-0000000043');
+
+      expect(res).toMatchObject({ type: 'BENEFICIAIRE', statut: 'SUSPENDU' });
+    });
+
+    it('aucun membre trouvé → 404', async () => {
+      await expect(
+        service.rechercherParNumeroCarte(USER, 'CM-9999999999'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('numéro de carte vide → 400 (sans jamais appeler Prisma)', async () => {
+      await expect(
+        service.rechercherParNumeroCarte(USER, '  '),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.adherent.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('rôle non habilité (médecin du même centre) → 403', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN']));
+      await expect(
+        service.rechercherParNumeroCarte(USER, 'CM-0000000042'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.adherent.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('personnel ASSUREUR → 403 (réservé exclusivement à l’accueil du centre médical)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      await expect(
+        service.rechercherParNumeroCarte(USER, 'CM-0000000042'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('scope par organisation : ne trouve pas un adhérent d’une autre organisation', async () => {
+      await service.rechercherParNumeroCarte(USER, 'CM-0000000042').catch(() => {});
+      expect(prisma.adherent.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ organisationId: 'org-1' }),
+        }),
+      );
+    });
   });
 });

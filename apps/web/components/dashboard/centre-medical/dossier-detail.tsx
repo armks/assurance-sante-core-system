@@ -6,6 +6,7 @@ import {
   ajouterActe,
   ajouterConsultation,
   cloturerDossier,
+  definirTypeVisite,
   emettreOrdonnance,
 } from '@/app/dashboard-centre-medical/medecin/actions';
 import {
@@ -25,6 +26,7 @@ import {
   ROLES_GESTION_DOSSIER,
   ROLES_ORDONNANCE_DELEGUEE,
   ROLE_MEDECIN_TRAITANT,
+  TYPES_VISITE,
   aUnRole,
 } from '@/lib/centre-medical';
 
@@ -41,8 +43,12 @@ interface Acte {
   id: string;
   libelle: string;
   categorieActe: string;
+  codeActe: string | null;
   quantite: number;
   montantPrescrit: string | null;
+  montantSimuleAssurance: string | null;
+  montantSimulePatient: string | null;
+  ticketModerateurSimule: string | null;
   statut: string;
 }
 export interface DossierComplet {
@@ -55,6 +61,7 @@ export interface DossierComplet {
   dateCloture: string | null;
   adherentId: string | null;
   beneficiaireId: string | null;
+  typeVisite: string | null;
   consultations: Consultation[];
   actes: Acte[];
   ticket: { id: string; statut: string } | null;
@@ -78,10 +85,12 @@ export function DossierDetail({
   dossier,
   moiId,
   roleChain,
+  actesDisponibles,
 }: {
   dossier: DossierComplet;
   moiId: string;
   roleChain: string[];
+  actesDisponibles: { id: string; code: string; libelle: string }[];
 }) {
   const router = useRouter();
 
@@ -127,6 +136,27 @@ export function DossierDetail({
       rendu: (a) => montant(a.montantPrescrit),
     },
     {
+      cle: 'ticketModerateurSimule',
+      entete: 'Ticket modérateur (simulé)',
+      aligneDroite: true,
+      valeur: (a) => Number(a.ticketModerateurSimule ?? 0),
+      rendu: (a) => montant(a.ticketModerateurSimule),
+    },
+    {
+      cle: 'montantSimulePatient',
+      entete: 'Part assuré (simulée)',
+      aligneDroite: true,
+      valeur: (a) => Number(a.montantSimulePatient ?? 0),
+      rendu: (a) => montant(a.montantSimulePatient),
+    },
+    {
+      cle: 'montantSimuleAssurance',
+      entete: 'Part assurance (simulée)',
+      aligneDroite: true,
+      valeur: (a) => Number(a.montantSimuleAssurance ?? 0),
+      rendu: (a) => montant(a.montantSimuleAssurance),
+    },
+    {
       cle: 'statut',
       entete: 'Statut',
       rendu: (a) => <StatutBadge statut={a.statut} />,
@@ -156,6 +186,38 @@ export function DossierDetail({
           </Ligne>
           <Ligne label="Motif d’entrée">
             {dossier.motifConsultation ?? '—'}
+          </Ligne>
+          <Ligne label="Type de visite">
+            {dossier.typeVisite ? (
+              TYPES_VISITE.find((t) => t.valeur === dossier.typeVisite)?.libelle ??
+              dossier.typeVisite
+            ) : ouvert && peutGerer ? (
+              <FormulaireModal
+                titre="Choisir le type de visite"
+                mode="center"
+                description="Choix définitif — un seul choix possible par dossier."
+                declencheur={
+                  <Button type="button" size="xs" variant="outline">
+                    Définir
+                  </Button>
+                }
+                libelleSoumettre="Enregistrer"
+                onSoumettre={async (fd) =>
+                  definirTypeVisite(dossier.id, String(fd.get('typeVisite') ?? ''))
+                }
+                onSucces={() => router.refresh()}
+              >
+                <ChampSelect
+                  name="typeVisite"
+                  label="Type de visite"
+                  required
+                  placeholder="Choisir…"
+                  options={TYPES_VISITE.map((t) => ({ valeur: t.valeur, libelle: t.libelle }))}
+                />
+              </FormulaireModal>
+            ) : (
+              '—'
+            )}
           </Ligne>
           <Ligne label="Ouvert le">{dateFr(dossier.dateOuverture)}</Ligne>
           {dossier.dateCloture && (
@@ -247,9 +309,11 @@ export function DossierDetail({
                     onSoumettre={async (fd) => {
                       const m = fd.get('montantPrescrit');
                       const q = fd.get('quantite');
+                      const codeActe = String(fd.get('codeActe') ?? '');
                       return ajouterActe(dossier.id, dossier.ticket!.id, {
                         categorieActe: String(fd.get('categorieActe') ?? ''),
                         libelle: String(fd.get('libelle') ?? ''),
+                        codeActe: codeActe || undefined,
                         consultationId: c.id,
                         medecinPrescripteurId: c.medecinId,
                         quantite: q && q !== '' ? Number(q) : undefined,
@@ -275,12 +339,25 @@ export function DossierDetail({
                       required
                       maxLength={300}
                     />
+                    {actesDisponibles.length > 0 && (
+                      <ChampSelect
+                        name="codeActe"
+                        label="Acte du référentiel"
+                        placeholder="Aucun (montant facturé sans tarif conventionné)"
+                        aide="Permet d'appliquer le tarif conventionné de l'établissement, s'il en existe un pour cet acte."
+                        options={actesDisponibles.map((a) => ({
+                          valeur: a.code,
+                          libelle: `${a.libelle} (${a.code})`,
+                        }))}
+                      />
+                    )}
                     <ChampNombre name="quantite" label="Quantité" min={1} defaultValue={1} />
                     <ChampNombre
                       name="montantPrescrit"
                       label="Montant prescrit (F)"
                       min={0}
                       step="0.01"
+                      aide="Sert aussi à calculer immédiatement une simulation indicative de remboursement."
                     />
                   </FormulaireModal>
                 )}
@@ -343,6 +420,11 @@ export function DossierDetail({
           <CardTitle className="text-base">Actes du ticket de soins</CardTitle>
         </CardHeader>
         <CardContent>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Les montants simulés sont indicatifs — le calcul définitif est
+            établi par l’adjudication (microservice dédié) à la clôture du
+            ticket de soins.
+          </p>
           <DataTable
             donnees={dossier.actes}
             cleLigne={(a) => a.id}

@@ -14,6 +14,22 @@ export const STATUTS_CONSULTATION = [
 ] as const;
 export type StatutConsultation = (typeof STATUTS_CONSULTATION)[number];
 
+/**
+ * Choisi UNE FOIS, à l'intérieur du dossier, après son ouverture (jamais
+ * avant — l'ouverture reste conditionnée au seul code de consultation,
+ * inchangée). prisma/sql/036.
+ */
+export const TYPES_VISITE = [
+  'CONSULTATION_GENERALISTE',
+  'CONSULTATION_SPECIALISTE',
+  'HOSPITALISATION_MEDICALE',
+  'ANALYSES_EXAMENS_MEDICAUX',
+  'ACTES_DENTAIRES',
+  'CONSULTATION_DENTAIRE',
+  'PRESCRIPTION_MEDICALE',
+] as const;
+export type TypeVisite = (typeof TYPES_VISITE)[number];
+
 export const ROLE_MEDECIN_TRAITANT = 'CENTRE_MEDICAL_MEDECIN';
 
 /** Rôles autorisés à ouvrir / gérer un dossier de soins. */

@@ -762,6 +762,10 @@ model DossierSoins {
   policeId           String    @map("police_id") @db.Uuid
   planCouvertureId   String?   @map("plan_couverture_id") @db.Uuid
   statut             String    @default("OUVERT") // OUVERT | SUSPENDU | TRANSFERE | CLOTURE | FORCE_CLOS
+  /// Choisi UNE FOIS, à l'intérieur du dossier, après son ouverture (jamais
+  /// avant — l'ouverture reste conditionnée au seul code de consultation).
+  /// NULL = pas encore choisi. prisma/sql/036.
+  typeVisite         String?   @map("type_visite") // CONSULTATION_GENERALISTE | CONSULTATION_SPECIALISTE | HOSPITALISATION_MEDICALE | ANALYSES_EXAMENS_MEDICAUX | ACTES_DENTAIRES | CONSULTATION_DENTAIRE | PRESCRIPTION_MEDICALE
   dateOuverture      DateTime  @default(now()) @map("date_ouverture") @db.Timestamptz(6)
   dateCloture        DateTime? @map("date_cloture") @db.Timestamptz(6)
   motifConsultation  String?   @map("motif_consultation")
@@ -1064,6 +1068,13 @@ model ActeDossier {
   codeActe              String?   @map("code_acte")
   quantite              Int       @default(1)
   montantPrescrit       Decimal?  @map("montant_prescrit") @db.Decimal(14, 2)
+  /// Simulation INDICATIVE calculée à l'ajout de l'acte (tarif conventionné si
+  /// applicable × taux de couverture de la garantie) — le calcul définitif de
+  /// l'adjudication (microservice Java) garde le dernier mot. NULL si l'acte
+  /// n'a pas de codeActe renseigné/homologué (rien à simuler). prisma/sql/037.
+  montantSimuleAssurance Decimal? @map("montant_simule_assurance") @db.Decimal(14, 2)
+  montantSimulePatient   Decimal? @map("montant_simule_patient") @db.Decimal(14, 2)
+  ticketModerateurSimule Decimal? @map("ticket_moderateur_simule") @db.Decimal(14, 2)
   statut                String    @default("PRESCRIT") // PRESCRIT | REALISE | ANNULE | LIQUIDE
   datePrescription      DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
   dateRealisation       DateTime? @map("date_realisation") @db.Timestamptz(6)

@@ -1,4 +1,5 @@
 import {
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -6,6 +7,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { TYPES_VISITE } from '../care-episode.types';
 
 export class OuvrirDossierDto {
   @IsOptional()
@@ -55,4 +57,9 @@ export class ClotureForceeDto {
   @MinLength(5)
   @MaxLength(500)
   motif!: string;
+}
+
+export class DefinirTypeVisiteDto {
+  @IsIn(TYPES_VISITE)
+  typeVisite!: (typeof TYPES_VISITE)[number];
 }

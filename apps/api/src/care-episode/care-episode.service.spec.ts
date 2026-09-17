@@ -402,4 +402,74 @@ describe('CareEpisodeService', () => {
       await expect(service.obtenirDossier(USER, 'dos-1')).rejects.toBeInstanceOf(NotFoundException);
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Type de visite — choisi UNE FOIS, à l'intérieur du dossier, après son
+  //  ouverture (jamais avant : l'ouverture reste conditionnée au seul code
+  //  de consultation, inchangée).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('definirTypeVisite', () => {
+    const dossierOuvert = (extra: Record<string, unknown> = {}) => ({
+      id: 'dos-1',
+      organisationId: 'org-1',
+      statut: 'OUVERT',
+      etablissementId: 'etab-1',
+      typeVisite: null,
+      ...extra,
+    });
+
+    it('définit le type de visite sur un dossier OUVERT sans type déjà choisi', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossierOuvert());
+
+      await service.definirTypeVisite(USER, 'dos-1', {
+        typeVisite: 'CONSULTATION_GENERALISTE',
+      });
+
+      expect(prisma.dossierSoins.update).toHaveBeenCalledWith({
+        where: { id: 'dos-1' },
+        data: { typeVisite: 'CONSULTATION_GENERALISTE' },
+      });
+    });
+
+    it('REFUSE de redéfinir un type de visite déjà choisi (409)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(
+        dossierOuvert({ typeVisite: 'CONSULTATION_GENERALISTE' }),
+      );
+
+      await expect(
+        service.definirTypeVisite(USER, 'dos-1', { typeVisite: 'HOSPITALISATION_MEDICALE' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.dossierSoins.update).not.toHaveBeenCalled();
+    });
+
+    it('REFUSE de définir le type de visite sur un dossier non OUVERT (409)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossierOuvert({ statut: 'CLOTURE' }));
+
+      await expect(
+        service.definirTypeVisite(USER, 'dos-1', { typeVisite: 'CONSULTATION_GENERALISTE' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.dossierSoins.update).not.toHaveBeenCalled();
+    });
+
+    it('personnel d’un AUTRE établissement → 403 (pas de fuite inter-établissement)', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-2'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossierOuvert());
+
+      await expect(
+        service.definirTypeVisite(USER, 'dos-1', { typeVisite: 'CONSULTATION_GENERALISTE' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.dossierSoins.update).not.toHaveBeenCalled();
+    });
+
+    it('rôle non habilité à gérer les dossiers (adhérent) → 403', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE']));
+      await expect(
+        service.definirTypeVisite(USER, 'dos-1', { typeVisite: 'CONSULTATION_GENERALISTE' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.dossierSoins.findFirst).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -15,6 +15,7 @@ import {
   AjouterConsultationDto,
   ClotureDto,
   ClotureForceeDto,
+  DefinirTypeVisiteDto,
   OuvrirDossierDto,
 } from './dto/care-episode.dto';
 import {
@@ -429,6 +430,52 @@ export class CareEpisodeService {
     });
 
     return this.prisma.consultationDossier.findUnique({ where: { id } });
+  }
+
+  /**
+   * Choisit le type de visite — UNE SEULE FOIS, à l'intérieur du dossier,
+   * après son ouverture (l'ouverture reste conditionnée au seul code de
+   * consultation, inchangée). Refuse (409) si déjà choisi : passer par un
+   * nouveau dossier plutôt que de corriger silencieusement une erreur de
+   * saisie déjà tracée.
+   */
+  async definirTypeVisite(
+    user: AuthenticatedUser,
+    dossierId: string,
+    dto: DefinirTypeVisiteDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+
+    const dossier = await this.chargerDossierBrut(ctx.organisationId, dossierId);
+    this.assertEtablissementDossier(ctx, dossier);
+    if (dossier.statut !== 'OUVERT') {
+      throw new ConflictException(
+        `On ne peut choisir le type de visite que sur un dossier OUVERT (statut actuel : ${dossier.statut}).`,
+      );
+    }
+    if (dossier.typeVisite) {
+      throw new ConflictException(
+        `Le type de visite est déjà défini pour ce dossier (${dossier.typeVisite}).`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.dossierSoins.update({
+        where: { id: dossierId },
+        data: { typeVisite: dto.typeVisite },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'DEFINITION_TYPE_VISITE',
+        dossierId,
+        { typeVisite: dto.typeVisite },
+        'dossiers_soins',
+      );
+    });
+
+    return this.chargerDossierBrut(ctx.organisationId, dossierId);
   }
 
   // --- Clôture -----------------------------------------------

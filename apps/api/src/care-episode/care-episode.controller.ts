@@ -16,6 +16,7 @@ import {
   AjouterConsultationDto,
   ClotureDto,
   ClotureForceeDto,
+  DefinirTypeVisiteDto,
 } from './dto/care-episode.dto';
 
 /**
@@ -55,6 +56,16 @@ export class CareEpisodeController {
     @Body() dto: AjouterConsultationDto,
   ) {
     return this.careEpisode.ajouterConsultation(user, id, dto);
+  }
+
+  /** Choisi UNE FOIS, à l'intérieur du dossier, après son ouverture (409 si déjà défini). */
+  @Post(':id/type-visite')
+  definirTypeVisite(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DefinirTypeVisiteDto,
+  ) {
+    return this.careEpisode.definirTypeVisite(user, id, dto);
   }
 
   @Post(':id/cloturer')

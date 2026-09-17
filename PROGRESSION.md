@@ -3977,3 +3977,74 @@ supprimées ; microservice Java et serveurs de développement arrêtés propreme
 gérables depuis l'écran, et plafonnent réellement le remboursement calculé par le
 microservice Java — vérifié de bout en bout avec le service réellement démarré, pas
 seulement en test unitaire
+
+## 2026-09-17 — Trois ajouts au parcours établissement (identification carte, type de
+visite, simulation indicative de remboursement)
+
+Sans casser le mécanisme anti-fraude existant (le code de consultation reste l'unique
+voie d'ouverture d'un dossier).
+
+### 1. Identification par numéro de carte (`member/`) — ADDITIF, purement informatif
+`GET /member/recherche-carte?numeroCarte=...`, réservé exclusivement à
+`CENTRE_MEDICAL_ACCUEIL` (nouvelle constante `ROLE_RECHERCHE_CARTE`, distincte de
+`ROLES_GESTION_MEMBRE` qui reste ASSUREUR/société). `AdherentService.rechercherParNumeroCarte`
+cherche d'abord dans `adherents`, puis dans `beneficiaires` (les deux tables partagent la
+même séquence `cartes_membre_numero_seq`, donc jamais d'ambiguïté) ; renvoie
+nom/prénom/statut/numéro — n'ouvre aucun dossier, ne crée ni ne modifie rien. 404 si
+inconnu, 403 pour tout autre rôle (y compris les autres rôles `CENTRE_MEDICAL_*` et le
+personnel ASSUREUR), 400 si le numéro est vide. Écran : nouvelle section « Identification
+par numéro de carte » en tête de `/dashboard-centre-medical/accueil`, au-dessus du
+formulaire de code existant (inchangé). 7 nouveaux tests unitaires.
+
+### 2. `type_visite` sur `dossiers_soins` (`care-episode/`) — choisi une fois, après
+ouverture
+Colonne `type_visite` (texte contraint par `CHECK`, prisma/sql/036) : `CONSULTATION_GENERALISTE
+| CONSULTATION_SPECIALISTE | HOSPITALISATION_MEDICALE | ANALYSES_EXAMENS_MEDICAUX |
+ACTES_DENTAIRES | CONSULTATION_DENTAIRE | PRESCRIPTION_MEDICALE`. Nouvel endpoint
+`POST /care-episode/dossiers/:id/type-visite` (`CareEpisodeService.definirTypeVisite`) :
+refuse (409) si le dossier n'est pas `OUVERT`, refuse (409) si déjà défini — un dossier ne
+peut choisir son type qu'une seule fois, jamais silencieusement écrasé. Réutilise les
+gardes existantes (`assertGestion`/`assertEtablissementDossier`) sans les modifier.
+L'ouverture du dossier reste conditionnée au seul code de consultation, inchangée. Écran :
+ligne « Type de visite » dans la carte Informations de `dossier-detail.tsx` — bouton
+« Définir » (modale) tant que non choisi, libellé lecture-seule une fois défini. 5 nouveaux
+tests unitaires.
+
+### 3. Simulation indicative du remboursement à l'ajout d'un acte (`preauthorization/`)
+`PreauthorizationService.simulerMontantActe` (privée), appelée en lecture seule DANS
+`ajouterActe` avant la transaction d'écriture — ne bloque jamais l'ajout de l'acte
+(absence de montant/garantie/tarif → `null` sur les 3 colonnes, comportement actuel
+inchangé). Logique, dans l'ordre : (a) `montant_facture` = `montantPrescrit × quantite` ;
+(b) si `codeActe` renseigné ET homologué dans l'organisation ET un `tarifs_conventionnes`
+existe pour cet établissement à la date du jour → base = `min(montant_facture,
+tarif_convention)` (jamais de majoration, même logique que le microservice Java) ; sinon
+base = `montant_facture` ; (c) `montant_simule_assurance` = base × `garanties.tauxCouverture`
+(plafonné par `garanties.plafondParActe` si défini) ; (d) `montant_simule_patient` = base −
+`montant_simule_assurance` ; (e) `ticket_moderateur_simule` = base × `garanties.ticketModerateur`
+(champ distinct de la garantie, affiché comme composante informative de la part assurée,
+pas en supplément). Stocké sur `actes_dossier` (colonnes `montant_simule_assurance`,
+`montant_simule_patient`, `ticket_moderateur_simule`, prisma/sql/037) et inclus dans le
+détail d'audit. Reste indicatif : le calcul définitif au moment de l'adjudication réelle
+(microservice Java, `Adjudicateur.calculer`) garde le dernier mot (franchise, plafond
+annuel restant, verrouillage transactionnel — rien de tout cela n'est répliqué ici). Écran :
+sélecteur d'acte du référentiel homologué dans le formulaire « + Acte » de
+`dossier-detail.tsx`, et 3 colonnes supplémentaires (ticket modérateur / part assuré / part
+assurance simulés) dans le tableau des actes, avec rappel du caractère indicatif. 9 nouveaux
+tests unitaires (dont : tarif conventionné inférieur/supérieur au montant facturé, plafond
+par acte de la garantie, absence de garantie/référentiel/montant).
+
+### Tests
+Backend : 278/278 (`npx jest`, 21 nouveaux tests). `npx tsc --noEmit` propre côté API et
+Web. Test HTTP réel (établissement FARAH, tarif conventionné 6 000 F posé, garantie
+CONSULTATION 80 %/20 %) : recherche par numéro de carte confirmée sans création de dossier
+(404 si inconnu, 403 pour l'adhérent lui-même) ; ouverture du dossier via le code de
+consultation (parcours inchangé) ; définition du type de visite persistée et vérifiée en
+base, 409 confirmé à la 2ᵉ tentative ; ajout d'un acte facturé 10 000 F avec tarif
+conventionné 6 000 F → simulation exacte confirmée en HTTP ET en base : part assurance
+4 800 F (6 000 × 80 %), part assurée 1 200 F, ticket modérateur simulé 1 200 F (6 000 ×
+20 %) — PAS 8 000/2 000 qu'aurait donné le montant facturé seul. Test navigateur réel
+(Playwright, Chromium) sur les 3 écrans : carte de recherche par numéro affichant le
+statut, modale de type de visite (bouton disparaît une fois défini), tableau des actes
+affichant les montants simulés. Toutes les données de test éphémères (adhérents, comptes
+Supabase, référentiel, tarif, dossier) supprimées et l'absence de résidu vérifiée
+indépendamment après coup.

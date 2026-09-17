@@ -38,6 +38,20 @@ export class MemberController {
     private readonly cartes: MemberCarteService,
   ) {}
 
+  // --- Identification par numéro de carte (accueil centre médical) -----
+
+  /**
+   * ADDITIF au code de consultation (ne le remplace pas) — purement informatif,
+   * réservé à CENTRE_MEDICAL_ACCUEIL. N'ouvre aucun dossier, ne crée rien.
+   */
+  @Get('recherche-carte')
+  rechercherParNumeroCarte(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('numeroCarte') numeroCarte: string,
+  ) {
+    return this.adherents.rechercherParNumeroCarte(user, numeroCarte);
+  }
+
   // --- Adhérents ---------------------------------------------------
 
   @Post('adherents')

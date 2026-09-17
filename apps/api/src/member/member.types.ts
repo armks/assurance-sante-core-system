@@ -38,6 +38,15 @@ export const ROLES_GESTION_MEMBRE = [
 
 export const ROLE_GESTION_MEMBRE_SOCIETE = 'SOCIETE_ADMINISTRATION';
 
+/**
+ * Identification par numéro de carte à l'accueil du centre médical — ADDITIF
+ * au code de consultation, ne le remplace pas. Purement informatif (statut
+ * ACTIF/SUSPENDU/RADIE) : n'ouvre aucun dossier, ne crée rien. Réservé à
+ * CENTRE_MEDICAL_ACCUEIL exclusivement (pas les autres rôles CENTRE_MEDICAL_*,
+ * ni le personnel ASSUREUR — cf. instruction explicite).
+ */
+export const ROLE_RECHERCHE_CARTE = 'CENTRE_MEDICAL_ACCUEIL';
+
 /** `sous_roles.entite_code` des 4 rôles société affiliée (v9 §ADDENDUM). */
 export const ENTITE_SOCIETE_AFFILIEE = 'SOCIETE_AFFILIEE';
 

@@ -713,7 +713,7 @@ export class PreauthorizationService {
 
     const ticket = await this.prisma.ticketSoins.findFirst({
       where: { id: ticketSoinsId },
-      include: { dossier: true },
+      include: { dossier: { include: { police: true } } },
     });
     if (!ticket || ticket.dossier.organisationId !== ctx.organisationId) {
       throw new NotFoundException('Ticket de soins introuvable.');
@@ -763,6 +763,16 @@ export class PreauthorizationService {
       }
     }
 
+    // Simulation INDICATIVE (v3 §5 étendu) — lecture seule, avant la
+    // transaction d'écriture. Ne bloque jamais l'ajout de l'acte : une
+    // absence de tarif/garantie renvoie simplement `null` (rien à simuler).
+    const simulation = await this.simulerMontantActe(
+      ctx.organisationId,
+      ticket.dossier.etablissementId,
+      ticket.dossier.police.produitId,
+      dto,
+    );
+
     const id = await this.prisma.$transaction(async (tx) => {
       const acte = await tx.acteDossier.create({
         data: {
@@ -778,6 +788,9 @@ export class PreauthorizationService {
             dto.montantPrescrit === undefined
               ? null
               : new Decimal(dto.montantPrescrit).toFixed(2),
+          montantSimuleAssurance: simulation?.montantSimuleAssurance ?? null,
+          montantSimulePatient: simulation?.montantSimulePatient ?? null,
+          ticketModerateurSimule: simulation?.ticketModerateurSimule ?? null,
           dateRealisation: dto.dateRealisation
             ? new Date(dto.dateRealisation)
             : null,
@@ -792,6 +805,7 @@ export class PreauthorizationService {
           ticketSoinsId: ticket.id,
           dossierSoinsId: ticket.dossierSoinsId,
           categorie: dto.categorieActe,
+          simulation: simulation ?? null,
         },
         'actes_dossier',
       );
@@ -799,6 +813,93 @@ export class PreauthorizationService {
     });
 
     return this.prisma.acteDossier.findUnique({ where: { id } });
+  }
+
+  /**
+   * Simulation INDICATIVE du remboursement au moment de l'ajout d'un acte —
+   * tarif conventionné (s'il existe pour l'établissement/l'acte) plafonnant
+   * le montant facturé, puis taux de couverture de la garantie applicable.
+   * Reste indicative : le calcul définitif de l'adjudication (microservice
+   * Java, `Adjudicateur.calculer`) garde le dernier mot (franchise, plafond
+   * ANNUEL restant, verrouillage transactionnel — rien de tout cela n'est
+   * répliqué ici). Renvoie `null` si aucun montant facturé n'est fourni, ou
+   * si aucune garantie ne correspond à la catégorie d'acte du produit du
+   * patient (rien à simuler) — ne bloque jamais l'ajout de l'acte lui-même.
+   */
+  private async simulerMontantActe(
+    organisationId: string,
+    etablissementId: string,
+    produitId: string,
+    dto: Pick<AjouterActeDto, 'categorieActe' | 'codeActe' | 'montantPrescrit' | 'quantite'>,
+  ): Promise<{
+    montantSimuleAssurance: string;
+    montantSimulePatient: string;
+    ticketModerateurSimule: string;
+  } | null> {
+    if (dto.montantPrescrit === undefined) {
+      return null;
+    }
+
+    const garantie = await this.prisma.garantie.findFirst({
+      where: { produitId, categorieActe: dto.categorieActe, deletedAt: null },
+    });
+    if (!garantie) {
+      return null;
+    }
+
+    const montantFacture = new Decimal(dto.montantPrescrit).mul(dto.quantite ?? 1);
+
+    // Tarif conventionné établissement × acte, s'il existe (même lien que
+    // JdbcAdjudicationRepository.SQL_CONTEXTE : codeActe -> referentiel_actes.code
+    // -> tarifs_conventionnes). Plafonne le montant facturé, ne l'augmente jamais.
+    let montantBase = montantFacture;
+    if (dto.codeActe) {
+      const acteReferentiel = await this.prisma.referentielActe.findFirst({
+        where: { code: dto.codeActe, organisationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (acteReferentiel) {
+        const maintenant = new Date();
+        const tarif = await this.prisma.tarifConventionne.findFirst({
+          where: {
+            referentielActeId: acteReferentiel.id,
+            etablissementId,
+            deletedAt: null,
+            dateDebut: { lte: maintenant },
+            OR: [{ dateFin: null }, { dateFin: { gte: maintenant } }],
+          },
+        });
+        if (tarif) {
+          montantBase = Decimal.min(
+            montantFacture,
+            new Decimal(tarif.tarifConvention.toString()),
+          );
+        }
+      }
+    }
+
+    const taux = new Decimal(
+      garantie.tauxCouverture?.toString() ?? String(TAUX_COUVERTURE_DEFAUT),
+    );
+    let montantSimuleAssurance = montantBase.mul(taux).div(100).toDecimalPlaces(2);
+    if (garantie.plafondParActe) {
+      const plafond = new Decimal(garantie.plafondParActe.toString());
+      if (montantSimuleAssurance.gt(plafond)) {
+        montantSimuleAssurance = plafond;
+      }
+    }
+    const montantSimulePatient = montantBase.sub(montantSimuleAssurance);
+    const ticketModPct = new Decimal(garantie.ticketModerateur?.toString() ?? '0');
+    const ticketModerateurSimule = montantBase
+      .mul(ticketModPct)
+      .div(100)
+      .toDecimalPlaces(2);
+
+    return {
+      montantSimuleAssurance: montantSimuleAssurance.toFixed(2),
+      montantSimulePatient: montantSimulePatient.toFixed(2),
+      ticketModerateurSimule: ticketModerateurSimule.toFixed(2),
+    };
   }
 
   private async chargerTicket(organisationId: string, ticketSoinsId: string) {

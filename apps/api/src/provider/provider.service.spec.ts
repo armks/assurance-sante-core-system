@@ -50,6 +50,15 @@ describe('ProviderService', () => {
         create: jest.fn().mockResolvedValue({ id: 'v1' }),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      referentielActe: {
+        findFirst: jest.fn(),
+      },
+      tarifConventionne: {
+        create: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+      },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((arg: any) =>
         typeof arg === 'function' ? arg(prisma) : Promise.all(arg),
@@ -335,6 +344,132 @@ describe('ProviderService', () => {
     );
     expect(prisma.etablissementSante.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ verificationStatut: 'ACTIF' }) }),
+    );
+  });
+
+  // --- Tarifs conventionnés (v3 §5) -----------------------------------
+
+  it('creerTarif : crée un tarif conventionné établissement × acte et audite', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.referentielActe.findFirst.mockResolvedValue({ id: 'acte-1', libelle: 'Consultation généraliste' });
+    prisma.tarifConventionne.findFirst
+      .mockResolvedValueOnce(null) // pas de doublon
+      .mockResolvedValueOnce({ id: 't1', referentielActe: { code: 'C01', libelle: 'Consultation généraliste' } }); // chargerTarif
+    prisma.tarifConventionne.create.mockResolvedValue({ id: 't1' });
+
+    const res = await service.creerTarif(USER, 'etablissement', 'e1', {
+      referentielActeId: 'acte-1',
+      tarifConvention: 15000,
+      dateDebut: '2026-01-01',
+    });
+
+    expect(prisma.tarifConventionne.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          organisationId: 'org-1',
+          etablissementId: 'e1',
+          pharmacieId: null,
+          referentielActeId: 'acte-1',
+          tarifConvention: 15000,
+        }),
+      }),
+    );
+    expect(prisma.$executeRaw).toHaveBeenCalled(); // log_audit
+    expect(res.id).toBe('t1');
+  });
+
+  it('creerTarif : refuse (404) un acte introuvable dans l’organisation', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.referentielActe.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.creerTarif(USER, 'etablissement', 'e1', {
+        referentielActeId: 'acte-inconnu',
+        tarifConvention: 15000,
+        dateDebut: '2026-01-01',
+      }),
+    ).rejects.toThrow('Acte introuvable dans votre organisation.');
+    expect(prisma.tarifConventionne.create).not.toHaveBeenCalled();
+  });
+
+  it('creerTarif : refuse (409) un doublon — un tarif existe déjà pour ce couple établissement/acte', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.referentielActe.findFirst.mockResolvedValue({ id: 'acte-1', libelle: 'Consultation généraliste' });
+    prisma.tarifConventionne.findFirst.mockResolvedValue({ id: 't-existant' });
+
+    await expect(
+      service.creerTarif(USER, 'etablissement', 'e1', {
+        referentielActeId: 'acte-1',
+        tarifConvention: 15000,
+        dateDebut: '2026-01-01',
+      }),
+    ).rejects.toThrow('existe déjà');
+    expect(prisma.tarifConventionne.create).not.toHaveBeenCalled();
+  });
+
+  it('creerTarif : refuse un rôle non ASSUREUR_INFORMATIQUE', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+
+    await expect(
+      service.creerTarif(USER, 'etablissement', 'e1', {
+        referentielActeId: 'acte-1',
+        tarifConvention: 15000,
+        dateDebut: '2026-01-01',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.tarifConventionne.create).not.toHaveBeenCalled();
+  });
+
+  it('listerTarifs : renvoie les tarifs d’un établissement avec l’acte inclus', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.tarifConventionne.findMany.mockResolvedValue([
+      { id: 't1', tarifConvention: 15000, referentielActe: { code: 'C01', libelle: 'Consultation' } },
+    ]);
+
+    const res = await service.listerTarifs(USER, 'etablissement', 'e1');
+
+    expect(prisma.tarifConventionne.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ etablissementId: 'e1', deletedAt: null }),
+      }),
+    );
+    expect(res).toHaveLength(1);
+  });
+
+  it('modifierTarif : met à jour le montant et audite', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.tarifConventionne.findFirst
+      .mockResolvedValueOnce({ id: 't1', etablissementId: 'e1' }) // chargerTarifDansPerimetre
+      .mockResolvedValueOnce({ id: 't1', referentielActe: { code: 'C01', libelle: 'Consultation' } }); // chargerTarif
+
+    const res = await service.modifierTarif(USER, 'etablissement', 'e1', 't1', {
+      tarifConvention: 18000,
+    });
+
+    expect(prisma.tarifConventionne.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 't1' },
+        data: expect.objectContaining({ tarifConvention: 18000 }),
+      }),
+    );
+    expect(res.id).toBe('t1');
+  });
+
+  it('supprimerTarif : soft delete + audite', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.tarifConventionne.findFirst.mockResolvedValue({ id: 't1', etablissementId: 'e1' });
+
+    await service.supprimerTarif(USER, 'etablissement', 'e1', 't1');
+
+    expect(prisma.tarifConventionne.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 't1' },
+        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+      }),
     );
   });
 

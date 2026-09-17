@@ -144,6 +144,7 @@ class AdjudicationServiceTest {
         c.montant(), c.typeReclamation(), statut, c.createdAt(),
         c.tauxCouverturePct(), c.plafondParActe(), c.plafondAnnuel(), c.franchise(),
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
-        c.policeStatut(), c.policeDebut(), c.policeFin());
+        c.policeStatut(), c.policeDebut(), c.policeFin(),
+        c.etablissementId(), c.tarifConvention());
   }
 }

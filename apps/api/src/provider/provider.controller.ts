@@ -17,11 +17,13 @@ import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   CreateEtablissementDto,
   CreatePharmacieDto,
+  CreateTarifConventionneDto,
   EnregistrerVerificationDto,
   RechercheGeoDto,
   ReverifierObsoletesDto,
   UpdateEtablissementDto,
   UpdatePharmacieDto,
+  UpdateTarifConventionneDto,
 } from './dto/provider.dto';
 import { ProviderService } from './provider.service';
 
@@ -117,6 +119,45 @@ export class ProviderController {
     return this.provider.listerVerifications(user, 'etablissement', id);
   }
 
+  // --- Tarifs conventionnés (v3 §5) — établissement --------------
+
+  @Post('etablissements/:id/tarifs')
+  creerTarifEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateTarifConventionneDto,
+  ) {
+    return this.provider.creerTarif(user, 'etablissement', id, dto);
+  }
+
+  @Get('etablissements/:id/tarifs')
+  listerTarifsEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.listerTarifs(user, 'etablissement', id);
+  }
+
+  @Patch('etablissements/:id/tarifs/:tarifId')
+  modifierTarifEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+    @Body() dto: UpdateTarifConventionneDto,
+  ) {
+    return this.provider.modifierTarif(user, 'etablissement', id, tarifId, dto);
+  }
+
+  @Delete('etablissements/:id/tarifs/:tarifId')
+  @HttpCode(204)
+  supprimerTarifEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+  ) {
+    return this.provider.supprimerTarif(user, 'etablissement', id, tarifId);
+  }
+
   // --- Pharmacies -----------------------------------------------
 
   @Post('pharmacies')
@@ -177,6 +218,45 @@ export class ProviderController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.provider.listerVerifications(user, 'pharmacie', id);
+  }
+
+  // --- Tarifs conventionnés (v3 §5) — pharmacie -------------------
+
+  @Post('pharmacies/:id/tarifs')
+  creerTarifPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateTarifConventionneDto,
+  ) {
+    return this.provider.creerTarif(user, 'pharmacie', id, dto);
+  }
+
+  @Get('pharmacies/:id/tarifs')
+  listerTarifsPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.listerTarifs(user, 'pharmacie', id);
+  }
+
+  @Patch('pharmacies/:id/tarifs/:tarifId')
+  modifierTarifPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+    @Body() dto: UpdateTarifConventionneDto,
+  ) {
+    return this.provider.modifierTarif(user, 'pharmacie', id, tarifId, dto);
+  }
+
+  @Delete('pharmacies/:id/tarifs/:tarifId')
+  @HttpCode(204)
+  supprimerTarifPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+  ) {
+    return this.provider.supprimerTarif(user, 'pharmacie', id, tarifId);
   }
 
   // --- Tâche planifiée (déclenchée à la main) ---------------------

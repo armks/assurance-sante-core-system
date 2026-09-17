@@ -106,7 +106,8 @@ class AdjudicateurTest {
             new BigDecimal("5000000.00"), // plafond annuel large
             new BigDecimal("0.00"),       // pas de franchise
             base.ticketModerateurPct(), base.delaiCarenceJours(), base.reseauSoins(),
-            base.policeStatut(), base.policeDebut(), base.policeFin());
+            base.policeStatut(), base.policeDebut(), base.policeFin(),
+            base.etablissementId(), base.tarifConvention());
 
     Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
 
@@ -114,5 +115,44 @@ class AdjudicateurTest {
     assertEquals(new BigDecimal("300000.00"), r.montantRembourse());
     assertEquals(List.of(CodesRejet.MONTANT_ELEVE), r.codesRejet());
     assertEquals(new BigDecimal("4700000.00"), r.plafondRestantApres());
+  }
+
+  @Test
+  @DisplayName(
+      "Tarif conventionné (v3 §5) : acte facturé 40000 au-dessus du tarif négocié 25000 → "
+          + "remboursement calculé sur le tarif plafonné, pas le montant facturé : 18400.00")
+  void casTarifConventionnePlafonneLeMontantFacture() {
+    // Même garantie de référence (taux 80 %, franchise 2000, plafond acte 50000) —
+    // seul le montant facturé et le tarif conventionné changent par rapport à casNormal().
+    ContexteAdjudication ctx =
+        JeuDeDonneesReference.actifAvecTarifConventionne(
+            new BigDecimal("40000.00"), new BigDecimal("25000.00"));
+
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
+
+    // min(40000, 25000) = 25000 ; (25000 - 2000) * 80 % = 18400.00 — PAS
+    // (40000 - 2000) * 80 % = 30400.00, qui serait le résultat sans plafonnement.
+    assertEquals(Decision.AUTO_ADJUDIQUE, r.decision());
+    assertEquals(new BigDecimal("18400.00"), r.montantRembourse());
+    assertThat(r.codesRejet()).isEmpty();
+    assertEquals(new BigDecimal("81600.00"), r.plafondRestantApres()); // 100000 - 18400
+  }
+
+  @Test
+  @DisplayName(
+      "Sans tarif conventionné (établissement non conventionné pour cet acte) : même montant "
+          + "facturé 40000 → comportement actuel inchangé, remboursement sur le montant facturé : 30400.00")
+  void casSansTarifConventionneComportementInchange() {
+    ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("40000.00"));
+
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
+
+    // (40000 - 2000) * 80 % = 30400.00 — le même montant facturé que le test
+    // précédent, mais un résultat différent en l'absence de tarif conventionné :
+    // preuve que le plafonnement dépend bien de la présence du tarif négocié.
+    assertEquals(Decision.AUTO_ADJUDIQUE, r.decision());
+    assertEquals(new BigDecimal("30400.00"), r.montantRembourse());
+    assertThat(r.codesRejet()).isEmpty();
+    assertEquals(new BigDecimal("69600.00"), r.plafondRestantApres()); // 100000 - 30400
   }
 }

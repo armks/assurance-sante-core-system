@@ -37,5 +37,9 @@ public record ContexteAdjudication(
     // --- police ---
     String policeStatut,
     LocalDate policeDebut,
-    LocalDate policeFin) {
+    LocalDate policeFin,
+    // --- tarif conventionné établissement × acte (v3 §5), nullable : aucun
+    // tarif négocié pour ce couple -> comportement inchangé ---
+    UUID etablissementId,
+    BigDecimal tarifConvention) {
 }

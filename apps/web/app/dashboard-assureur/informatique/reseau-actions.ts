@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { apiFetch, messageErreur } from '@/lib/api';
+import type { ResultatSoumission } from '@/components/dashboard/patterns';
+import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
 
 const RACINE = '/dashboard-assureur/informatique';
 
@@ -192,6 +193,64 @@ export async function validerEtablissement(id: string): Promise<ResultatReseau> 
   const e = (await res.json()) as { nom: string };
   revalidatePath(`${RACINE}/etablissements`);
   return { ok: true, message: `« ${e.nom} » est maintenant ACTIF.` };
+}
+
+interface TarifInput {
+  referentielActeId: string;
+  tarifConvention: number;
+  dateDebut: string;
+  dateFin?: string;
+}
+
+/** Crée un tarif conventionné (v3 §5) pour cet établissement/cette pharmacie × cet acte. */
+export async function creerTarif(
+  cible: 'etablissement' | 'pharmacie',
+  cibleId: string,
+  input: TarifInput,
+): Promise<ResultatSoumission> {
+  const prefixe = cible === 'etablissement' ? 'etablissements' : 'pharmacies';
+  const res = await apiFetch(`/api/v1/provider/${prefixe}/${cibleId}/tarifs`, {
+    method: 'POST',
+    body: JSON.stringify(nettoyer(input)),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(`${RACINE}/${prefixe}/${cibleId}`);
+  return { ok: true, message: 'Tarif conventionné ajouté.' };
+}
+
+/** Modifie un tarif conventionné existant (montant et/ou période de validité). */
+export async function modifierTarif(
+  cible: 'etablissement' | 'pharmacie',
+  cibleId: string,
+  tarifId: string,
+  input: Partial<Omit<TarifInput, 'referentielActeId'>>,
+): Promise<ResultatSoumission> {
+  const prefixe = cible === 'etablissement' ? 'etablissements' : 'pharmacies';
+  const res = await apiFetch(
+    `/api/v1/provider/${prefixe}/${cibleId}/tarifs/${tarifId}`,
+    { method: 'PATCH', body: JSON.stringify(nettoyer(input)) },
+  );
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(`${RACINE}/${prefixe}/${cibleId}`);
+  return { ok: true, message: 'Tarif conventionné modifié.' };
+}
+
+/** Supprime (soft delete) un tarif conventionné. */
+export async function supprimerTarif(
+  cible: 'etablissement' | 'pharmacie',
+  cibleId: string,
+  tarifId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const prefixe = cible === 'etablissement' ? 'etablissements' : 'pharmacies';
+  const res = await apiFetch(
+    `/api/v1/provider/${prefixe}/${cibleId}/tarifs/${tarifId}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok && res.status !== 204) {
+    return { ok: false, error: await messageErreur(res) };
+  }
+  revalidatePath(`${RACINE}/${prefixe}/${cibleId}`);
+  return { ok: true };
 }
 
 /** Tâche déclenchable : marque « À revérifier » les entrées trop anciennes. */

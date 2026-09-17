@@ -49,6 +49,7 @@ model Organisation {
   etablissements    EtablissementSante[]
   pharmacies        Pharmacie[]
   referentielActes  ReferentielActe[]
+  tarifsConventionnes TarifConventionne[]
   medicaments       Medicament[]
   dossiersSoins     DossierSoins[]
   codesConsultation CodeConsultation[]
@@ -584,6 +585,7 @@ model EtablissementSante {
   codesConsultation  CodeConsultation[]
   factures           FactureDossier[]
   verifications      VerificationEtablissement[]
+  tarifsConventionnes TarifConventionne[]
 
   @@index([organisationId])
   @@index([statut])
@@ -625,6 +627,7 @@ model Pharmacie {
   lignesServies   LigneOrdonnance[]
   stockMedicaments StockMedicamentPharmacie[]
   dispensations   DispensationPharmacie[]
+  tarifsConventionnes TarifConventionne[]
 
   @@index([organisationId])
   @@index([statut])
@@ -673,10 +676,41 @@ model ReferentielActe {
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   homologateur Profil?      @relation(fields: [homologuePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tarifsConventionnes TarifConventionne[]
 
   @@index([organisationId])
   @@index([statut])
   @@map("referentiel_actes")
+}
+
+/// tarifs_conventionnes — tarif négocié établissement/pharmacie × acte (v3 §5,
+/// plan directeur phase 4.2 « Grilles tarifaires conventionnées »). DIFFÉRENT de
+/// `grilles_tarifaires` (cotisation par tranche d'âge/souscripteur, PROMPT 11).
+/// Utilisé par le microservice d'adjudication : min(montant_facture,
+/// tarif_convention) avant application du taux de couverture. prisma/sql/033.
+model TarifConventionne {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId     String    @map("organisation_id") @db.Uuid
+  etablissementId    String?   @map("etablissement_id") @db.Uuid
+  pharmacieId        String?   @map("pharmacie_id") @db.Uuid
+  referentielActeId  String    @map("referentiel_acte_id") @db.Uuid
+  tarifConvention    Decimal   @map("tarif_convention") @db.Decimal(14, 2)
+  dateDebut          DateTime  @map("date_debut") @db.Date
+  dateFin            DateTime? @map("date_fin") @db.Date
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation    Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  etablissement   EtablissementSante? @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacie       Pharmacie?         @relation(fields: [pharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  referentielActe ReferentielActe    @relation(fields: [referentielActeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([etablissementId])
+  @@index([pharmacieId])
+  @@index([referentielActeId])
+  @@map("tarifs_conventionnes")
 }
 
 /// medicaments — référentiel des médicaments (v3 §9). Passage à HOMOLOGUE réservé

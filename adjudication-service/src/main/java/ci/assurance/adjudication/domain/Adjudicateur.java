@@ -13,10 +13,15 @@ import java.util.List;
  * <p>Fonction PURE — aucune I/O, aucune dépendance Spring — pour un test au
  * BigDecimal exact (zéro tolérance sur le calcul, règle qualité du plan directeur).
  *
- * <p>Règles (v3 §4) :
+ * <p>Règles (v3 §4, tarif conventionné v3 §5) :
  * <ol>
  *   <li>police non ACTIVE / hors période → REJETE (E001), 0 ;</li>
- *   <li>franchise déduite du montant réclamé (plancher 0) ;</li>
+ *   <li>tarif conventionné établissement × acte, s'il existe : montant réclamé
+ *       plafonné à min(montant_facture, tarif_convention) — AVANT tout autre
+ *       calcul. Absence de tarif négocié (cas le plus courant) → montant
+ *       facturé utilisé tel quel, comportement rétrocompatible ;</li>
+ *   <li>franchise déduite du montant (éventuellement déjà plafonné) réclamé
+ *       (plancher 0) ;</li>
  *   <li>taux de couverture appliqué ;</li>
  *   <li>plafond par acte : borne haute ;</li>
  *   <li>plafond annuel restant : si épuisé → REJETE (E006), 0 ; sinon borne le
@@ -46,8 +51,16 @@ public class Adjudicateur {
       ContexteAdjudication ctx, BigDecimal dejaRembourseAnnee, LocalDate dateReference) {
 
     final BigDecimal deja = normaliser(dejaRembourseAnnee, BigDecimal.ZERO);
-    final BigDecimal montantReclame = normaliser(ctx.montant(), BigDecimal.ZERO);
+    BigDecimal montantReclame = normaliser(ctx.montant(), BigDecimal.ZERO);
     final BigDecimal plafondAnnuel = ctx.plafondAnnuel(); // nullable = pas de plafond annuel
+
+    // 0) tarif conventionné établissement × acte (v3 §5) — plafonne le montant
+    // facturé lui-même, avant tout le reste du calcul. `tarifConvention` est
+    // nullable : aucun tarif négocié pour ce couple établissement/acte (le cas
+    // le plus courant aujourd'hui) laisse `montantReclame` inchangé.
+    if (ctx.tarifConvention() != null) {
+      montantReclame = montantReclame.min(normaliser(ctx.tarifConvention(), montantReclame));
+    }
 
     final BigDecimal plafondRestantAvant =
         plafondAnnuel == null

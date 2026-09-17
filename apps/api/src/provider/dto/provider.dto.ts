@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsDateString,
   IsEmail,
   IsIn,
   IsInt,
@@ -11,6 +12,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -157,4 +159,36 @@ export class ReverifierObsoletesDto {
   @Min(1)
   @Max(60)
   moisMax?: number;
+}
+
+/** Tarif conventionné établissement/pharmacie × acte (v3 §5). */
+export class CreateTarifConventionneDto {
+  @IsUUID()
+  referentielActeId!: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  tarifConvention!: number;
+
+  @IsDateString()
+  dateDebut!: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateFin?: string;
+}
+
+export class UpdateTarifConventionneDto {
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  tarifConvention?: number;
+
+  @IsOptional()
+  @IsDateString()
+  dateDebut?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateFin?: string;
 }

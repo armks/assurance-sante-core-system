@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState, useTransition } from 'react';
 
 import {
@@ -426,6 +427,15 @@ export function ReseauPanneau({
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span className="flex justify-end gap-2">
+                        <Button asChild type="button" size="xs" variant="ghost">
+                          <Link
+                            href={`/dashboard-assureur/informatique/${
+                              estEtab ? 'etablissements' : 'pharmacies'
+                            }/${l.id}`}
+                          >
+                            Détails
+                          </Link>
+                        </Button>
                         {estEtab && l.statut === 'EN_ATTENTE_VALIDATION' && (
                           <Button
                             type="button"

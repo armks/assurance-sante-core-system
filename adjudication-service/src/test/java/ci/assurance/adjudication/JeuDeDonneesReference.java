@@ -27,6 +27,7 @@ public final class JeuDeDonneesReference {
   public static final UUID ADHERENT_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
   public static final UUID POLICE_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
   public static final UUID GARANTIE_ID = UUID.fromString("44444444-4444-4444-8444-444444444444");
+  public static final UUID ETABLISSEMENT_ID = UUID.fromString("55555555-5555-4555-8555-555555555555");
 
   public static final BigDecimal TAUX_PCT = new BigDecimal("80");
   public static final BigDecimal FRANCHISE = new BigDecimal("2000.00");
@@ -37,6 +38,12 @@ public final class JeuDeDonneesReference {
   /** Contexte de base, personnalisable par les {@code with*} ci-dessous. */
   public static ContexteAdjudication contexte(
       BigDecimal montantReclame, String policeStatut) {
+    return contexte(montantReclame, policeStatut, null);
+  }
+
+  /** Variante avec tarif conventionné établissement × acte (v3 §5), ou {@code null}. */
+  public static ContexteAdjudication contexte(
+      BigDecimal montantReclame, String policeStatut, BigDecimal tarifConvention) {
     return new ContexteAdjudication(
         RECLAMATION_ID,
         UUID.fromString("00000000-0000-4000-8000-0000000000aa"), // organisation
@@ -59,10 +66,18 @@ public final class JeuDeDonneesReference {
         "TOUT_RESEAU",
         policeStatut,
         LocalDate.of(2026, 1, 1),
-        LocalDate.of(2026, 12, 31));
+        LocalDate.of(2026, 12, 31),
+        ETABLISSEMENT_ID,
+        tarifConvention);
   }
 
   public static ContexteAdjudication actif(BigDecimal montantReclame) {
-    return contexte(montantReclame, "ACTIVE");
+    return contexte(montantReclame, "ACTIVE", null);
+  }
+
+  /** Police ACTIVE avec un tarif conventionné applicable à l'acte réclamé. */
+  public static ContexteAdjudication actifAvecTarifConventionne(
+      BigDecimal montantReclame, BigDecimal tarifConvention) {
+    return contexte(montantReclame, "ACTIVE", tarifConvention);
   }
 }

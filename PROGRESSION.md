@@ -3904,3 +3904,76 @@ profils, adhérents, produit, cotisation, dossier, acte, médicament, établisse
 
 ### 🎯 Jalon — les 6 manques identifiés par les audits sont comblés, chacun avec le bon
 rôle vérifié dans le code avant l'affichage du bouton, et testé séparément de bout en bout
+
+## 2026-09-16 (suite 7) — Tarifs conventionnés établissement/pharmacie × acte (v3 §5)
+
+Fonctionnalité prévue au plan directeur (Phase 4.2 « Grilles tarifaires conventionnées »,
+v3 §5) mais jamais implémentée — confirmée par le diagnostic précédent (`grilles_tarifaires`
+ne couvre que la cotisation par tranche d'âge/souscripteur, PROMPT 11 ; le microservice
+Java n'appliquait aucun plafonnement par tarif négocié, seulement le taux + plafond de la
+garantie).
+
+### 1. Table `tarifs_conventionnes` (migration 033)
+`id, organisation_id, etablissement_id NULL, pharmacie_id NULL (exactement l'un des deux —
+contrainte `tarifs_conventionnes_cible_unique`, même pattern que `cotisations_cible_unique`),
+referentiel_acte_id (FK), tarif_convention, date_debut, date_fin NULL, created_at,
+updated_at, deleted_at`. Un seul tarif ACTIF par couple cible × acte (index unique
+partiel). RLS : lecture organisation, écriture ASSUREUR_INFORMATIQUE (même pattern que
+`etablissements_sante`/`pharmacies`, prisma/sql/009). Modèle Prisma `TarifConventionne`
+ajouté avec les relations inverses.
+
+### 2. Endpoints NestJS (`ProviderService`, réutilise `ROLES_GESTION_RESEAU`)
+`POST/GET /provider/{etablissements|pharmacies}/:id/tarifs`,
+`PATCH/DELETE .../tarifs/:tarifId` — vérifie que l'acte existe dans l'organisation, refuse
+un doublon actif (409), audite `CREATION_TARIF_CONVENTIONNE`/`MODIFICATION_...`/
+`SUPPRESSION_...`. 7 nouveaux tests unitaires.
+
+### 3. Jointure côté microservice Java (`JdbcAdjudicationRepository.SQL_CONTEXTE`)
+`reclamations → dossiers_soins (etablissement_id) → actes_dossier (code_acte) →
+referentiel_actes (code) → tarifs_conventionnes (etablissement_id, referentiel_acte_id,
+période de validité)`, en `LEFT JOIN` partout : absence de tarif (ou de `code_acte`
+renseigné, actuellement optionnel côté saisie) → `tarif_convention` NULL → comportement
+inchangé. `ContexteAdjudication` étendu de `etablissementId`/`tarifConvention`. **Bug réel
+trouvé et corrigé en conditions réelles** : les grants `svc_adjudication` (migration 018)
+ne couvraient ni `dossiers_soins` ni `actes_dossier` — `permission denied for table
+actes_dossier` à la première exécution réelle, puis un second oubli (`ad.deleted_at`
+référencé dans le JOIN mais non accordé) — corrigés par les migrations 034 et 035
+(grants colonne par colonne, même discipline que le grant existant sur `reclamations`).
+
+### 4. `Adjudicateur.calculer()` : min(montant_facture, tarif_convention) en étape 0
+Appliqué AVANT franchise/taux — si `tarifConvention` est `null` (cas par défaut),
+`montantReclame` reste inchangé, rétrocompatible. 2 nouveaux tests JUnit avec montants
+EXACTS : avec tarif (40000 facturé, 25000 conventionné → remboursé 18400.00 au lieu de
+30400.00) et sans tarif (même 40000 facturé → 30400.00, comportement inchangé). Suite
+Java complète : 21/21 (`mvn test`, microservice réellement compilé et démarré — Maven/
+Java confirmés disponibles dans cet environnement, contrairement à une hypothèse
+antérieure).
+
+### 5. Écrans `/dashboard-assureur/informatique/{etablissements|pharmacies}/[id]`
+Pages de détail créées de toutes pièces (aucune route `[id]` n'existait avant pour ces
+deux écrans) : carte Informations + section « Tarifs conventionnés »
+(`TarifsConventionnesPanneau` — DataTable, ajout/modification/suppression via
+`FormulaireModal`, sélection de l'acte parmi le référentiel). Lien « Détails » ajouté sur
+chaque ligne de `reseau-panneau.tsx`.
+
+### Test — HTTP réel + microservice Java réellement démarré (mvn spring-boot:run, port
+8899, connecté au Postgres réel via le rôle `svc_adjudication`)
+Parcours complet réel : établissement FARAH (déjà ACTIF) → acte du référentiel créé →
+tarif conventionné 25 000 F posé → adhérent réel généré un code de consultation → accueil
+de FARAH valide le code (dossier réellement ouvert) → médecin de FARAH ajoute une
+consultation puis un acte facturé 40 000 F (codeActe rattaché à l'acte du référentiel) →
+réclamation soumise → **appel réel au microservice Java** :
+- **Cas conventionné** : remboursement = **20 000,00 F** = min(40000, 25000) × 80 % — PAS
+  32 000 F qu'aurait donné le montant facturé seul. Confirmé exact.
+- **Cas non conventionné** (même établissement FARAH, acte différent, même montant facturé
+  40 000 F, aucun tarif posé) : remboursement = **32 000,00 F** = 40000 × 80 % — comportement
+  actuel inchangé, confirmé exact.
+Écran « Tarifs conventionnés » testé séparément en navigateur réel : ajout (visible dans
+le tableau), modification (persistée), suppression (`deletedAt` posé) — tout confirmé en
+base à chaque étape. Backend 257/257, Java 21/21. Toutes les données de test éphémères
+supprimées ; microservice Java et serveurs de développement arrêtés proprement.
+
+### 🎯 Jalon — les tarifs conventionnés établissement/pharmacie × acte existent, sont
+gérables depuis l'écran, et plafonnent réellement le remboursement calculé par le
+microservice Java — vérifié de bout en bout avec le service réellement démarré, pas
+seulement en test unitaire

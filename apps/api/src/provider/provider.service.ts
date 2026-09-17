@@ -12,11 +12,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   CreateEtablissementDto,
   CreatePharmacieDto,
+  CreateTarifConventionneDto,
   EnregistrerVerificationDto,
   RechercheGeoDto,
   ReverifierObsoletesDto,
   UpdateEtablissementDto,
   UpdatePharmacieDto,
+  UpdateTarifConventionneDto,
 } from './dto/provider.dto';
 import { GeocodageService } from './geocodage.service';
 import {
@@ -717,6 +719,211 @@ export class ProviderService {
       where: { pharmacieId: id },
       orderBy: { dateVerification: 'desc' },
     });
+  }
+
+  // --- Tarifs conventionnés (v3 §5, plan directeur phase 4.2) -------
+  //
+  // Fonctionnalité prévue au plan mais jamais implémentée jusqu'ici (confirmé
+  // par diagnostic) — DIFFÉRENTE de `grilles_tarifaires` (cotisation par
+  // tranche d'âge/souscripteur, PROMPT 11). Utilisée par le microservice
+  // d'adjudication : min(montant_facture, tarif_convention) avant application
+  // du taux de couverture (JdbcAdjudicationRepository.SQL_CONTEXTE).
+
+  async creerTarif(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+    dto: CreateTarifConventionneDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+
+    if (cible === 'etablissement') {
+      await this.assertEtablissementDansPerimetre(ctx.organisationId, id);
+    } else {
+      await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+    }
+
+    const acte = await this.prisma.referentielActe.findFirst({
+      where: {
+        id: dto.referentielActeId,
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+      },
+    });
+    if (!acte) {
+      throw new NotFoundException('Acte introuvable dans votre organisation.');
+    }
+
+    const existant = await this.prisma.tarifConventionne.findFirst({
+      where: {
+        referentielActeId: dto.referentielActeId,
+        deletedAt: null,
+        ...(cible === 'etablissement'
+          ? { etablissementId: id }
+          : { pharmacieId: id }),
+      },
+    });
+    if (existant) {
+      throw new ConflictException(
+        `Un tarif conventionné existe déjà pour « ${acte.libelle} » — modifiez-le plutôt que d'en créer un second.`,
+      );
+    }
+
+    const tarif = await this.prisma.$transaction(async (tx) => {
+      const t = await tx.tarifConventionne.create({
+        data: {
+          organisationId: ctx.organisationId,
+          etablissementId: cible === 'etablissement' ? id : null,
+          pharmacieId: cible === 'pharmacie' ? id : null,
+          referentielActeId: dto.referentielActeId,
+          tarifConvention: dto.tarifConvention,
+          dateDebut: new Date(dto.dateDebut),
+          dateFin: dto.dateFin ? new Date(dto.dateFin) : null,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'CREATION_TARIF_CONVENTIONNE',
+        t.id,
+        {
+          cible,
+          cibleId: id,
+          referentielActeId: dto.referentielActeId,
+          tarifConvention: dto.tarifConvention,
+        },
+        'tarifs_conventionnes',
+      );
+      return t;
+    });
+
+    return this.chargerTarif(ctx.organisationId, tarif.id);
+  }
+
+  async listerTarifs(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (cible === 'etablissement') {
+      await this.assertEtablissementDansPerimetre(ctx.organisationId, id);
+    } else {
+      await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+    }
+    return this.prisma.tarifConventionne.findMany({
+      where: {
+        deletedAt: null,
+        ...(cible === 'etablissement'
+          ? { etablissementId: id }
+          : { pharmacieId: id }),
+      },
+      include: {
+        referentielActe: { select: { code: true, libelle: true, categorie: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async modifierTarif(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+    tarifId: string,
+    dto: UpdateTarifConventionneDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tarifConventionne.update({
+        where: { id: tarifId },
+        data: {
+          ...(dto.tarifConvention !== undefined
+            ? { tarifConvention: dto.tarifConvention }
+            : {}),
+          ...(dto.dateDebut !== undefined
+            ? { dateDebut: new Date(dto.dateDebut) }
+            : {}),
+          ...(dto.dateFin !== undefined
+            ? { dateFin: dto.dateFin ? new Date(dto.dateFin) : null }
+            : {}),
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'MODIFICATION_TARIF_CONVENTIONNE',
+        tarifId,
+        { champs: Object.keys(dto) },
+        'tarifs_conventionnes',
+      );
+    });
+
+    return this.chargerTarif(ctx.organisationId, tarifId);
+  }
+
+  async supprimerTarif(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+    tarifId: string,
+  ): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tarifConventionne.update({
+        where: { id: tarifId },
+        data: { deletedAt: new Date() },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'SUPPRESSION_TARIF_CONVENTIONNE',
+        tarifId,
+        null,
+        'tarifs_conventionnes',
+      );
+    });
+  }
+
+  private async chargerTarif(organisationId: string, id: string) {
+    const t = await this.prisma.tarifConventionne.findFirst({
+      where: { id, organisationId, deletedAt: null },
+      include: {
+        referentielActe: { select: { code: true, libelle: true, categorie: true } },
+      },
+    });
+    if (!t) {
+      throw new NotFoundException('Tarif conventionné introuvable.');
+    }
+    return t;
+  }
+
+  private async chargerTarifDansPerimetre(
+    organisationId: string,
+    cible: 'etablissement' | 'pharmacie',
+    cibleId: string,
+    tarifId: string,
+  ) {
+    const t = await this.prisma.tarifConventionne.findFirst({
+      where: {
+        id: tarifId,
+        organisationId,
+        deletedAt: null,
+        ...(cible === 'etablissement'
+          ? { etablissementId: cibleId }
+          : { pharmacieId: cibleId }),
+      },
+    });
+    if (!t) {
+      throw new NotFoundException('Tarif conventionné introuvable.');
+    }
+    return t;
   }
 
   /**

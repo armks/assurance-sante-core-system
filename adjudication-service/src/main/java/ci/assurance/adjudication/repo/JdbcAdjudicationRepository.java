@@ -22,9 +22,11 @@ import org.springframework.stereotype.Repository;
 
 /**
  * Implémentation JDBC — connexion via le rôle Postgres {@code svc_adjudication}
- * (grants stricts : SELECT colonnes précises sur reclamations, SELECT sur
- * garanties/polices/remboursements(colonnes), UPDATE(statut) sur reclamations,
- * INSERT sur remboursements, EXECUTE sur log_audit).
+ * (grants stricts : SELECT colonnes précises sur reclamations/dossiers_soins/
+ * actes_dossier, SELECT complet sur garanties/polices/referentiel_actes/
+ * tarifs_conventionnes/grilles_tarifaires/medicaments, UPDATE(statut) sur
+ * reclamations, INSERT sur remboursements, EXECUTE sur log_audit — prisma/sql/018
+ * puis 034 pour l'ajout dossiers_soins/actes_dossier).
  *
  * Toutes les requêtes ci-dessous n'utilisent QUE des colonnes autorisées à ce rôle.
  */
@@ -39,6 +41,13 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
     this.mapper = mapper;
   }
 
+  // Tarif conventionné (v3 §5) : jointure dossiers_soins -> etablissement_id,
+  // puis actes_dossier.code_acte -> referentiel_actes.code (seul lien existant
+  // entre un acte réclamé et le référentiel, code_acte étant optionnel côté
+  // saisie) -> tarifs_conventionnes sur (etablissement_id, referentiel_acte_id),
+  // filtré sur la période de validité du tarif. LEFT JOIN partout : absence de
+  // tarif négocié (ou de code_acte renseigné) -> tarif_convention NULL ->
+  // comportement de calcul inchangé (Adjudicateur).
   private static final String SQL_CONTEXTE =
       """
       SELECT
@@ -49,10 +58,21 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         g.ticket_moderateur, g.delai_carence_jours, g.reseau_soins,
         p.statut      AS police_statut,
         p.date_debut  AS police_debut,
-        p.date_fin    AS police_fin
+        p.date_fin    AS police_fin,
+        ds.etablissement_id AS etablissement_id,
+        tc.tarif_convention AS tarif_convention
       FROM reclamations r
-      JOIN garanties g ON g.id = r.garantie_id AND g.deleted_at IS NULL
-      JOIN polices   p ON p.id = r.police_id   AND p.deleted_at IS NULL
+      JOIN garanties     g  ON g.id = r.garantie_id AND g.deleted_at IS NULL
+      JOIN polices       p  ON p.id = r.police_id   AND p.deleted_at IS NULL
+      LEFT JOIN dossiers_soins    ds ON ds.id = r.dossier_soins_id
+      LEFT JOIN actes_dossier     ad ON ad.id = r.acte_dossier_id AND ad.deleted_at IS NULL
+      LEFT JOIN referentiel_actes ra ON ra.code = ad.code_acte AND ra.deleted_at IS NULL
+      LEFT JOIN tarifs_conventionnes tc
+        ON tc.etablissement_id = ds.etablissement_id
+        AND tc.referentiel_acte_id = ra.id
+        AND tc.deleted_at IS NULL
+        AND tc.date_debut <= r.created_at::date
+        AND (tc.date_fin IS NULL OR tc.date_fin >= r.created_at::date)
       WHERE r.id = ? AND r.deleted_at IS NULL
       """;
 
@@ -79,7 +99,9 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
           rs.getString("reseau_soins"),
           rs.getString("police_statut"),
           localDate(rs, "police_debut"),
-          localDate(rs, "police_fin"));
+          localDate(rs, "police_fin"),
+          uuid(rs, "etablissement_id"),
+          rs.getBigDecimal("tarif_convention"));
 
   @Override
   public Optional<ContexteAdjudication> chargerContexte(UUID reclamationId) {

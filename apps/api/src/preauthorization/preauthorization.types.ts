@@ -110,6 +110,41 @@ export const ROLES_GENERATION_FACTURE = [
 /** La confirmation de paiement est réservée à ASSUREUR_COMPTABLE (v8 §5). */
 export const ROLE_CONFIRMATION_PAIEMENT = 'ASSUREUR_COMPTABLE';
 
+// --- Pré-autorisation obligatoire (analyses / examens médicaux) --------
+
+export const STATUTS_PREAUTORISATION = [
+  'NON_REQUISE',
+  'EN_ATTENTE_VALIDATION',
+  'APPROUVEE',
+  'REFUSEE',
+] as const;
+export type StatutPreautorisation = (typeof STATUTS_PREAUTORISATION)[number];
+
+/**
+ * Type de visite (care-episode) qui déclenche AUTOMATIQUEMENT le passage en
+ * `EN_ATTENTE_VALIDATION` à l'ajout d'un acte — décidé côté serveur depuis
+ * `dossier.typeVisite` réel, jamais depuis une valeur envoyée par le client.
+ */
+export const TYPE_VISITE_PREAUTORISATION_OBLIGATOIRE = 'ANALYSES_EXAMENS_MEDICAUX';
+
+/**
+ * Statuts qui EXCLUENT un acte de toute facturation/paiement — appliqué dans
+ * `calculerMontants` (génération de facture) et à réutiliser tel quel par tout
+ * futur mécanisme de paiement par acte (Prompt 3, pas encore construit).
+ */
+export const STATUTS_PREAUTORISATION_NON_FACTURABLES = [
+  'EN_ATTENTE_VALIDATION',
+  'REFUSEE',
+] as const;
+
+/**
+ * La validation d'une pré-autorisation d'analyse est réservée EXCLUSIVEMENT
+ * à ASSUREUR_MEDECIN_CONSEIL — jamais ASSUREUR_INFORMATIQUE ni
+ * ASSUREUR_EXPLOITATION (même séparation que `ROLE_HOMOLOGATION_ACTE`,
+ * module reference/).
+ */
+export const ROLE_VALIDATION_PREAUTORISATION = 'ASSUREUR_MEDECIN_CONSEIL';
+
 /** Taux de couverture par défaut si aucune garantie ne matche la catégorie d'acte. */
 export const TAUX_COUVERTURE_DEFAUT = 80;
 

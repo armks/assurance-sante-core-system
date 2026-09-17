@@ -14,7 +14,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AjouterActeDto } from './dto/acte.dto';
+import { AjouterActeDto, ValiderPreautorisationDto } from './dto/acte.dto';
 import { ValiderCodeFacturationDto } from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
@@ -36,7 +36,10 @@ import {
   ROLES_PHARMACIE,
   ROLE_CONFIRMATION_PAIEMENT,
   ROLE_MEDECIN_TRAITANT,
+  ROLE_VALIDATION_PREAUTORISATION,
+  STATUTS_PREAUTORISATION_NON_FACTURABLES,
   TAUX_COUVERTURE_DEFAUT,
+  TYPE_VISITE_PREAUTORISATION_OBLIGATOIRE,
 } from './preauthorization.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -773,6 +776,14 @@ export class PreauthorizationService {
       dto,
     );
 
+    // Pré-autorisation obligatoire (analyses/examens médicaux) : décidée
+    // EXCLUSIVEMENT depuis le type de visite RÉEL du dossier (jamais une
+    // valeur envoyée par le client) — v3 §5 étendu.
+    const statutPreautorisation =
+      ticket.dossier.typeVisite === TYPE_VISITE_PREAUTORISATION_OBLIGATOIRE
+        ? 'EN_ATTENTE_VALIDATION'
+        : 'NON_REQUISE';
+
     const id = await this.prisma.$transaction(async (tx) => {
       const acte = await tx.acteDossier.create({
         data: {
@@ -791,6 +802,7 @@ export class PreauthorizationService {
           montantSimuleAssurance: simulation?.montantSimuleAssurance ?? null,
           montantSimulePatient: simulation?.montantSimulePatient ?? null,
           ticketModerateurSimule: simulation?.ticketModerateurSimule ?? null,
+          statutPreautorisation,
           dateRealisation: dto.dateRealisation
             ? new Date(dto.dateRealisation)
             : null,
@@ -806,6 +818,7 @@ export class PreauthorizationService {
           dossierSoinsId: ticket.dossierSoinsId,
           categorie: dto.categorieActe,
           simulation: simulation ?? null,
+          statutPreautorisation,
         },
         'actes_dossier',
       );
@@ -902,6 +915,115 @@ export class PreauthorizationService {
     };
   }
 
+  /**
+   * Décision du médecin conseil sur un acte en attente de pré-autorisation
+   * (analyses/examens médicaux, v3 §5 étendu). Réservée EXCLUSIVEMENT à
+   * ASSUREUR_MEDECIN_CONSEIL — pas ASSUREUR_INFORMATIQUE, pas
+   * ASSUREUR_EXPLOITATION (même séparation que l'homologation d'un acte du
+   * référentiel, module reference/).
+   */
+  async validerPreautorisation(
+    user: AuthenticatedUser,
+    acteId: string,
+    dto: ValiderPreautorisationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_VALIDATION_PREAUTORISATION)) {
+      throw new ForbiddenException(
+        'La validation d’une pré-autorisation est réservée exclusivement à ASSUREUR_MEDECIN_CONSEIL.',
+      );
+    }
+
+    const acte = await this.prisma.acteDossier.findFirst({
+      where: { id: acteId, deletedAt: null },
+      include: { dossier: { select: { organisationId: true } } },
+    });
+    if (!acte || acte.dossier.organisationId !== ctx.organisationId) {
+      throw new NotFoundException('Acte introuvable.');
+    }
+    if (acte.statutPreautorisation !== 'EN_ATTENTE_VALIDATION') {
+      throw new ConflictException(
+        `Cet acte n'est pas en attente de pré-autorisation (statut actuel : ${acte.statutPreautorisation}).`,
+      );
+    }
+
+    const nouveauStatut = dto.decision === 'APPROUVE' ? 'APPROUVEE' : 'REFUSEE';
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.acteDossier.update({
+        where: { id: acteId },
+        data: { statutPreautorisation: nouveauStatut },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'PREAUTORISATION_ANALYSE',
+        acteId,
+        {
+          decision: dto.decision,
+          motif: dto.motif,
+          statutPrecedent: 'EN_ATTENTE_VALIDATION',
+          nouveauStatut,
+        },
+        'actes_dossier',
+      );
+    });
+
+    return this.prisma.acteDossier.findUnique({ where: { id: acteId } });
+  }
+
+  /**
+   * File d'attente du médecin conseil — tous les actes ANALYSES_EXAMENS_MEDICAUX
+   * en attente de sa décision, organisation entière (rôle ASSUREUR non scopé à
+   * un établissement, même pattern que les autres files ASSUREUR_*).
+   */
+  async listerActesEnAttentePreautorisation(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_VALIDATION_PREAUTORISATION)) {
+      throw new ForbiddenException(
+        'Réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL.',
+      );
+    }
+
+    const actes = await this.prisma.acteDossier.findMany({
+      where: {
+        statutPreautorisation: 'EN_ATTENTE_VALIDATION',
+        deletedAt: null,
+        dossier: { organisationId: ctx.organisationId },
+      },
+      include: {
+        dossier: {
+          select: {
+            numeroTraitement: true,
+            etablissement: { select: { nom: true } },
+            adherent: { select: { nom: true, prenom: true } },
+            beneficiaire: { select: { nom: true, prenom: true } },
+          },
+        },
+      },
+      orderBy: { datePrescription: 'asc' },
+    });
+
+    return actes.map((a) => ({
+      id: a.id,
+      libelle: a.libelle,
+      categorieActe: a.categorieActe,
+      codeActe: a.codeActe,
+      quantite: a.quantite,
+      montantPrescrit: a.montantPrescrit?.toFixed(2) ?? null,
+      montantSimuleAssurance: a.montantSimuleAssurance?.toFixed(2) ?? null,
+      montantSimulePatient: a.montantSimulePatient?.toFixed(2) ?? null,
+      datePrescription: a.datePrescription,
+      numeroTraitement: a.dossier.numeroTraitement,
+      etablissement: a.dossier.etablissement.nom,
+      patient: a.dossier.adherent
+        ? `${a.dossier.adherent.prenom} ${a.dossier.adherent.nom}`
+        : a.dossier.beneficiaire
+          ? `${a.dossier.beneficiaire.prenom} ${a.dossier.beneficiaire.nom}`
+          : '—',
+    }));
+  }
+
   private async chargerTicket(organisationId: string, ticketSoinsId: string) {
     const ticket = await this.prisma.ticketSoins.findFirst({
       where: { id: ticketSoinsId, dossier: { organisationId } },
@@ -973,8 +1095,25 @@ export class PreauthorizationService {
       );
     }
 
-    const { montantTotal, montantAssurance, montantPatient } =
-      await this.calculerMontants(ticket.dossier.police.produitId, ticketSoinsId);
+    const {
+      montantTotal,
+      montantAssurance,
+      montantPatient,
+      actesExclusPreautorisation,
+      aucunActeFacturable,
+    } = await this.calculerMontants(ticket.dossier.police.produitId, ticketSoinsId);
+
+    // GARDE BLOQUANTE : si le ticket contient des actes mais qu'AUCUN n'est
+    // facturable (tous EN_ATTENTE_VALIDATION ou REFUSEE), on refuse plutôt que
+    // de générer une facture à 0 F qui occuperait définitivement l'unique
+    // emplacement de facture du ticket (v3 §5 étendu).
+    if (aucunActeFacturable) {
+      throw new ConflictException({
+        message:
+          "Facturation impossible : tous les actes de ce ticket sont en attente ou ont été refusés en pré-autorisation. Aucun paiement patient n'est possible avant décision du médecin conseil.",
+        actesExclusPreautorisation,
+      });
+    }
 
     const code = await this.genererCodeFacturationUnique();
 
@@ -999,21 +1138,32 @@ export class PreauthorizationService {
         ctx.userId,
         'GENERATION_CODE_FACTURATION',
         f.id,
-        { ticketSoinsId, montantTotal, montantPatient },
+        {
+          ticketSoinsId,
+          montantTotal,
+          montantPatient,
+          actesExclusPreautorisation,
+        },
         'factures_dossier',
       );
       return f;
     });
 
-    // Réponse à l'ASSUREUR : montants, PAS le code.
+    // Réponse à l'ASSUREUR : montants, PAS le code. `actesExclus` signale les
+    // actes ANALYSES_EXAMENS_MEDICAUX non encore validés (ou refusés) par le
+    // médecin conseil, exclus du calcul (garde bloquante v3 §5 étendu).
     return {
       factureId: facture.id,
       statut: facture.statut,
       montantTotal: facture.montantTotal.toFixed(2),
       montantAssurance: facture.montantAssurance.toFixed(2),
       montantPatient: facture.montantPatient.toFixed(2),
+      actesExclusPreautorisation,
       message:
-        "Facture générée. Le code de facturation a été transmis à l'adhérent pour validation.",
+        actesExclusPreautorisation.length > 0
+          ? "Facture générée. Le code de facturation a été transmis à l'adhérent pour validation. " +
+            `${actesExclusPreautorisation.length} acte(s) en attente ou refusé(s) en pré-autorisation ont été exclus du calcul.`
+          : "Facture générée. Le code de facturation a été transmis à l'adhérent pour validation.",
     };
   }
 
@@ -1237,7 +1387,18 @@ export class PreauthorizationService {
     return estLAdherent ? facture : reste;
   }
 
-  /** Montants d'une facture — calcul provisoire (adjudication fine : Phase 7). */
+  /**
+   * Montants d'une facture — calcul provisoire (adjudication fine : Phase 7).
+   *
+   * GARDE BLOQUANTE (v3 §5 étendu, pré-autorisation obligatoire analyses/
+   * examens médicaux) : tout acte dont `statutPreautorisation` vaut
+   * `EN_ATTENTE_VALIDATION` ou `REFUSEE` est EXCLU de la somme — seuls
+   * `NON_REQUISE` et `APPROUVEE` sont facturables. Aucun paiement patient
+   * n'est donc possible sur un acte non encore validé par le médecin conseil.
+   * Cette même exclusion devra être reprise telle quelle par tout futur
+   * mécanisme de sélection d'un acte pour paiement (Prompt 3, pas encore
+   * construit) — ne pas l'oublier.
+   */
   private async calculerMontants(
     produitId: string,
     ticketSoinsId: string,
@@ -1245,14 +1406,24 @@ export class PreauthorizationService {
     montantTotal: string;
     montantAssurance: string;
     montantPatient: string;
+    actesExclusPreautorisation: string[];
+    /** true si le ticket contient des actes mais qu'AUCUN n'est facturable. */
+    aucunActeFacturable: boolean;
   }> {
-    const actes = await this.prisma.acteDossier.findMany({
+    const tousLesActes = await this.prisma.acteDossier.findMany({
       where: {
         ticketSoinsId,
         deletedAt: null,
         statut: { not: 'ANNULE' },
       },
     });
+    const nonFacturables: readonly string[] = STATUTS_PREAUTORISATION_NON_FACTURABLES;
+    const actes = tousLesActes.filter(
+      (a) => !nonFacturables.includes(a.statutPreautorisation),
+    );
+    const actesExclusPreautorisation = tousLesActes
+      .filter((a) => nonFacturables.includes(a.statutPreautorisation))
+      .map((a) => a.id);
     const garanties = await this.prisma.garantie.findMany({
       where: { produitId, deletedAt: null },
     });
@@ -1283,6 +1454,8 @@ export class PreauthorizationService {
       montantTotal: total.toFixed(2),
       montantAssurance: assurance.toFixed(2),
       montantPatient: patient.toFixed(2),
+      actesExclusPreautorisation,
+      aucunActeFacturable: tousLesActes.length > 0 && actes.length === 0,
     };
   }
 

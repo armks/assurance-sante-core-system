@@ -66,6 +66,29 @@ export const CATEGORIES_ACTE = [
 export const ROLE_RECHERCHE_CARTE = 'CENTRE_MEDICAL_ACCUEIL';
 
 /**
+ * preauthorization : pré-autorisation obligatoire pour les actes
+ * ANALYSES_EXAMENS_MEDICAUX — déclenchée côté serveur (jamais par le client)
+ * à l'ajout d'un acte quand `dossier.typeVisite = ANALYSES_EXAMENS_MEDICAUX`.
+ * Tant qu'EN_ATTENTE_VALIDATION ou REFUSEE, l'acte est exclu de toute
+ * facturation.
+ */
+export const LIBELLE_PREAUTORISATION: Record<string, string> = {
+  NON_REQUISE: 'Non requise',
+  EN_ATTENTE_VALIDATION: 'En attente',
+  APPROUVEE: 'Approuvée',
+  REFUSEE: 'Refusée',
+};
+export const TON_PREAUTORISATION: Record<
+  string,
+  'succes' | 'attention' | 'danger' | 'neutre'
+> = {
+  NON_REQUISE: 'neutre',
+  EN_ATTENTE_VALIDATION: 'attention',
+  APPROUVEE: 'succes',
+  REFUSEE: 'danger',
+};
+
+/**
  * care-episode : `TYPES_VISITE` — choisi UNE FOIS, à l'intérieur du dossier,
  * après son ouverture (jamais avant : l'ouverture reste conditionnée au seul
  * code de consultation).

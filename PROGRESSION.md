@@ -4048,3 +4048,67 @@ statut, modale de type de visite (bouton disparaît une fois défini), tableau d
 affichant les montants simulés. Toutes les données de test éphémères (adhérents, comptes
 Supabase, référentiel, tarif, dossier) supprimées et l'absence de résidu vérifiée
 indépendamment après coup.
+
+## 2026-09-17 (suite 2) — Pré-autorisation obligatoire des analyses/examens médicaux
+
+Aucun paiement patient possible sur un acte ANALYSES_EXAMENS_MEDICAUX avant validation
+explicite du médecin conseil.
+
+### 1. `statut_preautorisation` sur `actes_dossier` (prisma/sql/038)
+`NON_REQUISE | EN_ATTENTE_VALIDATION | APPROUVEE | REFUSEE`, défaut `NON_REQUISE`, `CHECK`
+en base. `PreauthorizationService.ajouterActe` force `EN_ATTENTE_VALIDATION` **côté
+serveur uniquement**, depuis `ticket.dossier.typeVisite` réel (déjà chargé par la requête
+existante) — `AjouterActeDto` n'expose d'ailleurs aucun champ permettant au client
+d'influencer ce statut. S'applique à TOUS les actes d'un dossier dont le type de visite est
+`ANALYSES_EXAMENS_MEDICAUX`, quelle que soit la `categorieActe` de l'acte lui-même.
+
+### 2. `validerPreautorisation` — réservé EXCLUSIVEMENT à `ASSUREUR_MEDECIN_CONSEIL`
+Nouvelle constante `ROLE_VALIDATION_PREAUTORISATION` (même séparation que
+`ROLE_HOMOLOGATION_ACTE`, module reference/) : ni `ASSUREUR_INFORMATIQUE`, ni
+`ASSUREUR_EXPLOITATION` ne peuvent décider. `POST /preauthorization/actes/:id/preautorisation`
+(`decision: APPROUVE|REFUSE`, `motif` requis ≥ 5 caractères) — 409 si l'acte n'est pas
+`EN_ATTENTE_VALIDATION` (décision déjà tranchée, ou acte non concerné), 404 si hors
+organisation. Audit `PREAUTORISATION_ANALYSE` avec `decision`/`motif`/statuts avant-après.
+`GET /preauthorization/actes/en-attente-preautorisation` : file d'attente organisation
+entière (patient, établissement, acte, date, montant simulé).
+
+### 3. Garde bloquante de facturation (`calculerMontants`, `genererFacture`)
+Tout acte `EN_ATTENTE_VALIDATION` ou `REFUSEE` (nouvelle constante partagée
+`STATUTS_PREAUTORISATION_NON_FACTURABLES`) est EXCLU du calcul du montant d'une facture —
+seuls `NON_REQUISE` et `APPROUVEE` comptent. Si un ticket ne contient QUE des actes exclus
+(rien à facturer), `genererFacture` refuse explicitement (409, avec la liste des actes
+concernés) plutôt que de générer une facture à 0 F qui occuperait définitivement l'unique
+emplacement de facture du ticket (`ticketSoinsId` unique sur `factures_dossier`). Dans le
+cas mixte (au moins un acte facturable), la facture est émise normalement et
+`actesExclusPreautorisation` liste les actes écartés, en réponse ET dans l'audit
+`GENERATION_CODE_FACTURATION` — cette exclusion est écrite pour être réutilisée telle
+quelle par le futur mécanisme de sélection d'un acte pour paiement (Prompt 3, pas encore
+construit). 25 nouveaux tests unitaires côté `preauthorization` (déclenchement automatique,
+validation/rôles/statuts, exclusion de facturation dans les 3 cas : mixte, tout exclu,
+aucun acte).
+
+### 4. Écran `/dashboard-assureur/medecin-conseil/preautorisations`
+Nouvelle page + composant `PreautorisationsFile` (même patron que `RevueManuelleFile` des
+réclamations) : DataTable (patient, établissement, acte, date, montant simulé
+assurance/patient), action « Décider » → `FormulaireModal` Approuver/Refuser avec motif
+obligatoire. Lien ajouté sur la vue d'ensemble médecin conseil et dans la navigation.
+
+### 5. Visibilité côté établissement
+Badge de pré-autorisation (`EN_ATTENTE_VALIDATION` ambre / `APPROUVEE` vert / `REFUSEE`
+rouge, `NON_REQUISE` masqué) ajouté à la fois sur le tableau des actes de
+`dossier-detail.tsx` (dossier en cours) et de `ticket-detail.tsx` (écran de facturation
+comptable), avec un avertissement explicite dans ce dernier quand des actes sont exclus du
+montant facturé.
+
+### Tests
+Backend : 294/294 (`npx jest`, 25 nouveaux). `npx tsc --noEmit` propre API et Web. Test
+HTTP réel (établissement FARAH) : ajout d'un acte BIOLOGIE sur un dossier de type
+ANALYSES_EXAMENS_MEDICAUX → `EN_ATTENTE_VALIDATION` confirmé en HTTP et en base ; tentative
+de facturation avant validation → 409 explicite nommant l'acte concerné ; validation par
+`ASSUREUR_INFORMATIQUE` → 403 ; validation par `ASSUREUR_MEDECIN_CONSEIL` → `APPROUVEE`,
+revalidation → 409 ; facturation après validation → 201, montant total 15 000 F complet,
+aucune exclusion. Test navigateur réel (Playwright) : badge « En attente » visible côté
+établissement, acte listé dans la file du médecin conseil (patient + établissement
+visibles), décision Approuver via la modale → acte disparaît de la file, statut confirmé
+en base. Toutes les données de test éphémères supprimées, absence de résidu vérifiée
+indépendamment.

@@ -10,7 +10,7 @@ import {
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { AjouterActeDto } from './dto/acte.dto';
+import { AjouterActeDto, ValiderPreautorisationDto } from './dto/acte.dto';
 import { ValiderCodeFacturationDto } from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
@@ -133,6 +133,24 @@ export class PreauthorizationController {
     @Body() dto: AjouterActeDto,
   ) {
     return this.preauth.ajouterActe(user, id, dto);
+  }
+
+  // --- Pré-autorisation obligatoire (analyses/examens médicaux) -----
+
+  /** Côté MÉDECIN CONSEIL : file d'attente des actes à valider. */
+  @Get('actes/en-attente-preautorisation')
+  listerActesEnAttentePreautorisation(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerActesEnAttentePreautorisation(user);
+  }
+
+  /** Côté MÉDECIN CONSEIL exclusivement : APPROUVE/REFUSE, avec motif audité. */
+  @Post('actes/:id/preautorisation')
+  validerPreautorisation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ValiderPreautorisationDto,
+  ) {
+    return this.preauth.validerPreautorisation(user, id, dto);
   }
 
   // --- Code de Facturation (v8 §5) — 4e et dernier code anti-fraude ---

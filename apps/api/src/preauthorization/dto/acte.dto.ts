@@ -9,6 +9,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 import { CATEGORIES_ACTE } from '../preauthorization.types';
 
@@ -34,4 +35,14 @@ export class AjouterActeDto {
   montantPrescrit?: number;
 
   @IsOptional() @IsString() dateRealisation?: string;
+}
+
+export class ValiderPreautorisationDto {
+  @IsIn(['APPROUVE', 'REFUSE'])
+  decision!: 'APPROUVE' | 'REFUSE';
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  motif!: string;
 }

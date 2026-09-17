@@ -339,4 +339,84 @@ describe('PreauthorizationService — Code de Facturation (garde de paiement)', 
       service.obtenirFacture(USER, 'fac-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Garde bloquante : pré-autorisation obligatoire (analyses/examens
+  //  médicaux, v3 §5 étendu) — aucun acte EN_ATTENTE_VALIDATION ou REFUSEE
+  //  ne doit jamais entrer dans le calcul d'une facture (donc jamais être
+  //  payable). NON_REQUISE et APPROUVEE restent facturables normalement.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('exclusion des actes en attente/refusés de pré-autorisation', () => {
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.ticketSoins.findFirst.mockResolvedValue(ticket('CLOTURE'));
+      prisma.garantie.findMany.mockResolvedValue([
+        { categorieActe: 'BIOLOGIE', tauxCouverture: dec(80), plafondParActe: null },
+        { categorieActe: 'CONSULTATION', tauxCouverture: dec(80), plafondParActe: null },
+      ]);
+      prisma.factureDossier.create.mockImplementation(({ data }: any) => ({
+        id: 'fac-1',
+        ...data,
+        montantTotal: dec(Number(data.montantTotal)),
+        montantAssurance: dec(Number(data.montantAssurance)),
+        montantPatient: dec(Number(data.montantPatient)),
+      }));
+    });
+
+    it('exclut un acte EN_ATTENTE_VALIDATION du montant total de la facture', async () => {
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { id: 'acte-ok', montantPrescrit: dec(10000), quantite: 1, categorieActe: 'CONSULTATION', statutPreautorisation: 'NON_REQUISE' },
+        { id: 'acte-attente', montantPrescrit: dec(50000), quantite: 1, categorieActe: 'BIOLOGIE', statutPreautorisation: 'EN_ATTENTE_VALIDATION' },
+      ]);
+
+      const res = await service.genererFacture(USER, 'tkt-1');
+
+      expect(res.montantTotal).toBe('10000.00');
+      expect(res.montantAssurance).toBe('8000.00');
+      expect((res as any).actesExclusPreautorisation).toEqual(['acte-attente']);
+      expect(res.message).toMatch(/1 acte\(s\).*exclu/);
+    });
+
+    it('REFUSE genererFacture (409) si le ticket ne contient QUE des actes exclus (rien à facturer)', async () => {
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { id: 'acte-refuse', montantPrescrit: dec(50000), quantite: 1, categorieActe: 'BIOLOGIE', statutPreautorisation: 'REFUSEE' },
+      ]);
+
+      await expect(service.genererFacture(USER, 'tkt-1')).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.factureDossier.create).not.toHaveBeenCalled();
+    });
+
+    it('un acte APPROUVEE reste facturable normalement', async () => {
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { id: 'acte-approuve', montantPrescrit: dec(50000), quantite: 1, categorieActe: 'BIOLOGIE', statutPreautorisation: 'APPROUVEE' },
+      ]);
+
+      const res = await service.genererFacture(USER, 'tkt-1');
+
+      expect(res.montantTotal).toBe('50000.00');
+      expect((res as any).actesExclusPreautorisation).toEqual([]);
+    });
+
+    it('ticket sans aucun acte (cas pré-existant) → facture à 0 F autorisée, pas de 409', async () => {
+      prisma.acteDossier.findMany.mockResolvedValue([]);
+
+      const res = await service.genererFacture(USER, 'tkt-1');
+
+      expect(res.montantTotal).toBe('0.00');
+      expect((res as any).actesExclusPreautorisation).toEqual([]);
+    });
+
+    it('aucun acte concerné → aucune exclusion, message inchangé', async () => {
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { id: 'acte-ok', montantPrescrit: dec(10000), quantite: 1, categorieActe: 'CONSULTATION', statutPreautorisation: 'NON_REQUISE' },
+      ]);
+
+      const res = await service.genererFacture(USER, 'tkt-1');
+
+      expect((res as any).actesExclusPreautorisation).toEqual([]);
+      expect(res.message).not.toMatch(/exclu/);
+    });
+  });
 });

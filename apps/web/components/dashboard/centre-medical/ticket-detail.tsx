@@ -11,6 +11,7 @@ import {
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LIBELLE_PREAUTORISATION, TON_PREAUTORISATION } from '@/lib/centre-medical';
 
 interface Acte {
   id: string;
@@ -18,6 +19,7 @@ interface Acte {
   categorieActe: string;
   quantite: number;
   montantPrescrit: string | null;
+  statutPreautorisation: string;
   statut: string;
 }
 interface Facture {
@@ -87,7 +89,25 @@ export function TicketDetail({
       valeur: (a) => Number(a.montantPrescrit ?? 0),
       rendu: (a) => montant(a.montantPrescrit),
     },
+    {
+      cle: 'statutPreautorisation',
+      entete: 'Pré-autorisation',
+      rendu: (a) =>
+        a.statutPreautorisation === 'NON_REQUISE' ? (
+          '—'
+        ) : (
+          <StatutBadge
+            statut={a.statutPreautorisation}
+            map={TON_PREAUTORISATION}
+            libelles={LIBELLE_PREAUTORISATION}
+          />
+        ),
+    },
   ];
+
+  const actesExclus = dossier.actes.filter((a) =>
+    ['EN_ATTENTE_VALIDATION', 'REFUSEE'].includes(a.statutPreautorisation),
+  );
 
   return (
     <div className="space-y-6">
@@ -121,6 +141,14 @@ export function TicketDetail({
           <CardTitle className="text-base">Actes</CardTitle>
         </CardHeader>
         <CardContent>
+          {actesExclus.length > 0 && (
+            <p className="mb-3 text-sm text-amber-700 dark:text-amber-400">
+              {actesExclus.length} acte(s) en attente ou refusé(s) en
+              pré-autorisation — exclus du montant de la facture tant que le
+              médecin conseil n’a pas statué (aucun paiement patient possible
+              sur ces actes).
+            </p>
+          )}
           <DataTable
             donnees={dossier.actes}
             cleLigne={(a) => a.id}

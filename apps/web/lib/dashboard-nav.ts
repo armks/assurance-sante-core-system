@@ -167,6 +167,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       icon: Stethoscope,
     },
     {
+      label: 'Pré-autorisations',
+      href: `${MEDECIN_CONSEIL}/preautorisations`,
+      icon: ClipboardList,
+    },
+    {
       label: 'Réclamations en revue',
       href: `${MEDECIN_CONSEIL}/reclamations-revue`,
       icon: Scale,

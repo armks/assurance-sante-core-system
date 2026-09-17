@@ -23,9 +23,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   CATEGORIES_ACTE,
+  LIBELLE_PREAUTORISATION,
   ROLES_GESTION_DOSSIER,
   ROLES_ORDONNANCE_DELEGUEE,
   ROLE_MEDECIN_TRAITANT,
+  TON_PREAUTORISATION,
   TYPES_VISITE,
   aUnRole,
 } from '@/lib/centre-medical';
@@ -49,6 +51,7 @@ interface Acte {
   montantSimuleAssurance: string | null;
   montantSimulePatient: string | null;
   ticketModerateurSimule: string | null;
+  statutPreautorisation: string;
   statut: string;
 }
 export interface DossierComplet {
@@ -155,6 +158,20 @@ export function DossierDetail({
       aligneDroite: true,
       valeur: (a) => Number(a.montantSimuleAssurance ?? 0),
       rendu: (a) => montant(a.montantSimuleAssurance),
+    },
+    {
+      cle: 'statutPreautorisation',
+      entete: 'Pré-autorisation',
+      rendu: (a) =>
+        a.statutPreautorisation === 'NON_REQUISE' ? (
+          '—'
+        ) : (
+          <StatutBadge
+            statut={a.statutPreautorisation}
+            map={TON_PREAUTORISATION}
+            libelles={LIBELLE_PREAUTORISATION}
+          />
+        ),
     },
     {
       cle: 'statut',

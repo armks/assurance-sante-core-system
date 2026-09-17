@@ -1075,6 +1075,12 @@ model ActeDossier {
   montantSimuleAssurance Decimal? @map("montant_simule_assurance") @db.Decimal(14, 2)
   montantSimulePatient   Decimal? @map("montant_simule_patient") @db.Decimal(14, 2)
   ticketModerateurSimule Decimal? @map("ticket_moderateur_simule") @db.Decimal(14, 2)
+  /// Pré-autorisation obligatoire pour les actes ANALYSES_EXAMENS_MEDICAUX —
+  /// forcée à EN_ATTENTE_VALIDATION côté serveur (jamais par le client) quand
+  /// dossier.typeVisite = ANALYSES_EXAMENS_MEDICAUX à l'ajout de l'acte. Tant
+  /// qu'EN_ATTENTE_VALIDATION ou REFUSEE, l'acte est exclu de toute
+  /// facturation/paiement (v3 §5 étendu). prisma/sql/038.
+  statutPreautorisation String    @default("NON_REQUISE") @map("statut_preautorisation") // NON_REQUISE | EN_ATTENTE_VALIDATION | APPROUVEE | REFUSEE
   statut                String    @default("PRESCRIT") // PRESCRIT | REALISE | ANNULE | LIQUIDE
   datePrescription      DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
   dateRealisation       DateTime? @map("date_realisation") @db.Timestamptz(6)

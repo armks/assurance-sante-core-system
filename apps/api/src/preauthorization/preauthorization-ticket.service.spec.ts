@@ -345,7 +345,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1' });
     });
 
-    it('force EN_ATTENTE_VALIDATION quand dossier.typeVisite = ANALYSES_EXAMENS_MEDICAUX', async () => {
+    it('force EN_ATTENTE_EXPLOITATION quand dossier.typeVisite = ANALYSES_EXAMENS_MEDICAUX', async () => {
       prisma.ticketSoins.findFirst.mockResolvedValue(
         ticket('OUVERT', 'ANALYSES_EXAMENS_MEDICAUX'),
       );
@@ -354,7 +354,21 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
 
       expect(prisma.acteDossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ statutPreautorisation: 'EN_ATTENTE_VALIDATION' }),
+          data: expect.objectContaining({ statutPreautorisation: 'EN_ATTENTE_EXPLOITATION' }),
+        }),
+      );
+    });
+
+    it('force EN_ATTENTE_EXPLOITATION quand dossier.typeVisite = HOSPITALISATION_MEDICALE (élargi à ce Prompt)', async () => {
+      prisma.ticketSoins.findFirst.mockResolvedValue(
+        ticket('OUVERT', 'HOSPITALISATION_MEDICALE'),
+      );
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE);
+
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ statutPreautorisation: 'EN_ATTENTE_EXPLOITATION' }),
         }),
       );
     });
@@ -396,7 +410,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
 
       expect(prisma.acteDossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ statutPreautorisation: 'EN_ATTENTE_VALIDATION' }),
+          data: expect.objectContaining({ statutPreautorisation: 'EN_ATTENTE_EXPLOITATION' }),
         }),
       );
     });
@@ -416,8 +430,13 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
 
     const acteEnAttente = (extra: Record<string, unknown> = {}) => ({
       id: 'acte-1',
-      statutPreautorisation: 'EN_ATTENTE_VALIDATION',
-      dossier: { organisationId: 'org-1' },
+      statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL',
+      quantite: 1,
+      libelle: 'Bilan sanguin',
+      categorieActe: 'BIOLOGIE',
+      codeActe: null,
+      montantPrescrit: null,
+      dossier: { organisationId: 'org-1', etablissementId: 'etab-1', police: { produitId: 'prod-1' } },
       ...extra,
     });
 
@@ -434,7 +453,12 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
 
       expect(prisma.acteDossier.update).toHaveBeenCalledWith({
         where: { id: 'acte-1' },
-        data: { statutPreautorisation: 'APPROUVEE' },
+        data: {
+          statutPreautorisation: 'APPROUVEE',
+          quantiteApprouvee: null,
+          typeActeApprouve: null,
+          ticketModerateurAjuste: null,
+        },
       });
       expect(prisma.$executeRaw).toHaveBeenCalled();
       expect(res).toMatchObject({ statutPreautorisation: 'APPROUVEE' });
@@ -501,6 +525,193 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       await expect(
         service.validerPreautorisation(USER, 'acte-1', { decision: 'APPROUVE', motif: 'Test suffisant.' }),
       ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  traiterParExploitation — premier niveau du circuit à deux niveaux.
+  //  Réservé EXCLUSIVEMENT à ASSUREUR_EXPLOITATION/ASSUREUR_EXPLOITATION_
+  //  CONJOINTE. APPROUVE/REFUSE finalisent directement ; ESCALADE_MEDECIN_
+  //  CONSEIL transfère au second niveau sans statuer sur le fond.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('traiterParExploitation', () => {
+    const acteEnAttenteExploitation = (extra: Record<string, unknown> = {}) => ({
+      id: 'acte-1',
+      statutPreautorisation: 'EN_ATTENTE_EXPLOITATION',
+      quantite: 3,
+      libelle: 'Hospitalisation médicale',
+      categorieActe: 'HOSPITALISATION',
+      codeActe: null,
+      montantPrescrit: 5000, // par jour
+      dossier: { organisationId: 'org-1', etablissementId: 'etab-1', police: { produitId: 'prod-1' } },
+      ...extra,
+    });
+
+    beforeEach(() => {
+      prisma.acteDossier.update = jest.fn().mockResolvedValue({});
+    });
+
+    it('APPROUVE intégral (aucun ajustement) → APPROUVEE, pas de recalcul de quantité', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnAttenteExploitation());
+      prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1', statutPreautorisation: 'APPROUVEE' });
+
+      const res = await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'APPROUVE',
+        motif: 'Hospitalisation justifiée, durée conforme au protocole.',
+      });
+
+      // 3 jours × 5000 × 80 % = 12000 (base = quantité DEMANDÉE, aucun ajustement).
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            statutPreautorisation: 'APPROUVEE',
+            montantSimuleAssurance: '12000.00',
+          }),
+        }),
+      );
+      expect(res).toMatchObject({ statutPreautorisation: 'APPROUVEE' });
+    });
+
+    it('APPROUVE PARTIEL (2 jours accordés sur 3 demandés) → APPROUVEE_PARTIELLEMENT, recalcul sur la base APPROUVÉE', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnAttenteExploitation());
+      prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1', statutPreautorisation: 'APPROUVEE_PARTIELLEMENT' });
+
+      await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'APPROUVE',
+        quantiteApprouvee: 2,
+        motif: 'Seuls 2 jours cliniquement justifiés sur les 3 demandés.',
+      });
+
+      // Base = 2 jours (APPROUVÉS), pas 3 (demandés) : 5000 × 2 × 80 % = 8000.
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            statutPreautorisation: 'APPROUVEE_PARTIELLEMENT',
+            quantiteApprouvee: 2,
+            montantSimuleAssurance: '8000.00',
+            montantSimulePatient: '2000.00',
+          }),
+        }),
+      );
+    });
+
+    it('typeApprouve différent du libellé demandé → APPROUVEE_PARTIELLEMENT même à quantité égale', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnAttenteExploitation());
+      prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1' });
+
+      await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'APPROUVE',
+        typeApprouve: 'Mise en observation',
+        motif: 'Hospitalisation non justifiée, mise en observation suffisante.',
+      });
+
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            statutPreautorisation: 'APPROUVEE_PARTIELLEMENT',
+            typeActeApprouve: 'Mise en observation',
+          }),
+        }),
+      );
+    });
+
+    it('ticketModerateurAjuste surcharge le pourcentage de la garantie pour CET acte', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnAttenteExploitation());
+      prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1' });
+
+      await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'APPROUVE',
+        ticketModerateurAjuste: 10,
+        motif: 'Ticket modérateur réduit à titre exceptionnel pour ce dossier.',
+      });
+
+      // 3 × 5000 = 15000 ; ticket modérateur à 10 % (surchargé, pas les 20 % de la garantie) = 1500.
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ticketModerateurAjuste: '10.00',
+            ticketModerateurSimule: '1500.00',
+          }),
+        }),
+      );
+    });
+
+    it('REFUSE → REFUSEE (pas de recalcul, pas de champs d’approbation)', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnAttenteExploitation());
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1', statutPreautorisation: 'REFUSEE' });
+
+      await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'REFUSE',
+        motif: 'Hospitalisation non couverte par la garantie souscrite.',
+      });
+
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith({
+        where: { id: 'acte-1' },
+        data: { statutPreautorisation: 'REFUSEE' },
+      });
+      expect(prisma.garantie.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('ESCALADE_MEDECIN_CONSEIL → EN_ATTENTE_MEDECIN_CONSEIL, sans passer par la finalisation', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnAttenteExploitation());
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1', statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL' });
+
+      const res = await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'ESCALADE_MEDECIN_CONSEIL',
+        motif: 'Dossier médical complexe, avis du médecin conseil requis.',
+      });
+
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith({
+        where: { id: 'acte-1' },
+        data: { statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL' },
+      });
+      expect(res).toMatchObject({ statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL' });
+    });
+
+    it('ASSUREUR_EXPLOITATION_CONJOINTE est également autorisée (pas exclusive au titulaire)', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION_CONJOINTE', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnAttenteExploitation());
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1', statutPreautorisation: 'REFUSEE' });
+
+      await expect(
+        service.traiterParExploitation(USER, 'acte-1', { decision: 'REFUSE', motif: 'Test suffisant ici.' }),
+      ).resolves.toMatchObject({ statutPreautorisation: 'REFUSEE' });
+    });
+
+    it('ASSUREUR_MEDECIN_CONSEIL → 403 (exclu du premier niveau)', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_MEDECIN_CONSEIL', null as any));
+      await expect(
+        service.traiterParExploitation(USER, 'acte-1', { decision: 'APPROUVE', motif: 'Test suffisant ici.' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.acteDossier.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_INFORMATIQUE → 403 (exclu du premier niveau)', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_INFORMATIQUE', null as any));
+      await expect(
+        service.traiterParExploitation(USER, 'acte-1', { decision: 'APPROUVE', motif: 'Test suffisant ici.' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('acte déjà escaladé (EN_ATTENTE_MEDECIN_CONSEIL) → 409, l’exploitation ne peut plus le retraiter', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(
+        acteEnAttenteExploitation({ statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL' }),
+      );
+      await expect(
+        service.traiterParExploitation(USER, 'acte-1', { decision: 'APPROUVE', motif: 'Test suffisant ici.' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.acteDossier.update).not.toHaveBeenCalled();
     });
   });
 });

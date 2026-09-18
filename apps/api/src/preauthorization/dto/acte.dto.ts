@@ -11,7 +11,10 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { CATEGORIES_ACTE } from '../preauthorization.types';
+import {
+  CATEGORIES_ACTE,
+  DECISIONS_EXPLOITATION_PREAUTORISATION,
+} from '../preauthorization.types';
 
 export class AjouterActeDto {
   @IsIn(CATEGORIES_ACTE)
@@ -40,6 +43,33 @@ export class AjouterActeDto {
 export class ValiderPreautorisationDto {
   @IsIn(['APPROUVE', 'REFUSE'])
   decision!: 'APPROUVE' | 'REFUSE';
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  motif!: string;
+}
+
+/**
+ * Premier niveau (ASSUREUR_EXPLOITATION/_CONJOINTE). `quantiteApprouvee` /
+ * `typeApprouve` / `ticketModerateurAjuste` ne s'appliquent qu'à une décision
+ * `APPROUVE` (approbation partielle possible) — ignorés silencieusement pour
+ * `REFUSE`/`ESCALADE_MEDECIN_CONSEIL`, jamais une erreur : un service qui
+ * envoie ces champs par précaution ne doit pas voir sa décision rejetée.
+ */
+export class TraiterParExploitationDto {
+  @IsIn(DECISIONS_EXPLOITATION_PREAUTORISATION)
+  decision!: (typeof DECISIONS_EXPLOITATION_PREAUTORISATION)[number];
+
+  @IsOptional() @IsInt() @Min(0) quantiteApprouvee?: number;
+
+  @IsOptional() @IsString() @MaxLength(300) typeApprouve?: string;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  ticketModerateurAjuste?: number;
 
   @IsString()
   @MinLength(5)

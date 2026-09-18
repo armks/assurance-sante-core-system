@@ -155,12 +155,12 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       expect(prisma.ligneFacturation.create).toHaveBeenCalledTimes(2);
     });
 
-    it('EXCLUT automatiquement un acte EN_ATTENTE_VALIDATION même s’il est sélectionné', async () => {
+    it('EXCLUT automatiquement un acte EN_ATTENTE_EXPLOITATION même s’il est sélectionné', async () => {
       identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
       prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
       prisma.acteDossier.findMany.mockResolvedValue([
         acte('acte-ok', { montantPrescrit: dec(10000) }),
-        acte('acte-attente', { montantPrescrit: dec(50000), categorieActe: 'BIOLOGIE', statutPreautorisation: 'EN_ATTENTE_VALIDATION' }),
+        acte('acte-attente', { montantPrescrit: dec(50000), categorieActe: 'BIOLOGIE', statutPreautorisation: 'EN_ATTENTE_EXPLOITATION' }),
       ]);
 
       const res = await service.genererFactureSelection(USER, 'dos-1', {

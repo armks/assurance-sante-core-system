@@ -1087,12 +1087,25 @@ model ActeDossier {
   montantSimuleAssurance Decimal? @map("montant_simule_assurance") @db.Decimal(14, 2)
   montantSimulePatient   Decimal? @map("montant_simule_patient") @db.Decimal(14, 2)
   ticketModerateurSimule Decimal? @map("ticket_moderateur_simule") @db.Decimal(14, 2)
-  /// Pré-autorisation obligatoire pour les actes ANALYSES_EXAMENS_MEDICAUX —
-  /// forcée à EN_ATTENTE_VALIDATION côté serveur (jamais par le client) quand
-  /// dossier.typeVisite = ANALYSES_EXAMENS_MEDICAUX à l'ajout de l'acte. Tant
-  /// qu'EN_ATTENTE_VALIDATION ou REFUSEE, l'acte est exclu de toute
-  /// facturation/paiement (v3 §5 étendu). prisma/sql/038.
-  statutPreautorisation String    @default("NON_REQUISE") @map("statut_preautorisation") // NON_REQUISE | EN_ATTENTE_VALIDATION | APPROUVEE | REFUSEE
+  /// Pré-autorisation obligatoire à DEUX niveaux pour les actes ANALYSES_
+  /// EXAMENS_MEDICAUX/HOSPITALISATION_MEDICALE — forcée à EN_ATTENTE_
+  /// EXPLOITATION côté serveur (jamais par le client) quand dossier.typeVisite
+  /// le requiert. ASSUREUR_EXPLOITATION statue en premier (APPROUVE/REFUSE/
+  /// ESCALADE_MEDECIN_CONSEIL) ; seule l'escalade fait passer à EN_ATTENTE_
+  /// MEDECIN_CONSEIL. Tant que EN_ATTENTE_* ou REFUSEE, l'acte est exclu de
+  /// toute facturation/paiement (v3 §5 étendu). prisma/sql/038, prisma/sql/041.
+  statutPreautorisation String    @default("NON_REQUISE") @map("statut_preautorisation") // NON_REQUISE | EN_ATTENTE_EXPLOITATION | EN_ATTENTE_MEDECIN_CONSEIL | APPROUVEE | APPROUVEE_PARTIELLEMENT | REFUSEE
+  /// Approbation partielle par l'exploitation ou le médecin conseil (ex. 2
+  /// jours accordés sur 3 demandés — `quantite` reste la quantité DEMANDÉE,
+  /// inchangée) ou changement de nature de l'acte approuvé (ex. « mise en
+  /// observation » à la place d'une hospitalisation). NULL tant que non
+  /// approuvé, ou si l'approbation est intégrale. prisma/sql/041.
+  quantiteApprouvee      Int?      @map("quantite_approuvee")
+  typeActeApprouve       String?   @map("type_acte_approuve")
+  /// Surcharge du ticket modérateur pour CET acte précis uniquement (jamais
+  /// la garantie elle-même, ni les autres actes du dossier) — utilisée en
+  /// priorité sur `garanties.ticketModerateur` si renseignée. prisma/sql/041.
+  ticketModerateurAjuste Decimal?  @map("ticket_moderateur_ajuste") @db.Decimal(5, 2)
   statut                String    @default("PRESCRIT") // PRESCRIT | REALISE | ANNULE | LIQUIDE
   datePrescription      DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
   dateRealisation       DateTime? @map("date_realisation") @db.Timestamptz(6)

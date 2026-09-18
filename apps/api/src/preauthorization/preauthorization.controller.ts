@@ -10,7 +10,11 @@ import {
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { AjouterActeDto, ValiderPreautorisationDto } from './dto/acte.dto';
+import {
+  AjouterActeDto,
+  TraiterParExploitationDto,
+  ValiderPreautorisationDto,
+} from './dto/acte.dto';
 import {
   GenererFactureSelectionDto,
   ValiderCodeFacturationDto,
@@ -154,7 +158,10 @@ export class PreauthorizationController {
     return this.preauth.listerActesEnAttentePreautorisation(user);
   }
 
-  /** Côté MÉDECIN CONSEIL exclusivement : APPROUVE/REFUSE, avec motif audité. */
+  /**
+   * Côté MÉDECIN CONSEIL exclusivement : second niveau, APPROUVE/REFUSE un
+   * acte ESCALADÉ par l'exploitation, avec motif audité.
+   */
   @Post('actes/:id/preautorisation')
   validerPreautorisation(
     @CurrentUser() user: AuthenticatedUser,
@@ -162,6 +169,29 @@ export class PreauthorizationController {
     @Body() dto: ValiderPreautorisationDto,
   ) {
     return this.preauth.validerPreautorisation(user, id, dto);
+  }
+
+  /**
+   * Côté ASSUREUR_EXPLOITATION(_CONJOINTE) : file complète du premier niveau
+   * (propositions à traiter, escaladées en lecture seule, déjà tranchées).
+   */
+  @Get('actes/preautorisation-exploitation')
+  listerActesPreautorisationExploitation(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerActesPreautorisationExploitation(user);
+  }
+
+  /**
+   * Côté ASSUREUR_EXPLOITATION(_CONJOINTE) exclusivement : premier niveau —
+   * APPROUVE/REFUSE (avec approbation partielle possible) ou ESCALADE_
+   * MEDECIN_CONSEIL.
+   */
+  @Post('actes/:id/preautorisation-exploitation')
+  traiterParExploitation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TraiterParExploitationDto,
+  ) {
+    return this.preauth.traiterParExploitation(user, id, dto);
   }
 
   // --- Code de Facturation (v8 §5) — facturation par sélection d'actes ---

@@ -14,7 +14,11 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AjouterActeDto, ValiderPreautorisationDto } from './dto/acte.dto';
+import {
+  AjouterActeDto,
+  TraiterParExploitationDto,
+  ValiderPreautorisationDto,
+} from './dto/acte.dto';
 import {
   GenererFactureSelectionDto,
   ValiderCodeFacturationDto,
@@ -41,9 +45,10 @@ import {
   ROLE_MAINTENANCE_EXPIRATION,
   ROLE_MEDECIN_TRAITANT,
   ROLE_VALIDATION_PREAUTORISATION,
+  ROLES_TRAITEMENT_EXPLOITATION,
   STATUTS_PREAUTORISATION_NON_FACTURABLES,
   TAUX_COUVERTURE_DEFAUT,
-  TYPE_VISITE_PREAUTORISATION_OBLIGATOIRE,
+  TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE,
 } from './preauthorization.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -837,13 +842,15 @@ export class PreauthorizationService {
       dto,
     );
 
-    // Pré-autorisation obligatoire (analyses/examens médicaux) : décidée
-    // EXCLUSIVEMENT depuis le type de visite RÉEL du dossier (jamais une
-    // valeur envoyée par le client) — v3 §5 étendu.
-    const statutPreautorisation =
-      ticket.dossier.typeVisite === TYPE_VISITE_PREAUTORISATION_OBLIGATOIRE
-        ? 'EN_ATTENTE_VALIDATION'
-        : 'NON_REQUISE';
+    // Pré-autorisation obligatoire à deux niveaux (analyses/examens,
+    // hospitalisation) : décidée EXCLUSIVEMENT depuis le type de visite RÉEL
+    // du dossier (jamais une valeur envoyée par le client) — v3 §5 étendu,
+    // circuit à deux niveaux. Premier niveau = ASSUREUR_EXPLOITATION.
+    const statutPreautorisation = (
+      TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE as readonly string[]
+    ).includes(ticket.dossier.typeVisite ?? '')
+      ? 'EN_ATTENTE_EXPLOITATION'
+      : 'NON_REQUISE';
 
     const id = await this.prisma.$transaction(async (tx) => {
       const acte = await tx.acteDossier.create({
@@ -899,12 +906,19 @@ export class PreauthorizationService {
    * répliqué ici). Renvoie `null` si aucun montant facturé n'est fourni, ou
    * si aucune garantie ne correspond à la catégorie d'acte du produit du
    * patient (rien à simuler) — ne bloque jamais l'ajout de l'acte lui-même.
+   *
+   * `ticketModerateurOverride` : surcharge `garanties.ticketModerateur` pour
+   * CE calcul précis — utilisé lors du recalcul après approbation par
+   * l'exploitation/le médecin conseil quand `ticketModerateurAjuste` a été
+   * renseigné sur l'acte (jamais la garantie elle-même, ni les autres actes
+   * du dossier).
    */
   private async simulerMontantActe(
     organisationId: string,
     etablissementId: string,
     produitId: string,
     dto: Pick<AjouterActeDto, 'categorieActe' | 'codeActe' | 'montantPrescrit' | 'quantite'>,
+    ticketModerateurOverride?: string,
   ): Promise<{
     montantSimuleAssurance: string;
     montantSimulePatient: string;
@@ -963,7 +977,9 @@ export class PreauthorizationService {
       }
     }
     const montantSimulePatient = montantBase.sub(montantSimuleAssurance);
-    const ticketModPct = new Decimal(garantie.ticketModerateur?.toString() ?? '0');
+    const ticketModPct = new Decimal(
+      ticketModerateurOverride ?? garantie.ticketModerateur?.toString() ?? '0',
+    );
     const ticketModerateurSimule = montantBase
       .mul(ticketModPct)
       .div(100)
@@ -977,9 +993,10 @@ export class PreauthorizationService {
   }
 
   /**
-   * Décision du médecin conseil sur un acte en attente de pré-autorisation
-   * (analyses/examens médicaux, v3 §5 étendu). Réservée EXCLUSIVEMENT à
-   * ASSUREUR_MEDECIN_CONSEIL — pas ASSUREUR_INFORMATIQUE, pas
+   * Second niveau — décision du médecin conseil sur un acte ESCALADÉ par
+   * l'exploitation (jamais atteint directement depuis l'ajout de l'acte
+   * depuis ce Prompt : voir `traiterParExploitation`). Réservée EXCLUSIVEMENT
+   * à ASSUREUR_MEDECIN_CONSEIL — pas ASSUREUR_INFORMATIQUE, pas
    * ASSUREUR_EXPLOITATION (même séparation que l'homologation d'un acte du
    * référentiel, module reference/).
    */
@@ -995,48 +1012,246 @@ export class PreauthorizationService {
       );
     }
 
-    const acte = await this.prisma.acteDossier.findFirst({
-      where: { id: acteId, deletedAt: null },
-      include: { dossier: { select: { organisationId: true } } },
-    });
-    if (!acte || acte.dossier.organisationId !== ctx.organisationId) {
-      throw new NotFoundException('Acte introuvable.');
-    }
-    if (acte.statutPreautorisation !== 'EN_ATTENTE_VALIDATION') {
+    const acte = await this.chargerActePreautorisation(ctx, acteId);
+    if (acte.statutPreautorisation !== 'EN_ATTENTE_MEDECIN_CONSEIL') {
       throw new ConflictException(
-        `Cet acte n'est pas en attente de pré-autorisation (statut actuel : ${acte.statutPreautorisation}).`,
+        `Cet acte n'est pas en attente de validation par le médecin conseil (statut actuel : ${acte.statutPreautorisation}).`,
       );
     }
 
-    const nouveauStatut = dto.decision === 'APPROUVE' ? 'APPROUVEE' : 'REFUSEE';
+    return this.finaliserDecisionPreautorisation(ctx, acte, {
+      decision: dto.decision,
+      motif: dto.motif,
+      action: 'PREAUTORISATION_ANALYSE',
+      statutPrecedent: 'EN_ATTENTE_MEDECIN_CONSEIL',
+    });
+  }
+
+  /**
+   * Premier niveau de la pré-autorisation à deux niveaux — réservé
+   * EXCLUSIVEMENT à ASSUREUR_EXPLOITATION/ASSUREUR_EXPLOITATION_CONJOINTE
+   * (pas ASSUREUR_INFORMATIQUE, pas ASSUREUR_MEDECIN_CONSEIL).
+   * `ESCALADE_MEDECIN_CONSEIL` transfère la décision au second niveau (file
+   * existante du médecin conseil) sans statuer sur le fond ; `APPROUVE`/
+   * `REFUSE` réutilisent le même mécanisme de finalisation que
+   * `validerPreautorisation` (`finaliserDecisionPreautorisation`), avec en
+   * plus l'approbation PARTIELLE (`quantiteApprouvee`/`typeApprouve`) et la
+   * surcharge du ticket modérateur (`ticketModerateurAjuste`) propres à ce
+   * niveau.
+   */
+  async traiterParExploitation(
+    user: AuthenticatedUser,
+    acteId: string,
+    dto: TraiterParExploitationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_TRAITEMENT_EXPLOITATION as readonly string[]).includes(r),
+      )
+    ) {
+      throw new ForbiddenException(
+        "Le traitement d'une pré-autorisation au premier niveau est réservé à ASSUREUR_EXPLOITATION ou ASSUREUR_EXPLOITATION_CONJOINTE.",
+      );
+    }
+
+    const acte = await this.chargerActePreautorisation(ctx, acteId);
+    if (acte.statutPreautorisation !== 'EN_ATTENTE_EXPLOITATION') {
+      throw new ConflictException(
+        `Cet acte n'est pas en attente de traitement par l'exploitation (statut actuel : ${acte.statutPreautorisation}).`,
+      );
+    }
+
+    if (dto.decision === 'ESCALADE_MEDECIN_CONSEIL') {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.acteDossier.update({
+          where: { id: acteId },
+          data: { statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL' },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'ESCALADE_PREAUTORISATION_MEDECIN_CONSEIL',
+          acteId,
+          { motif: dto.motif, statutPrecedent: 'EN_ATTENTE_EXPLOITATION' },
+          'actes_dossier',
+        );
+      });
+      return this.prisma.acteDossier.findUnique({ where: { id: acteId } });
+    }
+
+    return this.finaliserDecisionPreautorisation(ctx, acte, {
+      decision: dto.decision,
+      quantiteApprouvee: dto.quantiteApprouvee,
+      typeApprouve: dto.typeApprouve,
+      ticketModerateurAjuste: dto.ticketModerateurAjuste,
+      motif: dto.motif,
+      action: 'PREAUTORISATION_EXPLOITATION',
+      statutPrecedent: 'EN_ATTENTE_EXPLOITATION',
+    });
+  }
+
+  /**
+   * Cœur partagé entre `validerPreautorisation` (médecin conseil, second
+   * niveau) et `traiterParExploitation` (premier niveau, décisions APPROUVE/
+   * REFUSE) : détermine le statut final (`APPROUVEE`/`APPROUVEE_
+   * PARTIELLEMENT`/`REFUSEE`), recalcule la simulation indicative sur la base
+   * RÉELLEMENT approuvée quand elle diffère de la demande initiale, puis
+   * persiste + audite.
+   */
+  private async finaliserDecisionPreautorisation(
+    ctx: ContexteAppelant,
+    acte: {
+      id: string;
+      quantite: number;
+      libelle: string;
+      categorieActe: string;
+      codeActe: string | null;
+      montantPrescrit: Prisma.Decimal | null;
+      dossier: { etablissementId: string; police: { produitId: string } };
+    },
+    params: {
+      decision: 'APPROUVE' | 'REFUSE';
+      quantiteApprouvee?: number;
+      typeApprouve?: string;
+      ticketModerateurAjuste?: number;
+      motif: string;
+      action: string;
+      statutPrecedent: string;
+    },
+  ) {
+    let nouveauStatut: string;
+    let simulation: {
+      montantSimuleAssurance: string;
+      montantSimulePatient: string;
+      ticketModerateurSimule: string;
+    } | null = null;
+
+    if (params.decision === 'REFUSE') {
+      nouveauStatut = 'REFUSEE';
+    } else {
+      nouveauStatut = this.estApprobationPartielle(acte, params)
+        ? 'APPROUVEE_PARTIELLEMENT'
+        : 'APPROUVEE';
+
+      if (acte.montantPrescrit !== null) {
+        simulation = await this.simulerMontantActe(
+          ctx.organisationId,
+          acte.dossier.etablissementId,
+          acte.dossier.police.produitId,
+          {
+            categorieActe: acte.categorieActe as AjouterActeDto['categorieActe'],
+            codeActe: acte.codeActe ?? undefined,
+            montantPrescrit: Number(acte.montantPrescrit.toString()),
+            quantite: params.quantiteApprouvee ?? acte.quantite,
+          },
+          params.ticketModerateurAjuste !== undefined
+            ? params.ticketModerateurAjuste.toFixed(2)
+            : undefined,
+        );
+      }
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.acteDossier.update({
-        where: { id: acteId },
-        data: { statutPreautorisation: nouveauStatut },
+        where: { id: acte.id },
+        data: {
+          statutPreautorisation: nouveauStatut,
+          ...(params.decision === 'APPROUVE'
+            ? {
+                quantiteApprouvee: params.quantiteApprouvee ?? null,
+                typeActeApprouve: params.typeApprouve ?? null,
+                ticketModerateurAjuste:
+                  params.ticketModerateurAjuste !== undefined
+                    ? params.ticketModerateurAjuste.toFixed(2)
+                    : null,
+                ...(simulation
+                  ? {
+                      montantSimuleAssurance: simulation.montantSimuleAssurance,
+                      montantSimulePatient: simulation.montantSimulePatient,
+                      ticketModerateurSimule: simulation.ticketModerateurSimule,
+                    }
+                  : {}),
+              }
+            : {}),
+        },
       });
       await this.audit(
         tx,
         ctx.userId,
-        'PREAUTORISATION_ANALYSE',
-        acteId,
+        params.action,
+        acte.id,
         {
-          decision: dto.decision,
-          motif: dto.motif,
-          statutPrecedent: 'EN_ATTENTE_VALIDATION',
+          decision: params.decision,
+          motif: params.motif,
+          quantiteApprouvee: params.quantiteApprouvee ?? null,
+          typeApprouve: params.typeApprouve ?? null,
+          ticketModerateurAjuste: params.ticketModerateurAjuste ?? null,
+          statutPrecedent: params.statutPrecedent,
           nouveauStatut,
+          simulationRecalculee: simulation ?? null,
         },
         'actes_dossier',
       );
     });
 
-    return this.prisma.acteDossier.findUnique({ where: { id: acteId } });
+    return this.prisma.acteDossier.findUnique({ where: { id: acte.id } });
   }
 
   /**
-   * File d'attente du médecin conseil — tous les actes ANALYSES_EXAMENS_MEDICAUX
-   * en attente de sa décision, organisation entière (rôle ASSUREUR non scopé à
-   * un établissement, même pattern que les autres files ASSUREUR_*).
+   * Une approbation est PARTIELLE dès que la quantité réellement approuvée
+   * est INFÉRIEURE à la quantité demandée (`acte.quantite`, inchangée), ou
+   * que la nature de l'acte approuvé diffère du libellé initialement demandé
+   * (ex. « mise en observation » à la place d'une hospitalisation).
+   */
+  private estApprobationPartielle(
+    acte: { quantite: number; libelle: string },
+    params: { quantiteApprouvee?: number; typeApprouve?: string },
+  ): boolean {
+    if (
+      params.quantiteApprouvee !== undefined &&
+      params.quantiteApprouvee < acte.quantite
+    ) {
+      return true;
+    }
+    if (
+      params.typeApprouve !== undefined &&
+      params.typeApprouve.trim() !== '' &&
+      params.typeApprouve.trim() !== acte.libelle
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  /** Charge un acte pour le circuit de pré-autorisation, scopé organisation. */
+  private async chargerActePreautorisation(
+    ctx: ContexteAppelant,
+    acteId: string,
+  ) {
+    const acte = await this.prisma.acteDossier.findFirst({
+      where: { id: acteId, deletedAt: null },
+      include: {
+        dossier: {
+          select: {
+            organisationId: true,
+            etablissementId: true,
+            police: { select: { produitId: true } },
+          },
+        },
+      },
+    });
+    if (!acte || acte.dossier.organisationId !== ctx.organisationId) {
+      throw new NotFoundException('Acte introuvable.');
+    }
+    return acte;
+  }
+
+  /**
+   * File d'attente du médecin conseil — actes ESCALADÉS par l'exploitation
+   * (second niveau uniquement depuis ce Prompt), organisation entière (rôle
+   * ASSUREUR non scopé à un établissement, même pattern que les autres files
+   * ASSUREUR_*).
    */
   async listerActesEnAttentePreautorisation(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
@@ -1048,7 +1263,7 @@ export class PreauthorizationService {
 
     const actes = await this.prisma.acteDossier.findMany({
       where: {
-        statutPreautorisation: 'EN_ATTENTE_VALIDATION',
+        statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL',
         deletedAt: null,
         dossier: { organisationId: ctx.organisationId },
       },
@@ -1085,6 +1300,77 @@ export class PreauthorizationService {
     }));
   }
 
+  /**
+   * File de l'exploitation — TOUS les actes concernés par le circuit de
+   * pré-autorisation (en attente de son propre traitement, escaladés au
+   * médecin conseil en lecture seule, ou déjà tranchés), organisation
+   * entière, du plus récent au plus ancien. Le frontend répartit en 3
+   * sections (Propositions à valider / Transmis au médecin conseil / Actes
+   * traités) depuis `statutPreautorisation` — un seul aller-retour.
+   * `dossierId` permet l'accès au dossier complet du patient (établissement,
+   * historique) avant décision, via l'écran dossiers déjà partagé avec
+   * ASSUREUR_EXPLOITATION (`ROLES_LECTURE_DOSSIER_STAFF`).
+   */
+  async listerActesPreautorisationExploitation(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_TRAITEMENT_EXPLOITATION as readonly string[]).includes(r),
+      )
+    ) {
+      throw new ForbiddenException(
+        'Réservé exclusivement à ASSUREUR_EXPLOITATION ou ASSUREUR_EXPLOITATION_CONJOINTE.',
+      );
+    }
+
+    const actes = await this.prisma.acteDossier.findMany({
+      where: {
+        statutPreautorisation: { not: 'NON_REQUISE' },
+        deletedAt: null,
+        dossier: { organisationId: ctx.organisationId },
+      },
+      include: {
+        dossier: {
+          select: {
+            id: true,
+            numeroTraitement: true,
+            typeVisite: true,
+            etablissement: { select: { nom: true } },
+            adherent: { select: { nom: true, prenom: true } },
+            beneficiaire: { select: { nom: true, prenom: true } },
+          },
+        },
+      },
+      orderBy: { datePrescription: 'desc' },
+    });
+
+    return actes.map((a) => ({
+      id: a.id,
+      libelle: a.libelle,
+      categorieActe: a.categorieActe,
+      codeActe: a.codeActe,
+      quantite: a.quantite,
+      quantiteApprouvee: a.quantiteApprouvee,
+      typeActeApprouve: a.typeActeApprouve,
+      ticketModerateurAjuste: a.ticketModerateurAjuste?.toFixed(2) ?? null,
+      montantPrescrit: a.montantPrescrit?.toFixed(2) ?? null,
+      montantSimuleAssurance: a.montantSimuleAssurance?.toFixed(2) ?? null,
+      montantSimulePatient: a.montantSimulePatient?.toFixed(2) ?? null,
+      ticketModerateurSimule: a.ticketModerateurSimule?.toFixed(2) ?? null,
+      statutPreautorisation: a.statutPreautorisation,
+      datePrescription: a.datePrescription,
+      dossierId: a.dossier.id,
+      numeroTraitement: a.dossier.numeroTraitement,
+      typeVisite: a.dossier.typeVisite,
+      etablissement: a.dossier.etablissement.nom,
+      patient: a.dossier.adherent
+        ? `${a.dossier.adherent.prenom} ${a.dossier.adherent.nom}`
+        : a.dossier.beneficiaire
+          ? `${a.dossier.beneficiaire.prenom} ${a.dossier.beneficiaire.nom}`
+          : '—',
+    }));
+  }
+
   private async chargerTicket(organisationId: string, ticketSoinsId: string) {
     const ticket = await this.prisma.ticketSoins.findFirst({
       where: { id: ticketSoinsId, dossier: { organisationId } },
@@ -1105,8 +1391,9 @@ export class PreauthorizationService {
    * à régler MAINTENANT — plusieurs cycles successifs sont possibles sur le
    * même dossier (remplace l'ancienne facturation unique par ticket). EXCLUT
    * automatiquement, quelle que soit la sélection envoyée par le client :
-   * - tout acte `EN_ATTENTE_VALIDATION`/`REFUSEE` en pré-autorisation (garde
-   *   posée pour les analyses/examens médicaux) ;
+   * - tout acte encore `EN_ATTENTE_EXPLOITATION`/`EN_ATTENTE_MEDECIN_CONSEIL`/
+   *   `REFUSEE` en pré-autorisation (garde posée pour les analyses/examens
+   *   médicaux et les hospitalisations, circuit à deux niveaux) ;
    * - tout acte déjà réglé (`LigneFacturation` à `PAYE`).
    * Un acte déjà réclamé par un cycle abandonné (ligne `A_PAYER` orpheline,
    * jamais validée/réglée) est RÉATTACHÉ au nouveau cycle plutôt que dupliqué

@@ -117,38 +117,67 @@ export const ROLE_CONFIRMATION_PAIEMENT = 'ASSUREUR_COMPTABLE';
  */
 export const ROLE_MAINTENANCE_EXPIRATION = 'ASSUREUR_INFORMATIQUE';
 
-// --- Pré-autorisation obligatoire (analyses / examens médicaux) --------
+// --- Pré-autorisation obligatoire à DEUX niveaux (analyses/examens,
+// hospitalisation) — restructuré depuis le circuit à un niveau du Prompt
+// précédent : ASSUREUR_EXPLOITATION statue en premier, seule l'escalade
+// alimente la file du médecin conseil. -----------------------------------
 
 export const STATUTS_PREAUTORISATION = [
   'NON_REQUISE',
-  'EN_ATTENTE_VALIDATION',
+  'EN_ATTENTE_EXPLOITATION',
+  'EN_ATTENTE_MEDECIN_CONSEIL',
   'APPROUVEE',
+  'APPROUVEE_PARTIELLEMENT',
   'REFUSEE',
 ] as const;
 export type StatutPreautorisation = (typeof STATUTS_PREAUTORISATION)[number];
 
 /**
- * Type de visite (care-episode) qui déclenche AUTOMATIQUEMENT le passage en
- * `EN_ATTENTE_VALIDATION` à l'ajout d'un acte — décidé côté serveur depuis
- * `dossier.typeVisite` réel, jamais depuis une valeur envoyée par le client.
+ * Types de visite (care-episode) qui déclenchent AUTOMATIQUEMENT le passage
+ * en `EN_ATTENTE_EXPLOITATION` à l'ajout d'un acte — décidé côté serveur
+ * depuis `dossier.typeVisite` réel, jamais depuis une valeur envoyée par le
+ * client.
  */
-export const TYPE_VISITE_PREAUTORISATION_OBLIGATOIRE = 'ANALYSES_EXAMENS_MEDICAUX';
+export const TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE = [
+  'ANALYSES_EXAMENS_MEDICAUX',
+  'HOSPITALISATION_MEDICALE',
+] as const;
 
 /**
  * Statuts qui EXCLUENT un acte de toute facturation/paiement — appliqué dans
- * `calculerMontants` (génération de facture) et à réutiliser tel quel par tout
- * futur mécanisme de paiement par acte (Prompt 3, pas encore construit).
+ * `calculerMontants`/`genererFactureSelection`. `APPROUVEE_PARTIELLEMENT`
+ * reste facturable : le montant simulé reflète déjà la base approuvée
+ * (recalculée), pas la demande initiale.
  */
 export const STATUTS_PREAUTORISATION_NON_FACTURABLES = [
-  'EN_ATTENTE_VALIDATION',
+  'EN_ATTENTE_EXPLOITATION',
+  'EN_ATTENTE_MEDECIN_CONSEIL',
   'REFUSEE',
 ] as const;
 
 /**
- * La validation d'une pré-autorisation d'analyse est réservée EXCLUSIVEMENT
- * à ASSUREUR_MEDECIN_CONSEIL — jamais ASSUREUR_INFORMATIQUE ni
- * ASSUREUR_EXPLOITATION (même séparation que `ROLE_HOMOLOGATION_ACTE`,
- * module reference/).
+ * Premier niveau — ASSUREUR_EXPLOITATION(_CONJOINTE) exclusivement (pas
+ * ASSUREUR_INFORMATIQUE, pas ASSUREUR_MEDECIN_CONSEIL). Décide APPROUVE/
+ * REFUSE directement, ou ESCALADE_MEDECIN_CONSEIL vers le second niveau.
+ */
+export const ROLES_TRAITEMENT_EXPLOITATION = [
+  'ASSUREUR_EXPLOITATION',
+  'ASSUREUR_EXPLOITATION_CONJOINTE',
+] as const;
+
+export const DECISIONS_EXPLOITATION_PREAUTORISATION = [
+  'APPROUVE',
+  'REFUSE',
+  'ESCALADE_MEDECIN_CONSEIL',
+] as const;
+export type DecisionExploitationPreautorisation =
+  (typeof DECISIONS_EXPLOITATION_PREAUTORISATION)[number];
+
+/**
+ * Second niveau — ASSUREUR_MEDECIN_CONSEIL exclusivement (jamais
+ * ASSUREUR_INFORMATIQUE ni ASSUREUR_EXPLOITATION), atteint UNIQUEMENT par
+ * escalade depuis le premier niveau (même séparation que
+ * `ROLE_HOMOLOGATION_ACTE`, module reference/).
  */
 export const ROLE_VALIDATION_PREAUTORISATION = 'ASSUREUR_MEDECIN_CONSEIL';
 

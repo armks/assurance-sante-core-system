@@ -4258,3 +4258,70 @@ vérifié en base). Test navigateur réel (Playwright) sur l'écran pharmacien :
 assurance/patient affiché par ligne et en cumulé, bouton de confirmation annonçant le
 montant patient exact. Toutes les données de test éphémères supprimées, absence de résidu
 vérifiée indépendamment à chaque étape.
+
+## 2026-09-18 (suite) — Pré-autorisation à deux niveaux (exploitation → médecin conseil)
+
+Restructuration du circuit posé au Prompt du 2026-09-17 (suite 2), sans le jeter : passage
+d'un contrôle à un seul niveau (médecin conseil, analyses/examens uniquement) à un circuit
+à deux niveaux (exploitation en premier, escalade optionnelle vers le médecin conseil),
+étendu aussi aux hospitalisations.
+
+### 1. Déclenchement élargi
+`TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE` passe de `[ANALYSES_EXAMENS_MEDICAUX]` à
+`[ANALYSES_EXAMENS_MEDICAUX, HOSPITALISATION_MEDICALE]` — toujours décidé côté serveur
+depuis `dossier.typeVisite` réel, jamais un champ du client.
+
+### 2. Statuts à deux niveaux (prisma/sql/041)
+`EN_ATTENTE_VALIDATION` renommé/scindé en `EN_ATTENTE_EXPLOITATION` (nouveau statut
+initial) et `EN_ATTENTE_MEDECIN_CONSEIL` (atteint uniquement par escalade explicite,
+jamais directement). Migration des données existantes : tout `EN_ATTENTE_VALIDATION` →
+`EN_ATTENTE_EXPLOITATION`. Contrainte CHECK reposée avec les 6 valeurs
+(`NON_REQUISE`, `EN_ATTENTE_EXPLOITATION`, `EN_ATTENTE_MEDECIN_CONSEIL`, `APPROUVEE`,
+`APPROUVEE_PARTIELLEMENT`, `REFUSEE`). Nouvelles colonnes sur `actes_dossier` :
+`quantite_approuvee`, `type_acte_approuve`, `ticket_moderateur_ajuste` (surcharge le
+ticket modérateur de la garantie pour CET acte uniquement).
+
+### 3. `traiterParExploitation` — premier niveau, réservé à `ASSUREUR_EXPLOITATION`/
+`ASSUREUR_EXPLOITATION_CONJOINTE`
+APPROUVE/REFUSE tranchent directement (réutilisent la même logique que
+`validerPreautorisation`, extraite en helpers partagés `chargerActePreautorisation` /
+`estApprobationPartielle` / `finaliserDecisionPreautorisation`) ; ESCALADE_MEDECIN_CONSEIL
+bascule l'acte vers `EN_ATTENTE_MEDECIN_CONSEIL` sans recalcul (décision non prise).
+`quantiteApprouvee`/`typeApprouve` en dessous de la demande → `APPROUVEE_PARTIELLEMENT`
+(sinon `APPROUVEE` pleine). `validerPreautorisation` (médecin conseil, second niveau)
+réutilise le même cœur, mais seulement sur un acte déjà `EN_ATTENTE_MEDECIN_CONSEIL`
+(jamais atteignable directement).
+
+### 4. Recalcul automatique de la simulation
+`simulerMontantActe` étendu d'un paramètre optionnel `ticketModerateurOverride`.
+Sur toute décision APPROUVE (aux deux niveaux), la simulation du Prompt du 2026-09-17
+(`montant_simule_assurance`/`montant_simule_patient`/`ticket_moderateur_simule`) est
+recalculée sur la base APPROUVÉE (`quantiteApprouvee ?? quantite` demandée) et le
+`ticketModerateurAjuste` s'il est fourni — jamais sur la base demandée.
+
+### 5. Écran `/dashboard-assureur/exploitation(-conjointe)/preautorisations`
+Nouveau composant partagé `ExploitationPreautorisationsEcran` (même duplication de
+route que la « Vue d'ensemble » de ces deux dashboards, `ASSUREUR_EXPLOITATION_CONJOINTE`
+n'héritant pas de la `dashboardRoute` de son parent) : 3 sections — « Propositions à
+valider » (formulaire APPROUVE/REFUSE/ESCALADE_MEDECIN_CONSEIL + champs d'ajustement
+conditionnels, lien vers le dossier complet du patient), « Transmis au médecin conseil »
+(lecture seule) et « Actes traités » (statuts finaux, détail de l'approbation partielle
+affiché). Nouvel endpoint `GET actes/preautorisation-exploitation` dédié à cet écran.
+
+### Tests
+Backend : 318/318 (`npx jest`), dont un nouveau bloc `traiterParExploitation` (10 tests :
+approbation intégrale/partielle par quantité/par nature, ticket modérateur ajusté, refus,
+escalade, rôles autorisés/exclus, re-décision bloquée). `npx tsc --noEmit` propre API et
+Web. Test HTTP réel (24/24) sur le scénario exact de la demande : hospitalisation à 3
+jours demandés, exploitation approuve `quantiteApprouvee=2` → `APPROUVEE_PARTIELLEMENT`,
+montant simulé recalculé sur 2 jours (10 000 F, pas 15 000 F) avec ticket modérateur
+ajusté (1 000 F) ; escalade d'un second acte → apparaît immédiatement dans la file du
+médecin conseil ET disparaît de la sous-liste « à traiter » de l'exploitation (reste
+visible en lecture dans « transmis ») ; accès croisé refusé dans les deux sens
+(ASSUREUR_INFORMATIQUE sur le niveau exploitation, ASSUREUR_EXPLOITATION sur le niveau
+médecin conseil) ; re-décision sur un acte déjà tranché bloquée (409). Test navigateur
+réel (Playwright, 14/14) sur le nouvel écran : 3 sections correctement peuplées, lien
+dossier vérifié, décision d'approbation partielle saisie depuis le formulaire puis
+vérifiée en base (statut et montant recalculé). Toutes les données de test éphémères
+supprimées, résidu d'une première tentative avortée (contrainte de format sur le code de
+ticket) détecté et nettoyé indépendamment.

@@ -74,8 +74,10 @@ export const ROLE_RECHERCHE_CARTE = 'CENTRE_MEDICAL_ACCUEIL';
  */
 export const LIBELLE_PREAUTORISATION: Record<string, string> = {
   NON_REQUISE: 'Non requise',
-  EN_ATTENTE_VALIDATION: 'En attente',
+  EN_ATTENTE_EXPLOITATION: 'En attente (exploitation)',
+  EN_ATTENTE_MEDECIN_CONSEIL: 'En attente (médecin conseil)',
   APPROUVEE: 'Approuvée',
+  APPROUVEE_PARTIELLEMENT: 'Approuvée partiellement',
   REFUSEE: 'Refusée',
 };
 export const TON_PREAUTORISATION: Record<
@@ -83,8 +85,10 @@ export const TON_PREAUTORISATION: Record<
   'succes' | 'attention' | 'danger' | 'neutre'
 > = {
   NON_REQUISE: 'neutre',
-  EN_ATTENTE_VALIDATION: 'attention',
+  EN_ATTENTE_EXPLOITATION: 'attention',
+  EN_ATTENTE_MEDECIN_CONSEIL: 'attention',
   APPROUVEE: 'succes',
+  APPROUVEE_PARTIELLEMENT: 'succes',
   REFUSEE: 'danger',
 };
 

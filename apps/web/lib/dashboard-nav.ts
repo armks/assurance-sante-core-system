@@ -262,6 +262,11 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
   return [
     { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
     {
+      label: 'Pré-autorisations',
+      href: `${racineVueEnsemble}/preautorisations`,
+      icon: ClipboardList,
+    },
+    {
       label: 'Souscripteurs',
       href: `${INFORMATIQUE}/souscripteurs`,
       icon: Building2,

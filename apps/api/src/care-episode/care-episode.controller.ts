@@ -14,6 +14,7 @@ import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { CareEpisodeService } from './care-episode.service';
 import {
   AjouterConsultationDto,
+  AjouterNoteDto,
   ClotureDto,
   ClotureForceeDto,
   DefinirTypeVisiteDto,
@@ -84,5 +85,19 @@ export class CareEpisodeController {
     @Body() dto: ClotureForceeDto,
   ) {
     return this.careEpisode.clotureForcee(user, id, dto);
+  }
+
+  /**
+   * Réservé à ASSUREUR_EXPLOITATION(_CONJOINTE)/ASSUREUR_MEDECIN_CONSEIL —
+   * visible ensuite dans `GET :id` (`notes`) par tout rôle ayant déjà accès
+   * en lecture au dossier.
+   */
+  @Post(':id/notes')
+  ajouterNote(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AjouterNoteDto,
+  ) {
+    return this.careEpisode.ajouterNote(user, id, dto);
   }
 }

@@ -74,6 +74,18 @@ export const ROLES_LECTURE_DOSSIER_STAFF = [
   'ASSUREUR_MEDECIN_CONSEIL',
 ] as const;
 
+/**
+ * Rôles autorisés à ajouter une note libre sur un dossier (ou un acte
+ * précis) — plus étroit que `ROLES_LECTURE_DOSSIER_STAFF` : ni
+ * ASSUREUR_DIRECTION ni ASSUREUR_INFORMATIQUE. La LECTURE des notes suit,
+ * elle, exactement `modeLectureDossiers` (tout rôle qui a déjà accès au
+ * dossier) — pas de liste dédiée pour la lecture.
+ */
+export const ROLES_ECRITURE_NOTE_DOSSIER = [
+  'ASSUREUR_EXPLOITATION',
+  'ASSUREUR_MEDECIN_CONSEIL',
+] as const;
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;

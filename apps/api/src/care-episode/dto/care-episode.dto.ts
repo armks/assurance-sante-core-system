@@ -63,3 +63,15 @@ export class DefinirTypeVisiteDto {
   @IsIn(TYPES_VISITE)
   typeVisite!: (typeof TYPES_VISITE)[number];
 }
+
+export class AjouterNoteDto {
+  @IsString()
+  @MinLength(3)
+  @MaxLength(2000)
+  contenu!: string;
+
+  /** Note ciblée sur un acte précis — sinon, note générale sur le dossier. */
+  @IsOptional()
+  @IsUUID()
+  acteDossierId?: string;
+}

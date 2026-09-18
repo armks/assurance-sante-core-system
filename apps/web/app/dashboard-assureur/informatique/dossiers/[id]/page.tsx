@@ -18,6 +18,9 @@ export const metadata: Metadata = { title: 'Dossier de soins — Assurance Explo
 /** Droit exclusif côté API — care-episode.types.ts, ROLE_CLOTURE_FORCEE. */
 const ROLE_CLOTURE_FORCEE = 'ASSUREUR_EXPLOITATION';
 
+/** care-episode.types.ts, ROLES_ECRITURE_NOTE_DOSSIER. */
+const ROLES_ECRITURE_NOTE_DOSSIER = ['ASSUREUR_EXPLOITATION', 'ASSUREUR_MEDECIN_CONSEIL'];
+
 export default async function DossierSupervisionPage({
   params,
 }: {
@@ -32,6 +35,7 @@ export default async function DossierSupervisionPage({
   const dossier = (await res.json()) as DossierSupervisionDetailType;
   const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
   const peutCloturerForce = roleChain.includes(ROLE_CLOTURE_FORCEE);
+  const peutAjouterNote = roleChain.some((r) => ROLES_ECRITURE_NOTE_DOSSIER.includes(r));
 
   return (
     <div className="space-y-6">
@@ -50,6 +54,7 @@ export default async function DossierSupervisionPage({
       <DossierSupervisionDetail
         dossier={dossier}
         peutCloturerForce={peutCloturerForce}
+        peutAjouterNote={peutAjouterNote}
       />
     </div>
   );

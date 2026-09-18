@@ -59,6 +59,8 @@ model Organisation {
   facturesDossier   FactureDossier[]
   lignesFacturation LigneFacturation[]
   licence           LicenceOrganisation?
+  autorisationsRepetitionActe AutorisationRepetitionActe[]
+  notesDossier      NoteDossier[]
 
   @@map("organisations")
 }
@@ -144,6 +146,8 @@ model Profil {
   verificationsReseau   VerificationEtablissement[]
   dispensationsPreparees DispensationPharmacie[]
   substitutionsMedicament LigneDispensation[]
+  autorisationsRepetitionAccordees AutorisationRepetitionActe[]
+  notesRedigees NoteDossier[]
 
   @@map("profils")
 }
@@ -587,6 +591,7 @@ model EtablissementSante {
   factures           FactureDossier[]
   verifications      VerificationEtablissement[]
   tarifsConventionnes TarifConventionne[]
+  actesExecutes      ActeDossier[]      @relation("ActeEtablissementExecution")
 
   @@index([organisationId])
   @@index([statut])
@@ -802,6 +807,7 @@ model DossierSoins {
   ticket            TicketSoins?
   actes             ActeDossier[]
   factures          FactureDossier[]
+  notes             NoteDossier[]
 
   @@index([organisationId])
   @@index([etablissementId])
@@ -1060,6 +1066,7 @@ model TicketSoins {
   /// Plusieurs cycles de facturation possibles depuis prisma/sql/039 (facturation
   /// par sélection d'actes, paiement partiel) — plus une facture unique.
   factures     FactureDossier[]
+  autorisationsRepetition AutorisationRepetitionActe[]
 
   @@index([statut])
   @@index([organisationId])
@@ -1106,6 +1113,12 @@ model ActeDossier {
   /// la garantie elle-même, ni les autres actes du dossier) — utilisée en
   /// priorité sur `garanties.ticketModerateur` si renseignée. prisma/sql/041.
   ticketModerateurAjuste Decimal?  @map("ticket_moderateur_ajuste") @db.Decimal(5, 2)
+  /// Orientation vers un établissement EXÉCUTANT distinct de celui d'origine
+  /// (`dossier.etablissementId`) — renseigné par ASSUREUR_EXPLOITATION au
+  /// moment de l'approbation. Une fois renseigné, le tarif conventionné
+  /// (`simulerMontantActe`) est recherché pour CET établissement, jamais plus
+  /// celui d'origine. prisma/sql/042.
+  etablissementExecutionId String? @map("etablissement_execution_id") @db.Uuid
   statut                String    @default("PRESCRIT") // PRESCRIT | REALISE | ANNULE | LIQUIDE
   datePrescription      DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
   dateRealisation       DateTime? @map("date_realisation") @db.Timestamptz(6)
@@ -1117,12 +1130,61 @@ model ActeDossier {
   ticket       TicketSoins          @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   consultation ConsultationDossier? @relation(fields: [consultationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   prescripteur Profil?              @relation(fields: [medecinPrescripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  etablissementExecution EtablissementSante? @relation("ActeEtablissementExecution", fields: [etablissementExecutionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lignesFacturation LigneFacturation[]
+  notes NoteDossier[]
 
   @@index([dossierSoinsId])
   @@index([ticketSoinsId])
   @@index([statut])
   @@map("actes_dossier")
+}
+
+/// Autorisation à usage unique du médecin conseil débloquant la règle
+/// anti-répétition (14 jours) pour UN acte précis d'ANALYSES_EXAMENS_MEDICAUX
+/// sur UN ticket de soins précis (même code d'acte) — voir
+/// `PreauthorizationService.autoriserRepetition`/`ajouterActe`. prisma/sql/042.
+model AutorisationRepetitionActe {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String    @map("organisation_id") @db.Uuid
+  ticketSoinsId  String    @map("ticket_soins_id") @db.Uuid
+  codeActe       String    @map("code_acte")
+  motif          String
+  autoriseParId  String    @map("autorise_par_id") @db.Uuid
+  utilisee       Boolean   @default(false)
+  utiliseeLe     DateTime? @map("utilisee_le") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ticket       TicketSoins  @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  autorisePar  Profil       @relation(fields: [autoriseParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([ticketSoinsId, codeActe])
+  @@map("autorisations_repetition_acte")
+}
+
+/// Note libre d'ASSUREUR_EXPLOITATION(_CONJOINTE)/ASSUREUR_MEDECIN_CONSEIL sur
+/// un dossier de soins (ou un acte précis, `acteDossierId` nullable) — visible
+/// dans l'historique du dossier par tous les rôles qui y ont déjà accès en
+/// lecture (`CareEpisodeService.modeLectureDossiers`). prisma/sql/042.
+model NoteDossier {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String   @map("organisation_id") @db.Uuid
+  dossierSoinsId String   @map("dossier_soins_id") @db.Uuid
+  acteDossierId  String?  @map("acte_dossier_id") @db.Uuid
+  auteurId       String   @map("auteur_id") @db.Uuid
+  contenu        String
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dossier      DossierSoins @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  acte         ActeDossier? @relation(fields: [acteDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  auteur       Profil       @relation(fields: [auteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([dossierSoinsId])
+  @@map("notes_dossier")
 }
 
 /// factures_dossier — 4e des 4 codes anti-fraude (v8 §5). Le règlement est

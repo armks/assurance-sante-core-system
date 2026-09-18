@@ -74,7 +74,8 @@ describe('CareEpisodeService', () => {
           .fn()
           .mockResolvedValue({ statut: 'ACTIF', adherent: { statut: 'ACTIF' } }),
       },
-      acteDossier: { findMany: jest.fn().mockResolvedValue([]) },
+      acteDossier: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+      noteDossier: { create: jest.fn() },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -536,6 +537,103 @@ describe('CareEpisodeService', () => {
         service.definirTypeVisite(USER, 'dos-1', { typeVisite: 'CONSULTATION_GENERALISTE' }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.dossierSoins.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Notes libres sur un dossier (ou un acte précis) — écriture réservée à
+  //  ASSUREUR_EXPLOITATION/ASSUREUR_MEDECIN_CONSEIL, lecture élargie à tout
+  //  rôle ayant déjà accès au dossier (`chargerDossier`, non testé ici :
+  //  simple `include` Prisma, pas de logique propre à re-tester).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('ajouterNote', () => {
+    const dossierOuvert = (extra: Record<string, unknown> = {}) => ({
+      id: 'dos-1',
+      organisationId: 'org-1',
+      statut: 'OUVERT',
+      etablissementId: 'etab-1',
+      typeVisite: null,
+      ...extra,
+    });
+
+    beforeEach(() => {
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossierOuvert());
+      prisma.noteDossier.create.mockResolvedValue({ id: 'note-1', contenu: 'RAS' });
+    });
+
+    it('ASSUREUR_EXPLOITATION ajoute une note générale sur le dossier', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+
+      const res = await service.ajouterNote(USER, 'dos-1', { contenu: 'Dossier à surveiller.' });
+
+      expect(prisma.noteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            dossierSoinsId: 'dos-1',
+            acteDossierId: null,
+            auteurId: 'u1',
+            contenu: 'Dossier à surveiller.',
+          }),
+        }),
+      );
+      expect(res).toMatchObject({ id: 'note-1' });
+    });
+
+    it('ASSUREUR_MEDECIN_CONSEIL ajoute une note ciblée sur un acte précis', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+      prisma.acteDossier.findFirst.mockResolvedValue({ id: 'acte-1' });
+
+      await service.ajouterNote(USER, 'dos-1', {
+        contenu: 'Avis médical joint au dossier.',
+        acteDossierId: 'acte-1',
+      });
+
+      expect(prisma.acteDossier.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: 'acte-1', dossierSoinsId: 'dos-1' }),
+        }),
+      );
+      expect(prisma.noteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ acteDossierId: 'acte-1' }),
+        }),
+      );
+    });
+
+    it('acte indiqué n’appartenant pas à ce dossier → 404, aucune note créée', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.acteDossier.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.ajouterNote(USER, 'dos-1', { contenu: 'Note quelconque.', acteDossierId: 'acte-x' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.noteDossier.create).not.toHaveBeenCalled();
+    });
+
+    it('CENTRE_MEDICAL_MEDECIN (a accès au dossier en lecture) → 403 en écriture', async () => {
+      identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+
+      await expect(
+        service.ajouterNote(USER, 'dos-1', { contenu: 'Tentative non autorisée.' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.noteDossier.create).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_INFORMATIQUE (lit tous les dossiers) → 403 en écriture', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+
+      await expect(
+        service.ajouterNote(USER, 'dos-1', { contenu: 'Tentative non autorisée.' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('dossier introuvable (autre organisation) → 404', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.dossierSoins.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.ajouterNote(USER, 'dos-x', { contenu: 'Note quelconque.' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 });

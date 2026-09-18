@@ -41,6 +41,12 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       garantie: { findFirst: jest.fn().mockResolvedValue(null) },
       referentielActe: { findFirst: jest.fn().mockResolvedValue(null) },
       tarifConventionne: { findFirst: jest.fn().mockResolvedValue(null) },
+      autorisationRepetitionActe: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+        update: jest.fn(),
+      },
+      etablissementSante: { findFirst: jest.fn() },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -417,6 +423,270 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════
+  //  Règle anti-répétition (14 jours) — actes ajoutés dans un dossier
+  //  ANALYSES_EXAMENS_MEDICAUX porteurs d'un codeActe, même patient, tous
+  //  établissements confondus. Débloqué au cas par cas par le médecin
+  //  conseil (`autoriserRepetition`), jamais l'exploitation elle-même.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('règle anti-répétition (14 jours)', () => {
+    const ticketAnalyses = (typeVisite: string | null = 'ANALYSES_EXAMENS_MEDICAUX') => ({
+      id: 'tkt-1',
+      statut: 'OUVERT',
+      dossierSoinsId: 'dos-1',
+      dossier: {
+        organisationId: 'org-1',
+        etablissementId: 'etab-1',
+        typeVisite,
+        adherentId: 'adh-1',
+        beneficiaireId: null,
+        police: { produitId: 'prod-1' },
+      },
+    });
+    const ACTE_ANALYSE = {
+      categorieActe: 'BIOLOGIE' as const,
+      libelle: 'Bilan sanguin complet',
+      codeActe: 'BIO-01',
+      quantite: 1,
+    };
+
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_MEDECIN'));
+      prisma.ticketSoins.findFirst.mockResolvedValue(ticketAnalyses());
+      prisma.acteDossier.create.mockResolvedValue({ id: 'acte-2' });
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-2' });
+    });
+
+    it('bloque (409) si un acte du même code existe pour ce patient dans les 14 jours', async () => {
+      prisma.acteDossier.findFirst.mockResolvedValue({
+        id: 'acte-ancien',
+        datePrescription: new Date('2026-09-10'),
+      });
+
+      await expect(
+        service.ajouterActe(USER, 'tkt-1', ACTE_ANALYSE),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.acteDossier.create).not.toHaveBeenCalled();
+    });
+
+    it('le message d’erreur montre la date de l’acte précédent et le code de l’acte', async () => {
+      prisma.acteDossier.findFirst.mockResolvedValue({
+        id: 'acte-ancien',
+        datePrescription: new Date('2026-09-10T00:00:00Z'),
+      });
+
+      try {
+        await service.ajouterActe(USER, 'tkt-1', ACTE_ANALYSE);
+        throw new Error('devait lever une ConflictException');
+      } catch (e: any) {
+        expect(e.response.message).toContain('BIO-01');
+        expect(e.response.acteRepeteDetecte).toBe(true);
+        expect(e.response.acteRepeteId).toBe('acte-ancien');
+      }
+    });
+
+    it('autorise l’ajout si aucun acte du même code n’existe dans les 14 jours', async () => {
+      prisma.acteDossier.findFirst.mockResolvedValue(null);
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_ANALYSE);
+
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+    });
+
+    it('ignore la règle si aucun codeActe n’est fourni (rien à comparer)', async () => {
+      await service.ajouterActe(USER, 'tkt-1', { ...ACTE_ANALYSE, codeActe: undefined });
+
+      expect(prisma.acteDossier.findFirst).not.toHaveBeenCalled();
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+    });
+
+    it('ignore la règle pour un autre type de visite (ex. HOSPITALISATION_MEDICALE)', async () => {
+      prisma.ticketSoins.findFirst.mockResolvedValue(ticketAnalyses('HOSPITALISATION_MEDICALE'));
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_ANALYSE);
+
+      expect(prisma.acteDossier.findFirst).not.toHaveBeenCalled();
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+    });
+
+    it('une autorisation du médecin conseil (non utilisée, même ticket + code) débloque l’ajout — et est consommée', async () => {
+      prisma.acteDossier.findFirst.mockResolvedValue({
+        id: 'acte-ancien',
+        datePrescription: new Date(),
+      });
+      prisma.autorisationRepetitionActe.findFirst.mockResolvedValue({
+        id: 'autor-1',
+        utilisee: false,
+      });
+      prisma.autorisationRepetitionActe.update = jest.fn().mockResolvedValue({});
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_ANALYSE);
+
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+      expect(prisma.autorisationRepetitionActe.update).toHaveBeenCalledWith({
+        where: { id: 'autor-1' },
+        data: { utilisee: true, utiliseeLe: expect.any(Date) },
+      });
+    });
+
+    it('sans autorisation valable (findFirst filtre déjà utilisee:false) → toujours bloqué', async () => {
+      prisma.acteDossier.findFirst.mockResolvedValue({
+        id: 'acte-ancien',
+        datePrescription: new Date(),
+      });
+      prisma.autorisationRepetitionActe.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.ajouterActe(USER, 'tkt-1', ACTE_ANALYSE),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.acteDossier.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  autoriserRepetition — réservé EXCLUSIVEMENT à ASSUREUR_MEDECIN_CONSEIL.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('autoriserRepetition', () => {
+    beforeEach(() => {
+      prisma.ticketSoins.findFirst.mockResolvedValue({ id: 'tkt-1' });
+      prisma.autorisationRepetitionActe.create = jest
+        .fn()
+        .mockResolvedValue({ id: 'autor-1', codeActe: 'BIO-01' });
+    });
+
+    it('ASSUREUR_MEDECIN_CONSEIL crée une autorisation à usage unique', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_MEDECIN_CONSEIL', null as any));
+
+      const res = await service.autoriserRepetition(USER, 'tkt-1', {
+        codeActe: 'BIO-01',
+        motif: 'Contrôle post-traitement cliniquement justifié.',
+      });
+
+      expect(prisma.autorisationRepetitionActe.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ticketSoinsId: 'tkt-1',
+            codeActe: 'BIO-01',
+            autoriseParId: 'u1',
+          }),
+        }),
+      );
+      expect(res).toMatchObject({ id: 'autor-1' });
+    });
+
+    it('ASSUREUR_EXPLOITATION → 403 (ne peut pas débloquer sa propre décision)', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+
+      await expect(
+        service.autoriserRepetition(USER, 'tkt-1', { codeActe: 'BIO-01', motif: 'Test suffisant ici.' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.autorisationRepetitionActe.create).not.toHaveBeenCalled();
+    });
+
+    it('ticket introuvable → 404', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_MEDECIN_CONSEIL', null as any));
+      prisma.ticketSoins.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.autoriserRepetition(USER, 'tkt-x', { codeActe: 'BIO-01', motif: 'Test suffisant ici.' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Orientation — établissement EXÉCUTANT distinct de l'origine du dossier.
+  //  Une fois renseigné, le tarif conventionné doit être recherché pour LUI,
+  //  jamais pour l'établissement d'origine.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('orientation vers un établissement exécutant (traiterParExploitation)', () => {
+    const acteAvecCode = () => ({
+      id: 'acte-1',
+      statutPreautorisation: 'EN_ATTENTE_EXPLOITATION',
+      quantite: 1,
+      libelle: 'Scanner cérébral',
+      categorieActe: 'IMAGERIE',
+      codeActe: 'IMG-01',
+      montantPrescrit: 10000,
+      dossier: { organisationId: 'org-1', etablissementId: 'etab-origine', police: { produitId: 'prod-1' } },
+    });
+
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteAvecCode());
+      prisma.acteDossier.update = jest.fn().mockResolvedValue({});
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1' });
+      prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      prisma.referentielActe.findFirst.mockResolvedValue({ id: 'ref-1' });
+      // Le tarif conventionné n'existe que pour l'établissement EXÉCUTANT —
+      // preuve que c'est bien lui qui est utilisé, pas l'origine.
+      prisma.tarifConventionne.findFirst.mockImplementation(({ where }: any) =>
+        where.etablissementId === 'etab-exec'
+          ? Promise.resolve({ tarifConvention: '4000' })
+          : Promise.resolve(null),
+      );
+    });
+
+    it('approuve en réorientant → tarif recherché pour l’établissement EXÉCUTANT, pas l’origine', async () => {
+      prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'etab-exec' });
+
+      await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'APPROUVE',
+        etablissementExecutionId: 'etab-exec',
+        motif: 'Réorienté vers un plateau technique disponible plus tôt.',
+      });
+
+      // Tarif conventionné plafonne à 4000 (au lieu de 10000) × 80 % = 3200.00.
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            etablissementExecutionId: 'etab-exec',
+            montantSimuleAssurance: '3200.00',
+          }),
+        }),
+      );
+      expect(prisma.tarifConventionne.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ etablissementId: 'etab-exec' }),
+        }),
+      );
+    });
+
+    it('sans réorientation, le tarif reste recherché pour l’établissement d’ORIGINE (pas de tarif → base pleine)', async () => {
+      await service.traiterParExploitation(USER, 'acte-1', {
+        decision: 'APPROUVE',
+        motif: 'Approuvé sans réorientation.',
+      });
+
+      // Pas de tarif pour 'etab-origine' dans ce mock → base = montantPrescrit plein (10000) × 80 % = 8000.00.
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            etablissementExecutionId: null,
+            montantSimuleAssurance: '8000.00',
+          }),
+        }),
+      );
+      expect(prisma.tarifConventionne.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ etablissementId: 'etab-origine' }),
+        }),
+      );
+    });
+
+    it('établissement exécutant introuvable → 404, aucune décision persistée', async () => {
+      prisma.etablissementSante.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.traiterParExploitation(USER, 'acte-1', {
+          decision: 'APPROUVE',
+          etablissementExecutionId: 'etab-inconnu',
+          motif: 'Test suffisant ici.',
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.acteDossier.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
   //  validerPreautorisation — réservé EXCLUSIVEMENT à ASSUREUR_MEDECIN_CONSEIL
   //  (pas ASSUREUR_INFORMATIQUE, pas ASSUREUR_EXPLOITATION).
   // ═══════════════════════════════════════════════════════════════════════
@@ -458,6 +728,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
           quantiteApprouvee: null,
           typeActeApprouve: null,
           ticketModerateurAjuste: null,
+          etablissementExecutionId: null,
         },
       });
       expect(prisma.$executeRaw).toHaveBeenCalled();
@@ -712,6 +983,49 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
         service.traiterParExploitation(USER, 'acte-1', { decision: 'APPROUVE', motif: 'Test suffisant ici.' }),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.acteDossier.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  statistiquesExploitation — GrilleCartes de /dashboard-assureur/exploitation.
+  //  Agrégation directe sur statutPreautorisation/updatedAt, aucune nouvelle
+  //  table. `escalades` = actuellement EN_ATTENTE_MEDECIN_CONSEIL.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('statistiquesExploitation', () => {
+    // Horloge figée sur un vendredi (2026-09-18) pour que les bornes de
+    // semaine (lundi) / mois / année soient déterministes quel que soit le
+    // jour réel d'exécution des tests.
+    beforeEach(() => {
+      jest.useFakeTimers().setSystemTime(new Date('2026-09-18T12:00:00Z'));
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('ventile les actes par période et par issue', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+
+      prisma.acteDossier.findMany.mockResolvedValue([
+        { statutPreautorisation: 'APPROUVEE', updatedAt: new Date('2026-09-18T08:00:00Z') }, // aujourd'hui
+        { statutPreautorisation: 'APPROUVEE_PARTIELLEMENT', updatedAt: new Date('2026-09-17T08:00:00Z') }, // hier, même semaine (lundi 14/09)
+        { statutPreautorisation: 'REFUSEE', updatedAt: new Date('2026-09-08T08:00:00Z') }, // il y a 10 jours, même mois, semaine précédente
+        { statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL', updatedAt: new Date('2026-03-01T08:00:00Z') }, // même année, mois différent
+      ]);
+
+      const stats = await service.statistiquesExploitation(USER);
+
+      expect(stats.jour).toEqual({ approuves: 1, refuses: 0, escalades: 0 });
+      expect(stats.semaine).toEqual({ approuves: 2, refuses: 0, escalades: 0 });
+      expect(stats.mois).toEqual({ approuves: 2, refuses: 1, escalades: 0 });
+      expect(stats.annee).toEqual({ approuves: 2, refuses: 1, escalades: 1 });
+    });
+
+    it('rôle non autorisé (médecin conseil) → 403', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_MEDECIN_CONSEIL', null as any));
+      await expect(service.statistiquesExploitation(USER)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      expect(prisma.acteDossier.findMany).not.toHaveBeenCalled();
     });
   });
 });

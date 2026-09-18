@@ -54,6 +54,13 @@ interface Acte {
   statutPreautorisation: string;
   statut: string;
 }
+interface NoteDossier {
+  id: string;
+  contenu: string;
+  createdAt: string;
+  acteDossierId: string | null;
+  auteur: { role: string | null } | null;
+}
 export interface DossierComplet {
   id: string;
   numeroTraitement: string;
@@ -68,10 +75,12 @@ export interface DossierComplet {
   consultations: Consultation[];
   actes: Acte[];
   ticket: { id: string; statut: string } | null;
+  notes: NoteDossier[];
 }
 
 const dateFr = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('fr-FR') : '—';
+const dateHeureFr = (d: string) => new Date(d).toLocaleString('fr-FR');
 const montant = (v: string | null) =>
   v === null || v === '' ? '—' : `${Number(v).toLocaleString('fr-FR')} F`;
 
@@ -489,6 +498,30 @@ export function DossierDetail({
                 aide="Optionnel."
               />
             </FormulaireModal>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* --- Notes (lecture seule — écriture réservée à l'assureur) --- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Notes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {dossier.notes.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune note pour l’instant.</p>
+          ) : (
+            <ul className="space-y-3">
+              {dossier.notes.map((n) => (
+                <li key={n.id} className="rounded-md border p-3 text-sm">
+                  <p className="whitespace-pre-wrap">{n.contenu}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {n.auteur?.role ?? 'Rôle inconnu'} · {dateHeureFr(n.createdAt)}
+                    {n.acteDossierId && ' · liée à un acte précis'}
+                  </p>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>

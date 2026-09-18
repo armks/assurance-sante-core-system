@@ -4325,3 +4325,64 @@ dossier vérifié, décision d'approbation partielle saisie depuis le formulaire
 vérifiée en base (statut et montant recalculé). Toutes les données de test éphémères
 supprimées, résidu d'une première tentative avortée (contrainte de format sur le code de
 ticket) détecté et nettoyé indépendamment.
+
+## 2026-09-18 (suite 2) — Complète le circuit de validation (4 éléments restants)
+
+### 1. Statistiques `/dashboard-assureur/exploitation`
+Nouvel endpoint `GET preauthorization/actes/statistiques-exploitation` (réservé
+ASSUREUR_EXPLOITATION/_CONJOINTE) : compteurs jour/semaine/mois/année (approuvés =
+APPROUVEE(_PARTIELLEMENT), refusés, escaladés = ACTUELLEMENT EN_ATTENTE_MEDECIN_CONSEIL).
+Simple agrégation sur `statutPreautorisation`/`updatedAt` — aucune nouvelle table, aucune
+colonne de date de décision dédiée (comme demandé). Frontend : nouvelle section
+`GrilleCartes` dans `ExploitationVueEnsemble` (partagée exploitation/exploitation-conjointe),
+4 cartes avec total + détail par issue.
+
+### 2. Règle anti-répétition (14 jours)
+Portée sur `dossier.typeVisite = ANALYSES_EXAMENS_MEDICAUX` (et non sur `categorieActe`,
+qui ne connaît que BIOLOGIE/IMAGERIE/etc. — précision apportée après une première
+implémentation erronée détectée par le typecheck), et seulement si un `codeActe` est
+fourni. `ajouterActe` bloque (409, message explicite avec le code et la date de l'acte
+précédent + `acteRepeteId`) tout acte du même code pour le même adhérent/bénéficiaire dans
+les 14 jours, tous établissements confondus. Nouvelle table `autorisations_repetition_acte`
+(prisma/sql/042) : nouvel endpoint `POST tickets-soins/:id/actes/autoriser-repetition`
+réservé EXCLUSIVEMENT à ASSUREUR_MEDECIN_CONSEIL (jamais l'exploitation), crée une
+autorisation à usage unique (ticket + code) consommée automatiquement au prochain
+`ajouterActe` réussi.
+
+### 3. Notes libres sur un dossier (ou un acte précis)
+Nouvelle table `notes_dossier` (prisma/sql/042, RLS). Écriture réservée à
+`ROLES_ECRITURE_NOTE_DOSSIER` (ASSUREUR_EXPLOITATION/ASSUREUR_MEDECIN_CONSEIL — nouvel
+endpoint `POST care-episode/dossiers/:id/notes`, module `care-episode` puisqu'il possède
+déjà `chargerDossier`/`modeLectureDossiers`). Lecture élargie à tout rôle ayant déjà accès
+au dossier (`chargerDossier` embarque désormais `notes`, aucune règle dupliquée) — personnel
+ASSUREUR habilité organisation entière, établissement traitant scopé. Frontend : nouvelle
+section « Notes » sur `DossierSupervisionDetail` (lecture + formulaire d'ajout) et sur
+`DossierDetail` côté centre médical (lecture seule).
+
+### 4. Orientation vers un établissement exécutant
+Nouvelle colonne `etablissement_execution_id` sur `actes_dossier` (prisma/sql/042).
+`TraiterParExploitationDto` étendu (`etablissementExecutionId`, ignoré hors décision
+APPROUVE, validé — 404 si introuvable/hors organisation). `simulerMontantActe` recherche
+désormais le tarif conventionné pour l'établissement EXÉCUTANT une fois renseigné, plus
+jamais celui d'origine du dossier. Frontend : champ « Réorienter vers un établissement
+exécutant » ajouté au formulaire de décision existant (`ExploitationPreautorisationsEcran`,
+liste chargée via `provider/etablissements`), et affiché dans la colonne « Approuvé » des
+actes traités.
+
+### Tests
+Backend : 339/339 (`npx jest`, 21 nouveaux : 8 anti-répétition, 3 `autoriserRepetition`,
+3 orientation, 6 notes, 2 statistiques — dont un test à horloge figée, `jest.useFakeTimers`,
+pour rester déterministe quel que soit le jour d'exécution réel). `npx tsc --noEmit` propre
+API et Web. Test HTTP réel (19/19) : répétition du même code sous 14 jours bloquée avec le
+bon message, débloquée une seule fois par une autorisation du médecin conseil (rebloquée à
+la tentative suivante), exploitation elle-même incapable de s'auto-débloquer (403) ; notes
+ajoutées par exploitation et médecin conseil, refusées pour ASSUREUR_INFORMATIQUE en
+écriture (403) mais visibles par lui ET par l'établissement traitant en lecture ;
+orientation d'un acte hospitalisation vers un second établissement (tarif conventionné à
+4 000 F) donnant 4 000,00 F au lieu des 10 000,00 F de l'établissement d'origine (sans
+tarif). Test navigateur réel (Playwright, 7/7) : section statistiques et écran
+pré-autorisations chargés, section Notes affichée avec formulaire d'ajout, note saisie et
+visible immédiatement après soumission. Toutes les données de test éphémères supprimées,
+résidus de deux tentatives interrompues (contrainte d'unicité sur un second dossier ouvert
+pour le même adhérent, puis ordre FK au nettoyage) détectés et nettoyés indépendamment à
+chaque fois.

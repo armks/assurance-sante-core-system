@@ -71,6 +71,30 @@ export class TraiterParExploitationDto {
   @Max(100)
   ticketModerateurAjuste?: number;
 
+  /**
+   * Orientation vers un établissement EXÉCUTANT distinct de celui d'origine
+   * du dossier — ne s'applique qu'à une décision `APPROUVE` (ignoré sinon,
+   * même convention que `quantiteApprouvee`/`typeApprouve`).
+   */
+  @IsOptional() @IsUUID() etablissementExecutionId?: string;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  motif!: string;
+}
+
+/**
+ * Débloque, une seule fois, la règle anti-répétition (14 jours) pour un acte
+ * ANALYSES_EXAMENS_MEDICAUX précis (même `codeActe`) sur un ticket de soins
+ * précis — réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL.
+ */
+export class AutoriserRepetitionDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(40)
+  codeActe!: string;
+
   @IsString()
   @MinLength(5)
   @MaxLength(500)

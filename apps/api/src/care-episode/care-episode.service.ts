@@ -14,6 +14,7 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AjouterConsultationDto,
+  AjouterNoteDto,
   ClotureDto,
   ClotureForceeDto,
   DefinirTypeVisiteDto,
@@ -25,6 +26,7 @@ import {
   ROLE_CLOTURE_FORCEE,
   ROLE_MEDECIN_TRAITANT,
   ROLES_CENTRE_MEDICAL,
+  ROLES_ECRITURE_NOTE_DOSSIER,
   ROLES_GESTION_DOSSIER,
   ROLES_LECTURE_DOSSIER_STAFF,
 } from './care-episode.types';
@@ -812,12 +814,73 @@ export class CareEpisodeService {
             },
           },
         },
+        // Historique du dossier (v3 §5 complément) : visible par tout rôle
+        // ayant déjà accès au dossier (ce même `chargerDossier`) — écriture
+        // réservée à `ajouterNote` (ASSUREUR_EXPLOITATION/MEDECIN_CONSEIL).
+        notes: {
+          orderBy: { createdAt: 'desc' },
+          include: { auteur: { select: { role: true } } },
+        },
       },
     });
     if (!dossier) {
       throw new NotFoundException('Dossier de soins introuvable.');
     }
     return dossier;
+  }
+
+  /**
+   * Note libre sur un dossier (ou un acte précis, `dto.acteDossierId`) —
+   * réservée à ASSUREUR_EXPLOITATION(_CONJOINTE, par héritage de rôle)/
+   * ASSUREUR_MEDECIN_CONSEIL. Visible ensuite dans `chargerDossier` par tout
+   * rôle qui a déjà accès en lecture au dossier (`modeLectureDossiers`).
+   */
+  async ajouterNote(user: AuthenticatedUser, dossierId: string, dto: AjouterNoteDto) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_ECRITURE_NOTE_DOSSIER as readonly string[]).includes(r),
+      )
+    ) {
+      throw new ForbiddenException(
+        "L'ajout d'une note est réservé à ASSUREUR_EXPLOITATION ou ASSUREUR_MEDECIN_CONSEIL.",
+      );
+    }
+
+    const dossier = await this.chargerDossierBrut(ctx.organisationId, dossierId);
+
+    if (dto.acteDossierId) {
+      const acte = await this.prisma.acteDossier.findFirst({
+        where: { id: dto.acteDossierId, dossierSoinsId: dossier.id, deletedAt: null },
+        select: { id: true },
+      });
+      if (!acte) {
+        throw new NotFoundException("Cet acte n'appartient pas à ce dossier de soins.");
+      }
+    }
+
+    const note = await this.prisma.$transaction(async (tx) => {
+      const cree = await tx.noteDossier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          dossierSoinsId: dossier.id,
+          acteDossierId: dto.acteDossierId ?? null,
+          auteurId: ctx.userId,
+          contenu: dto.contenu,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'AJOUT_NOTE_DOSSIER',
+        cree.id,
+        { dossierSoinsId: dossier.id, acteDossierId: dto.acteDossierId ?? null },
+        'notes_dossier',
+      );
+      return cree;
+    });
+
+    return note;
   }
 
   /** Code de ticket cryptographiquement sûr (`crypto.randomInt`), unique. */

@@ -16,6 +16,7 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AjouterActeDto,
+  AutoriserRepetitionDto,
   TraiterParExploitationDto,
   ValiderPreautorisationDto,
 } from './dto/acte.dto';
@@ -35,12 +36,14 @@ import {
 import {
   ALPHABET_CODE,
   ContexteAppelant,
+  JOURS_ANTI_REPETITION,
   LONGUEUR_CODE,
   ROLES_ADHERENT,
   ROLES_AJOUT_ACTE,
   ROLES_CENTRE_MEDICAL,
   ROLES_GENERATION_FACTURE,
   ROLES_PHARMACIE,
+  ROLE_AUTORISATION_REPETITION,
   ROLE_CONFIRMATION_PAIEMENT,
   ROLE_MAINTENANCE_EXPIRATION,
   ROLE_MEDECIN_TRAITANT,
@@ -48,6 +51,7 @@ import {
   ROLES_TRAITEMENT_EXPLOITATION,
   STATUTS_PREAUTORISATION_NON_FACTURABLES,
   TAUX_COUVERTURE_DEFAUT,
+  TYPE_VISITE_ANTI_REPETITION,
   TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE,
 } from './preauthorization.types';
 
@@ -832,6 +836,58 @@ export class PreauthorizationService {
       }
     }
 
+    // Règle anti-répétition (14 jours) — actes ajoutés dans un dossier
+    // ANALYSES_EXAMENS_MEDICAUX uniquement, et seulement si un `codeActe` est
+    // fourni (rien d'identifiable sinon, le même code désignant toujours le
+    // même `referentiel_acte_id`). Patient du DOSSIER (adherent XOR
+    // bénéficiaire), tous établissements confondus. Débloqué au cas par cas
+    // par le médecin conseil (`autoriserRepetition`), jamais par l'exploitation
+    // qui a rencontré le blocage.
+    let autorisationRepetitionId: string | null = null;
+    if (
+      ticket.dossier.typeVisite === TYPE_VISITE_ANTI_REPETITION &&
+      dto.codeActe
+    ) {
+      const patientFilter = ticket.dossier.adherentId
+        ? { adherentId: ticket.dossier.adherentId }
+        : ticket.dossier.beneficiaireId
+          ? { beneficiaireId: ticket.dossier.beneficiaireId }
+          : null;
+      if (patientFilter) {
+        const depuis = new Date();
+        depuis.setDate(depuis.getDate() - JOURS_ANTI_REPETITION);
+        const actePrecedent = await this.prisma.acteDossier.findFirst({
+          where: {
+            deletedAt: null,
+            statut: { not: 'ANNULE' },
+            codeActe: dto.codeActe,
+            datePrescription: { gte: depuis },
+            dossier: { organisationId: ctx.organisationId, ...patientFilter },
+          },
+          orderBy: { datePrescription: 'desc' },
+        });
+        if (actePrecedent) {
+          const autorisation =
+            await this.prisma.autorisationRepetitionActe.findFirst({
+              where: {
+                ticketSoinsId: ticket.id,
+                codeActe: dto.codeActe,
+                utilisee: false,
+              },
+            });
+          if (!autorisation) {
+            throw new ConflictException({
+              message: `Un acte identique (code ${dto.codeActe}) a déjà été enregistré pour ce patient le ${actePrecedent.datePrescription.toLocaleDateString('fr-FR')} — moins de ${JOURS_ANTI_REPETITION} jours se sont écoulés. Une autorisation explicite du médecin conseil est requise pour resoumettre cet acte.`,
+              acteRepeteDetecte: true,
+              acteRepeteId: actePrecedent.id,
+              dateActePrecedent: actePrecedent.datePrescription,
+            });
+          }
+          autorisationRepetitionId = autorisation.id;
+        }
+      }
+    }
+
     // Simulation INDICATIVE (v3 §5 étendu) — lecture seule, avant la
     // transaction d'écriture. Ne bloque jamais l'ajout de l'acte : une
     // absence de tarif/garantie renvoie simplement `null` (rien à simuler).
@@ -887,9 +943,24 @@ export class PreauthorizationService {
           categorie: dto.categorieActe,
           simulation: simulation ?? null,
           statutPreautorisation,
+          autorisationRepetitionId,
         },
         'actes_dossier',
       );
+      if (autorisationRepetitionId) {
+        await tx.autorisationRepetitionActe.update({
+          where: { id: autorisationRepetitionId },
+          data: { utilisee: true, utiliseeLe: new Date() },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'AJOUT_ACTE_REPETITION_AUTORISEE',
+          acte.id,
+          { ticketSoinsId: ticket.id, codeActe: dto.codeActe, autorisationRepetitionId },
+          'actes_dossier',
+        );
+      }
       return acte.id;
     });
 
@@ -1062,6 +1133,24 @@ export class PreauthorizationService {
       );
     }
 
+    // Orientation : l'établissement EXÉCUTANT doit exister dans l'organisation
+    // (mais peut être différent de celui d'origine — c'est tout le sens de la
+    // réorientation).
+    if (dto.etablissementExecutionId) {
+      const etablissementExecution = await this.prisma.etablissementSante.findFirst({
+        where: {
+          id: dto.etablissementExecutionId,
+          organisationId: ctx.organisationId,
+          deletedAt: null,
+        },
+      });
+      if (!etablissementExecution) {
+        throw new NotFoundException(
+          "Établissement exécutant introuvable ou hors de votre réseau.",
+        );
+      }
+    }
+
     if (dto.decision === 'ESCALADE_MEDECIN_CONSEIL') {
       await this.prisma.$transaction(async (tx) => {
         await tx.acteDossier.update({
@@ -1085,6 +1174,7 @@ export class PreauthorizationService {
       quantiteApprouvee: dto.quantiteApprouvee,
       typeApprouve: dto.typeApprouve,
       ticketModerateurAjuste: dto.ticketModerateurAjuste,
+      etablissementExecutionId: dto.etablissementExecutionId,
       motif: dto.motif,
       action: 'PREAUTORISATION_EXPLOITATION',
       statutPrecedent: 'EN_ATTENTE_EXPLOITATION',
@@ -1115,6 +1205,7 @@ export class PreauthorizationService {
       quantiteApprouvee?: number;
       typeApprouve?: string;
       ticketModerateurAjuste?: number;
+      etablissementExecutionId?: string;
       motif: string;
       action: string;
       statutPrecedent: string;
@@ -1135,9 +1226,12 @@ export class PreauthorizationService {
         : 'APPROUVEE';
 
       if (acte.montantPrescrit !== null) {
+        // Orientation (v3 §5 complément) : le tarif conventionné se recherche
+        // pour l'établissement EXÉCUTANT une fois renseigné, plus jamais
+        // celui d'origine du dossier.
         simulation = await this.simulerMontantActe(
           ctx.organisationId,
-          acte.dossier.etablissementId,
+          params.etablissementExecutionId ?? acte.dossier.etablissementId,
           acte.dossier.police.produitId,
           {
             categorieActe: acte.categorieActe as AjouterActeDto['categorieActe'],
@@ -1165,6 +1259,7 @@ export class PreauthorizationService {
                   params.ticketModerateurAjuste !== undefined
                     ? params.ticketModerateurAjuste.toFixed(2)
                     : null,
+                etablissementExecutionId: params.etablissementExecutionId ?? null,
                 ...(simulation
                   ? {
                       montantSimuleAssurance: simulation.montantSimuleAssurance,
@@ -1187,6 +1282,7 @@ export class PreauthorizationService {
           quantiteApprouvee: params.quantiteApprouvee ?? null,
           typeApprouve: params.typeApprouve ?? null,
           ticketModerateurAjuste: params.ticketModerateurAjuste ?? null,
+          etablissementExecutionId: params.etablissementExecutionId ?? null,
           statutPrecedent: params.statutPrecedent,
           nouveauStatut,
           simulationRecalculee: simulation ?? null,
@@ -1340,6 +1436,7 @@ export class PreauthorizationService {
             beneficiaire: { select: { nom: true, prenom: true } },
           },
         },
+        etablissementExecution: { select: { nom: true } },
       },
       orderBy: { datePrescription: 'desc' },
     });
@@ -1363,12 +1460,123 @@ export class PreauthorizationService {
       numeroTraitement: a.dossier.numeroTraitement,
       typeVisite: a.dossier.typeVisite,
       etablissement: a.dossier.etablissement.nom,
+      etablissementExecution: a.etablissementExecution?.nom ?? null,
       patient: a.dossier.adherent
         ? `${a.dossier.adherent.prenom} ${a.dossier.adherent.nom}`
         : a.dossier.beneficiaire
           ? `${a.dossier.beneficiaire.prenom} ${a.dossier.beneficiaire.nom}`
           : '—',
     }));
+  }
+
+  /**
+   * Débloque, une seule fois, la règle anti-répétition (14 jours) pour un
+   * acte ANALYSES_EXAMENS_MEDICAUX précis (même `codeActe`) sur CE ticket de
+   * soins — réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL (jamais
+   * l'exploitation, qui est celle qui rencontre le blocage).
+   */
+  async autoriserRepetition(
+    user: AuthenticatedUser,
+    ticketSoinsId: string,
+    dto: AutoriserRepetitionDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_AUTORISATION_REPETITION)) {
+      throw new ForbiddenException(
+        'Le déblocage de la règle anti-répétition est réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL.',
+      );
+    }
+    const ticket = await this.chargerTicket(ctx.organisationId, ticketSoinsId);
+
+    const autorisation = await this.prisma.$transaction(async (tx) => {
+      const cree = await tx.autorisationRepetitionActe.create({
+        data: {
+          organisationId: ctx.organisationId,
+          ticketSoinsId: ticket.id,
+          codeActe: dto.codeActe,
+          motif: dto.motif,
+          autoriseParId: ctx.userId,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'AUTORISATION_REPETITION_ACTE',
+        cree.id,
+        { ticketSoinsId: ticket.id, codeActe: dto.codeActe, motif: dto.motif },
+        'autorisations_repetition_acte',
+      );
+      return cree;
+    });
+
+    return autorisation;
+  }
+
+  /**
+   * Statistiques /dashboard-assureur/exploitation — comptes d'actes du
+   * circuit de pré-autorisation par période (jour/semaine/mois/année) et par
+   * issue (approuvés = APPROUVEE(_PARTIELLEMENT), refusés, escaladés =
+   * ACTUELLEMENT en file du médecin conseil). Simple agrégation sur
+   * `statutPreautorisation`/`updatedAt` (date de la dernière décision) —
+   * aucune nouvelle table, aucune date de décision dédiée.
+   */
+  async statistiquesExploitation(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_TRAITEMENT_EXPLOITATION as readonly string[]).includes(r),
+      )
+    ) {
+      throw new ForbiddenException(
+        'Réservé exclusivement à ASSUREUR_EXPLOITATION ou ASSUREUR_EXPLOITATION_CONJOINTE.',
+      );
+    }
+
+    const maintenant = new Date();
+    const debutJour = new Date(
+      Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth(), maintenant.getUTCDate()),
+    );
+    const jourSemaine = debutJour.getUTCDay(); // 0=dimanche .. 6=samedi
+    const decalageLundi = jourSemaine === 0 ? 6 : jourSemaine - 1;
+    const debutSemaine = new Date(debutJour);
+    debutSemaine.setUTCDate(debutSemaine.getUTCDate() - decalageLundi);
+    const debutMois = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth(), 1));
+    const debutAnnee = new Date(Date.UTC(maintenant.getUTCFullYear(), 0, 1));
+
+    const actes = await this.prisma.acteDossier.findMany({
+      where: {
+        deletedAt: null,
+        statutPreautorisation: {
+          in: ['APPROUVEE', 'APPROUVEE_PARTIELLEMENT', 'REFUSEE', 'EN_ATTENTE_MEDECIN_CONSEIL'],
+        },
+        updatedAt: { gte: debutAnnee },
+        dossier: { organisationId: ctx.organisationId },
+      },
+      select: { statutPreautorisation: true, updatedAt: true },
+    });
+
+    const compteurVide = () => ({ approuves: 0, refuses: 0, escalades: 0 });
+    const stats = {
+      jour: compteurVide(),
+      semaine: compteurVide(),
+      mois: compteurVide(),
+      annee: compteurVide(),
+    };
+
+    for (const acte of actes) {
+      const cle: 'approuves' | 'refuses' | 'escalades' =
+        acte.statutPreautorisation === 'REFUSEE'
+          ? 'refuses'
+          : acte.statutPreautorisation === 'EN_ATTENTE_MEDECIN_CONSEIL'
+            ? 'escalades'
+            : 'approuves';
+      stats.annee[cle] += 1;
+      if (acte.updatedAt >= debutMois) stats.mois[cle] += 1;
+      if (acte.updatedAt >= debutSemaine) stats.semaine[cle] += 1;
+      if (acte.updatedAt >= debutJour) stats.jour[cle] += 1;
+    }
+
+    return stats;
   }
 
   private async chargerTicket(organisationId: string, ticketSoinsId: string) {

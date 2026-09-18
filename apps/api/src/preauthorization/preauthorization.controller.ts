@@ -12,6 +12,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   AjouterActeDto,
+  AutoriserRepetitionDto,
   TraiterParExploitationDto,
   ValiderPreautorisationDto,
 } from './dto/acte.dto';
@@ -150,6 +151,20 @@ export class PreauthorizationController {
     return this.preauth.ajouterActe(user, id, dto);
   }
 
+  /**
+   * Côté MÉDECIN CONSEIL exclusivement : débloque, une seule fois, la règle
+   * anti-répétition (14 jours) pour un acte ANALYSES_EXAMENS_MEDICAUX précis
+   * sur ce ticket — à réessayer ensuite via `POST tickets-soins/:id/actes`.
+   */
+  @Post('tickets-soins/:id/actes/autoriser-repetition')
+  autoriserRepetition(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AutoriserRepetitionDto,
+  ) {
+    return this.preauth.autoriserRepetition(user, id, dto);
+  }
+
   // --- Pré-autorisation obligatoire (analyses/examens médicaux) -----
 
   /** Côté MÉDECIN CONSEIL : file d'attente des actes à valider. */
@@ -192,6 +207,12 @@ export class PreauthorizationController {
     @Body() dto: TraiterParExploitationDto,
   ) {
     return this.preauth.traiterParExploitation(user, id, dto);
+  }
+
+  /** Côté ASSUREUR_EXPLOITATION(_CONJOINTE) : GrilleCartes de la vue d'ensemble. */
+  @Get('actes/statistiques-exploitation')
+  statistiquesExploitation(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.statistiquesExploitation(user);
   }
 
   // --- Code de Facturation (v8 §5) — facturation par sélection d'actes ---

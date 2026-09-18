@@ -181,6 +181,20 @@ export type DecisionExploitationPreautorisation =
  */
 export const ROLE_VALIDATION_PREAUTORISATION = 'ASSUREUR_MEDECIN_CONSEIL';
 
+/**
+ * Règle anti-répétition (14 jours) — appliquée uniquement aux actes ajoutés
+ * dans un dossier dont le `typeVisite` est ANALYSES_EXAMENS_MEDICAUX (même
+ * valeur que `TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE`, pas une
+ * `categorieActe` : celles-ci restent BIOLOGIE/IMAGERIE/etc.), et seulement
+ * s'ils portent un `codeActe` (rien à comparer sinon — le même code désigne
+ * toujours le même `referentiel_acte_id`). Seul ASSUREUR_MEDECIN_CONSEIL peut
+ * débloquer, au cas par cas (`autoriserRepetition`), jamais l'exploitation
+ * elle-même.
+ */
+export const TYPE_VISITE_ANTI_REPETITION = 'ANALYSES_EXAMENS_MEDICAUX';
+export const JOURS_ANTI_REPETITION = 14;
+export const ROLE_AUTORISATION_REPETITION = 'ASSUREUR_MEDECIN_CONSEIL';
+
 /** Taux de couverture par défaut si aucune garantie ne matche la catégorie d'acte. */
 export const TAUX_COUVERTURE_DEFAUT = 80;
 

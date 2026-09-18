@@ -10,6 +10,7 @@ import {
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { ClaimsService } from '../claims/claims.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -21,12 +22,14 @@ import {
 } from './dto/pharmacy.dto';
 import {
   ALPHABET_CODE,
+  CATEGORIE_ACTE_PHARMACIE,
   ContexteAppelant,
   LONGUEUR_CODE,
   ROLES_ADHERENT,
   ROLES_PHARMACIE,
   ROLE_PHARMACIEN_SEUL,
   STATUTS_DISPENSATION_MODIFIABLE,
+  TAUX_COUVERTURE_DEFAUT,
 } from './pharmacy.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -50,6 +53,7 @@ export class PharmacyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly claims: ClaimsService,
   ) {}
 
   // --- Recherche par carte -----------------------------------------
@@ -200,7 +204,15 @@ export class PharmacyService {
 
     const ordonnance = await this.prisma.ordonnance.findFirst({
       where: { id: ordonnanceId, organisationId: ctx.organisationId, deletedAt: null },
-      include: { dossier: { select: { adherentId: true, beneficiaireId: true } } },
+      include: {
+        dossier: {
+          select: {
+            adherentId: true,
+            beneficiaireId: true,
+            police: { select: { produitId: true } },
+          },
+        },
+      },
     });
     if (!ordonnance) {
       throw new NotFoundException('Ordonnance introuvable.');
@@ -208,6 +220,19 @@ export class PharmacyService {
     if (['EXPIREE', 'ANNULEE'].includes(ordonnance.statut)) {
       throw new ConflictException(`Ordonnance ${ordonnance.statut.toLowerCase()} — dispensation impossible.`);
     }
+
+    // Part assurance / part patient — même logique que
+    // PreauthorizationService.simulerMontantActe (garanties.tauxCouverture,
+    // catégorie PHARMACIE, plafond par acte éventuel). Une seule garantie
+    // pour toute la dispensation : toutes les lignes viennent de la même
+    // ordonnance -> même dossier -> même police -> même produit.
+    const garantiePharmacie = await this.prisma.garantie.findFirst({
+      where: {
+        produitId: ordonnance.dossier.police.produitId,
+        categorieActe: CATEGORIE_ACTE_PHARMACIE,
+        deletedAt: null,
+      },
+    });
 
     const lignes = await this.prisma.ligneOrdonnance.findMany({
       where: { id: { in: lignesChoisies.map((l) => l.ligneOrdonnanceId) }, ordonnanceId },
@@ -231,7 +256,21 @@ export class PharmacyService {
     });
     const parDenomination = new Map(stock.map((s) => [s.denominationMedicament, s]));
 
-    const detail: { ligne: (typeof lignes)[number]; quantite: number; prixUnitaire: Decimal; montantLigne: Decimal }[] = [];
+    const taux = new Decimal(
+      garantiePharmacie?.tauxCouverture?.toString() ?? String(TAUX_COUVERTURE_DEFAUT),
+    );
+    const plafondParActe = garantiePharmacie?.plafondParActe
+      ? new Decimal(garantiePharmacie.plafondParActe.toString())
+      : null;
+
+    const detail: {
+      ligne: (typeof lignes)[number];
+      quantite: number;
+      prixUnitaire: Decimal;
+      montantLigne: Decimal;
+      montantAssurance: Decimal;
+      montantPatient: Decimal;
+    }[] = [];
     for (const choix of lignesChoisies) {
       const ligne = lignes.find((l) => l.id === choix.ligneOrdonnanceId)!;
       const s = parDenomination.get(ligne.denominationMedicament);
@@ -242,7 +281,13 @@ export class PharmacyService {
       }
       const quantite = choix.quantite ?? ligne.quantitePrescrite;
       const prixUnitaire = new Decimal(s.prixPharmacie.toString());
-      detail.push({ ligne, quantite, prixUnitaire, montantLigne: prixUnitaire.mul(quantite) });
+      const montantLigne = prixUnitaire.mul(quantite);
+      let montantAssurance = montantLigne.mul(taux).div(100).toDecimalPlaces(2);
+      if (plafondParActe && montantAssurance.gt(plafondParActe)) {
+        montantAssurance = plafondParActe;
+      }
+      const montantPatient = montantLigne.sub(montantAssurance);
+      detail.push({ ligne, quantite, prixUnitaire, montantLigne, montantAssurance, montantPatient });
     }
     const montantTotal = detail.reduce((acc, d) => acc.add(d.montantLigne), new Decimal(0));
 
@@ -270,6 +315,8 @@ export class PharmacyService {
           prixUnitaire: x.prixUnitaire.toFixed(2),
           quantite: x.quantite,
           montantLigne: x.montantLigne.toFixed(2),
+          montantAssurance: x.montantAssurance.toFixed(2),
+          montantPatient: x.montantPatient.toFixed(2),
         })),
       });
 
@@ -283,11 +330,16 @@ export class PharmacyService {
       return mis;
     });
 
+    const montantAssuranceTotal = detail.reduce((acc, d) => acc.add(d.montantAssurance), new Decimal(0));
+    const montantPatientTotal = detail.reduce((acc, d) => acc.add(d.montantPatient), new Decimal(0));
+
     // Réponse à LA PHARMACIE — jamais le code (envoyé à l'adhérent uniquement).
     return {
       dispensationId: dispensation.id,
       statut: dispensation.statut,
       montantTotal: dispensation.montantTotal.toFixed(2),
+      montantAssurance: montantAssuranceTotal.toFixed(2),
+      montantPatient: montantPatientTotal.toFixed(2),
       message: "Dispensation préparée. Le code de confirmation a été transmis au patient pour validation.",
     };
   }
@@ -308,19 +360,32 @@ export class PharmacyService {
       where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
       include: {
         lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } } },
+        reclamations: { select: { id: true, statut: true }, take: 1 },
       },
     });
     if (!dispensation) {
       throw new NotFoundException('Dispensation introuvable.');
     }
 
+    const montantAssurance = dispensation.lignes.reduce(
+      (acc, l) => acc.add(new Decimal(l.montantAssurance.toString())),
+      new Decimal(0),
+    );
+    const montantPatient = dispensation.lignes.reduce(
+      (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
+      new Decimal(0),
+    );
+
     return {
       id: dispensation.id,
       statut: dispensation.statut,
       montantTotal: dispensation.montantTotal.toFixed(2),
+      montantAssurance: montantAssurance.toFixed(2),
+      montantPatient: montantPatient.toFixed(2),
       datePreparation: dispensation.datePreparation,
       dateValidationPatient: dispensation.dateValidationPatient,
       datePaiement: dispensation.datePaiement,
+      reclamation: dispensation.reclamations[0] ?? null,
       lignes: dispensation.lignes.map((l) => ({
         id: l.id,
         ligneOrdonnanceId: l.ligneOrdonnanceId,
@@ -330,6 +395,8 @@ export class PharmacyService {
         quantite: l.quantite,
         prixUnitaire: l.prixUnitaire.toFixed(2),
         montantLigne: l.montantLigne.toFixed(2),
+        montantAssurance: l.montantAssurance.toFixed(2),
+        montantPatient: l.montantPatient.toFixed(2),
       })),
     };
   }
@@ -370,10 +437,20 @@ export class PharmacyService {
 
     return dispensations.map((d) => {
       const patient = d.ordonnance.dossier.adherent ?? d.ordonnance.dossier.beneficiaire;
+      const montantAssurance = d.lignes.reduce(
+        (acc, l) => acc.add(new Decimal(l.montantAssurance.toString())),
+        new Decimal(0),
+      );
+      const montantPatient = d.lignes.reduce(
+        (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
+        new Decimal(0),
+      );
       return {
         id: d.id,
         statut: d.statut,
         montantTotal: d.montantTotal.toFixed(2),
+        montantAssurance: montantAssurance.toFixed(2),
+        montantPatient: montantPatient.toFixed(2),
         datePreparation: d.datePreparation,
         dateValidationPatient: d.dateValidationPatient,
         datePaiement: d.datePaiement,
@@ -414,15 +491,22 @@ export class PharmacyService {
       orderBy: { datePreparation: 'desc' },
       take: 50,
     });
-    return dispensations.map((d) => ({
-      id: d.id,
-      pharmacie: d.pharmacie.nom,
-      statut: d.statut,
-      montantTotal: d.montantTotal.toFixed(2),
-      code: d.statut === 'EN_ATTENTE_VALIDATION_PATIENT' ? d.codeConfirmation : undefined,
-      medicaments: d.lignes.map((l) => l.ligneOrdonnance.denominationMedicament),
-      datePreparation: d.datePreparation,
-    }));
+    return dispensations.map((d) => {
+      const montantPatient = d.lignes.reduce(
+        (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
+        new Decimal(0),
+      );
+      return {
+        id: d.id,
+        pharmacie: d.pharmacie.nom,
+        statut: d.statut,
+        montantTotal: d.montantTotal.toFixed(2),
+        montantPatient: montantPatient.toFixed(2),
+        code: d.statut === 'EN_ATTENTE_VALIDATION_PATIENT' ? d.codeConfirmation : undefined,
+        medicaments: d.lignes.map((l) => l.ligneOrdonnance.denominationMedicament),
+        datePreparation: d.datePreparation,
+      };
+    });
   }
 
   /** Validation du code par l'ADHÉRENT — passe à VALIDEE, PAS encore PAYEE. */
@@ -478,6 +562,16 @@ export class PharmacyService {
    * SERVIE) — si une ligne a été prise entre-temps par une autre pharmacie,
    * la transaction entière échoue plutôt que de facturer une ligne déjà
    * servie ailleurs.
+   *
+   * Le patient ne règle QUE `montantPatient` (jamais le total) : dès le
+   * paiement enregistré, une réclamation est soumise au microservice
+   * d'adjudication pour `montantAssurance` — « une dispensation payée = un
+   * remboursement réclamé », jamais un flux séparé sans lien avec
+   * l'adjudication. Le paiement lui-même reste acquis même si l'appel
+   * d'adjudication échoue (le patient a déjà réglé) : l'erreur remonte
+   * explicitement (502/503, même contrat que `ClaimsService.soumettre`) pour
+   * qu'une nouvelle tentative de soumission soit possible — la réclamation
+   * reste idempotente sur `dispensationId`.
    */
   async confirmerPaiementDispensation(user: AuthenticatedUser, dispensationId: string) {
     const ctx = await this.contexteAppelant(user);
@@ -485,7 +579,22 @@ export class PharmacyService {
 
     const dispensation = await this.prisma.dispensationPharmacie.findFirst({
       where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
-      include: { lignes: true },
+      include: {
+        lignes: true,
+        ordonnance: {
+          include: {
+            dossier: {
+              select: {
+                id: true,
+                adherentId: true,
+                beneficiaireId: true,
+                policeId: true,
+                police: { select: { produitId: true } },
+              },
+            },
+          },
+        },
+      },
     });
     if (!dispensation) {
       throw new NotFoundException('Dispensation introuvable.');
@@ -526,11 +635,52 @@ export class PharmacyService {
       return d;
     });
 
+    const montantAssurance = dispensation.lignes.reduce(
+      (acc, l) => acc.add(new Decimal(l.montantAssurance.toString())),
+      new Decimal(0),
+    );
+    const montantPatient = dispensation.lignes.reduce(
+      (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
+      new Decimal(0),
+    );
+
+    const dossier = dispensation.ordonnance.dossier;
+    const garantiePharmacie = await this.prisma.garantie.findFirst({
+      where: {
+        produitId: dossier.police.produitId,
+        categorieActe: CATEGORIE_ACTE_PHARMACIE,
+        deletedAt: null,
+      },
+    });
+
+    let reclamation: { id: string; statut: string } | null = null;
+    if (garantiePharmacie && montantAssurance.gt(0)) {
+      const resultat = await this.claims.soumettreDepuisDispensation(
+        { userId: ctx.userId, organisationId: ctx.organisationId },
+        {
+          dispensationId: maj.id,
+          dossierSoinsId: dossier.id,
+          adherentId: dossier.adherentId,
+          beneficiaireId: dossier.beneficiaireId,
+          policeId: dossier.policeId,
+          garantieId: garantiePharmacie.id,
+          montant: montantAssurance.toFixed(2),
+        },
+      );
+      reclamation = {
+        id: resultat.reclamation.id,
+        statut: resultat.reclamation.statut,
+      };
+    }
+
     return {
       dispensationId: maj.id,
       statut: maj.statut,
       montantTotal: maj.montantTotal.toFixed(2),
+      montantAssurance: montantAssurance.toFixed(2),
+      montantPatient: montantPatient.toFixed(2),
       datePaiement: maj.datePaiement,
+      reclamation,
     };
   }
 

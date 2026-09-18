@@ -69,15 +69,35 @@ export async function preparerDispensation(
   ordonnanceId: string,
   lignes: { ligneOrdonnanceId: string }[],
   cible: string,
-): Promise<ResultatSoumission & { dispensationId?: string; montantTotal?: string }> {
+): Promise<
+  ResultatSoumission & {
+    dispensationId?: string;
+    montantTotal?: string;
+    montantAssurance?: string;
+    montantPatient?: string;
+  }
+> {
   const res = await apiFetch('/api/v1/pharmacy/dispensations', {
     method: 'POST',
     body: JSON.stringify({ ordonnanceId, lignes }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
-  const body = (await res.json()) as { dispensationId: string; montantTotal: string; message: string };
+  const body = (await res.json()) as {
+    dispensationId: string;
+    montantTotal: string;
+    montantAssurance: string;
+    montantPatient: string;
+    message: string;
+  };
   revalidatePath(cible);
-  return { ok: true, message: body.message, dispensationId: body.dispensationId, montantTotal: body.montantTotal };
+  return {
+    ok: true,
+    message: body.message,
+    dispensationId: body.dispensationId,
+    montantTotal: body.montantTotal,
+    montantAssurance: body.montantAssurance,
+    montantPatient: body.montantPatient,
+  };
 }
 
 export async function obtenirDispensation(dispensationId: string): Promise<DispensationDetail | null> {
@@ -93,8 +113,16 @@ export async function confirmerPaiementDispensation(
     method: 'POST',
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const body = (await res.json()) as { montantPatient: string; reclamation: { id: string; statut: string } | null };
   revalidatePath(cible);
-  return { ok: true, message: 'Paiement confirmé — ligne(s) verrouillée(s) pour votre pharmacie.' };
+  return {
+    ok: true,
+    message:
+      `Paiement confirmé (${Number(body.montantPatient).toLocaleString('fr-FR')} F perçus) — ligne(s) verrouillée(s) pour votre pharmacie.` +
+      (body.reclamation
+        ? ` Réclamation soumise à l'adjudication (${body.reclamation.statut}).`
+        : ''),
+  };
 }
 
 /** Réservée au pharmacien côté API (403 sinon) — voir `PharmacyService.substituerMedicament`. */

@@ -60,16 +60,29 @@ export interface LigneDispensationDetail {
   quantite: number;
   prixUnitaire: string;
   montantLigne: string;
+  /** Remboursement pharmacie : garanties.tauxCouverture appliqué (catégorie PHARMACIE). */
+  montantAssurance: string;
+  montantPatient: string;
+}
+
+export interface ReclamationDispensation {
+  id: string;
+  statut: string;
 }
 
 export interface DispensationDetail {
   id: string;
   statut: StatutDispensation;
   montantTotal: string;
+  /** Part assurance / part patient — agrégées sur toutes les lignes. */
+  montantAssurance: string;
+  montantPatient: string;
   datePreparation: string;
   dateValidationPatient: string | null;
   datePaiement: string | null;
   lignes: LigneDispensationDetail[];
+  /** Présent uniquement après confirmation du paiement (réclamation soumise à l'adjudication). */
+  reclamation?: ReclamationDispensation | null;
 }
 
 export interface PatientDispensation {
@@ -90,6 +103,8 @@ export interface DispensationResume {
   id: string;
   statut: StatutDispensation;
   montantTotal: string;
+  montantAssurance: string;
+  montantPatient: string;
   datePreparation: string;
   dateValidationPatient: string | null;
   datePaiement: string | null;

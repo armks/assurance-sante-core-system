@@ -3,9 +3,11 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { ClaimsService } from '../claims/claims.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PharmacyService } from './pharmacy.service';
@@ -44,6 +46,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
   let service: PharmacyService;
   let prisma: any;
   let identity: { getMe: jest.Mock };
+  let claims: { soumettreDepuisDispensation: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -51,6 +54,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       beneficiaire: { findFirst: jest.fn().mockResolvedValue(null) },
       ordonnance: { findFirst: jest.fn() },
       ligneOrdonnance: { findMany: jest.fn(), updateMany: jest.fn() },
+      garantie: { findFirst: jest.fn().mockResolvedValue(null) },
       stockMedicamentPharmacie: {
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn(),
@@ -67,12 +71,14 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     identity = { getMe: jest.fn() };
+    claims = { soumettreDepuisDispensation: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         PharmacyService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
+        { provide: ClaimsService, useValue: claims },
       ],
     }).compile();
     service = moduleRef.get(PharmacyService);
@@ -84,7 +90,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
     prisma.ordonnance.findFirst.mockResolvedValue({
       id: 'ord-1', organisationId: 'org-1', statut: 'ACTIVE', deletedAt: null,
-      dossier: { adherentId: 'adh-1', beneficiaireId: null },
+      dossier: { adherentId: 'adh-1', beneficiaireId: null, police: { produitId: 'prod-1' } },
     });
     prisma.ligneOrdonnance.findMany.mockResolvedValue([
       { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'SERVIE' },
@@ -100,7 +106,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
     prisma.ordonnance.findFirst.mockResolvedValue({
       id: 'ord-1', organisationId: 'org-1', statut: 'ACTIVE', deletedAt: null,
-      dossier: { adherentId: 'adh-1', beneficiaireId: null },
+      dossier: { adherentId: 'adh-1', beneficiaireId: null, police: { produitId: 'prod-1' } },
     });
     prisma.ligneOrdonnance.findMany.mockResolvedValue([
       { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'DISPONIBLE', quantitePrescrite: 1 },
@@ -116,7 +122,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     identity.getMe.mockResolvedValue(caissiere('pharm-1'));
     prisma.ordonnance.findFirst.mockResolvedValue({
       id: 'ord-1', organisationId: 'org-1', statut: 'ACTIVE', deletedAt: null,
-      dossier: { adherentId: 'adh-1', beneficiaireId: null },
+      dossier: { adherentId: 'adh-1', beneficiaireId: null, police: { produitId: 'prod-1' } },
     });
     prisma.ligneOrdonnance.findMany.mockResolvedValue([
       { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'DISPONIBLE', quantitePrescrite: 2 },
@@ -135,6 +141,81 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     expect(res.montantTotal).toBe('1000.00');
     expect((res as any).code).toBeUndefined(); // jamais renvoyé à la pharmacie
     expect(prisma.ligneOrdonnance.updateMany).not.toHaveBeenCalled(); // pas encore verrouillée
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Remboursement pharmacie (diagnostic confirmé absent) : part assurance /
+  //  part patient calculées à la préparation, même logique que
+  //  PreauthorizationService.simulerMontantActe (garanties.tauxCouverture,
+  //  catégorie PHARMACIE).
+  // ═══════════════════════════════════════════════════════════════════
+  describe('calcul part assurance / part patient (preparerDispensation)', () => {
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+      prisma.ordonnance.findFirst.mockResolvedValue({
+        id: 'ord-1', organisationId: 'org-1', statut: 'ACTIVE', deletedAt: null,
+        dossier: { adherentId: 'adh-1', beneficiaireId: null, police: { produitId: 'prod-1' } },
+      });
+      prisma.ligneOrdonnance.findMany.mockResolvedValue([
+        { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+      ]);
+      prisma.stockMedicamentPharmacie.findMany.mockResolvedValue([
+        { denominationMedicament: 'Paracetamol', prixPharmacie: dec(10000), disponible: true },
+      ]);
+      prisma.dispensationPharmacie.create.mockResolvedValue({ id: 'disp-1', statut: 'EN_PREPARATION' });
+      prisma.dispensationPharmacie.update.mockResolvedValue({
+        id: 'disp-1', statut: 'EN_ATTENTE_VALIDATION_PATIENT', montantTotal: dec(10000),
+      });
+    });
+
+    it('10 000 F à 80% de couverture → 8 000 F assurance, 2 000 F patient', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: dec(80), plafondParActe: null,
+      });
+
+      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+
+      expect(res.montantAssurance).toBe('8000.00');
+      expect(res.montantPatient).toBe('2000.00');
+      expect(prisma.ligneDispensation.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: [expect.objectContaining({ montantAssurance: '8000.00', montantPatient: '2000.00' })],
+        }),
+      );
+    });
+
+    it('sans garantie PHARMACIE → applique le taux par défaut (80%)', async () => {
+      prisma.garantie.findFirst.mockResolvedValue(null);
+
+      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+
+      expect(res.montantAssurance).toBe('8000.00');
+      expect(res.montantPatient).toBe('2000.00');
+    });
+
+    it('applique le plafond par acte de la garantie sur le montant assurance', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({
+        tauxCouverture: dec(80), plafondParActe: dec(3000),
+      });
+
+      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+
+      // 80 % de 10000 = 8000, plafonné à 3000.
+      expect(res.montantAssurance).toBe('3000.00');
+      expect(res.montantPatient).toBe('7000.00');
+    });
+
+    it('la garantie est cherchée avec la catégorie PHARMACIE, pas CONSULTATION', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: dec(80), plafondParActe: null });
+
+      await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+
+      expect(prisma.garantie.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ produitId: 'prod-1', categorieActe: 'PHARMACIE' }),
+        }),
+      );
+    });
   });
 
   // --- validerCodeDispensation (adhérent) -----------------------------
@@ -186,15 +267,22 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
     prisma.dispensationPharmacie.findFirst.mockResolvedValue({
       id: 'disp-1', pharmacieId: 'pharm-1', statut: 'VALIDEE', montantTotal: dec(500),
-      lignes: [{ ligneOrdonnanceId: 'ligne-1', quantite: 1 }],
+      lignes: [{ ligneOrdonnanceId: 'ligne-1', quantite: 1, montantAssurance: dec(0), montantPatient: dec(500) }],
+      ordonnance: { dossier: { id: 'dos-1', adherentId: 'adh-1', beneficiaireId: null, policeId: 'pol-1', police: { produitId: 'prod-1' } } },
     });
     prisma.ligneOrdonnance.updateMany.mockResolvedValue({ count: 1 });
     prisma.dispensationPharmacie.update.mockResolvedValue({
       id: 'disp-1', statut: 'PAYEE', montantTotal: dec(500), datePaiement: new Date(),
     });
+    // Aucune garantie PHARMACIE trouvée → montantAssurance reste 0, la
+    // réclamation est SKIPPÉE (rien à réclamer) : ce test reste centré sur le
+    // verrou par ligne, la soumission à l'adjudication a sa propre section.
+    prisma.garantie.findFirst.mockResolvedValue(null);
 
     const res = await service.confirmerPaiementDispensation(USER, 'disp-1');
     expect(res.statut).toBe('PAYEE');
+    expect(res.reclamation).toBeNull();
+    expect(claims.soumettreDepuisDispensation).not.toHaveBeenCalled();
     expect(prisma.ligneOrdonnance.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'ligne-1', statut: 'DISPONIBLE' },
@@ -215,6 +303,81 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       service.confirmerPaiementDispensation(USER, 'disp-1'),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.dispensationPharmacie.update).not.toHaveBeenCalled();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Le patient ne paie QUE montant_patient — une dispensation payée génère
+  //  automatiquement une réclamation (montant_assurance) vers l'adjudication,
+  //  jamais un flux séparé sans lien avec elle.
+  // ═══════════════════════════════════════════════════════════════════
+  describe('confirmerPaiementDispensation → soumission automatique à l’adjudication', () => {
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+      prisma.dispensationPharmacie.findFirst.mockResolvedValue({
+        id: 'disp-1', pharmacieId: 'pharm-1', statut: 'VALIDEE', montantTotal: dec(10000),
+        lignes: [{ ligneOrdonnanceId: 'ligne-1', quantite: 1, montantAssurance: dec(8000), montantPatient: dec(2000) }],
+        ordonnance: {
+          dossier: {
+            id: 'dos-1', adherentId: 'adh-1', beneficiaireId: null, policeId: 'pol-1',
+            police: { produitId: 'prod-1' },
+          },
+        },
+      });
+      prisma.ligneOrdonnance.updateMany.mockResolvedValue({ count: 1 });
+      prisma.dispensationPharmacie.update.mockResolvedValue({
+        id: 'disp-1', statut: 'PAYEE', montantTotal: dec(10000), datePaiement: new Date(),
+      });
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-pharma-1', tauxCouverture: dec(80) });
+    });
+
+    it('le patient ne règle que montant_patient (2000), pas le total (10000)', async () => {
+      claims.soumettreDepuisDispensation.mockResolvedValue({
+        reclamation: { id: 'rec-1', statut: 'AUTO_ADJUDIQUE' },
+      });
+
+      const res = await service.confirmerPaiementDispensation(USER, 'disp-1');
+
+      expect(res.montantPatient).toBe('2000.00');
+      expect(res.montantAssurance).toBe('8000.00');
+      expect(res.montantTotal).toBe('10000.00');
+    });
+
+    it('soumet une réclamation de 8000 F (montant_assurance) au microservice d’adjudication', async () => {
+      claims.soumettreDepuisDispensation.mockResolvedValue({
+        reclamation: { id: 'rec-1', statut: 'AUTO_ADJUDIQUE' },
+      });
+
+      const res = await service.confirmerPaiementDispensation(USER, 'disp-1');
+
+      expect(claims.soumettreDepuisDispensation).toHaveBeenCalledWith(
+        { userId: 'u1', organisationId: 'org-1' },
+        expect.objectContaining({
+          dispensationId: 'disp-1',
+          dossierSoinsId: 'dos-1',
+          adherentId: 'adh-1',
+          policeId: 'pol-1',
+          garantieId: 'gar-pharma-1',
+          montant: '8000.00',
+        }),
+      );
+      expect(res.reclamation).toEqual({ id: 'rec-1', statut: 'AUTO_ADJUDIQUE' });
+    });
+
+    it('le paiement reste acquis même si la soumission à l’adjudication échoue', async () => {
+      claims.soumettreDepuisDispensation.mockRejectedValue(
+        new ServiceUnavailableException("Service d'adjudication indisponible"),
+      );
+
+      await expect(
+        service.confirmerPaiementDispensation(USER, 'disp-1'),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+      // Le paiement (verrouillage des lignes + statut PAYEE) a déjà été committé
+      // AVANT l'appel à l'adjudication — il n'est jamais annulé après coup.
+      expect(prisma.dispensationPharmacie.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ statut: 'PAYEE' }) }),
+      );
+    });
   });
 
   // --- stock : lecture ouverte aux 3 rôles, écriture pharmacien seul ----
@@ -393,13 +556,17 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
           quantite: 1,
           prixUnitaire: dec(500),
           montantLigne: dec(500),
+          montantAssurance: dec(400),
+          montantPatient: dec(100),
           ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
         },
       ],
+      reclamations: [],
     });
     const res = await service.obtenirDispensation(USER, 'disp-1');
     expect(res).not.toHaveProperty('codeConfirmation');
     expect(res.lignes[0].denominationMedicament).toBe('Paracetamol 500mg');
+    expect(res.reclamation).toBeNull();
   });
 
   // --- listerDispensationsPharmacie (corrige l'incohérence pharmacien/comptable) ---
@@ -421,6 +588,8 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
             medicamentSubstitue: null,
             quantite: 1,
             montantLigne: dec(500),
+            montantAssurance: dec(400),
+            montantPatient: dec(100),
             ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
           },
         ],
@@ -468,6 +637,8 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
             medicamentSubstitue: 'Ibuprofène 400mg',
             quantite: 1,
             montantLigne: dec(1200),
+            montantAssurance: dec(960),
+            montantPatient: dec(240),
             ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
           },
         ],

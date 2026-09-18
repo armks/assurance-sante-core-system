@@ -379,6 +379,9 @@ export function DispensationFlowEcran({
                     <p className="text-muted-foreground">
                       {l.quantite} × {montantFr(l.prixUnitaire)} = {montantFr(l.montantLigne)}
                     </p>
+                    <p className="text-xs text-muted-foreground">
+                      Assurance {montantFr(l.montantAssurance)} · Patient {montantFr(l.montantPatient)}
+                    </p>
                   </div>
                   <BoutonSubstitution
                     ligne={l}
@@ -391,9 +394,19 @@ export function DispensationFlowEcran({
               ))}
             </ul>
 
-            <div className="flex items-center justify-between rounded-md border bg-muted/40 p-3">
-              <span className="text-sm font-medium">Montant total (officiel)</span>
-              <span className="text-lg font-semibold">{montantFr(dispensation.montantTotal)}</span>
+            <div className="space-y-2 rounded-md border bg-muted/40 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Montant total (officiel)</span>
+                <span className="text-lg font-semibold">{montantFr(dispensation.montantTotal)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm text-muted-foreground">
+                <span>Part assurance</span>
+                <span>{montantFr(dispensation.montantAssurance)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t pt-2 text-sm font-medium">
+                <span>Part patient à percevoir</span>
+                <span className="text-base">{montantFr(dispensation.montantPatient)}</span>
+              </div>
             </div>
 
             {paiementErreur && <p className="text-sm text-destructive">{paiementErreur}</p>}
@@ -401,8 +414,15 @@ export function DispensationFlowEcran({
             {dispensation.statut === 'PAYEE' ? (
               <div className="space-y-3">
                 <p className="text-sm font-medium text-emerald-600">
-                  Paiement confirmé — la ou les ligne(s) sont verrouillées pour votre pharmacie.
+                  Paiement confirmé ({montantFr(dispensation.montantPatient)} perçus) — la ou les
+                  ligne(s) sont verrouillées pour votre pharmacie.
                 </p>
+                {dispensation.reclamation && (
+                  <p className="text-sm text-muted-foreground">
+                    Réclamation soumise à l’adjudication (
+                    {montantFr(dispensation.montantAssurance)} — statut {dispensation.reclamation.statut}).
+                  </p>
+                )}
                 <Button onClick={reinitialiser}>Nouvelle dispensation</Button>
               </div>
             ) : (
@@ -419,7 +439,7 @@ export function DispensationFlowEcran({
                       : undefined
                   }
                 >
-                  Confirmer le paiement
+                  Confirmer le paiement ({montantFr(dispensation.montantPatient)})
                 </Button>
               </div>
             )}

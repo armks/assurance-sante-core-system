@@ -881,7 +881,8 @@ model Ordonnance {
   lignes           Json      @default("[]")
   statut           String    @default("ACTIVE") // ACTIVE | PARTIELLEMENT_DELIVREE | COMPLETEMENT_DELIVREE | EXPIREE | ANNULEE
   datePrescription DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
-  dateValidite     DateTime  @default(dbgenerated("(now() + '7 days'::interval)")) @map("date_validite") @db.Timestamptz(6)
+  /// 7 → 14 jours (prisma/sql/040) — délai jugé trop court en pratique.
+  dateValidite     DateTime  @default(dbgenerated("(now() + '14 days'::interval)")) @map("date_validite") @db.Timestamptz(6)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -973,6 +974,7 @@ model DispensationPharmacie {
   pharmacie  Pharmacie           @relation(fields: [pharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   preparateur Profil             @relation(fields: [caissiereId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lignes     LigneDispensation[]
+  reclamations Reclamation[]
 
   @@index([ordonnanceId])
   @@index([pharmacieId])
@@ -987,6 +989,12 @@ model LigneDispensation {
   prixUnitaire        Decimal   @map("prix_unitaire") @db.Decimal(14, 2)
   quantite            Int       @default(1)
   montantLigne        Decimal   @map("montant_ligne") @db.Decimal(14, 2)
+  /// Part assurance / part patient — calculées à la préparation depuis
+  /// `garanties.tauxCouverture` (catégorie PHARMACIE) de la police du
+  /// patient, même logique que `PreauthorizationService.simulerMontantActe`.
+  /// prisma/sql/040.
+  montantAssurance    Decimal   @default(0) @map("montant_assurance") @db.Decimal(14, 2)
+  montantPatient      Decimal   @default(0) @map("montant_patient") @db.Decimal(14, 2)
   /// substitution réservée au PHARMACIE_PHARMACIEN, avant confirmation du
   /// paiement uniquement (v. PharmacyService.substituerMedicament).
   medicamentSubstitue String?   @map("medicament_substitue")
@@ -1014,7 +1022,8 @@ model CodeOrdonnance {
   beneficiaireId          String?  @map("beneficiaire_id") @db.Uuid
   code                    String   @unique
   dateEmission            DateTime @default(now()) @map("date_emission") @db.Timestamptz(6)
-  dateExpiration          DateTime @default(dbgenerated("(now() + '7 days'::interval)")) @map("date_expiration") @db.Timestamptz(6)
+  /// 7 → 14 jours (prisma/sql/040) — délai jugé trop court en pratique.
+  dateExpiration          DateTime @default(dbgenerated("(now() + '14 days'::interval)")) @map("date_expiration") @db.Timestamptz(6)
   statut                  String   @default("EMIS") // EMIS | PRESENTE_PHARMACIE | UTILISE_PARTIEL | UTILISE_COMPLET | EXPIRE | ANNULE
   pharmacieUtilisatriceId String?  @map("pharmacie_utilisatrice_id") @db.Uuid
   createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1286,11 +1295,17 @@ model ReferentielNationalMedicament {
 /// Machine à états SOUMISE → EN_ADJUDICATION → AUTO_ADJUDIQUE / REVUE_MANUELLE →
 /// REJETE / PAYEE (v1 §16, v8). Écriture : NestJS (postgres) + svc_adjudication
 /// (UPDATE statut uniquement). prisma/sql/018.
+/// Deux sources possibles depuis prisma/sql/040 (exactement l'une des deux,
+/// CHECK en base) : un acte établissement (`acteDossierId`, historique), ou
+/// une dispensation pharmacie payée (`dispensationId` — « une dispensation
+/// payée = un remboursement réclamé », montant cumulé sur toutes ses lignes,
+/// jamais un flux séparé sans lien avec l'adjudication).
 model Reclamation {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId  String    @map("organisation_id") @db.Uuid
   dossierSoinsId  String    @map("dossier_soins_id") @db.Uuid
-  acteDossierId   String    @map("acte_dossier_id") @db.Uuid
+  acteDossierId   String?   @map("acte_dossier_id") @db.Uuid
+  dispensationId  String?   @map("dispensation_id") @db.Uuid
   adherentId      String?   @map("adherent_id") @db.Uuid
   beneficiaireId  String?   @map("beneficiaire_id") @db.Uuid
   policeId        String    @map("police_id") @db.Uuid
@@ -1304,12 +1319,14 @@ model Reclamation {
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   remboursement Remboursement?
-  adherent      Adherent?      @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  beneficiaire  Beneficiaire?  @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  adherent      Adherent?              @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  beneficiaire  Beneficiaire?          @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dispensation  DispensationPharmacie? @relation(fields: [dispensationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisationId])
   @@index([statut])
   @@index([dossierSoinsId])
+  @@index([dispensationId])
   @@map("reclamations")
 }
 

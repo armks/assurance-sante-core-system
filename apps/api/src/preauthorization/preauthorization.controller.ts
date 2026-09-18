@@ -117,6 +117,14 @@ export class PreauthorizationController {
     return this.preauth.marquerDispensation(user, id, dto);
   }
 
+  // --- Tâche planifiée (déclenchée à la main) -----------------------
+
+  /** Réservé à ASSUREUR_INFORMATIQUE — même pattern que reverifier-obsoletes (PROMPT 15). */
+  @Post('codes-ordonnance/expirer-obsoletes')
+  expirerOrdonnancesObsoletes(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.expirerOrdonnancesObsoletes(user);
+  }
+
   // --- Ticket de Soins (v8 §4) -------------------------------------
   // Le ticket est créé / clôturé AUTOMATIQUEMENT avec le dossier de soins ;
   // il n'existe pas de route pour le créer ou le clôturer manuellement.

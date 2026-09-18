@@ -34,8 +34,12 @@ import {
   ROLES_ADHERENT_CLAIMS,
   ROLES_GESTION_CLAIMS,
   ROLES_LECTURE_CLAIMS,
+  type TypeReclamation,
   TYPES_RECLAMATION_MEDICAUX,
 } from './claims.types';
+
+/** Source d'une réclamation — exactement l'une des deux (v3 §5 étendu, prisma/sql/040). */
+type SourceReclamation = { acteDossierId: string } | { dispensationId: string };
 
 /** Mode de lecture résolu par `modeLecture()` — voir son commentaire. */
 type ModeLecture = 'STAFF' | 'ADHERENT';
@@ -109,10 +113,91 @@ export class ClaimsService {
       CATEGORIE_VERS_TYPE[acte.categorieActe?.toUpperCase() ?? ''] ??
       'AUTRE';
 
-    // 1. s'assurer qu'une réclamation existe (au statut SOUMISE)
-    let reclamation = await this.prisma.reclamation.findFirst({
-      where: { acteDossierId: acte.id, deletedAt: null },
-    });
+    const reclamation = await this.creerOuChargerReclamation(
+      ctx,
+      { acteDossierId: acte.id },
+      {
+        dossierSoinsId: dossier.id,
+        adherentId: dossier.adherentId,
+        beneficiaireId: dossier.beneficiaireId,
+        policeId: dossier.policeId,
+        garantieId,
+        montant: new Decimal(montant).toFixed(2),
+        typeReclamation,
+      },
+    );
+
+    return this.verrouillerEtAdjuger(ctx, reclamation);
+  }
+
+  /**
+   * Appelée par `PharmacyService.confirmerPaiementDispensation` — PAS par un
+   * utilisateur ASSUREUR authentifié via ce module : c'est un point d'entrée
+   * INTERNE (jamais exposé par `ClaimsController`), déclenché automatiquement
+   * dès qu'une dispensation est payée, cohérent avec « une dispensation payée
+   * = un remboursement réclamé, pas un flux séparé sans lien avec
+   * l'adjudication ». `ctxAppelant` est construit directement par
+   * `PharmacyService` (userId = l'utilisateur pharmacie ayant confirmé le
+   * paiement, à des fins d'audit uniquement — l'autorisation métier a déjà eu
+   * lieu côté pharmacy, `assertGestion` ne s'applique pas ici). Idempotente :
+   * rejouer avec la même `dispensationId` retrouve la réclamation existante
+   * (via l'index unique partiel `reclamations_dispensation_unique`) plutôt
+   * que d'en créer une seconde — même mécanisme que `soumettre`.
+   */
+  async soumettreDepuisDispensation(
+    ctxAppelant: { userId: string; organisationId: string },
+    params: {
+      dispensationId: string;
+      dossierSoinsId: string;
+      adherentId: string | null;
+      beneficiaireId: string | null;
+      policeId: string;
+      garantieId: string;
+      montant: string;
+    },
+  ) {
+    const ctx: ContexteAppelant = { ...ctxAppelant, roleChain: [], adherentId: null };
+    const reclamation = await this.creerOuChargerReclamation(
+      ctx,
+      { dispensationId: params.dispensationId },
+      {
+        dossierSoinsId: params.dossierSoinsId,
+        adherentId: params.adherentId,
+        beneficiaireId: params.beneficiaireId,
+        policeId: params.policeId,
+        garantieId: params.garantieId,
+        montant: params.montant,
+        typeReclamation: 'PHARMACIE',
+      },
+    );
+    return this.verrouillerEtAdjuger(ctx, reclamation);
+  }
+
+  /**
+   * Cœur partagé entre `soumettre` (acte établissement) et
+   * `soumettreDepuisDispensation` (pharmacie) : s'assure qu'une réclamation
+   * SOUMISE existe pour cette source (create-or-find, idempotent face à une
+   * création concurrente via l'index unique partiel correspondant).
+   */
+  private async creerOuChargerReclamation(
+    ctx: ContexteAppelant,
+    source: SourceReclamation,
+    data: {
+      dossierSoinsId: string;
+      adherentId: string | null;
+      beneficiaireId: string | null;
+      policeId: string;
+      garantieId: string;
+      montant: string;
+      typeReclamation: TypeReclamation;
+    },
+  ) {
+    const where =
+      'acteDossierId' in source
+        ? { acteDossierId: source.acteDossierId, deletedAt: null }
+        : { dispensationId: source.dispensationId, deletedAt: null };
+
+    let reclamation = await this.prisma.reclamation.findFirst({ where });
 
     if (!reclamation) {
       try {
@@ -120,21 +205,23 @@ export class ClaimsService {
           const r = await tx.reclamation.create({
             data: {
               organisationId: ctx.organisationId,
-              dossierSoinsId: dossier.id,
-              acteDossierId: acte.id,
-              adherentId: dossier.adherentId,
-              beneficiaireId: dossier.beneficiaireId,
-              policeId: dossier.policeId,
-              garantieId,
-              montant: new Decimal(montant).toFixed(2),
-              typeReclamation,
+              dossierSoinsId: data.dossierSoinsId,
+              ...('acteDossierId' in source
+                ? { acteDossierId: source.acteDossierId }
+                : { dispensationId: source.dispensationId }),
+              adherentId: data.adherentId,
+              beneficiaireId: data.beneficiaireId,
+              policeId: data.policeId,
+              garantieId: data.garantieId,
+              montant: data.montant,
+              typeReclamation: data.typeReclamation,
               statut: 'SOUMISE',
             },
           });
           await this.audit(tx, ctx.userId, 'CREATION_RECLAMATION', r.id, {
-            acteDossierId: acte.id,
-            montant: new Decimal(montant).toFixed(2),
-            type: typeReclamation,
+            ...source,
+            montant: data.montant,
+            type: data.typeReclamation,
           });
           return r;
         });
@@ -144,9 +231,7 @@ export class ClaimsService {
           e.code === 'P2002'
         ) {
           // création concurrente : l'autre requête a gagné, on récupère sa ligne
-          reclamation = await this.prisma.reclamation.findFirst({
-            where: { acteDossierId: acte.id, deletedAt: null },
-          });
+          reclamation = await this.prisma.reclamation.findFirst({ where });
         } else {
           throw e;
         }
@@ -158,15 +243,23 @@ export class ClaimsService {
         'Impossible de récupérer la réclamation après une soumission concurrente.',
       );
     }
+    return reclamation;
+  }
 
-    // idempotence : refuse si déjà EN_ADJUDICATION ou au-delà
+  /**
+   * Verrouille (compare-and-swap SOUMISE → EN_ADJUDICATION) puis adjuge —
+   * refuse (409, idempotence) si la réclamation n'est plus à SOUMISE.
+   */
+  private async verrouillerEtAdjuger(
+    ctx: ContexteAppelant,
+    reclamation: { id: string; statut: string },
+  ) {
     if (reclamation.statut !== 'SOUMISE') {
       throw new ConflictException(
         `Réclamation déjà « ${reclamation.statut} » — soumission ignorée (idempotence).`,
       );
     }
 
-    // 2. compare-and-swap atomique : SOUMISE → EN_ADJUDICATION
     const { count } = await this.prisma.reclamation.updateMany({
       where: { id: reclamation.id, statut: 'SOUMISE', deletedAt: null },
       data: { statut: 'EN_ADJUDICATION' },
@@ -185,7 +278,6 @@ export class ClaimsService {
       { de: 'SOUMISE', vers: 'EN_ADJUDICATION' },
     );
 
-    // 3. adjudication (microservice Java)
     return this.adjuger(ctx, reclamation.id);
   }
 

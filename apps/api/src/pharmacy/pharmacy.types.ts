@@ -44,6 +44,16 @@ export const STATUTS_DISPENSATION_MODIFIABLE = [
 export const ALPHABET_CODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const LONGUEUR_CODE = 8;
 
+/** Catégorie d'acte utilisée pour résoudre la garantie applicable à une dispensation. */
+export const CATEGORIE_ACTE_PHARMACIE = 'PHARMACIE';
+
+/**
+ * Taux de couverture par défaut si aucune garantie PHARMACIE ne matche le
+ * produit du patient — dupliqué depuis `preauthorization.types` (un module =
+ * un domaine métier strict, règle transverse du skill).
+ */
+export const TAUX_COUVERTURE_DEFAUT = 80;
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;

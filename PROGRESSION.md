@@ -4186,3 +4186,75 @@ comptable : 2 cases à cocher affichées, montant cumulé 17 000 F après sélec
 « Code généré (en attente) » après génération, solde restant dû et bandeau « Dossier non
 soldé » visibles avant paiement. Toutes les données de test éphémères supprimées, absence
 de résidu vérifiée indépendamment.
+
+## 2026-09-18 — Remboursement pharmacie (diagnostic confirmé absent, puis corrigé)
+
+Diagnostic préalable (voir échange précédent) : l'assurance n'intervenait PAS du tout dans
+le calcul de dispensation pharmacie (aucune trace de `partAssurance`/`montantAssurance`/
+`tauxCouverture` dans `pharmacy/`) ; délai d'ordonnance à 7 jours, pas 14 ; substitution
+déjà en place ; aucune tâche planifiée dans ce backend (ni pour l'expiration, ni ailleurs).
+
+### 1. `lignes_dispensation.montant_assurance` / `montant_patient` (prisma/sql/040)
+Calculées dans `PharmacyService.preparerDispensation`, même pattern que
+`PreauthorizationService.simulerMontantActe` (`garanties.tauxCouverture`, plafond par acte
+éventuel) — une seule garantie par dispensation (catégorie `PHARMACIE` du produit de la
+police du patient, taux par défaut 80 % si aucune garantie ne matche). Agrégées et
+renvoyées (dispensation + par ligne) dans `preparerDispensation`, `obtenirDispensation`,
+`listerDispensationsPharmacie`, `listerMesDispensations`.
+
+### 2. Réclamation automatique à la confirmation de paiement
+Le patient ne règle plus que `montant_patient` (jamais le total). `reclamations` accepte
+désormais DEUX sources exclusives (`acte_dossier_id` devenu nullable, nouveau
+`dispensation_id` → `dispensations_pharmacie`, CHECK exactement l'un des deux, index
+unique partiel sur chacun) : « une dispensation payée = un remboursement réclamé », montant
+= `montant_assurance` cumulé sur toutes les lignes, jamais un flux séparé sans lien avec
+l'adjudication. `ClaimsService` refactorisé — `creerOuChargerReclamation`/
+`verrouillerEtAdjuger` extraits en cœur partagé, réutilisés par `soumettre` (acte,
+inchangé) ET la nouvelle `soumettreDepuisDispensation` (point d'entrée interne, jamais
+exposé par un contrôleur, appelé par `PharmacyModule` important désormais `ClaimsModule`).
+Idempotent sur `dispensationId` : un cycle abandonné avant l'appel Java se retrouve plutôt
+que d'être dupliqué. Le paiement reste acquis même si l'appel au microservice Java échoue
+(déjà committé dans sa propre transaction avant l'appel HTTP externe) — l'erreur remonte
+explicitement (502/503, même contrat que l'établissement) pour permettre une nouvelle
+tentative de soumission.
+
+### 3. Délai de validité des ordonnances : 7 → 14 jours
+`codes_ordonnance.date_expiration` et `ordonnances.date_validite` (defaults Postgres +
+message d'erreur `validerCodeOrdonnance`). Les lignes déjà émises avant la migration
+gardent leur ancienne date d'expiration (changement de défaut, pas de rétroactivité).
+
+### 4. Expiration automatique — endpoint déclenché à la main (pas de @Cron)
+Recommandation retenue sans ambiguïté réelle : ce backend n'a AUCUNE infra de tâche
+planifiée (`grep` sur `@Cron`/`node-cron` → zéro résultat), et un cron in-process
+introduirait un risque concret de double-exécution si l'API tourne un jour derrière
+plusieurs instances (aucun verrou distribué). `PreauthorizationService.expirerOrdonnancesObsoletes`
+suit exactement le pattern déjà validé par `ProviderService.reverifierObsoletes` (PROMPT 15)
+— idempotent, réservé à `ASSUREUR_INFORMATIQUE`, déclenchable par un cron externe ou
+manuellement. `POST /preauthorization/codes-ordonnance/expirer-obsoletes` : passe `EMIS`→
+`EXPIRE` / `ACTIVE|PARTIELLEMENT_DELIVREE`→`EXPIREE` pour tout ce qui a dépassé sa date,
+audité (`EXPIRATION_ORDONNANCES_OBSOLETES`).
+
+### 5. Écran pharmacien/caissière
+Part assurance / part patient affichées par ligne ET en cumulé dès l'écran de préparation
+(carte « Dispensation », avant même la validation du patient) — plus seulement le montant
+total. Bouton « Confirmer le paiement » affiche désormais le montant réellement à percevoir
+(`Confirmer le paiement (2 000 F)`, pas le total) ; message de confirmation + statut de la
+réclamation soumise affichés après paiement.
+
+### Tests
+Backend : 307/307 (`npx jest`, 7 nouveaux dans `pharmacy.service.spec.ts` : calcul du
+partage assurance/patient avec/sans garantie et avec plafond, soumission automatique à
+l'adjudication, paiement acquis même si l'adjudication échoue ; `claims.service.spec.ts`
+21/21 inchangé après le refactor). `npx tsc --noEmit` propre API et Web. Test HTTP réel
+(établissement FARAH, produit existant, nouvelle garantie PHARMACIE 80 % créée pour le
+test) : dossier → consultation → ordonnance → prix pharmacie 10 000 F → préparation
+(8 000/2 000 confirmés) → validation patient → confirmation paiement → patient débité de
+2 000 F, réclamation de 8 000 F réellement soumise et adjugée par le microservice Java
+(`AUTO_ADJUDIQUE`), vérifiée en base (`acte_dossier_id` NULL, `type_reclamation` =
+PHARMACIE) ; délai de 14 jours confirmé sur le code ET l'ordonnance fraîchement créés ;
+expiration manuelle refusée à un rôle non habilité (403) puis acceptée pour
+ASSUREUR_INFORMATIQUE sur une ordonnance/un code antidatés (passage à EXPIRE/EXPIREE
+vérifié en base). Test navigateur réel (Playwright) sur l'écran pharmacien : partage
+assurance/patient affiché par ligne et en cumulé, bouton de confirmation annonçant le
+montant patient exact. Toutes les données de test éphémères supprimées, absence de résidu
+vérifiée indépendamment à chaque étape.

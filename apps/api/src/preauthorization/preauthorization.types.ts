@@ -110,6 +110,13 @@ export const ROLES_GENERATION_FACTURE = [
 /** La confirmation de paiement est réservée à ASSUREUR_COMPTABLE (v8 §5). */
 export const ROLE_CONFIRMATION_PAIEMENT = 'ASSUREUR_COMPTABLE';
 
+/**
+ * Tâche de maintenance déclenchée à la main (pas de scheduler dans ce
+ * backend — même pattern que `ProviderService.reverifierObsoletes`) : réservée
+ * à ASSUREUR_INFORMATIQUE, comme les autres tâches réseau de ce type.
+ */
+export const ROLE_MAINTENANCE_EXPIRATION = 'ASSUREUR_INFORMATIQUE';
+
 // --- Pré-autorisation obligatoire (analyses / examens médicaux) --------
 
 export const STATUTS_PREAUTORISATION = [

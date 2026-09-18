@@ -38,6 +38,7 @@ import {
   ROLES_GENERATION_FACTURE,
   ROLES_PHARMACIE,
   ROLE_CONFIRMATION_PAIEMENT,
+  ROLE_MAINTENANCE_EXPIRATION,
   ROLE_MEDECIN_TRAITANT,
   ROLE_VALIDATION_PREAUTORISATION,
   STATUTS_PREAUTORISATION_NON_FACTURABLES,
@@ -531,7 +532,7 @@ export class PreauthorizationService {
         });
       }
       throw new GoneException(
-        "Ce code d'ordonnance a expiré (validité 7 jours).",
+        "Ce code d'ordonnance a expiré (validité 14 jours).",
       );
     }
     // Déjà pris en charge par une AUTRE pharmacie → refus.
@@ -675,6 +676,63 @@ export class PreauthorizationService {
     return {
       code: { id: codeId, statut: statutCode },
       ordonnance: { id: code.ordonnanceId, statut: statutOrdonnance },
+    };
+  }
+
+  /**
+   * Expiration automatique des codes/ordonnances obsolètes — CONFIRMÉ ABSENT
+   * au diagnostic (aucune tâche planifiée dans ce backend). Déclenchée à la
+   * main pour l'instant, même pattern que `ProviderService.reverifierObsoletes`
+   * (PROMPT 15) plutôt qu'une vraie infra @Cron/node-cron : pas de scheduler
+   * existant dans ce backend, et un cron in-process poserait un risque réel
+   * de double-exécution si l'API tourne un jour derrière plusieurs instances
+   * (course-condition sans verrou distribué) — un endpoint idempotent,
+   * déclenchable depuis un cron externe (ou manuellement), reste le choix le
+   * plus sûr tant que l'architecture de déploiement n'impose pas mieux.
+   * Idempotent : rejouer sans rien de nouveau à expirer ne fait rien
+   * (`count` reflète alors 0).
+   */
+  async expirerOrdonnancesObsoletes(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_MAINTENANCE_EXPIRATION)) {
+      throw new ForbiddenException(
+        "Cette tâche de maintenance est réservée à ASSUREUR_INFORMATIQUE.",
+      );
+    }
+
+    const maintenant = new Date();
+    const [codes, ordonnances] = await this.prisma.$transaction([
+      this.prisma.codeOrdonnance.updateMany({
+        where: {
+          organisationId: ctx.organisationId,
+          statut: 'EMIS',
+          dateExpiration: { lt: maintenant },
+        },
+        data: { statut: 'EXPIRE' },
+      }),
+      this.prisma.ordonnance.updateMany({
+        where: {
+          organisationId: ctx.organisationId,
+          statut: { in: ['ACTIVE', 'PARTIELLEMENT_DELIVREE'] },
+          dateValidite: { lt: maintenant },
+          deletedAt: null,
+        },
+        data: { statut: 'EXPIREE' },
+      }),
+    ]);
+
+    await this.audit(
+      this.prisma,
+      ctx.userId,
+      'EXPIRATION_ORDONNANCES_OBSOLETES',
+      ctx.organisationId,
+      { codesExpires: codes.count, ordonnancesExpirees: ordonnances.count },
+      'ordonnances',
+    );
+
+    return {
+      codesExpires: codes.count,
+      ordonnancesExpirees: ordonnances.count,
     };
   }
 

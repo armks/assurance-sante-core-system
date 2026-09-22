@@ -54,6 +54,33 @@ export const CATEGORIE_ACTE_PHARMACIE = 'PHARMACIE';
  */
 export const TAUX_COUVERTURE_DEFAUT = 80;
 
+/**
+ * Rôles autorisés à soumettre la facture mensuelle d'une pharmacie — jamais
+ * la caissière (même liste que `ROLES_JUSTIFICATION_PHARMACIE`, module
+ * contestation/, dupliquée ici pour ne pas faire dépendre `pharmacy/` de
+ * `contestation/` sur autre chose que la lecture des litiges).
+ */
+export const ROLES_FACTURATION_MENSUELLE = ['PHARMACIE_PHARMACIEN', 'PHARMACIE_COMPTABLE'] as const;
+
+export const STATUTS_FACTURE_MENSUELLE = [
+  'EN_PREPARATION',
+  'SOUMISE',
+  'VALIDEE_PHARMACIEN_CONSEIL',
+  'PROGRAMMEE_PAIEMENT',
+  'PAYEE',
+] as const;
+export type StatutFactureMensuelle = (typeof STATUTS_FACTURE_MENSUELLE)[number];
+
+/** Statuts dès lesquels ASSUREUR_COMPTABLE obtient l'accès (verrou explicite,
+ * pas une simple convention d'écran — appliqué en RLS ET côté NestJS). */
+export const STATUTS_FACTURE_MENSUELLE_DEBLOQUES_COMPTABLE = [
+  'VALIDEE_PHARMACIEN_CONSEIL',
+  'PROGRAMMEE_PAIEMENT',
+  'PAYEE',
+] as const;
+
+export const ROLE_COMPTABLE_FACTURE_MENSUELLE = 'ASSUREUR_COMPTABLE';
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;

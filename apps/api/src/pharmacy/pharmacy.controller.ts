@@ -16,6 +16,7 @@ import {
   ListerDispensationsQueryDto,
   PreparerDispensationDto,
   RechercherParCarteQueryDto,
+  SoumettreFactureMensuelleDto,
   SubstituerMedicamentDto,
   ValiderCodeDispensationDto,
 } from './dto/pharmacy.dto';
@@ -109,9 +110,10 @@ export class PharmacyController {
   }
 
   /**
-   * Côté PHARMACIE_PHARMACIEN exclusivement : substitue/ajuste un médicament
-   * sur une ligne de dispensation — jamais la caissière ni le comptable.
-   * Impossible une fois le paiement validé par le patient.
+   * Côté PHARMACIE_PHARMACIEN ou ASSUREUR_PHARMACIEN_CONSEIL : substitue/
+   * ajuste un médicament sur une ligne de dispensation — jamais la caissière
+   * ni le comptable pharmacie, ni aucun autre rôle ASSUREUR. Impossible une
+   * fois le paiement validé par le patient.
    */
   @Post('dispensations/lignes/:id/substituer')
   substituerMedicament(
@@ -120,5 +122,70 @@ export class PharmacyController {
     @Body() dto: SubstituerMedicamentDto,
   ) {
     return this.pharmacy.substituerMedicament(user, id, dto);
+  }
+
+  // --- Consolidation mensuelle des factures pharmacie ------------------
+
+  /** Côté PHARMACIE_PHARMACIEN/PHARMACIE_COMPTABLE : soumet la consolidation du mois précédent. */
+  @Post('factures-mensuelles')
+  soumettreFactureMensuelle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SoumettreFactureMensuelleDto,
+  ) {
+    return this.pharmacy.soumettreFactureMensuelle(user, dto);
+  }
+
+  /** Côté PHARMACIE : historique de SES factures mensuelles. */
+  @Get('factures-mensuelles/mes-factures')
+  mesFacturesMensuelles(@CurrentUser() user: AuthenticatedUser) {
+    return this.pharmacy.listerMesFacturesMensuelles(user);
+  }
+
+  /** Côté ASSUREUR_PHARMACIEN_CONSEIL exclusivement : « à valider » (SOUMISE). */
+  @Get('factures-mensuelles/a-valider')
+  facturesMensuellesAValider(@CurrentUser() user: AuthenticatedUser) {
+    return this.pharmacy.listerFacturesMensuellesAValider(user);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : débloquées à partir de VALIDEE_PHARMACIEN_CONSEIL. */
+  @Get('factures-mensuelles/pour-comptable')
+  facturesMensuellesPourComptable(@CurrentUser() user: AuthenticatedUser) {
+    return this.pharmacy.listerFacturesMensuellesPourComptable(user);
+  }
+
+  /** Détail ligne-par-ligne — verrou d'accès vérifié explicitement dans le service. */
+  @Get('factures-mensuelles/:id')
+  obtenirFactureMensuelle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.obtenirFactureMensuelle(user, id);
+  }
+
+  /** Côté ASSUREUR_PHARMACIEN_CONSEIL exclusivement : double vérification anti-litige puis validation. */
+  @Post('factures-mensuelles/:id/valider')
+  validerFactureMensuelle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.validerFactureMensuelle(user, id);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : programme le paiement (VALIDEE_PHARMACIEN_CONSEIL → PROGRAMMEE_PAIEMENT). */
+  @Post('factures-mensuelles/:id/programmer-paiement')
+  programmerPaiementFactureMensuelle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.programmerPaiementFactureMensuelle(user, id);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE). */
+  @Post('factures-mensuelles/:id/marquer-payee')
+  marquerFactureMensuellePayee(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.marquerFactureMensuellePayee(user, id);
   }
 }

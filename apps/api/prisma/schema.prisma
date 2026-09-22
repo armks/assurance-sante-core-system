@@ -62,6 +62,7 @@ model Organisation {
   autorisationsRepetitionActe AutorisationRepetitionActe[]
   notesDossier      NoteDossier[]
   contestationsPrescription ContestationPrescription[]
+  facturesMensuellesPharmacie FactureMensuellePharmacie[]
 
   @@map("organisations")
 }
@@ -147,6 +148,7 @@ model Profil {
   verificationsReseau   VerificationEtablissement[]
   dispensationsPreparees DispensationPharmacie[]
   substitutionsMedicament LigneDispensation[]
+  facturesMensuellesValidees FactureMensuellePharmacie[] @relation("FactureMensuelleValidee")
   autorisationsRepetitionAccordees AutorisationRepetitionActe[]
   notesRedigees NoteDossier[]
   contestationsOuvertes ContestationPrescription[] @relation("ContestationOuvertePar")
@@ -637,6 +639,7 @@ model Pharmacie {
   stockMedicaments StockMedicamentPharmacie[]
   dispensations   DispensationPharmacie[]
   tarifsConventionnes TarifConventionne[]
+  facturesMensuelles FactureMensuellePharmacie[]
 
   @@index([organisationId])
   @@index([statut])
@@ -1038,20 +1041,64 @@ model LigneDispensation {
   /// prisma/sql/040.
   montantAssurance    Decimal   @default(0) @map("montant_assurance") @db.Decimal(14, 2)
   montantPatient      Decimal   @default(0) @map("montant_patient") @db.Decimal(14, 2)
-  /// substitution réservée au PHARMACIE_PHARMACIEN, avant confirmation du
-  /// paiement uniquement (v. PharmacyService.substituerMedicament).
+  /// substitution réservée à PHARMACIE_PHARMACIEN OU ASSUREUR_PHARMACIEN_CONSEIL
+  /// (capacité additive depuis prisma/sql/044), avant confirmation du paiement
+  /// uniquement (v. PharmacyService.substituerMedicament) — l'audit distingue
+  /// SUBSTITUTION_PHARMACIEN de SUBSTITUTION_PHARMACIEN_CONSEIL.
   medicamentSubstitue String?   @map("medicament_substitue")
   motifSubstitution   String?   @map("motif_substitution")
   substitueParId      String?   @map("substitue_par_id") @db.Uuid
   dateSubstitution    DateTime? @map("date_substitution") @db.Timestamptz(6)
+  /// Consolidation mensuelle (prisma/sql/044) : renseigné dès qu'une facture
+  /// mensuelle a « réclamé » cette ligne (statut PAYEE au moment de la
+  /// soumission, jamais en litige). Reste NULL tant que la ligne n'a pas été
+  /// incluse — une ligne exclue pour litige redevient éligible le mois suivant.
+  factureMensuelleId String? @map("facture_mensuelle_id") @db.Uuid
 
-  dispensation    DispensationPharmacie @relation(fields: [dispensationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  ligneOrdonnance LigneOrdonnance       @relation(fields: [ligneOrdonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  substituePar    Profil?               @relation(fields: [substitueParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  dispensation    DispensationPharmacie      @relation(fields: [dispensationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  ligneOrdonnance LigneOrdonnance            @relation(fields: [ligneOrdonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  substituePar    Profil?                    @relation(fields: [substitueParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factureMensuelle FactureMensuellePharmacie? @relation(fields: [factureMensuelleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([dispensationId])
   @@index([ligneOrdonnanceId])
+  @@index([factureMensuelleId])
   @@map("lignes_dispensation")
+}
+
+/// factures_mensuelles_pharmacie — consolidation mensuelle du montant dû par
+/// l'assureur à une pharmacie (somme des `montant_assurance` des lignes
+/// PAYEE de la période, hors lignes en litige — v. `ContestationPrescription`).
+/// Circuit à 3 niveaux : PHARMACIE soumet → ASSUREUR_PHARMACIEN_CONSEIL valide
+/// (double vérification anti-litige) → ASSUREUR_COMPTABLE programme puis
+/// marque payée. `ASSUREUR_COMPTABLE` n'a AUCUN accès (lecture ni écriture)
+/// tant que le statut n'a pas atteint VALIDEE_PHARMACIEN_CONSEIL — verrouillé
+/// en RLS, pas seulement côté NestJS. prisma/sql/044.
+model FactureMensuellePharmacie {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId    String    @map("organisation_id") @db.Uuid
+  pharmacieId       String    @map("pharmacie_id") @db.Uuid
+  /// Premier jour du mois concerné (ex. 2026-08-01 pour août 2026).
+  periode           DateTime  @db.Date
+  montantTotal      Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
+  statut            String    @default("EN_PREPARATION") // EN_PREPARATION | SOUMISE | VALIDEE_PHARMACIEN_CONSEIL | PROGRAMMEE_PAIEMENT | PAYEE
+  dateSoumission    DateTime? @map("date_soumission") @db.Timestamptz(6)
+  valideParId       String?   @map("valide_par_id") @db.Uuid
+  dateValidation    DateTime? @map("date_validation") @db.Timestamptz(6)
+  dateProgrammation DateTime? @map("date_programmation") @db.Timestamptz(6)
+  datePaiement      DateTime? @map("date_paiement") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  pharmacie    Pharmacie           @relation(fields: [pharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  validePar    Profil?             @relation("FactureMensuelleValidee", fields: [valideParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lignes       LigneDispensation[]
+
+  @@unique([pharmacieId, periode])
+  @@index([organisationId])
+  @@index([pharmacieId])
+  @@index([statut])
+  @@map("factures_mensuelles_pharmacie")
 }
 
 /// codes_ordonnance — 2e des 4 codes anti-fraude (v8 §3). Sa validation par une

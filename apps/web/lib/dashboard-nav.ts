@@ -108,6 +108,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${PHARMACIEN}/contestations`,
       icon: Scale,
     },
+    {
+      label: 'Factures mensuelles',
+      href: `${PHARMACIEN}/factures-mensuelles`,
+      icon: CreditCard,
+    },
   ],
   [CAISSIERE]: [{ label: "Vue d'ensemble", href: CAISSIERE, icon: LayoutDashboard }],
   [PHARMACIE_COMPTABLE]: [
@@ -115,6 +120,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Suivi des dispensations',
       href: PHARMACIE_COMPTABLE,
       icon: ReceiptText,
+    },
+    {
+      label: 'Factures mensuelles',
+      href: `${PHARMACIE_COMPTABLE}/factures-mensuelles`,
+      icon: CreditCard,
     },
     {
       label: 'Contestations',
@@ -205,6 +215,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Médicaments à homologuer',
       href: `${PHARMACIEN_CONSEIL}/medicaments-a-homologuer`,
       icon: Pill,
+    },
+    {
+      label: 'Factures mensuelles',
+      href: `${PHARMACIEN_CONSEIL}/factures-mensuelles`,
+      icon: CreditCard,
     },
     {
       label: 'Prescriptions',
@@ -316,6 +331,11 @@ function navComptable(racineVueEnsemble: string): NavItem[] {
   return [
     { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
     { label: 'Cotisations', href: `${INFORMATIQUE}/cotisations`, icon: Wallet },
+    {
+      label: 'Factures pharmacie',
+      href: `${racineVueEnsemble}/factures-pharmacie`,
+      icon: CreditCard,
+    },
   ];
 }
 

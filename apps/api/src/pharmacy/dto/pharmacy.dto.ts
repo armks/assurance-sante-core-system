@@ -84,3 +84,11 @@ export class SubstituerMedicamentDto {
   @MaxLength(500)
   motif!: string;
 }
+
+export class SoumettreFactureMensuelleDto {
+  /** Premier jour du mois précédent — 'YYYY-MM-DD'. Toute autre date est refusée. */
+  @Matches(/^\d{4}-\d{2}-01$/, {
+    message: "periode doit être le premier jour d'un mois, au format YYYY-MM-01.",
+  })
+  periode!: string;
+}

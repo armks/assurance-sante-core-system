@@ -4464,3 +4464,77 @@ dédié, réponse avec pièce jointe réellement déposée depuis l'écran pharm
 visible immédiatement des deux côtés. Toutes les données de test éphémères supprimées,
 résidu d'une première tentative interrompue (format du code de confirmation) détecté et
 nettoyé indépendamment.
+
+## 2026-09-22 (suite) — Consolidation mensuelle des factures pharmacie + substitution
+étendue au pharmacien conseil
+
+### 1. Substitution de médicament — capacité additive pour ASSUREUR_PHARMACIEN_CONSEIL
+`substituerMedicament` reste réservée au PHARMACIE_PHARMACIEN de SA pharmacie (inchangé),
+mais accepte désormais AUSSI ASSUREUR_PHARMACIEN_CONSEIL (organisation entière, jamais
+scopé à une pharmacie précise — nouveau `assertPeutSubstituer`, distinct de
+`assertPharmacien` toujours utilisé tel quel pour la gestion du stock). L'audit distingue
+les deux acteurs (`SUBSTITUTION_PHARMACIEN` vs `SUBSTITUTION_PHARMACIEN_CONSEIL`) — vérifié
+en base dans le test HTTP. RLS (`lignes_dispensation_substitution`, prisma/sql/044) étendue
+en miroir.
+
+### 2. `factures_mensuelles_pharmacie` (prisma/sql/044)
+Table dédiée avec les statuts EN_PREPARATION → SOUMISE → VALIDEE_PHARMACIEN_CONSEIL →
+PROGRAMMEE_PAIEMENT → PAYEE. Contrainte d'unicité `(pharmacie_id, periode)` — une seule
+consolidation par pharmacie et par mois. Nouvelle colonne `lignes_dispensation.
+facture_mensuelle_id` : c'est elle qui « réclame » une ligne pour une facture précise
+(snapshot au moment de la soumission, pas un recalcul dynamique) — une ligne exclue pour
+litige reste `NULL` et redevient éligible le mois suivant une fois la contestation
+VALIDEE.
+
+### 3. `soumettreFactureMensuelle` — PHARMACIE_PHARMACIEN/PHARMACIE_COMPTABLE (jamais la
+caissière), toujours SA pharmacie
+Déclenchable uniquement pour le mois civil précédent (rejette toute autre période).
+Agrège les `LigneDispensation` des dispensations PAYEE de la période jamais encore
+réclamées par une facture antérieure, EXCLUT celles actuellement en litige
+(`ContestationPrescription`, module contestation/ — réutilise `chargerLignesEnLitige`
+tel quel, aucune duplication) : `montantTotal` = somme des `montantAssurance` des lignes
+facturables uniquement (ce que l'assureur doit à la pharmacie, jamais `montantLigne` ni
+`montantPatient`, déjà réglé au comptoir par le patient).
+
+### 4. `validerFactureMensuelle` — réservé EXCLUSIVEMENT à ASSUREUR_PHARMACIEN_CONSEIL
+Double sécurité explicite : ne fait AUCUNE confiance à l'agrégation de la soumission —
+recharge les lignes stampées par CETTE facture et revérifie leur statut de litige à
+l'instant présent (une contestation a pu être ouverte après la soumission, avant la
+validation) ; bloque la validation (409, détail des lignes concernées) si l'une d'elles
+est désormais en litige.
+
+### 5. Verrou RLS explicite pour ASSUREUR_COMPTABLE
+`ASSUREUR_COMPTABLE` (et `_ADJOINT` par héritage d'un niveau, `profil_a_role`) n'a AUCUN
+accès — ni lecture ni écriture — tant que le statut n'a pas atteint
+VALIDEE_PHARMACIEN_CONSEIL, verrouillé en RLS (policy dédiée avec la condition de statut
+dans `USING`/`WITH CHECK`, prisma/sql/044) ET côté NestJS (`obtenirFactureMensuelle`
+vérifie explicitement l'accès direct par id, pas seulement le filtre des listes).
+`programmerPaiementFactureMensuelle` (VALIDEE_PHARMACIEN_CONSEIL → PROGRAMMEE_PAIEMENT) et
+`marquerFactureMensuellePayee` (PROGRAMMEE_PAIEMENT → PAYEE) réservés à ce même rôle.
+
+### 6. Écrans
+Pharmacie (`/dashboard-pharmacie/{pharmacien,comptable}/factures-mensuelles`, composant
+partagé) : bouton « Soumettre la facture de [mois] » (masqué si déjà soumise) + historique.
+Pharmacien conseil (`/dashboard-assureur/pharmacien-conseil/factures-mensuelles`) :
+« Factures mensuelles à valider », détail ligne-par-ligne chargé en une fois (file
+naturellement petite), boutons Détail/Valider. Comptable
+(`/dashboard-assureur/{comptable,comptable-adjoint}/factures-pharmacie`, composant
+partagé, nouvelle entrée dans `navComptable`) : « Factures pharmacie prêtes à
+programmer » — vide tant qu'aucune n'est validée (confirmé par le test), boutons
+Programmer/Marquer payée selon le statut.
+
+### Tests
+Backend : 391/391 (`npx jest`, 25 nouveaux : 4 substitution pharmacien conseil,
+5 `soumettreFactureMensuelle`, 4 `validerFactureMensuelle`, 4 `programmerPaiement`/
+`marquerPayee`, 5 verrou d'accès `obtenirFactureMensuelle` — horloge figée,
+`jest.useFakeTimers`, pour un mois précédent déterministe). `npx tsc --noEmit` propre API
+et Web. Test HTTP réel (24/24) sur le scénario exact demandé : pharmacien substitue puis
+pharmacien conseil substitue aussi (audit distinct vérifié en base), contestation ouverte
+sur une ligne d'une dispensation payée du mois, soumission de la facture mensuelle —
+montant total exact (8 000 F, la ligne contestée à 3 000 F exclue automatiquement),
+ASSUREUR_COMPTABLE explicitement bloqué avant validation (liste vide, accès direct par id
+en 403, programmation refusée), validation par le pharmacien conseil, accès du comptable
+débloqué immédiatement après (liste peuplée, accès direct 200, programmation puis
+paiement). Test navigateur réel (Playwright, 7/7) : les 3 écrans se chargent correctement
+pour chaque rôle, liste vide confirmée visuellement côté comptable avant toute validation.
+Toutes les données de test éphémères supprimées, résidu nul vérifié indépendamment.

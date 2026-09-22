@@ -103,6 +103,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${PHARMACIEN}/medicaments`,
       icon: Pill,
     },
+    {
+      label: 'Contestations',
+      href: `${PHARMACIEN}/contestations`,
+      icon: Scale,
+    },
   ],
   [CAISSIERE]: [{ label: "Vue d'ensemble", href: CAISSIERE, icon: LayoutDashboard }],
   [PHARMACIE_COMPTABLE]: [
@@ -110,6 +115,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Suivi des dispensations',
       href: PHARMACIE_COMPTABLE,
       icon: ReceiptText,
+    },
+    {
+      label: 'Contestations',
+      href: `${PHARMACIE_COMPTABLE}/contestations`,
+      icon: Scale,
     },
   ],
   [SOCIETE_ADMINISTRATION]: [
@@ -195,6 +205,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Médicaments à homologuer',
       href: `${PHARMACIEN_CONSEIL}/medicaments-a-homologuer`,
       icon: Pill,
+    },
+    {
+      label: 'Prescriptions',
+      href: `${PHARMACIEN_CONSEIL}/prescriptions`,
+      icon: FileText,
     },
   ],
   // Direction : vue d'ensemble propre + les écrans de gestion partagés avec

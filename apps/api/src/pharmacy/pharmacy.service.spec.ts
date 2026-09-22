@@ -67,6 +67,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         findMany: jest.fn().mockResolvedValue([]),
       },
       ligneDispensation: { createMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+      contestationPrescription: { findMany: jest.fn().mockResolvedValue([]) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -647,5 +648,129 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     const res = await service.listerDispensationsPharmacie(USER, {});
     expect(res[0].lignes[0].denominationMedicament).toBe('Ibuprofène 400mg');
     expect(res[0].patient).toEqual({ nom: 'Traore', prenom: 'Awa', numeroCarte: 'CM-2' });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Exclusion des lignes EN LITIGE (module contestation/) — tant qu'une
+  //  contestation est OUVERT/JUSTIFICATION_RECUE ou REJETEE, `enLitige: true`
+  //  remplace le montant partout où il apparaît.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('exclusion des lignes en litige (contestation)', () => {
+    it('obtenirDispensation masque le montant d’une ligne EN LITIGE (OUVERT) et l’exclut du total', async () => {
+      identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+      prisma.contestationPrescription.findMany.mockResolvedValue([{ ligneOrdonnanceId: 'ligne-1' }]);
+      prisma.dispensationPharmacie.findFirst.mockResolvedValue({
+        id: 'disp-1',
+        statut: 'PAYEE',
+        montantTotal: dec(1000),
+        codeConfirmation: null,
+        datePreparation: new Date(),
+        dateValidationPatient: new Date(),
+        datePaiement: new Date(),
+        lignes: [
+          {
+            id: 'ligne-disp-1',
+            ligneOrdonnanceId: 'ligne-1',
+            medicamentSubstitue: null,
+            motifSubstitution: null,
+            quantite: 1,
+            prixUnitaire: dec(500),
+            montantLigne: dec(500),
+            montantAssurance: dec(400),
+            montantPatient: dec(100),
+            ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+          },
+          {
+            id: 'ligne-disp-2',
+            ligneOrdonnanceId: 'ligne-2',
+            medicamentSubstitue: null,
+            motifSubstitution: null,
+            quantite: 1,
+            prixUnitaire: dec(500),
+            montantLigne: dec(500),
+            montantAssurance: dec(400),
+            montantPatient: dec(100),
+            ligneOrdonnance: { denominationMedicament: 'Ibuprofène 400mg' },
+          },
+        ],
+        reclamations: [],
+      });
+
+      const res = await service.obtenirDispensation(USER, 'disp-1');
+
+      expect(res.lignes[0]).toMatchObject({ enLitige: true, montantAssurance: null, montantPatient: null });
+      expect(res.lignes[1]).toMatchObject({ enLitige: false, montantAssurance: '400.00', montantPatient: '100.00' });
+      // Totaux : seule la ligne NON litigieuse est comptée (400/100, pas 800/200).
+      expect(res.montantAssurance).toBe('400.00');
+      expect(res.montantPatient).toBe('100.00');
+    });
+
+    it('listerDispensationsPharmacie marque enLitige sur la ligne concernée et exclut son montant du total', async () => {
+      identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+      prisma.contestationPrescription.findMany.mockResolvedValue([{ ligneOrdonnanceId: 'ligne-1' }]);
+      prisma.dispensationPharmacie.findMany.mockResolvedValue([
+        {
+          id: 'disp-1',
+          statut: 'PAYEE',
+          montantTotal: dec(500),
+          codeConfirmation: null,
+          datePreparation: new Date(),
+          dateValidationPatient: new Date(),
+          datePaiement: new Date(),
+          ordonnance: { dossier: { adherent: { nom: 'Konan', prenom: 'Adjoua', numeroCarte: 'CM-1' }, beneficiaire: null } },
+          lignes: [
+            {
+              ligneOrdonnanceId: 'ligne-1',
+              medicamentSubstitue: null,
+              quantite: 1,
+              montantLigne: dec(500),
+              montantAssurance: dec(400),
+              montantPatient: dec(100),
+              ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+            },
+          ],
+        },
+      ]);
+
+      const res = await service.listerDispensationsPharmacie(USER, {});
+
+      expect(res[0].montantAssurance).toBe('0.00');
+      expect(res[0].montantPatient).toBe('0.00');
+      expect(res[0].lignes[0]).toMatchObject({ enLitige: true });
+    });
+
+    it('une ligne SANS contestation active n’est jamais masquée (comportement inchangé)', async () => {
+      identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+      prisma.contestationPrescription.findMany.mockResolvedValue([]); // aucune contestation active
+      prisma.dispensationPharmacie.findFirst.mockResolvedValue({
+        id: 'disp-1',
+        statut: 'PAYEE',
+        montantTotal: dec(500),
+        codeConfirmation: null,
+        datePreparation: new Date(),
+        dateValidationPatient: new Date(),
+        datePaiement: new Date(),
+        lignes: [
+          {
+            id: 'ligne-disp-1',
+            ligneOrdonnanceId: 'ligne-1',
+            medicamentSubstitue: null,
+            motifSubstitution: null,
+            quantite: 1,
+            prixUnitaire: dec(500),
+            montantLigne: dec(500),
+            montantAssurance: dec(400),
+            montantPatient: dec(100),
+            ligneOrdonnance: { denominationMedicament: 'Paracetamol 500mg' },
+          },
+        ],
+        reclamations: [],
+      });
+
+      const res = await service.obtenirDispensation(USER, 'disp-1');
+
+      expect(res.lignes[0]).toMatchObject({ enLitige: false, montantAssurance: '400.00', montantPatient: '100.00' });
+      expect(res.montantAssurance).toBe('400.00');
+    });
   });
 });

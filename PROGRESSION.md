@@ -4386,3 +4386,81 @@ visible immédiatement après soumission. Toutes les données de test éphémèr
 résidus de deux tentatives interrompues (contrainte d'unicité sur un second dossier ouvert
 pour le même adhérent, puis ordre FK au nettoyage) détectés et nettoyés indépendamment à
 chaque fois.
+
+## 2026-09-22 — Accès en revue et contestation du pharmacien conseil (prévu depuis le
+début du projet, jamais construit jusqu'ici)
+
+### 1. Accès en lecture — ASSUREUR_PHARMACIEN_CONSEIL
+Rejoint `ROLES_LECTURE_DOSSIER_STAFF` (care-episode.types.ts) : lecture organisation
+entière des dossiers de soins complets (diagnostic, motif de consultation, historique des
+actes), même mécanisme que les autres rôles conseil. Rejoint la policy RLS
+`ordonnances_lecture` (prisma/sql/043) — `lignes_ordonnance_lecture` l'incluait déjà
+(prisma/sql/026) ; `dossiers_soins` était déjà ouvert à toute l'organisation en RLS (scope
+tenant uniquement, RBAC réel côté NestJS). Nouvel endpoint `GET
+contestation/ordonnances-a-examiner` (module `contestation/`, nouveau) : toutes les
+ordonnances récentes avec leurs lignes et le statut de contestation courant de chacune.
+
+### 2. `contestations_prescription` (prisma/sql/043)
+Table dédiée + RLS (lecture : pharmacien conseil et personnel ASSUREUR habilité,
+organisation entière ; toute pharmacie du réseau — le NestJS reste seul juge de l'écriture
+et du scope pharmacie précis). `date_limite` par défaut au premier jour du mois suivant
+(fin du mois en cours). Contrainte `contestations_prescription_active_uniq` : au plus une
+contestation OUVERT/JUSTIFICATION_RECUE active par ligne à la fois.
+
+### 3. `ouvrirContestation` — réservé EXCLUSIVEMENT à ASSUREUR_PHARMACIEN_CONSEIL
+Exige que la ligne ait déjà été délivrée par une pharmacie
+(`ligneOrdonnance.pharmacieServanteId` non nul — c'est ce qui désigne « la pharmacie
+concernée », seul moment où `confirmerPaiementDispensation` renseigne ce champ). Bloque
+la double-contestation et la recontestation d'une ligne déjà REJETEE (exclusion
+définitive) ; une ligne VALIDEE peut en revanche être recontestée. `PharmacyService`
+(`obtenirDispensation`/`listerDispensationsPharmacie`) renvoie désormais `enLitige: true`
+et masque `montantAssurance`/`montantPatient` (exclus des totaux) pour toute ligne dont la
+contestation est OUVERT/JUSTIFICATION_RECUE (temporaire) ou REJETEE (définitif) — nouvelle
+méthode `chargerLignesEnLitige`, appliquée à chaque lecture, jamais mise en cache : une
+décision VALIDEE fait immédiatement réapparaître le montant réel.
+
+### 4. `soumettreJustification` — réservé à PHARMACIE_PHARMACIEN/PHARMACIE_COMPTABLE de LA
+pharmacie concernée
+Jamais PHARMACIE_CAISSIERE (clarification métier déjà appliquée ailleurs : elle prépare,
+elle ne répond pas d'un litige financier), jamais une autre pharmacie que celle qui a
+délivré la ligne. Fichiers (`multipart/form-data`, `FilesInterceptor`) stockés dans
+Supabase Storage — nouveau bucket privé `contestations` (même schéma que `cartes`,
+prisma/sql/023) : PDF/JPEG/PNG, 10 Mo max par fichier. URL signées à durée limitée
+générées à la demande (`GET contestation/contestations/:id/pieces/:nomFichier`), jamais
+d'URL publique stockée en base — seul le chemin l'est (`pieces_justificatives text[]`).
+
+### 5. `trancherContestation` — réservé EXCLUSIVEMENT à ASSUREUR_PHARMACIEN_CONSEIL
+VALIDEE débloque la ligne (prochaine lecture : montant réel réaffiché). REJETEE l'exclut
+définitivement (`enLitige` reste `true` pour toujours, aucune recontestation possible).
+
+### 6. Frontend
+Nouveau module `contestation/` (NestJS) + `ChampFichier` ajouté à
+`components/dashboard/patterns/` (upload multi-fichiers, `fd.getAll()`). `apiFetch`
+corrigé pour ne plus forcer `Content-Type: application/json` quand le corps est un
+`FormData` (laisse `fetch` poser la boundary multipart lui-même — aucun appel existant
+n'était affecté, tous envoient du JSON). Écran `/dashboard-assureur/pharmacien-conseil/
+prescriptions` : section « Prescriptions à examiner » (accès au dossier complet via une
+nouvelle route `pharmacien-conseil/dossiers/:id`, réutilise `DossierSupervisionDetail`
+sans dupliquer l'écran — ce rôle ne rejoint PAS `ROUTES_ADMIN_ASSUREUR`, aucun droit sur
+souscripteurs/polices/utilisateurs), « Contestations en cours » (boutons Valider/Rejeter),
+« Contestations traitées ». Écran côté pharmacie (`/dashboard-pharmacie/pharmacien/
+contestations` et `/comptable/contestations`, composant partagé comme `dispensation-
+actions.ts`) : « Contestations reçues » avec formulaire de justification (observation +
+pièces).
+
+### Tests
+Backend : 366/366 (`npx jest`, 27 nouveaux : 9 `ContestationService` — revue, ouverture,
+règles de blocage — , 8 `soumettreJustification`, 4 `trancherContestation`, 3 exclusion
+`enLitige` dans `PharmacyService`). `npx tsc --noEmit` propre API et Web. Test HTTP réel
+(29/29) : accès en lecture du pharmacien conseil (ordonnances + dossier complet) confirmé,
+refus pour tout autre rôle ; contestation bloquée sur une ligne non délivrée (400) ; montant
+masqué (`enLitige`, totaux à 0.00) dans les deux endpoints de lecture pharmacie dès
+l'ouverture ; caissière ET pharmacie non concernée refusées en justification (403), pièce
+PDF réellement téléversée et récupérée via URL signée ; VALIDEE réaffiche immédiatement le
+montant réel (8 000 F), REJETEE l'exclut de façon permanente (nouvelle tentative de
+contestation → 409). Test navigateur réel (Playwright, 12/12) : ouverture d'une
+contestation depuis l'écran pharmacien conseil, accès au dossier complet par le lien
+dédié, réponse avec pièce jointe réellement déposée depuis l'écran pharmacie, validation
+visible immédiatement des deux côtés. Toutes les données de test éphémères supprimées,
+résidu d'une première tentative interrompue (format du code de confirmation) détecté et
+nettoyé indépendamment.

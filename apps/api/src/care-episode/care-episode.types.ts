@@ -72,6 +72,10 @@ export const ROLES_LECTURE_DOSSIER_STAFF = [
   'ASSUREUR_EXPLOITATION',
   'ASSUREUR_INFORMATIQUE',
   'ASSUREUR_MEDECIN_CONSEIL',
+  /// Accès en revue des prescriptions (contestation) — ligne_ordonnance ne
+  /// suffit pas seule : le pharmacien conseil a besoin du dossier complet
+  /// (diagnostic, motif, historique des actes) pour juger une contestation.
+  'ASSUREUR_PHARMACIEN_CONSEIL',
 ] as const;
 
 /**

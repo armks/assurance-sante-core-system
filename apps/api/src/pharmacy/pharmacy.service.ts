@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { ClaimsService } from '../claims/claims.service';
+import { STATUTS_CONTESTATION_EN_LITIGE } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -367,12 +368,17 @@ export class PharmacyService {
       throw new NotFoundException('Dispensation introuvable.');
     }
 
+    const enLitige = await this.chargerLignesEnLitige(
+      dispensation.lignes.map((l) => l.ligneOrdonnanceId),
+    );
     const montantAssurance = dispensation.lignes.reduce(
-      (acc, l) => acc.add(new Decimal(l.montantAssurance.toString())),
+      (acc, l) =>
+        enLitige.has(l.ligneOrdonnanceId) ? acc : acc.add(new Decimal(l.montantAssurance.toString())),
       new Decimal(0),
     );
     const montantPatient = dispensation.lignes.reduce(
-      (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
+      (acc, l) =>
+        enLitige.has(l.ligneOrdonnanceId) ? acc : acc.add(new Decimal(l.montantPatient.toString())),
       new Decimal(0),
     );
 
@@ -395,8 +401,9 @@ export class PharmacyService {
         quantite: l.quantite,
         prixUnitaire: l.prixUnitaire.toFixed(2),
         montantLigne: l.montantLigne.toFixed(2),
-        montantAssurance: l.montantAssurance.toFixed(2),
-        montantPatient: l.montantPatient.toFixed(2),
+        enLitige: enLitige.has(l.ligneOrdonnanceId),
+        montantAssurance: enLitige.has(l.ligneOrdonnanceId) ? null : l.montantAssurance.toFixed(2),
+        montantPatient: enLitige.has(l.ligneOrdonnanceId) ? null : l.montantPatient.toFixed(2),
       })),
     };
   }
@@ -435,14 +442,20 @@ export class PharmacyService {
       take: 100,
     });
 
+    const enLitige = await this.chargerLignesEnLitige(
+      dispensations.flatMap((d) => d.lignes.map((l) => l.ligneOrdonnanceId)),
+    );
+
     return dispensations.map((d) => {
       const patient = d.ordonnance.dossier.adherent ?? d.ordonnance.dossier.beneficiaire;
       const montantAssurance = d.lignes.reduce(
-        (acc, l) => acc.add(new Decimal(l.montantAssurance.toString())),
+        (acc, l) =>
+          enLitige.has(l.ligneOrdonnanceId) ? acc : acc.add(new Decimal(l.montantAssurance.toString())),
         new Decimal(0),
       );
       const montantPatient = d.lignes.reduce(
-        (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
+        (acc, l) =>
+          enLitige.has(l.ligneOrdonnanceId) ? acc : acc.add(new Decimal(l.montantPatient.toString())),
         new Decimal(0),
       );
       return {
@@ -461,6 +474,7 @@ export class PharmacyService {
           denominationMedicament: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
           quantite: l.quantite,
           montantLigne: l.montantLigne.toFixed(2),
+          enLitige: enLitige.has(l.ligneOrdonnanceId),
         })),
       };
     });
@@ -772,6 +786,26 @@ export class PharmacyService {
     if (!ctx.roleChain.includes(ROLE_PHARMACIEN_SEUL) || !ctx.pharmacieId) {
       throw new ForbiddenException('Réservé au pharmacien titulaire de la pharmacie.');
     }
+  }
+
+  /**
+   * Lignes actuellement EN LITIGE (contestation OUVERT/JUSTIFICATION_RECUE =
+   * temporaire, ou REJETEE = définitif — module `contestation/`) — exclues de
+   * tout calcul de montant facturable, `enLitige: true` renvoyé à la place
+   * partout où le montant de la ligne apparaît. Seul VALIDEE débloque.
+   */
+  private async chargerLignesEnLitige(ligneOrdonnanceIds: string[]): Promise<Set<string>> {
+    if (ligneOrdonnanceIds.length === 0) {
+      return new Set();
+    }
+    const contestations = await this.prisma.contestationPrescription.findMany({
+      where: {
+        ligneOrdonnanceId: { in: ligneOrdonnanceIds },
+        statut: { in: STATUTS_CONTESTATION_EN_LITIGE as unknown as string[] },
+      },
+      select: { ligneOrdonnanceId: true },
+    });
+    return new Set(contestations.map((c) => c.ligneOrdonnanceId));
   }
 
   private async genererCodeUnique(): Promise<string> {

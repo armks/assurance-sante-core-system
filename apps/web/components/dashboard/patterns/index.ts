@@ -20,6 +20,7 @@ export {
   ChampZone,
   ChampSelect,
   ChampCheckbox,
+  ChampFichier,
   type OptionChamp,
 } from './champs';
 export { StatutBadge, type TonStatut } from './statut-badge';

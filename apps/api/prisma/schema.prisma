@@ -61,6 +61,7 @@ model Organisation {
   licence           LicenceOrganisation?
   autorisationsRepetitionActe AutorisationRepetitionActe[]
   notesDossier      NoteDossier[]
+  contestationsPrescription ContestationPrescription[]
 
   @@map("organisations")
 }
@@ -148,6 +149,8 @@ model Profil {
   substitutionsMedicament LigneDispensation[]
   autorisationsRepetitionAccordees AutorisationRepetitionActe[]
   notesRedigees NoteDossier[]
+  contestationsOuvertes ContestationPrescription[] @relation("ContestationOuvertePar")
+  contestationsTraitees ContestationPrescription[] @relation("ContestationTraiteePar")
 
   @@map("profils")
 }
@@ -930,11 +933,45 @@ model LigneOrdonnance {
   ordonnance       Ordonnance          @relation(fields: [ordonnanceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   pharmacieServante Pharmacie?         @relation(fields: [pharmacieServanteId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lignesDispensation LigneDispensation[]
+  contestations    ContestationPrescription[]
 
   @@index([ordonnanceId])
   @@index([statut])
   @@index([pharmacieServanteId])
   @@map("lignes_ordonnance")
+}
+
+/// contestations_prescription — revue du pharmacien conseil sur une ligne
+/// d'ordonnance prescrite. Tant que OUVERT/JUSTIFICATION_RECUE (temporaire)
+/// ou REJETEE (définitif), la ligne est exclue de tout calcul de montant
+/// facturable (`PharmacyService` renvoie `enLitige: true` à la place d'un
+/// montant, partout où celui-ci apparaît) — seul VALIDEE la débloque.
+/// `dateLimite` par défaut à la fin du mois en cours. prisma/sql/043.
+model ContestationPrescription {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId       String    @map("organisation_id") @db.Uuid
+  ligneOrdonnanceId    String    @map("ligne_ordonnance_id") @db.Uuid
+  ouvertParId          String    @map("ouvert_par_id") @db.Uuid
+  motif                String
+  dateOuverture        DateTime  @default(now()) @map("date_ouverture") @db.Timestamptz(6)
+  dateLimite           DateTime  @default(dbgenerated("(date_trunc('month'::text, now()) + '1 mon'::interval)")) @map("date_limite") @db.Timestamptz(6)
+  statut               String    @default("OUVERT") // OUVERT | JUSTIFICATION_RECUE | VALIDEE | REJETEE
+  reponseEtablissement String?   @map("reponse_etablissement")
+  piecesJustificatives String[]  @default([]) @map("pieces_justificatives")
+  traiteParId          String?   @map("traite_par_id") @db.Uuid
+  dateCloture          DateTime? @map("date_cloture") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organisation    Organisation    @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ligneOrdonnance LigneOrdonnance @relation(fields: [ligneOrdonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ouvertPar       Profil          @relation("ContestationOuvertePar", fields: [ouvertParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  traitePar       Profil?         @relation("ContestationTraiteePar", fields: [traiteParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([ligneOrdonnanceId])
+  @@index([statut])
+  @@map("contestations_prescription")
 }
 
 /// stock_medicaments_pharmacie — chaque pharmacie fixe son propre prix par

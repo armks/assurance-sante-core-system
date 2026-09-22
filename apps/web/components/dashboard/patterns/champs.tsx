@@ -141,6 +141,32 @@ export function ChampSelect({
   );
 }
 
+/** Champ fichier(s) — `fd.getAll(name)` renvoie les `File` côté `onSoumettre`. */
+export function ChampFichier({
+  name,
+  label,
+  aide,
+  className,
+  ...props
+}: Omit<React.ComponentProps<'input'>, 'name' | 'type'> & {
+  name: string;
+  label: string;
+  aide?: string;
+}) {
+  const id = `champ-${name}`;
+  return (
+    <Champ label={label} htmlFor={id} aide={aide} requis={props.required} className={className}>
+      <input
+        id={id}
+        name={name}
+        type="file"
+        className="w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-transparent file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-foreground hover:file:bg-accent"
+        {...props}
+      />
+    </Champ>
+  );
+}
+
 export function ChampCheckbox({
   name,
   label,

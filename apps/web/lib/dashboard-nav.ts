@@ -178,6 +178,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${CENTRE_MEDICAL}/comptable`,
       icon: ReceiptText,
     },
+    {
+      label: 'Contestations',
+      href: `${CENTRE_MEDICAL}/contestations`,
+      icon: Scale,
+    },
   ],
   [MEDECIN_CONSEIL]: [
     { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard },
@@ -195,6 +200,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Réclamations en revue',
       href: `${MEDECIN_CONSEIL}/reclamations-revue`,
       icon: Scale,
+    },
+    {
+      label: 'Contestations',
+      href: `${MEDECIN_CONSEIL}/contestations`,
+      icon: FileText,
     },
   ],
   [MEDECIN_SOUSCRIPTEUR]: [

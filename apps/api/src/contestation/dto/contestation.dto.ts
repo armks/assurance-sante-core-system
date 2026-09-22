@@ -14,3 +14,13 @@ export class TrancherContestationDto {
   @IsIn(['VALIDEE', 'REJETEE'])
   decision!: 'VALIDEE' | 'REJETEE';
 }
+
+export class OuvrirContestationActeDto {
+  @IsUUID()
+  acteDossierId!: string;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(1000)
+  motif!: string;
+}

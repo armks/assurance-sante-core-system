@@ -62,6 +62,7 @@ model Organisation {
   autorisationsRepetitionActe AutorisationRepetitionActe[]
   notesDossier      NoteDossier[]
   contestationsPrescription ContestationPrescription[]
+  contestationsActe ContestationActe[]
   facturesMensuellesPharmacie FactureMensuellePharmacie[]
 
   @@map("organisations")
@@ -153,6 +154,8 @@ model Profil {
   notesRedigees NoteDossier[]
   contestationsOuvertes ContestationPrescription[] @relation("ContestationOuvertePar")
   contestationsTraitees ContestationPrescription[] @relation("ContestationTraiteePar")
+  contestationsActeOuvertes ContestationActe[] @relation("ContestationActeOuvertePar")
+  contestationsActeTraitees ContestationActe[] @relation("ContestationActeTraiteePar")
 
   @@map("profils")
 }
@@ -977,6 +980,36 @@ model ContestationPrescription {
   @@map("contestations_prescription")
 }
 
+/// contestations_acte — même principe que ContestationPrescription, mais sur
+/// actes_dossier (actes/hospitalisations/analyses-examens) et réservée à
+/// ASSUREUR_MEDECIN_CONSEIL plutôt qu'ASSUREUR_PHARMACIEN_CONSEIL. prisma/sql/046.
+model ContestationActe {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId       String    @map("organisation_id") @db.Uuid
+  acteDossierId        String    @map("acte_dossier_id") @db.Uuid
+  ouvertParId          String    @map("ouvert_par_id") @db.Uuid
+  motif                String
+  dateOuverture        DateTime  @default(now()) @map("date_ouverture") @db.Timestamptz(6)
+  dateLimite           DateTime  @default(dbgenerated("(date_trunc('month'::text, now()) + '1 mon'::interval)")) @map("date_limite") @db.Timestamptz(6)
+  statut               String    @default("OUVERT") // OUVERT | JUSTIFICATION_RECUE | VALIDEE | REJETEE
+  reponseEtablissement String?   @map("reponse_etablissement")
+  piecesJustificatives String[]  @default([]) @map("pieces_justificatives")
+  traiteParId          String?   @map("traite_par_id") @db.Uuid
+  dateCloture          DateTime? @map("date_cloture") @db.Timestamptz(6)
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  acteDossier  ActeDossier  @relation(fields: [acteDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ouvertPar    Profil       @relation("ContestationActeOuvertePar", fields: [ouvertParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  traitePar    Profil?      @relation("ContestationActeTraiteePar", fields: [traiteParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([acteDossierId])
+  @@index([statut])
+  @@map("contestations_acte")
+}
+
 /// stock_medicaments_pharmacie — chaque pharmacie fixe son propre prix par
 /// dénomination (texte libre, pas de FK vers le référentiel national). Gap
 /// documenté au prompt précédent, comblé ici. prisma/sql/026.
@@ -1217,6 +1250,7 @@ model ActeDossier {
   etablissementExecution EtablissementSante? @relation("ActeEtablissementExecution", fields: [etablissementExecutionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lignesFacturation LigneFacturation[]
   notes NoteDossier[]
+  contestations ContestationActe[]
 
   @@index([dossierSoinsId])
   @@index([ticketSoinsId])

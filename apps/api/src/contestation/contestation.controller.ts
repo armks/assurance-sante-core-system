@@ -15,7 +15,11 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { ContestationService, type FichierTeleverse } from './contestation.service';
-import { OuvrirContestationDto, TrancherContestationDto } from './dto/contestation.dto';
+import {
+  OuvrirContestationActeDto,
+  OuvrirContestationDto,
+  TrancherContestationDto,
+} from './dto/contestation.dto';
 
 /**
  * Endpoints REST du module contestation/ — accès en revue du pharmacien
@@ -80,5 +84,62 @@ export class ContestationController {
     @Body() dto: TrancherContestationDto,
   ) {
     return this.contestation.trancherContestation(user, id, dto);
+  }
+
+  // --- Contestation d'un acte/hospitalisation/analyse-examen ---------
+
+  /** Côté MÉDECIN CONSEIL : « Actes à examiner ». */
+  @Get('actes-a-examiner')
+  listerActesPourRevue(@CurrentUser() user: AuthenticatedUser) {
+    return this.contestation.listerActesPourRevue(user);
+  }
+
+  /** Côté MÉDECIN CONSEIL : « Contestations en cours ». Côté ÉTABLISSEMENT : « Contestations reçues ». */
+  @Get('contestations-actes')
+  listerContestationsActes(@CurrentUser() user: AuthenticatedUser) {
+    return this.contestation.listerContestationsActes(user);
+  }
+
+  @Get('contestations-actes/:id/pieces/:nomFichier')
+  obtenirUrlPieceActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('nomFichier') nomFichier: string,
+  ) {
+    return this.contestation.obtenirUrlPieceActe(user, id, nomFichier);
+  }
+
+  /** Réservé EXCLUSIVEMENT à ASSUREUR_MEDECIN_CONSEIL. */
+  @Post('contestations-actes')
+  ouvrirContestationActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: OuvrirContestationActeDto,
+  ) {
+    return this.contestation.ouvrirContestationActe(user, dto);
+  }
+
+  /** Réservé à CENTRE_MEDICAL_MEDECIN/COMPTABLE/ADMINISTRATIF de l'établissement concerné. */
+  @Post('contestations-actes/:id/justification')
+  @UseInterceptors(FilesInterceptor('pieces', 5))
+  soumettreJustificationActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('reponse') reponse: string,
+    @UploadedFiles() fichiers: FichierTeleverse[],
+  ) {
+    if (typeof reponse !== 'string') {
+      throw new BadRequestException('Le champ "reponse" est requis.');
+    }
+    return this.contestation.soumettreJustificationActe(user, id, reponse, fichiers ?? []);
+  }
+
+  /** Réservé EXCLUSIVEMENT à ASSUREUR_MEDECIN_CONSEIL. */
+  @Post('contestations-actes/:id/trancher')
+  trancherContestationActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TrancherContestationDto,
+  ) {
+    return this.contestation.trancherContestationActe(user, id, dto);
   }
 }

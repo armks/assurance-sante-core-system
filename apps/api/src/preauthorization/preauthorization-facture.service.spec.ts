@@ -61,6 +61,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
     prisma = {
       dossierSoins: { findFirst: jest.fn() },
       acteDossier: { findMany: jest.fn().mockResolvedValue([]) },
+      contestationActe: { findMany: jest.fn().mockResolvedValue([]) },
       garantie: { findMany: jest.fn().mockResolvedValue([]) },
       ligneFacturation: {
         create: jest.fn().mockResolvedValue({}),
@@ -170,6 +171,24 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       expect(res.montantTotal).toBe('10000.00');
       expect((res as any).acteIdsExclus).toEqual(['acte-attente']);
       expect(res.message).toMatch(/1 acte\(s\).*exclu/);
+    });
+
+    it('EXCLUT automatiquement un acte EN LITIGE (contestation ouverte) même s’il est sélectionné', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-ok', { montantPrescrit: dec(10000) }),
+        acte('acte-conteste', { montantPrescrit: dec(50000), categorieActe: 'BIOLOGIE' }),
+      ]);
+      prisma.contestationActe.findMany.mockResolvedValue([{ acteDossierId: 'acte-conteste' }]);
+
+      const res = await service.genererFactureSelection(USER, 'dos-1', {
+        acteIds: ['acte-ok', 'acte-conteste'],
+      });
+
+      expect(res.montantTotal).toBe('10000.00');
+      expect((res as any).acteIdsExclus).toEqual(['acte-conteste']);
+      expect(res.message).toMatch(/en litige/);
     });
 
     it('EXCLUT automatiquement un acte déjà PAYE même s’il est resélectionné', async () => {

@@ -4606,3 +4606,63 @@ pour un acte `CONSULTATION`, facturé à 8 000 F, donnent un montant simulé ass
 plafonne bien le prix de consultation avant application du taux de couverture. Toutes les
 données de test éphémères supprimées, résidu nul vérifié indépendamment (0 dossier, 0
 profil restants).
+
+## 2026-09-22 (suite 3) — Contestation du médecin conseil sur les actes/hospitalisations/
+analyses-examens
+
+Même mécanisme que la contestation de prescription (`contestations_prescription`,
+prisma/sql/043, 2026-09-22) réutilisé tel quel pour ce second domaine plutôt que redessiné,
+comme demandé — un domaine (`contestation/`) porte désormais les deux.
+
+### 1. `contestations_acte` (prisma/sql/046)
+Même structure exacte que `contestations_prescription` (statuts, `date_limite` = fin du
+mois en cours, contrainte de cohérence clôture, index d'unicité « au plus une contestation
+active à la fois par acte ») mais `acte_dossier_id` au lieu de `ligne_ordonnance_id`. RLS :
+lecture ouverte à tout profil avec `etablissement_id` (tout centre médical du réseau) + le
+personnel ASSUREUR habilité ; écriture réservée à `ASSUREUR_MEDECIN_CONSEIL` (ouverture/
+tranchage) et à `CENTRE_MEDICAL_MEDECIN/COMPTABLE/ADMINISTRATIF` de l'établissement
+concerné (justification) — jamais `CENTRE_MEDICAL_ACCUEIL`, même exclusion que la caissière
+côté pharmacie. Réutilise le bucket de stockage privé `contestations` déjà créé (chemins
+`{contestationId}/{fichier}` — pas de collision possible, tables distinctes).
+
+### 2-4. `ouvrirContestationActe`/`soumettreJustificationActe`/`trancherContestationActe`
+Nouvelles méthodes sur le `ContestationService` existant (pas un nouveau service),
+mécanique identique à leurs équivalents prescription : ouverture/tranchage réservés
+EXCLUSIVEMENT à `ASSUREUR_MEDECIN_CONSEIL` ; justification réservée à l'établissement
+CONCERNÉ (`acteDossier.dossier.etablissementId === ctx.etablissementId`), jamais un autre.
+Acte `ANNULE` refusé (400, rien à contester). `ContexteAppelant` étendu avec
+`etablissementId` (déjà nécessaire pour ce scope). Le helper `audit()` — jusqu'ici table
+`contestations_prescription` codée en dur — accepte désormais un 6ᵉ paramètre `tableCible`
+(défaut inchangé pour les appels existants) pour servir les deux domaines sans dupliquer la
+fonction.
+
+**Exclusion de facturation (« en_litige »)** : `PreauthorizationService.
+genererFactureSelection` exclut désormais aussi tout acte sous contestation active
+(nouveau `chargerActesEnLitige`, même principe que `PharmacyService.
+chargerLignesEnLitige`), en plus des exclusions déjà en place (pré-autorisation en attente/
+refusée, déjà réglé) — messages de réponse mis à jour pour mentionner le litige.
+
+### 5. Écrans
+Médecin conseil (`/dashboard-assureur/medecin-conseil/contestations`, nouvel écran
+`MedecinConseilActesEcran`) : « Actes à examiner » (bouton Contester + lien vers le dossier
+complet — nouvelle route `medecin-conseil/dossiers/[id]`, ce rôle étant déjà dans
+`ROLES_LECTURE_DOSSIER_STAFF`, aucun changement API), « Contestations en cours »
+(Valider/Rejeter), « Contestations traitées ». Centre médical
+(`/dashboard-centre-medical/contestations`, route UNIQUE partagée par les 4 sous-rôles —
+même dashboard route pour tous, `CENTRE_MEDICAL_ACCUEIL` reçoit un 403 explicite de l'API
+si elle y accède) : « Contestations reçues » avec formulaire de justification + pièce
+jointe (réutilise `ChampFichier`), historique.
+
+### Tests
+Backend : 426/426 (`npx jest`, 24 nouveaux : 20 sur le service de contestation d'actes —
+mêmes scénarios que la contestation de prescription, adaptés — et 4 sur l'exclusion de
+facturation « en litige »). `npx tsc --noEmit` propre API et Web. Test HTTP réel (17/17) sur
+le scénario exact demandé, adapté aux actes : le médecin conseil voit bien le dossier
+complet d'un patient (diagnostic d'entrée inclus), ouvre une contestation sur un acte
+d'hospitalisation déjà réalisé, vérifie que cet acte devient explicitement exclu du montant
+facturable d'un cycle de facturation par sélection (seul l'acte non contesté est retenu,
+message mentionnant le litige), l'établissement soumet une justification avec fichier
+(PDF réel envoyé et stocké), le médecin conseil valide, l'acte redevient normalement
+facturable (les deux actes inclus au cycle suivant, montant total exact). Toutes les
+données de test éphémères supprimées, résidu nul vérifié indépendamment (0 dossier, 0
+profil restants).

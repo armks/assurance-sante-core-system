@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
+import { STATUTS_CONTESTATION_EN_LITIGE } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -1714,6 +1715,26 @@ export class PreauthorizationService {
     return ticket;
   }
 
+  /**
+   * Actes actuellement EN LITIGE (contestation OUVERT/JUSTIFICATION_RECUE =
+   * exclusion temporaire, ou REJETEE = définitive — module `contestation/`) —
+   * exclus de toute génération de facture, même principe que
+   * `PharmacyService.chargerLignesEnLitige`. Seul VALIDEE débloque l'acte.
+   */
+  private async chargerActesEnLitige(acteDossierIds: string[]): Promise<Set<string>> {
+    if (acteDossierIds.length === 0) {
+      return new Set();
+    }
+    const contestations = await this.prisma.contestationActe.findMany({
+      where: {
+        acteDossierId: { in: acteDossierIds },
+        statut: { in: STATUTS_CONTESTATION_EN_LITIGE as unknown as string[] },
+      },
+      select: { acteDossierId: true },
+    });
+    return new Set(contestations.map((c) => c.acteDossierId));
+  }
+
   // =====================================================================
   // Code de Facturation (v8 §5) — 4e et dernier code anti-fraude.
   // =====================================================================
@@ -1790,11 +1811,13 @@ export class PreauthorizationService {
       );
     }
 
+    const enLitige = await this.chargerActesEnLitige(actesDemandes.map((a) => a.id));
     const nonFacturables: readonly string[] = STATUTS_PREAUTORISATION_NON_FACTURABLES;
     const actesEligibles = actesDemandes.filter(
       (a) =>
         !nonFacturables.includes(a.statutPreautorisation) &&
-        !a.lignesFacturation.some((l) => l.statut === 'PAYE'),
+        !a.lignesFacturation.some((l) => l.statut === 'PAYE') &&
+        !enLitige.has(a.id),
     );
     const acteIdsExclus = acteIdsDemandes.filter(
       (id) => !actesEligibles.some((a) => a.id === id),
@@ -1802,7 +1825,7 @@ export class PreauthorizationService {
     if (actesEligibles.length === 0) {
       throw new ConflictException({
         message:
-          "Aucun des actes sélectionnés n'est facturable (en attente ou refusé en pré-autorisation, ou déjà réglé).",
+          "Aucun des actes sélectionnés n'est facturable (en attente ou refusé en pré-autorisation, déjà réglé, ou en litige).",
         acteIdsExclus,
       });
     }
@@ -1883,7 +1906,7 @@ export class PreauthorizationService {
       message:
         acteIdsExclus.length > 0
           ? "Facture générée pour les actes sélectionnés facturables. Le code de facturation a été transmis à l'adhérent pour validation. " +
-            `${acteIdsExclus.length} acte(s) sélectionné(s) exclu(s) (en attente/refusé de pré-autorisation, ou déjà réglé).`
+            `${acteIdsExclus.length} acte(s) sélectionné(s) exclu(s) (en attente/refusé de pré-autorisation, déjà réglé, ou en litige).`
           : "Facture générée pour les actes sélectionnés. Le code de facturation a été transmis à l'adhérent pour validation.",
     };
   }

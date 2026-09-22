@@ -11,12 +11,18 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { OuvrirContestationDto, TrancherContestationDto } from './dto/contestation.dto';
+import {
+  OuvrirContestationActeDto,
+  OuvrirContestationDto,
+  TrancherContestationDto,
+} from './dto/contestation.dto';
 import {
   BUCKET_PIECES_JUSTIFICATIVES,
   ContexteAppelant,
   MIME_TYPES_PIECES_AUTORISES,
+  ROLES_JUSTIFICATION_ETABLISSEMENT,
   ROLES_JUSTIFICATION_PHARMACIE,
+  ROLE_MEDECIN_CONSEIL,
   ROLE_PHARMACIEN_CONSEIL,
   STATUTS_CONTESTATION_EN_LITIGE,
   TAILLE_MAX_PIECE_OCTETS,
@@ -378,6 +384,328 @@ export class ContestationService {
     return maj;
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  //  Contestation d'un acte/hospitalisation/analyse-examen (actes_dossier) —
+  //  même principe que la contestation de prescription ci-dessus, réutilisé
+  //  pour ce second domaine plutôt que redessiné. Réservée à
+  //  ASSUREUR_MEDECIN_CONSEIL (au lieu du pharmacien conseil) ; la
+  //  justification revient à l'établissement CONCERNÉ (au lieu de la
+  //  pharmacie concernée).
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Côté MÉDECIN CONSEIL : tous les actes récents de l'organisation, avec le
+   * statut de contestation courant de chacun — alimente l'écran « Actes à examiner ». */
+  async listerActesPourRevue(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertMedecinConseil(ctx);
+
+    const actes = await this.prisma.acteDossier.findMany({
+      where: {
+        deletedAt: null,
+        statut: { not: 'ANNULE' },
+        dossier: { organisationId: ctx.organisationId },
+      },
+      include: {
+        dossier: {
+          select: {
+            id: true,
+            numeroTraitement: true,
+            etablissement: { select: { nom: true } },
+            adherent: { select: { nom: true, prenom: true } },
+            beneficiaire: { select: { nom: true, prenom: true } },
+          },
+        },
+        contestations: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+      orderBy: { datePrescription: 'desc' },
+      take: 200,
+    });
+
+    return actes.map((a) => ({
+      id: a.id,
+      categorieActe: a.categorieActe,
+      libelle: a.libelle,
+      codeActe: a.codeActe,
+      quantite: a.quantite,
+      montantPrescrit: a.montantPrescrit?.toFixed(2) ?? null,
+      statut: a.statut,
+      datePrescription: a.datePrescription,
+      dossierId: a.dossier.id,
+      numeroTraitement: a.dossier.numeroTraitement,
+      etablissement: a.dossier.etablissement.nom,
+      patient: a.dossier.adherent
+        ? `${a.dossier.adherent.prenom} ${a.dossier.adherent.nom}`
+        : a.dossier.beneficiaire
+          ? `${a.dossier.beneficiaire.prenom} ${a.dossier.beneficiaire.nom}`
+          : '—',
+      contestation: a.contestations[0]
+        ? { id: a.contestations[0].id, statut: a.contestations[0].statut }
+        : null,
+    }));
+  }
+
+  /**
+   * File des contestations d'actes — organisation entière pour le médecin
+   * conseil (« Contestations en cours »), scopée à SON établissement pour le
+   * personnel de centre médical (« Contestations reçues »).
+   */
+  async listerContestationsActes(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    const estMedecinConseil = ctx.roleChain.includes(ROLE_MEDECIN_CONSEIL);
+    const estEtablissement = ctx.roleChain.some((r) =>
+      (ROLES_JUSTIFICATION_ETABLISSEMENT as readonly string[]).includes(r),
+    );
+    if (!estMedecinConseil && !(estEtablissement && ctx.etablissementId)) {
+      throw new ForbiddenException(
+        "Réservé au médecin conseil ou au personnel habilité de l'établissement concerné.",
+      );
+    }
+
+    const contestations = await this.prisma.contestationActe.findMany({
+      where: {
+        organisationId: ctx.organisationId,
+        ...(estMedecinConseil
+          ? {}
+          : { acteDossier: { dossier: { etablissementId: ctx.etablissementId! } } }),
+      },
+      include: {
+        acteDossier: {
+          select: {
+            categorieActe: true,
+            libelle: true,
+            codeActe: true,
+            montantPrescrit: true,
+            dossier: {
+              select: {
+                numeroTraitement: true,
+                etablissement: { select: { nom: true } },
+                adherent: { select: { nom: true, prenom: true } },
+                beneficiaire: { select: { nom: true, prenom: true } },
+              },
+            },
+          },
+        },
+        ouvertPar: { select: { role: true } },
+        traitePar: { select: { role: true } },
+      },
+      orderBy: { dateOuverture: 'desc' },
+    });
+
+    return contestations.map((c) => {
+      const dossier = c.acteDossier.dossier;
+      return {
+        id: c.id,
+        acteDossierId: c.acteDossierId,
+        categorieActe: c.acteDossier.categorieActe,
+        libelle: c.acteDossier.libelle,
+        codeActe: c.acteDossier.codeActe,
+        montantPrescrit: c.acteDossier.montantPrescrit?.toFixed(2) ?? null,
+        etablissement: dossier.etablissement.nom,
+        numeroTraitement: dossier.numeroTraitement,
+        patient: dossier.adherent
+          ? `${dossier.adherent.prenom} ${dossier.adherent.nom}`
+          : dossier.beneficiaire
+            ? `${dossier.beneficiaire.prenom} ${dossier.beneficiaire.nom}`
+            : '—',
+        motif: c.motif,
+        statut: c.statut,
+        dateOuverture: c.dateOuverture,
+        dateLimite: c.dateLimite,
+        reponseEtablissement: c.reponseEtablissement,
+        piecesJustificatives: c.piecesJustificatives,
+        dateCloture: c.dateCloture,
+        ouvertPar: c.ouvertPar.role,
+        traitePar: c.traitePar?.role ?? null,
+      };
+    });
+  }
+
+  /** URL signée (durée limitée) d'une pièce justificative — même bucket privé
+   * que les prescriptions. Réservé aux mêmes rôles que `listerContestationsActes`. */
+  async obtenirUrlPieceActe(user: AuthenticatedUser, contestationId: string, nomFichier: string) {
+    const ctx = await this.contexteAppelant(user);
+    const contestation = await this.chargerContestationActe(ctx, contestationId);
+    const estMedecinConseil = ctx.roleChain.includes(ROLE_MEDECIN_CONSEIL);
+    const estEtablissementConcerne =
+      !!ctx.etablissementId && contestation.etablissementId === ctx.etablissementId;
+    if (!estMedecinConseil && !estEtablissementConcerne) {
+      throw new ForbiddenException("Cette pièce ne concerne pas votre établissement.");
+    }
+    const chemin = `${contestationId}/${nomFichier}`;
+    if (!contestation.piecesJustificatives.includes(chemin)) {
+      throw new NotFoundException("Cette pièce n'appartient pas à cette contestation.");
+    }
+    const url = await this.signerPiece(chemin);
+    return { url, expiresIn: this.dureeUrlSignee };
+  }
+
+  /** Ouvre une contestation — réservé EXCLUSIVEMENT à ASSUREUR_MEDECIN_CONSEIL. */
+  async ouvrirContestationActe(user: AuthenticatedUser, dto: OuvrirContestationActeDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertMedecinConseil(ctx);
+
+    const acte = await this.prisma.acteDossier.findFirst({
+      where: { id: dto.acteDossierId, deletedAt: null },
+      include: { dossier: { select: { organisationId: true } } },
+    });
+    if (!acte || acte.dossier.organisationId !== ctx.organisationId) {
+      throw new NotFoundException('Acte introuvable.');
+    }
+    if (acte.statut === 'ANNULE') {
+      throw new BadRequestException('Cet acte est annulé — rien à contester.');
+    }
+
+    const existante = await this.prisma.contestationActe.findFirst({
+      where: { acteDossierId: acte.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existante && (STATUTS_CONTESTATION_EN_LITIGE as readonly string[]).includes(existante.statut)) {
+      throw new ConflictException(
+        existante.statut === 'REJETEE'
+          ? 'Cet acte a déjà été définitivement exclu de la facturation par une contestation précédente.'
+          : 'Une contestation est déjà en cours sur cet acte.',
+      );
+    }
+
+    const contestation = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.contestationActe.create({
+        data: {
+          organisationId: ctx.organisationId,
+          acteDossierId: acte.id,
+          ouvertParId: ctx.userId,
+          motif: dto.motif,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'OUVERTURE_CONTESTATION_ACTE',
+        c.id,
+        { acteDossierId: acte.id, motif: dto.motif },
+        'contestations_acte',
+      );
+      return c;
+    });
+
+    return contestation;
+  }
+
+  /**
+   * Soumet la justification de l'établissement — réservé à
+   * CENTRE_MEDICAL_MEDECIN/COMPTABLE/ADMINISTRATIF de L'ÉTABLISSEMENT
+   * concerné, jamais un autre (ni CENTRE_MEDICAL_ACCUEIL). Mêmes contraintes
+   * de pièces (type/taille), même bucket de stockage que les prescriptions.
+   */
+  async soumettreJustificationActe(
+    user: AuthenticatedUser,
+    contestationId: string,
+    reponse: string,
+    fichiers: FichierTeleverse[],
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) => (ROLES_JUSTIFICATION_ETABLISSEMENT as readonly string[]).includes(r)) ||
+      !ctx.etablissementId
+    ) {
+      throw new ForbiddenException(
+        "Réservé au personnel habilité de l'établissement concerné.",
+      );
+    }
+    if (!reponse || reponse.trim().length < 5) {
+      throw new BadRequestException('La réponse doit contenir au moins 5 caractères.');
+    }
+
+    const contestation = await this.chargerContestationActe(ctx, contestationId);
+    if (contestation.etablissementId !== ctx.etablissementId) {
+      throw new ForbiddenException("Cette contestation ne concerne pas votre établissement.");
+    }
+    if (contestation.statut !== 'OUVERT') {
+      throw new ConflictException(
+        `Cette contestation n'est plus en attente de justification (statut actuel : ${contestation.statut}).`,
+      );
+    }
+
+    for (const f of fichiers) {
+      if (!MIME_TYPES_PIECES_AUTORISES.includes(f.mimetype)) {
+        throw new BadRequestException(`Type de fichier non autorisé : ${f.mimetype}.`);
+      }
+      if (f.size > TAILLE_MAX_PIECE_OCTETS) {
+        throw new BadRequestException(`Fichier trop volumineux : ${f.originalname} (max 10 Mo).`);
+      }
+    }
+
+    const chemins: string[] = [];
+    for (const f of fichiers) {
+      const chemin = await this.televerserPiece(contestationId, f);
+      chemins.push(chemin);
+    }
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.contestationActe.update({
+        where: { id: contestationId },
+        data: {
+          reponseEtablissement: reponse,
+          piecesJustificatives: chemins,
+          statut: 'JUSTIFICATION_RECUE',
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'JUSTIFICATION_CONTESTATION_ACTE',
+        c.id,
+        { nbPieces: chemins.length },
+        'contestations_acte',
+      );
+      return c;
+    });
+
+    return maj;
+  }
+
+  /**
+   * Tranche une contestation d'acte — réservé EXCLUSIVEMENT à
+   * ASSUREUR_MEDECIN_CONSEIL. VALIDEE débloque l'acte pour facturation
+   * normale. REJETEE l'exclut DÉFINITIVEMENT.
+   */
+  async trancherContestationActe(
+    user: AuthenticatedUser,
+    contestationId: string,
+    dto: TrancherContestationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertMedecinConseil(ctx);
+
+    const contestation = await this.chargerContestationActeBrute(ctx, contestationId);
+    if (!['OUVERT', 'JUSTIFICATION_RECUE'].includes(contestation.statut)) {
+      throw new ConflictException(
+        `Cette contestation est déjà tranchée (statut actuel : ${contestation.statut}).`,
+      );
+    }
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.contestationActe.update({
+        where: { id: contestationId },
+        data: {
+          statut: dto.decision,
+          traiteParId: ctx.userId,
+          dateCloture: new Date(),
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'DECISION_CONTESTATION_ACTE',
+        c.id,
+        { decision: dto.decision },
+        'contestations_acte',
+      );
+      return c;
+    });
+
+    return maj;
+  }
+
   // --- Helpers -------------------------------------------------------
 
   private async contexteAppelant(user: AuthenticatedUser): Promise<ContexteAppelant> {
@@ -390,6 +718,7 @@ export class ContestationService {
       organisationId: profil.organisationId,
       roleChain: permissions?.roleChain ?? [],
       pharmacieId: profil.pharmacieId,
+      etablissementId: profil.etablissementId,
     };
   }
 
@@ -397,6 +726,34 @@ export class ContestationService {
     if (!ctx.roleChain.includes(ROLE_PHARMACIEN_CONSEIL)) {
       throw new ForbiddenException('Réservé exclusivement à ASSUREUR_PHARMACIEN_CONSEIL.');
     }
+  }
+
+  private assertMedecinConseil(ctx: ContexteAppelant): void {
+    if (!ctx.roleChain.includes(ROLE_MEDECIN_CONSEIL)) {
+      throw new ForbiddenException('Réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL.');
+    }
+  }
+
+  /** Charge une contestation d'acte avec l'établissement concerné dérivé de son dossier. */
+  private async chargerContestationActe(ctx: ContexteAppelant, contestationId: string) {
+    const c = await this.prisma.contestationActe.findFirst({
+      where: { id: contestationId, organisationId: ctx.organisationId },
+      include: { acteDossier: { select: { dossier: { select: { etablissementId: true } } } } },
+    });
+    if (!c) {
+      throw new NotFoundException('Contestation introuvable.');
+    }
+    return { ...c, etablissementId: c.acteDossier.dossier.etablissementId };
+  }
+
+  private async chargerContestationActeBrute(ctx: ContexteAppelant, contestationId: string) {
+    const c = await this.prisma.contestationActe.findFirst({
+      where: { id: contestationId, organisationId: ctx.organisationId },
+    });
+    if (!c) {
+      throw new NotFoundException('Contestation introuvable.');
+    }
+    return c;
   }
 
   /** Charge une contestation avec la pharmacie concernée dérivée de sa ligne. */
@@ -488,12 +845,13 @@ export class ContestationService {
     action: string,
     enregistrementId: string,
     details: Prisma.InputJsonValue | null,
+    tableCible: string = 'contestations_prescription',
   ): Promise<void> {
     try {
       await db.$executeRaw`
         SELECT log_audit(
           ${action}::text,
-          ${'contestations_prescription'}::text,
+          ${tableCible}::text,
           ${enregistrementId}::uuid,
           ${userId}::uuid,
           ${details === null ? null : JSON.stringify(details)}::jsonb

@@ -4538,3 +4538,71 @@ débloqué immédiatement après (liste peuplée, accès direct 200, programmati
 paiement). Test navigateur réel (Playwright, 7/7) : les 3 écrans se chargent correctement
 pour chaque rôle, liste vide confirmée visuellement côté comptable avant toute validation.
 Toutes les données de test éphémères supprimées, résidu nul vérifié indépendamment.
+
+## 2026-09-22 (suite 2) — Règle de fréquence des consultations + vérification de la
+couverture tarifaire
+
+### 1. Règle de fréquence des consultations (14 jours) — avec déblocage médecin conseil
+Bloque l'ajout d'un acte dans un dossier `CONSULTATION_GENERALISTE`/
+`CONSULTATION_SPECIALISTE` si un AUTRE dossier du MÊME `typeVisite` (compteurs strictement
+séparés généraliste/spécialiste) existe déjà pour ce patient (adhérent XOR bénéficiaire)
+dans les 14 jours, tous établissements confondus — `dateOuverture` du dossier fait foi.
+Message explicite (409) avec le type et la date de la consultation précédente.
+
+**Décision actée avant de committer** : la demande initiale prévoyait une limite dure sans
+aucun recours (« contrairement à la règle des analyses/examens »), avec une invitation
+explicite à objecter avant de valider. Objection soulevée et retenue : un patient peut
+légitimement consulter deux fois en 14 jours pour des motifs sans rapport, et une limite
+totalement sans recours risque soit de bloquer des soins légitimes, soit de pousser le
+personnel à contourner la règle par une mauvaise catégorisation (ex. requalifier en
+`ANALYSES_EXAMENS_MEDICAUX`), ce qui dégraderait la qualité des données bien au-delà de
+cette seule règle. Un déblocage `ASSUREUR_MEDECIN_CONSEIL` au cas par cas a donc été ajouté,
+symétrique à la règle anti-répétition des analyses/examens (prisma/sql/042).
+
+**Généralisation plutôt que duplication** — la table `autorisations_repetition_acte`
+(jusqu'ici scopée `(ticket_soins_id, code_acte)`) est étendue : `code_acte` devient
+nullable, nouvelle colonne nullable `type_visite`, contrainte CHECK garantissant que
+EXACTEMENT l'un des deux est renseigné (`prisma/sql/045_frequence_consultations.sql`). Même
+concept d'autorisation à usage unique scopée à un ticket précis, réutilisé pour les deux
+mécanismes plutôt que dupliqué.
+
+Le contrôle ne s'évalue QU'AU PREMIER ACTE du ticket (aucun acte encore enregistré dessus) :
+une fois la consultation admise (aucun conflit, ou déblocage consommé), les actes suivants
+ajoutés à CE MÊME ticket ne redéclenchent pas la règle — ils font partie de la même visite
+déjà admise. Sans cette précision, un dossier avec plusieurs actes aurait redemandé un
+déblocage à chaque acte supplémentaire.
+
+Nouveau : `PreauthorizationService.autoriserRepetitionConsultation(ticketSoinsId,
+{typeVisite, motif})`, réservé EXCLUSIVEMENT à `ASSUREUR_MEDECIN_CONSEIL` (jamais
+l'exploitation qui rencontre le blocage) — `POST tickets-soins/:id/actes/
+autoriser-repetition-consultation`.
+
+### 2. Couverture tarifaire des consultations — vérifiée, aucune correction nécessaire
+Audit complet de la chaîne tarif conventionné : `PreauthorizationService.
+simulerMontantActe` (NestJS) et `JdbcAdjudicationRepository.SQL_CONTEXTE` (microservice
+Java, calcul définitif) sont tous deux **entièrement agnostiques de la catégorie d'acte** —
+aucun filtre sur `categorieActe`/`ReferentielActe.categorie` nulle part dans la chaîne, ni
+côté lecture du référentiel (`reference.service.ts`), ni côté création d'un tarif
+conventionné (`provider.service.ts`). Le tarif conventionné plafonne déjà tout acte identifié
+par un `codeActe` correspondant, y compris `CONSULTATION_GENERALISTE`/
+`CONSULTATION_SPECIALISTE` — confirmé par le test HTTP réel ci-dessous. Aucun changement de
+code requis pour ce point.
+
+### Tests
+Backend : 402/402 (`npx jest`, 11 nouveaux : 8 sur la règle de fréquence — blocage,
+séparation des compteurs par type, ignoré hors dossiers de consultation, non
+ré-déclenchement au 2e acte du même ticket, déblocage + consommation, blocage persistant
+sans autorisation valable — et 3 sur `autoriserRepetitionConsultation` — création,
+403 pour l'exploitation, 404 ticket introuvable). `npx tsc --noEmit` propre. Test HTTP réel
+(16/16) : une patiente avec une consultation généraliste clôturée il y a 5 jours obtient
+d'abord une consultation SPÉCIALISTE sans blocage (compteur séparé), puis une 2e
+consultation GÉNÉRALISTE lui est bloquée (409, message avec date + type, `dossierPrecedentId`
+exact) ; l'exploitation ne peut pas débloquer (403) ; le médecin conseil débloque (201) ;
+la consultation généraliste repasse alors (201), l'autorisation est marquée consommée en
+base ; un 2e acte ajouté ensuite au même ticket n'est pas re-bloqué (vérifie le
+« premier acte seulement ») ; un référentiel d'acte + tarif conventionné (5 000 F) créés
+pour un acte `CONSULTATION`, facturé à 8 000 F, donnent un montant simulé assurance de
+4 000 F (5 000 × 80 %) et non 6 400 F (8 000 × 80 %) — confirme que le tarif conventionné
+plafonne bien le prix de consultation avant application du taux de couverture. Toutes les
+données de test éphémères supprimées, résidu nul vérifié indépendamment (0 dossier, 0
+profil restants).

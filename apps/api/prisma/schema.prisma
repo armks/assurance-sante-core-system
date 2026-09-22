@@ -1228,11 +1228,16 @@ model ActeDossier {
 /// anti-répétition (14 jours) pour UN acte précis d'ANALYSES_EXAMENS_MEDICAUX
 /// sur UN ticket de soins précis (même code d'acte) — voir
 /// `PreauthorizationService.autoriserRepetition`/`ajouterActe`. prisma/sql/042.
+/// Autorisation à usage unique du médecin conseil débloquant une règle de
+/// répétition — soit un acte précis (`codeActe` non nul), soit un TYPE de
+/// visite entier (`typeVisite` non nul, règle de fréquence des consultations,
+/// prisma/sql/045) — exactement l'un des deux, jamais les deux ni aucun.
 model AutorisationRepetitionActe {
   id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId String    @map("organisation_id") @db.Uuid
   ticketSoinsId  String    @map("ticket_soins_id") @db.Uuid
-  codeActe       String    @map("code_acte")
+  codeActe       String?   @map("code_acte")
+  typeVisite     String?   @map("type_visite")
   motif          String
   autoriseParId  String    @map("autorise_par_id") @db.Uuid
   utilisee       Boolean   @default(false)
@@ -1245,6 +1250,7 @@ model AutorisationRepetitionActe {
 
   @@index([organisationId])
   @@index([ticketSoinsId, codeActe])
+  @@index([ticketSoinsId, typeVisite])
   @@map("autorisations_repetition_acte")
 }
 

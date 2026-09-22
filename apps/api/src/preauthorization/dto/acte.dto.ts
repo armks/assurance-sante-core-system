@@ -14,6 +14,7 @@ import {
 import {
   CATEGORIES_ACTE,
   DECISIONS_EXPLOITATION_PREAUTORISATION,
+  TYPES_VISITE_FREQUENCE_CONSULTATION,
 } from '../preauthorization.types';
 
 export class AjouterActeDto {
@@ -94,6 +95,22 @@ export class AutoriserRepetitionDto {
   @IsNotEmpty()
   @MaxLength(40)
   codeActe!: string;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  motif!: string;
+}
+
+/**
+ * Débloque, une seule fois, la règle de fréquence des consultations
+ * (14 jours) pour un TYPE de visite précis (généraliste ou spécialiste,
+ * compteurs séparés) sur un ticket de soins précis — réservé exclusivement
+ * à ASSUREUR_MEDECIN_CONSEIL.
+ */
+export class AutoriserRepetitionConsultationDto {
+  @IsIn(TYPES_VISITE_FREQUENCE_CONSULTATION)
+  typeVisite!: (typeof TYPES_VISITE_FREQUENCE_CONSULTATION)[number];
 
   @IsString()
   @MinLength(5)

@@ -12,6 +12,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   AjouterActeDto,
+  AutoriserRepetitionConsultationDto,
   AutoriserRepetitionDto,
   TraiterParExploitationDto,
   ValiderPreautorisationDto,
@@ -163,6 +164,21 @@ export class PreauthorizationController {
     @Body() dto: AutoriserRepetitionDto,
   ) {
     return this.preauth.autoriserRepetition(user, id, dto);
+  }
+
+  /**
+   * Côté MÉDECIN CONSEIL exclusivement : débloque, une seule fois, la règle
+   * de fréquence des consultations (14 jours) pour un type de visite précis
+   * (généraliste ou spécialiste) sur ce ticket — à réessayer ensuite via
+   * `POST tickets-soins/:id/actes`.
+   */
+  @Post('tickets-soins/:id/actes/autoriser-repetition-consultation')
+  autoriserRepetitionConsultation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AutoriserRepetitionConsultationDto,
+  ) {
+    return this.preauth.autoriserRepetitionConsultation(user, id, dto);
   }
 
   // --- Pré-autorisation obligatoire (analyses/examens médicaux) -----

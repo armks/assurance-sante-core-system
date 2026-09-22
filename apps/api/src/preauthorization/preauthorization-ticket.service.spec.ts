@@ -37,7 +37,8 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
     prisma = {
       ticketSoins: { findFirst: jest.fn() },
       consultationDossier: { findFirst: jest.fn() },
-      acteDossier: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+      acteDossier: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), findFirst: jest.fn(), update: jest.fn(), count: jest.fn().mockResolvedValue(0) },
+      dossierSoins: { findFirst: jest.fn().mockResolvedValue(null) },
       garantie: { findFirst: jest.fn().mockResolvedValue(null) },
       referentielActe: { findFirst: jest.fn().mockResolvedValue(null) },
       tarifConventionne: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -588,6 +589,205 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
 
       await expect(
         service.autoriserRepetition(USER, 'tkt-x', { codeActe: 'BIO-01', motif: 'Test suffisant ici.' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Règle de fréquence des consultations (14 jours) — dossiers
+  //  CONSULTATION_GENERALISTE/CONSULTATION_SPECIALISTE, compteurs séparés par
+  //  type, évaluée uniquement au premier acte du ticket. Débloquée au cas par
+  //  cas par le médecin conseil (`autoriserRepetitionConsultation`).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('règle de fréquence des consultations (14 jours)', () => {
+    const ticketConsultation = (typeVisite: string | null = 'CONSULTATION_GENERALISTE') => ({
+      id: 'tkt-1',
+      statut: 'OUVERT',
+      dossierSoinsId: 'dos-1',
+      dossier: {
+        organisationId: 'org-1',
+        etablissementId: 'etab-1',
+        typeVisite,
+        adherentId: 'adh-1',
+        beneficiaireId: null,
+        police: { produitId: 'prod-1' },
+      },
+    });
+    const ACTE_CONSULTATION = {
+      categorieActe: 'CONSULTATION' as const,
+      libelle: 'Consultation généraliste',
+      quantite: 1,
+    };
+
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_MEDECIN'));
+      prisma.ticketSoins.findFirst.mockResolvedValue(ticketConsultation());
+      prisma.acteDossier.create.mockResolvedValue({ id: 'acte-2' });
+      prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-2' });
+      prisma.acteDossier.count.mockResolvedValue(0);
+    });
+
+    it('bloque (409) si une consultation du même type existe pour ce patient dans les 14 jours', async () => {
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-ancien',
+        dateOuverture: new Date('2026-09-10'),
+      });
+
+      await expect(
+        service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.acteDossier.create).not.toHaveBeenCalled();
+    });
+
+    it('le message d’erreur montre la date de la consultation précédente', async () => {
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-ancien',
+        dateOuverture: new Date('2026-09-10T00:00:00Z'),
+      });
+
+      try {
+        await service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION);
+        throw new Error('devait lever une ConflictException');
+      } catch (e: any) {
+        expect(e.response.message).toContain('CONSULTATION_GENERALISTE');
+        expect(e.response.consultationRepeteeDetectee).toBe(true);
+        expect(e.response.dossierPrecedentId).toBe('dos-ancien');
+      }
+    });
+
+    it('autorise l’ajout si aucune consultation du même type n’existe dans les 14 jours', async () => {
+      prisma.dossierSoins.findFirst.mockResolvedValue(null);
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION);
+
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+    });
+
+    it('une consultation spécialiste en parallèle n’est pas affectée par une consultation généraliste (compteurs séparés)', async () => {
+      prisma.ticketSoins.findFirst.mockResolvedValue(ticketConsultation('CONSULTATION_SPECIALISTE'));
+      // Le mock ne recevra jamais de dossier généraliste ici puisque le filtre
+      // `typeVisite` est passé tel quel à la requête — on vérifie l'appel.
+      prisma.dossierSoins.findFirst.mockResolvedValue(null);
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION);
+
+      expect(prisma.dossierSoins.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ typeVisite: 'CONSULTATION_SPECIALISTE' }),
+        }),
+      );
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+    });
+
+    it('ignore la règle pour un autre type de visite (ex. ANALYSES_EXAMENS_MEDICAUX)', async () => {
+      prisma.ticketSoins.findFirst.mockResolvedValue(ticketConsultation('ANALYSES_EXAMENS_MEDICAUX'));
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION);
+
+      expect(prisma.dossierSoins.findFirst).not.toHaveBeenCalled();
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+    });
+
+    it('n’est évaluée qu’au premier acte du ticket — un 2e acte sur le même ticket ne redéclenche pas la règle', async () => {
+      prisma.acteDossier.count.mockResolvedValue(1);
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-ancien',
+        dateOuverture: new Date(),
+      });
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION);
+
+      expect(prisma.dossierSoins.findFirst).not.toHaveBeenCalled();
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+    });
+
+    it('une autorisation du médecin conseil (non utilisée, même ticket + type) débloque l’ajout — et est consommée', async () => {
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-ancien',
+        dateOuverture: new Date(),
+      });
+      prisma.autorisationRepetitionActe.findFirst.mockResolvedValue({
+        id: 'autor-conseil-1',
+        utilisee: false,
+      });
+      prisma.autorisationRepetitionActe.update = jest.fn().mockResolvedValue({});
+
+      await service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION);
+
+      expect(prisma.acteDossier.create).toHaveBeenCalled();
+      expect(prisma.autorisationRepetitionActe.update).toHaveBeenCalledWith({
+        where: { id: 'autor-conseil-1' },
+        data: { utilisee: true, utiliseeLe: expect.any(Date) },
+      });
+    });
+
+    it('sans autorisation valable → toujours bloqué', async () => {
+      prisma.dossierSoins.findFirst.mockResolvedValue({
+        id: 'dos-ancien',
+        dateOuverture: new Date(),
+      });
+      prisma.autorisationRepetitionActe.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.ajouterActe(USER, 'tkt-1', ACTE_CONSULTATION),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.acteDossier.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  autoriserRepetitionConsultation — réservé EXCLUSIVEMENT à
+  //  ASSUREUR_MEDECIN_CONSEIL.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('autoriserRepetitionConsultation', () => {
+    beforeEach(() => {
+      prisma.ticketSoins.findFirst.mockResolvedValue({ id: 'tkt-1' });
+      prisma.autorisationRepetitionActe.create = jest
+        .fn()
+        .mockResolvedValue({ id: 'autor-conseil-1', typeVisite: 'CONSULTATION_GENERALISTE' });
+    });
+
+    it('ASSUREUR_MEDECIN_CONSEIL crée une autorisation à usage unique', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_MEDECIN_CONSEIL', null as any));
+
+      const res = await service.autoriserRepetitionConsultation(USER, 'tkt-1', {
+        typeVisite: 'CONSULTATION_GENERALISTE',
+        motif: 'Deux motifs sans rapport, cliniquement justifiés.',
+      });
+
+      expect(prisma.autorisationRepetitionActe.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ticketSoinsId: 'tkt-1',
+            typeVisite: 'CONSULTATION_GENERALISTE',
+            autoriseParId: 'u1',
+          }),
+        }),
+      );
+      expect(res).toMatchObject({ id: 'autor-conseil-1' });
+    });
+
+    it('ASSUREUR_EXPLOITATION → 403 (ne peut pas débloquer sa propre décision)', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_EXPLOITATION', null as any));
+
+      await expect(
+        service.autoriserRepetitionConsultation(USER, 'tkt-1', {
+          typeVisite: 'CONSULTATION_GENERALISTE',
+          motif: 'Test suffisant ici.',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.autorisationRepetitionActe.create).not.toHaveBeenCalled();
+    });
+
+    it('ticket introuvable → 404', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('ASSUREUR_MEDECIN_CONSEIL', null as any));
+      prisma.ticketSoins.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.autoriserRepetitionConsultation(USER, 'tkt-x', {
+          typeVisite: 'CONSULTATION_GENERALISTE',
+          motif: 'Test suffisant ici.',
+        }),
       ).rejects.toBeInstanceOf(NotFoundException);
     });
   });

@@ -195,6 +195,26 @@ export const TYPE_VISITE_ANTI_REPETITION = 'ANALYSES_EXAMENS_MEDICAUX';
 export const JOURS_ANTI_REPETITION = 14;
 export const ROLE_AUTORISATION_REPETITION = 'ASSUREUR_MEDECIN_CONSEIL';
 
+/**
+ * Règle de fréquence des consultations (14 jours, même fenêtre que la règle
+ * ci-dessus) — appliquée à l'ajout d'un acte dans un dossier dont le
+ * `typeVisite` est CONSULTATION_GENERALISTE ou CONSULTATION_SPECIALISTE :
+ * bloque si un AUTRE dossier du MÊME `typeVisite` (compteurs strictement
+ * séparés généraliste/spécialiste — une consultation d'un type n'affecte
+ * jamais l'autre) existe déjà pour ce patient dans les 14 jours, tous
+ * établissements confondus. `dateOuverture` du dossier fait foi (un dossier
+ * de ce type n'existe que parce qu'une consultation de ce type a eu lieu).
+ * Débloqué au cas par cas par ASSUREUR_MEDECIN_CONSEIL
+ * (`autoriserRepetitionConsultation`), jamais l'exploitation — décision
+ * actée après revue explicite du risque (un patient peut légitimement
+ * consulter deux fois en 14 jours pour des motifs sans rapport).
+ */
+export const TYPES_VISITE_FREQUENCE_CONSULTATION = [
+  'CONSULTATION_GENERALISTE',
+  'CONSULTATION_SPECIALISTE',
+] as const;
+export const JOURS_FREQUENCE_CONSULTATION = 14;
+
 /** Taux de couverture par défaut si aucune garantie ne matche la catégorie d'acte. */
 export const TAUX_COUVERTURE_DEFAUT = 80;
 

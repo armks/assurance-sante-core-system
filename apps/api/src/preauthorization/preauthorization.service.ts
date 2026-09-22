@@ -16,6 +16,7 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AjouterActeDto,
+  AutoriserRepetitionConsultationDto,
   AutoriserRepetitionDto,
   TraiterParExploitationDto,
   ValiderPreautorisationDto,
@@ -37,6 +38,7 @@ import {
   ALPHABET_CODE,
   ContexteAppelant,
   JOURS_ANTI_REPETITION,
+  JOURS_FREQUENCE_CONSULTATION,
   LONGUEUR_CODE,
   ROLES_ADHERENT,
   ROLES_AJOUT_ACTE,
@@ -52,6 +54,7 @@ import {
   STATUTS_PREAUTORISATION_NON_FACTURABLES,
   TAUX_COUVERTURE_DEFAUT,
   TYPE_VISITE_ANTI_REPETITION,
+  TYPES_VISITE_FREQUENCE_CONSULTATION,
   TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE,
 } from './preauthorization.types';
 
@@ -888,6 +891,66 @@ export class PreauthorizationService {
       }
     }
 
+    // Règle de fréquence des consultations (14 jours) — dossiers
+    // CONSULTATION_GENERALISTE/CONSULTATION_SPECIALISTE, compteurs séparés
+    // par type. Ne s'évalue qu'à l'ouverture de la consultation (premier acte
+    // du ticket) : les actes suivants ajoutés à CE MÊME ticket font partie de
+    // la même visite déjà admise, ils ne redéclenchent pas la règle. Débloqué
+    // au cas par cas par le médecin conseil (`autoriserRepetitionConsultation`).
+    let autorisationRepetitionConsultationId: string | null = null;
+    if (
+      ticket.dossier.typeVisite &&
+      (TYPES_VISITE_FREQUENCE_CONSULTATION as readonly string[]).includes(
+        ticket.dossier.typeVisite,
+      )
+    ) {
+      const premierActeDuTicket =
+        (await this.prisma.acteDossier.count({
+          where: { ticketSoinsId: ticket.id, deletedAt: null },
+        })) === 0;
+      const patientFilterConsultation = ticket.dossier.adherentId
+        ? { adherentId: ticket.dossier.adherentId }
+        : ticket.dossier.beneficiaireId
+          ? { beneficiaireId: ticket.dossier.beneficiaireId }
+          : null;
+      if (premierActeDuTicket && patientFilterConsultation) {
+        const depuisConsultation = new Date();
+        depuisConsultation.setDate(
+          depuisConsultation.getDate() - JOURS_FREQUENCE_CONSULTATION,
+        );
+        const dossierPrecedent = await this.prisma.dossierSoins.findFirst({
+          where: {
+            id: { not: ticket.dossierSoinsId },
+            deletedAt: null,
+            typeVisite: ticket.dossier.typeVisite,
+            organisationId: ctx.organisationId,
+            dateOuverture: { gte: depuisConsultation },
+            ...patientFilterConsultation,
+          },
+          orderBy: { dateOuverture: 'desc' },
+        });
+        if (dossierPrecedent) {
+          const autorisationConsultation =
+            await this.prisma.autorisationRepetitionActe.findFirst({
+              where: {
+                ticketSoinsId: ticket.id,
+                typeVisite: ticket.dossier.typeVisite,
+                utilisee: false,
+              },
+            });
+          if (!autorisationConsultation) {
+            throw new ConflictException({
+              message: `Une consultation de type ${ticket.dossier.typeVisite} a déjà été enregistrée pour ce patient le ${dossierPrecedent.dateOuverture.toLocaleDateString('fr-FR')} — moins de ${JOURS_FREQUENCE_CONSULTATION} jours se sont écoulés. Une autorisation explicite du médecin conseil est requise pour ouvrir une nouvelle consultation de ce type.`,
+              consultationRepeteeDetectee: true,
+              dossierPrecedentId: dossierPrecedent.id,
+              dateConsultationPrecedente: dossierPrecedent.dateOuverture,
+            });
+          }
+          autorisationRepetitionConsultationId = autorisationConsultation.id;
+        }
+      }
+    }
+
     // Simulation INDICATIVE (v3 §5 étendu) — lecture seule, avant la
     // transaction d'écriture. Ne bloque jamais l'ajout de l'acte : une
     // absence de tarif/garantie renvoie simplement `null` (rien à simuler).
@@ -944,6 +1007,7 @@ export class PreauthorizationService {
           simulation: simulation ?? null,
           statutPreautorisation,
           autorisationRepetitionId,
+          autorisationRepetitionConsultationId,
         },
         'actes_dossier',
       );
@@ -958,6 +1022,24 @@ export class PreauthorizationService {
           'AJOUT_ACTE_REPETITION_AUTORISEE',
           acte.id,
           { ticketSoinsId: ticket.id, codeActe: dto.codeActe, autorisationRepetitionId },
+          'actes_dossier',
+        );
+      }
+      if (autorisationRepetitionConsultationId) {
+        await tx.autorisationRepetitionActe.update({
+          where: { id: autorisationRepetitionConsultationId },
+          data: { utilisee: true, utiliseeLe: new Date() },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'AJOUT_ACTE_FREQUENCE_CONSULTATION_AUTORISEE',
+          acte.id,
+          {
+            ticketSoinsId: ticket.id,
+            typeVisite: ticket.dossier.typeVisite,
+            autorisationRepetitionConsultationId,
+          },
           'actes_dossier',
         );
       }
@@ -1504,6 +1586,49 @@ export class PreauthorizationService {
         'AUTORISATION_REPETITION_ACTE',
         cree.id,
         { ticketSoinsId: ticket.id, codeActe: dto.codeActe, motif: dto.motif },
+        'autorisations_repetition_acte',
+      );
+      return cree;
+    });
+
+    return autorisation;
+  }
+
+  /**
+   * Débloque, une seule fois, la règle de fréquence des consultations
+   * (14 jours) pour un TYPE de visite précis (généraliste ou spécialiste) sur
+   * CE ticket de soins — réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL
+   * (jamais l'exploitation).
+   */
+  async autoriserRepetitionConsultation(
+    user: AuthenticatedUser,
+    ticketSoinsId: string,
+    dto: AutoriserRepetitionConsultationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_AUTORISATION_REPETITION)) {
+      throw new ForbiddenException(
+        'Le déblocage de la règle de fréquence des consultations est réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL.',
+      );
+    }
+    const ticket = await this.chargerTicket(ctx.organisationId, ticketSoinsId);
+
+    const autorisation = await this.prisma.$transaction(async (tx) => {
+      const cree = await tx.autorisationRepetitionActe.create({
+        data: {
+          organisationId: ctx.organisationId,
+          ticketSoinsId: ticket.id,
+          typeVisite: dto.typeVisite,
+          motif: dto.motif,
+          autoriseParId: ctx.userId,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'AUTORISATION_FREQUENCE_CONSULTATION',
+        cree.id,
+        { ticketSoinsId: ticket.id, typeVisite: dto.typeVisite, motif: dto.motif },
         'autorisations_repetition_acte',
       );
       return cree;

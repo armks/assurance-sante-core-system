@@ -179,6 +179,16 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       icon: ReceiptText,
     },
     {
+      label: 'Mes factures',
+      href: `${CENTRE_MEDICAL}/mes-factures`,
+      icon: CreditCard,
+    },
+    {
+      label: 'Facture mensuelle',
+      href: `${CENTRE_MEDICAL}/facture-mensuelle`,
+      icon: Wallet,
+    },
+    {
       label: 'Contestations',
       href: `${CENTRE_MEDICAL}/contestations`,
       icon: Scale,
@@ -205,6 +215,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Contestations',
       href: `${MEDECIN_CONSEIL}/contestations`,
       icon: FileText,
+    },
+    {
+      label: 'Factures établissements',
+      href: `${MEDECIN_CONSEIL}/factures-etablissement`,
+      icon: CreditCard,
     },
   ],
   [MEDECIN_SOUSCRIPTEUR]: [
@@ -344,6 +359,11 @@ function navComptable(racineVueEnsemble: string): NavItem[] {
     {
       label: 'Factures pharmacie',
       href: `${racineVueEnsemble}/factures-pharmacie`,
+      icon: CreditCard,
+    },
+    {
+      label: 'Factures établissements',
+      href: `${racineVueEnsemble}/factures-etablissement`,
       icon: CreditCard,
     },
   ];

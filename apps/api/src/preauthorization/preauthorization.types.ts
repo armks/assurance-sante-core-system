@@ -215,6 +215,54 @@ export const TYPES_VISITE_FREQUENCE_CONSULTATION = [
 ] as const;
 export const JOURS_FREQUENCE_CONSULTATION = 14;
 
+// --- Consolidation mensuelle des factures établissement — miroir de
+// FactureMensuellePharmacie (pharmacy.types.ts), adapté à l'établissement.
+// -------------------------------------------------------------------------
+
+/**
+ * Rôles autorisés à soumettre la facture mensuelle d'un établissement —
+ * ni CENTRE_MEDICAL_MEDECIN ni CENTRE_MEDICAL_ACCUEIL (plus étroit que
+ * `ROLES_CENTRE_MEDICAL` : seule la fonction comptable/administrative
+ * soumet, jamais le personnel médical ou l'accueil).
+ */
+export const ROLES_FACTURATION_MENSUELLE_ETABLISSEMENT = [
+  'CENTRE_MEDICAL_COMPTABLE',
+  'CENTRE_MEDICAL_ADMINISTRATIF',
+] as const;
+
+export const STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT = [
+  'EN_PREPARATION',
+  'SOUMISE',
+  'VERIFIEE_MEDECIN_CONSEIL',
+  'PROGRAMMEE_PAIEMENT',
+  'PAYEE',
+] as const;
+export type StatutFactureMensuelleEtablissement =
+  (typeof STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT)[number];
+
+/** Statuts dès lesquels ASSUREUR_COMPTABLE obtient l'accès (verrou explicite,
+ * pas une simple convention d'écran — appliqué en RLS ET côté NestJS). */
+export const STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT_DEBLOQUES_COMPTABLE = [
+  'VERIFIEE_MEDECIN_CONSEIL',
+  'PROGRAMMEE_PAIEMENT',
+  'PAYEE',
+] as const;
+
+/**
+ * Vérification de fin de mois, GLOBALE et INDÉPENDANTE des validations
+ * individuelles déjà faites pendant le mois par l'exploitation (pré-
+ * autorisation acte par acte) — réservée EXCLUSIVEMENT à ASSUREUR_MEDECIN_CONSEIL.
+ */
+export const ROLE_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT = 'ASSUREUR_MEDECIN_CONSEIL';
+export const ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT = 'ASSUREUR_COMPTABLE';
+
+export const DECISIONS_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT = [
+  'VALIDEE',
+  'A_CORRIGER',
+] as const;
+export type DecisionVerificationFactureMensuelleEtablissement =
+  (typeof DECISIONS_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT)[number];
+
 /** Taux de couverture par défaut si aucune garantie ne matche la catégorie d'acte. */
 export const TAUX_COUVERTURE_DEFAUT = 80;
 

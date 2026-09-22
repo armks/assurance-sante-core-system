@@ -24,7 +24,9 @@ import {
 } from './dto/acte.dto';
 import {
   GenererFactureSelectionDto,
+  SoumettreFactureMensuelleEtablissementDto,
   ValiderCodeFacturationDto,
+  VerifierFactureMensuelleEtablissementDto,
 } from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
@@ -44,14 +46,18 @@ import {
   ROLES_ADHERENT,
   ROLES_AJOUT_ACTE,
   ROLES_CENTRE_MEDICAL,
+  ROLES_FACTURATION_MENSUELLE_ETABLISSEMENT,
   ROLES_GENERATION_FACTURE,
   ROLES_PHARMACIE,
   ROLE_AUTORISATION_REPETITION,
+  ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT,
   ROLE_CONFIRMATION_PAIEMENT,
   ROLE_MAINTENANCE_EXPIRATION,
   ROLE_MEDECIN_TRAITANT,
   ROLE_VALIDATION_PREAUTORISATION,
+  ROLE_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT,
   ROLES_TRAITEMENT_EXPLOITATION,
+  STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT_DEBLOQUES_COMPTABLE,
   STATUTS_PREAUTORISATION_NON_FACTURABLES,
   TAUX_COUVERTURE_DEFAUT,
   TYPE_VISITE_ANTI_REPETITION,
@@ -2164,6 +2170,568 @@ export class PreauthorizationService {
     // le code n'est visible que de l'adhérent (via listerMesFactures)
     const { codeFacturation, ...reste } = facture;
     return estLAdherent ? facture : reste;
+  }
+
+  /**
+   * Côté COMPTABLE/ADMINISTRATIF établissement : « Mes factures » — TOUTES les
+   * `FactureDossier` (cycles de facturation par sélection d'actes) de SON
+   * établissement, tout statut, pour l'écran à filtres multicritères (société
+   * cliente, patient, statut, période — filtrage CLIENT-SIDE via `DataTable`,
+   * ce endpoint renvoie juste les champs nécessaires à ces filtres).
+   */
+  async listerFacturesDossierEtablissement(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_FACTURATION_MENSUELLE_ETABLISSEMENT as readonly string[]).includes(r),
+      ) ||
+      !ctx.etablissementId
+    ) {
+      throw new ForbiddenException(
+        "Réservé au comptable ou à l'administratif de l'établissement concerné.",
+      );
+    }
+    const factures = await this.prisma.factureDossier.findMany({
+      where: { etablissementId: ctx.etablissementId, deletedAt: null },
+      include: {
+        dossier: {
+          select: {
+            numeroTraitement: true,
+            police: { select: { souscripteur: { select: { nom: true } } } },
+          },
+        },
+        adherent: { select: { nom: true, prenom: true } },
+        beneficiaire: { select: { nom: true, prenom: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return factures.map((f) => ({
+      id: f.id,
+      numeroTraitement: f.dossier.numeroTraitement,
+      societeCliente: f.dossier.police.souscripteur.nom,
+      patient: f.adherent
+        ? `${f.adherent.prenom} ${f.adherent.nom}`
+        : f.beneficiaire
+          ? `${f.beneficiaire.prenom} ${f.beneficiaire.nom}`
+          : '—',
+      statut: f.statut,
+      montantTotal: f.montantTotal.toFixed(2),
+      montantAssurance: f.montantAssurance.toFixed(2),
+      montantPatient: f.montantPatient.toFixed(2),
+      createdAt: f.createdAt,
+      dateReglement: f.dateReglement,
+    }));
+  }
+
+  // =====================================================================
+  // Consolidation mensuelle des factures établissement — miroir de
+  // `PharmacyService`/`factures_mensuelles_pharmacie`, adapté à
+  // l'établissement (centre médical). Agrège les `LigneFacturation` déjà
+  // PAYE (le patient a confirmé + réglé son code de facturation, même
+  // principe que `DispensationPharmacie.statut = PAYEE`) en un cycle de
+  // paiement mensuel unique assureur → établissement.
+  // =====================================================================
+
+  private bornesMoisPrecedentEtablissement(maintenant: Date): { debut: Date; fin: Date } {
+    const debut = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() - 1, 1));
+    const fin = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth(), 1));
+    return { debut, fin };
+  }
+
+  /**
+   * Côté COMPTABLE/ADMINISTRATIF établissement : vue d'ensemble des actes du
+   * MOIS EN COURS (tous types confondus — consultations, actes,
+   * hospitalisations, analyses/examens), pour préparer la consolidation avant
+   * le 1er du mois suivant. `dejaFacture` (déjà réclamé par un cycle
+   * `LigneFacturation`, tout statut) et `enLitige` sont indicatifs — n'excluent
+   * rien ici, seule la soumission applique les règles d'éligibilité réelles.
+   */
+  async listerActesDuMoisEtablissement(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_FACTURATION_MENSUELLE_ETABLISSEMENT as readonly string[]).includes(r),
+      ) ||
+      !ctx.etablissementId
+    ) {
+      throw new ForbiddenException(
+        "Réservé au comptable ou à l'administratif de l'établissement concerné.",
+      );
+    }
+    const maintenant = new Date();
+    const debut = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth(), 1));
+    const fin = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() + 1, 1));
+
+    const actes = await this.prisma.acteDossier.findMany({
+      where: {
+        deletedAt: null,
+        statut: { not: 'ANNULE' },
+        datePrescription: { gte: debut, lt: fin },
+        dossier: { etablissementId: ctx.etablissementId },
+      },
+      include: {
+        dossier: {
+          select: {
+            numeroTraitement: true,
+            adherent: { select: { nom: true, prenom: true } },
+            beneficiaire: { select: { nom: true, prenom: true } },
+          },
+        },
+        lignesFacturation: { select: { statut: true } },
+      },
+      orderBy: { datePrescription: 'desc' },
+    });
+    const enLitige = await this.chargerActesEnLitige(actes.map((a) => a.id));
+
+    return actes.map((a) => ({
+      id: a.id,
+      categorieActe: a.categorieActe,
+      libelle: a.libelle,
+      codeActe: a.codeActe,
+      montantPrescrit: a.montantPrescrit?.toFixed(2) ?? null,
+      statutPreautorisation: a.statutPreautorisation,
+      datePrescription: a.datePrescription,
+      numeroTraitement: a.dossier.numeroTraitement,
+      patient: a.dossier.adherent
+        ? `${a.dossier.adherent.prenom} ${a.dossier.adherent.nom}`
+        : a.dossier.beneficiaire
+          ? `${a.dossier.beneficiaire.prenom} ${a.dossier.beneficiaire.nom}`
+          : '—',
+      dejaFacture: a.lignesFacturation.length > 0,
+      enLitige: enLitige.has(a.id),
+    }));
+  }
+
+  /**
+   * Soumet la consolidation du mois précédent — réservé à
+   * CENTRE_MEDICAL_COMPTABLE/CENTRE_MEDICAL_ADMINISTRATIF (jamais le médecin
+   * ni l'accueil), toujours pour SON établissement. `periode` doit être
+   * exactement le 1er jour du mois précédent — déclenchable seulement à
+   * partir du 1er. Agrège les `LigneFacturation` PAYE de la période, jamais
+   * déjà réclamées par une facture mensuelle antérieure
+   * (`factureMensuelleEtablissementId is null`), et EXCLUT toute ligne
+   * actuellement en litige (`ContestationActe` OUVERT/JUSTIFICATION_RECUE/
+   * REJETEE) — ces lignes ne sont pas stampées, elles restent donc éligibles
+   * à une consolidation future une fois la contestation VALIDEE.
+   *
+   * Une facture EN_PREPARATION existante pour la même période (issue d'un
+   * A_CORRIGER précédent, `verifierFactureMensuelleEtablissement`) est
+   * RÉUTILISÉE — jamais dupliquée — même principe que la réattache d'une
+   * `LigneFacturation` A_PAYER orpheline ailleurs dans ce service.
+   */
+  async soumettreFactureMensuelleEtablissement(
+    user: AuthenticatedUser,
+    dto: SoumettreFactureMensuelleEtablissementDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) =>
+        (ROLES_FACTURATION_MENSUELLE_ETABLISSEMENT as readonly string[]).includes(r),
+      ) ||
+      !ctx.etablissementId
+    ) {
+      throw new ForbiddenException(
+        "Réservé au comptable ou à l'administratif de l'établissement concerné.",
+      );
+    }
+
+    const maintenant = new Date();
+    const { debut, fin } = this.bornesMoisPrecedentEtablissement(maintenant);
+    const periodeDemandee = new Date(`${dto.periode}T00:00:00.000Z`);
+    if (
+      periodeDemandee.getUTCFullYear() !== debut.getUTCFullYear() ||
+      periodeDemandee.getUTCMonth() !== debut.getUTCMonth()
+    ) {
+      throw new BadRequestException(
+        `Seule la consolidation du mois précédent est possible actuellement (${debut.toISOString().slice(0, 7)}-01).`,
+      );
+    }
+
+    const existante = await this.prisma.factureMensuelleEtablissement.findFirst({
+      where: { etablissementId: ctx.etablissementId, periode: debut },
+    });
+    if (existante && existante.statut !== 'EN_PREPARATION') {
+      throw new ConflictException(
+        `Une facture existe déjà pour cette période (statut : ${existante.statut}).`,
+      );
+    }
+
+    const lignesPayees = await this.prisma.ligneFacturation.findMany({
+      where: {
+        statut: 'PAYE',
+        datePaiement: { gte: debut, lt: fin },
+        factureMensuelleEtablissementId: null,
+        acteDossier: { dossier: { etablissementId: ctx.etablissementId } },
+      },
+      select: { id: true, acteDossierId: true, montantReclame: true },
+    });
+    const enLitige = await this.chargerActesEnLitige(lignesPayees.map((l) => l.acteDossierId));
+    const lignesFacturables = lignesPayees.filter((l) => !enLitige.has(l.acteDossierId));
+    const montantTotal = lignesFacturables.reduce(
+      (acc, l) => acc.add(new Decimal(l.montantReclame.toString())),
+      new Decimal(0),
+    );
+
+    const facture = await this.prisma.$transaction(async (tx) => {
+      const f = existante
+        ? await tx.factureMensuelleEtablissement.update({
+            where: { id: existante.id },
+            data: { montantTotal: montantTotal.toFixed(2) },
+          })
+        : await tx.factureMensuelleEtablissement.create({
+            data: {
+              organisationId: ctx.organisationId,
+              etablissementId: ctx.etablissementId!,
+              periode: debut,
+              montantTotal: montantTotal.toFixed(2),
+            },
+          });
+      if (lignesFacturables.length > 0) {
+        await tx.ligneFacturation.updateMany({
+          where: { id: { in: lignesFacturables.map((l) => l.id) } },
+          data: { factureMensuelleEtablissementId: f.id },
+        });
+      }
+      const soumise = await tx.factureMensuelleEtablissement.update({
+        where: { id: f.id },
+        data: { statut: 'SOUMISE', dateSoumission: new Date() },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'SOUMISSION_FACTURE_MENSUELLE_ETABLISSEMENT',
+        soumise.id,
+        {
+          periode: dto.periode,
+          montantTotal: montantTotal.toFixed(2),
+          nbLignesIncluses: lignesFacturables.length,
+          nbLignesExclues: lignesPayees.length - lignesFacturables.length,
+        },
+        'factures_mensuelles_etablissement',
+      );
+      return soumise;
+    });
+
+    return {
+      id: facture.id,
+      periode: facture.periode,
+      statut: facture.statut,
+      montantTotal: facture.montantTotal.toFixed(2),
+      dateSoumission: facture.dateSoumission,
+      nbLignesIncluses: lignesFacturables.length,
+      nbLignesExclues: lignesPayees.length - lignesFacturables.length,
+    };
+  }
+
+  /** Côté établissement : historique de SES factures mensuelles, tout statut. */
+  async listerMesFacturesMensuellesEtablissement(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.etablissementId) {
+      throw new ForbiddenException("Réservé au personnel d'un établissement du réseau.");
+    }
+    const factures = await this.prisma.factureMensuelleEtablissement.findMany({
+      where: { etablissementId: ctx.etablissementId },
+      orderBy: { periode: 'desc' },
+    });
+    return factures.map((f) => ({
+      id: f.id,
+      periode: f.periode,
+      statut: f.statut,
+      montantTotal: f.montantTotal.toFixed(2),
+      dateSoumission: f.dateSoumission,
+      dateVerification: f.dateVerification,
+      datePaiement: f.datePaiement,
+    }));
+  }
+
+  /** Détail ligne-par-ligne d'une facture mensuelle établissement — le verrou
+   * d'accès d'ASSUREUR_COMPTABLE (statut ≥ VERIFIEE_MEDECIN_CONSEIL) est
+   * vérifié explicitement ici, pas seulement par le filtre des listes. */
+  async obtenirFactureMensuelleEtablissement(user: AuthenticatedUser, factureMensuelleId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const facture = await this.prisma.factureMensuelleEtablissement.findFirst({
+      where: { id: factureMensuelleId, organisationId: ctx.organisationId },
+      include: {
+        etablissement: { select: { nom: true } },
+        lignes: {
+          include: {
+            acteDossier: {
+              select: {
+                categorieActe: true,
+                libelle: true,
+                dossier: {
+                  select: {
+                    numeroTraitement: true,
+                    adherent: { select: { nom: true, prenom: true } },
+                    beneficiaire: { select: { nom: true, prenom: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!facture) {
+      throw new NotFoundException('Facture mensuelle introuvable.');
+    }
+
+    const estEtablissementConcerne = ctx.etablissementId && ctx.etablissementId === facture.etablissementId;
+    const estMedecinConseil = ctx.roleChain.includes(ROLE_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT);
+    const estComptableDebloque =
+      ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT) &&
+      (STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT_DEBLOQUES_COMPTABLE as readonly string[]).includes(facture.statut);
+    if (!estEtablissementConcerne && !estMedecinConseil && !estComptableDebloque) {
+      throw new ForbiddenException(
+        ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT)
+          ? `Cette facture n'est pas encore vérifiée par le médecin conseil (statut actuel : ${facture.statut}).`
+          : "Vous n'avez pas accès à cette facture mensuelle.",
+      );
+    }
+
+    return {
+      id: facture.id,
+      etablissement: facture.etablissement.nom,
+      periode: facture.periode,
+      statut: facture.statut,
+      montantTotal: facture.montantTotal.toFixed(2),
+      dateSoumission: facture.dateSoumission,
+      dateVerification: facture.dateVerification,
+      dateProgrammation: facture.dateProgrammation,
+      datePaiement: facture.datePaiement,
+      lignes: facture.lignes.map((l) => {
+        const dossier = l.acteDossier.dossier;
+        return {
+          id: l.id,
+          acteDossierId: l.acteDossierId,
+          categorieActe: l.acteDossier.categorieActe,
+          libelle: l.acteDossier.libelle,
+          numeroTraitement: dossier.numeroTraitement,
+          patient: dossier.adherent
+            ? `${dossier.adherent.prenom} ${dossier.adherent.nom}`
+            : dossier.beneficiaire
+              ? `${dossier.beneficiaire.prenom} ${dossier.beneficiaire.nom}`
+              : '—',
+          montantReclame: l.montantReclame.toFixed(2),
+        };
+      }),
+    };
+  }
+
+  /** Côté MÉDECIN CONSEIL : « Factures établissements à vérifier » (SOUMISE, organisation entière). */
+  async listerFacturesMensuellesEtablissementAVerifier(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT)) {
+      throw new ForbiddenException('Réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL.');
+    }
+    const factures = await this.prisma.factureMensuelleEtablissement.findMany({
+      where: { organisationId: ctx.organisationId, statut: 'SOUMISE' },
+      include: { etablissement: { select: { nom: true } } },
+      orderBy: { dateSoumission: 'asc' },
+    });
+    return factures.map((f) => ({
+      id: f.id,
+      etablissement: f.etablissement.nom,
+      periode: f.periode,
+      statut: f.statut,
+      montantTotal: f.montantTotal.toFixed(2),
+      dateSoumission: f.dateSoumission,
+    }));
+  }
+
+  /**
+   * Vérification de fin de mois, GLOBALE et indépendante des validations
+   * individuelles déjà faites pendant le mois par l'exploitation (pré-
+   * autorisation acte par acte) — réservée EXCLUSIVEMENT à
+   * ASSUREUR_MEDECIN_CONSEIL. Double sécurité explicite : ne fait AUCUNE
+   * confiance à l'agrégation faite à la soumission — recharge les actes
+   * stampés par CETTE facture et revérifie leur statut de litige à l'instant
+   * présent (une contestation a pu être ouverte APRÈS la soumission, AVANT la
+   * vérification).
+   *
+   * VALIDEE → VERIFIEE_MEDECIN_CONSEIL, transmission à ASSUREUR_COMPTABLE.
+   * A_CORRIGER → libère toutes les lignes stampées (redeviennent éligibles à
+   * une prochaine soumission) et remet la facture à EN_PREPARATION — à
+   * resoumettre par l'établissement après correction.
+   */
+  async verifierFactureMensuelleEtablissement(
+    user: AuthenticatedUser,
+    factureMensuelleId: string,
+    dto: VerifierFactureMensuelleEtablissementDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT)) {
+      throw new ForbiddenException('Réservé exclusivement à ASSUREUR_MEDECIN_CONSEIL.');
+    }
+
+    const facture = await this.prisma.factureMensuelleEtablissement.findFirst({
+      where: { id: factureMensuelleId, organisationId: ctx.organisationId },
+      include: { lignes: { select: { id: true, acteDossierId: true } } },
+    });
+    if (!facture) {
+      throw new NotFoundException('Facture mensuelle introuvable.');
+    }
+    if (facture.statut !== 'SOUMISE') {
+      throw new ConflictException(
+        `Cette facture n'est pas en attente de vérification (statut actuel : ${facture.statut}).`,
+      );
+    }
+
+    const enLitige = await this.chargerActesEnLitige(facture.lignes.map((l) => l.acteDossierId));
+    if (enLitige.size > 0) {
+      throw new ConflictException({
+        message: `Vérification impossible : ${enLitige.size} ligne(s) déjà incluse(s) sont désormais en litige (contestation ouverte après la soumission) — à régler avant de revérifier.`,
+        acteDossierIdsEnLitige: [...enLitige],
+      });
+    }
+
+    if (dto.decision === 'A_CORRIGER') {
+      const maj = await this.prisma.$transaction(async (tx) => {
+        await tx.ligneFacturation.updateMany({
+          where: { factureMensuelleEtablissementId: facture.id },
+          data: { factureMensuelleEtablissementId: null },
+        });
+        const f = await tx.factureMensuelleEtablissement.update({
+          where: { id: facture.id },
+          data: { statut: 'EN_PREPARATION', dateSoumission: null },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'FACTURE_MENSUELLE_ETABLISSEMENT_A_CORRIGER',
+          f.id,
+          { nbLignesLiberees: facture.lignes.length },
+          'factures_mensuelles_etablissement',
+        );
+        return f;
+      });
+      return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
+    }
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const f = await tx.factureMensuelleEtablissement.update({
+        where: { id: factureMensuelleId },
+        data: { statut: 'VERIFIEE_MEDECIN_CONSEIL', verifieParId: ctx.userId, dateVerification: new Date() },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT',
+        f.id,
+        { montantTotal: f.montantTotal.toFixed(2) },
+        'factures_mensuelles_etablissement',
+      );
+      return f;
+    });
+
+    return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
+  }
+
+  /** Côté COMPTABLE : « Factures établissements prêtes à programmer » —
+   * VERIFIEE_MEDECIN_CONSEIL et au-delà uniquement (verrou déjà appliqué en
+   * RLS, redondant ici par sûreté applicative). */
+  async listerFacturesMensuellesEtablissementPourComptable(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT)) {
+      throw new ForbiddenException('Réservé exclusivement à ASSUREUR_COMPTABLE.');
+    }
+    const factures = await this.prisma.factureMensuelleEtablissement.findMany({
+      where: {
+        organisationId: ctx.organisationId,
+        statut: { in: STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT_DEBLOQUES_COMPTABLE as unknown as string[] },
+      },
+      include: { etablissement: { select: { nom: true } } },
+      orderBy: { dateVerification: 'asc' },
+    });
+    return factures.map((f) => ({
+      id: f.id,
+      etablissement: f.etablissement.nom,
+      periode: f.periode,
+      statut: f.statut,
+      montantTotal: f.montantTotal.toFixed(2),
+      dateVerification: f.dateVerification,
+      dateProgrammation: f.dateProgrammation,
+      datePaiement: f.datePaiement,
+    }));
+  }
+
+  private async chargerFactureMensuelleEtablissementPourComptable(
+    ctx: ContexteAppelant,
+    factureMensuelleId: string,
+  ) {
+    if (!ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT)) {
+      throw new ForbiddenException('Réservé exclusivement à ASSUREUR_COMPTABLE.');
+    }
+    const facture = await this.prisma.factureMensuelleEtablissement.findFirst({
+      where: { id: factureMensuelleId, organisationId: ctx.organisationId },
+    });
+    if (!facture) {
+      throw new NotFoundException('Facture mensuelle introuvable.');
+    }
+    if (
+      !(STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT_DEBLOQUES_COMPTABLE as readonly string[]).includes(
+        facture.statut,
+      )
+    ) {
+      throw new ForbiddenException(
+        `Cette facture n'est pas encore vérifiée par le médecin conseil (statut actuel : ${facture.statut}).`,
+      );
+    }
+    return facture;
+  }
+
+  /** Réservé EXCLUSIVEMENT à ASSUREUR_COMPTABLE, débloqué à partir de VERIFIEE_MEDECIN_CONSEIL. */
+  async programmerPaiementFactureMensuelleEtablissement(user: AuthenticatedUser, factureMensuelleId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const facture = await this.chargerFactureMensuelleEtablissementPourComptable(ctx, factureMensuelleId);
+    if (facture.statut !== 'VERIFIEE_MEDECIN_CONSEIL') {
+      throw new ConflictException(
+        `Cette facture est déjà ${facture.statut} — la programmation ne s'applique qu'après vérification.`,
+      );
+    }
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const f = await tx.factureMensuelleEtablissement.update({
+        where: { id: factureMensuelleId },
+        data: { statut: 'PROGRAMMEE_PAIEMENT', dateProgrammation: new Date() },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'PROGRAMMATION_PAIEMENT_FACTURE_MENSUELLE_ETABLISSEMENT',
+        f.id,
+        {},
+        'factures_mensuelles_etablissement',
+      );
+      return f;
+    });
+    return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
+  }
+
+  /** Réservé EXCLUSIVEMENT à ASSUREUR_COMPTABLE, uniquement après programmation. */
+  async marquerFactureMensuelleEtablissementPayee(user: AuthenticatedUser, factureMensuelleId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const facture = await this.chargerFactureMensuelleEtablissementPourComptable(ctx, factureMensuelleId);
+    if (facture.statut !== 'PROGRAMMEE_PAIEMENT') {
+      throw new ConflictException(
+        `Cette facture doit d'abord être programmée pour paiement (statut actuel : ${facture.statut}).`,
+      );
+    }
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const f = await tx.factureMensuelleEtablissement.update({
+        where: { id: factureMensuelleId },
+        data: { statut: 'PAYEE', datePaiement: new Date() },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'PAIEMENT_FACTURE_MENSUELLE_ETABLISSEMENT',
+        f.id,
+        {},
+        'factures_mensuelles_etablissement',
+      );
+      return f;
+    });
+    return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
   }
 
   /**

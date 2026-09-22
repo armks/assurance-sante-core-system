@@ -4666,3 +4666,97 @@ message mentionnant le litige), l'établissement soumet une justification avec f
 facturable (les deux actes inclus au cycle suivant, montant total exact). Toutes les
 données de test éphémères supprimées, résidu nul vérifié indépendamment (0 dossier, 0
 profil restants).
+
+## 2026-09-22 (suite 4) — Consolidation mensuelle des factures établissement (comptable
+établissement + médecin conseil)
+
+Miroir de la consolidation mensuelle pharmacie (`factures_mensuelles_pharmacie`,
+2026-09-22 suite) réutilisé pour l'établissement (centre médical), avec une différence de
+fond assumée : la vérification de fin de mois est confiée à `ASSUREUR_MEDECIN_CONSEIL`
+(`VERIFIEE_MEDECIN_CONSEIL`, décision VALIDEE/A_CORRIGER) plutôt qu'au pharmacien conseil.
+
+### 1. `factures_mensuelles_etablissement` (prisma/sql/047)
+Même structure exacte que `factures_mensuelles_pharmacie` (statuts, période = 1er du mois,
+contrainte de cohérence, unicité `(etablissement_id, periode)`) mais `etablissement_id` au
+lieu de `pharmacie_id`, et `verifie_par_id`/`date_verification` au lieu de `valide_par_id`/
+`date_validation`. Nouvelle colonne `lignes_facturation.facture_mensuelle_etablissement_id`
+(même rôle que `lignes_dispensation.facture_mensuelle_id`).
+
+**Choix structurant** : la ligne atomique agrégée est `LigneFacturation` (statut PAYE,
+`date_paiement`), PAS `ActeDossier` directement — parce que `LigneFacturation.statut = PAYE`
+(posé par `confirmerPaiement`, une fois le patient) EST l'équivalent exact de
+`DispensationPharmacie.statut = PAYEE` côté pharmacie : le patient a déjà confirmé + réglé
+son code de facturation avant que l'acte entre dans cette consolidation. Ainsi
+« quel que soit leur statut de pré-autorisation individuelle passé » se vérifie
+naturellement : un acte encore EN_ATTENTE_*/REFUSEE ne peut structurellement jamais avoir
+de `LigneFacturation` (exclu dès `genererFactureSelection`), donc jamais atteindre PAYE —
+aucune règle supplémentaire à coder pour ce point, seule l'exclusion « en litige » est
+neuve à ce niveau.
+
+### 2. `soumettreFactureMensuelleEtablissement` — CENTRE_MEDICAL_COMPTABLE/ADMINISTRATIF
+uniquement (jamais MEDECIN ni ACCUEIL), toujours SON établissement
+Agrège les `LigneFacturation` PAYE de la période (tous types d'actes confondus —
+consultations, hospitalisations, analyses/examens), jamais déjà réclamées par une facture
+mensuelle antérieure, EXCLUT celles actuellement en litige (`ContestationActe`, réutilise
+`chargerActesEnLitige` déjà construit pour `genererFactureSelection`, prompt précédent).
+
+**Résoumission après correction** : une facture `EN_PREPARATION` existante pour la même
+période (issue d'un `A_CORRIGER`) est RÉUTILISÉE — jamais dupliquée — même principe que la
+réattache d'une `LigneFacturation` A_PAYER orpheline déjà en place ailleurs dans ce
+service ; vérifié explicitement par un test HTTP réel (même id avant/après correction).
+
+### 3. `verifierFactureMensuelleEtablissement` — réservé EXCLUSIVEMENT à
+ASSUREUR_MEDECIN_CONSEIL
+Vérification globale de fin de mois, INDÉPENDANTE des validations individuelles de
+pré-autorisation déjà faites pendant le mois par l'exploitation. Double sécurité explicite
+identique au pharmacien conseil : ne fait AUCUNE confiance à l'agrégation faite à la
+soumission, revérifie le litige à l'instant présent. `VALIDEE` → `VERIFIEE_MEDECIN_CONSEIL`
+(transmission au comptable) ; `A_CORRIGER` (statut absent de l'énumération finale, comme
+prévu) libère toutes les lignes stampées et remet la facture à `EN_PREPARATION` pour
+resoumission après correction par l'établissement.
+
+### 4. Verrou RLS explicite pour ASSUREUR_COMPTABLE
+Même verrou que la pharmacie : aucun accès (RLS + NestJS, `obtenirFactureMensuelleEtablissement`
+vérifie l'accès direct par id, pas seulement le filtre des listes) tant que le statut n'a
+pas atteint `VERIFIEE_MEDECIN_CONSEIL`.
+
+### 5. Écrans
+Comptable établissement (`/dashboard-centre-medical/facture-mensuelle`) : vue d'ensemble
+des actes du mois en cours (tous types, avec indicateurs « déjà facturé »/« en litige »),
+bouton « Proposer la facture provisoire de [mois] », historique des factures mensuelles.
+Nouvel écran séparé « Mes factures » (`/dashboard-centre-medical/mes-factures`) : TOUTES les
+`FactureDossier` de l'établissement (mécanisme de facturation par sélection déjà existant),
+avec 4 filtres `DataTable` COMBINABLES (société cliente, adhérent/famille, statut, période —
+options dérivées dynamiquement des données reçues, filtrage 100% client-side, déjà supporté
+nativement par `DataTable` sans modification du composant). Médecin conseil
+(`/dashboard-assureur/medecin-conseil/factures-etablissement`) : détail ligne-par-ligne
+chargé en une fois (file naturellement petite, même pattern que côté pharmacien conseil),
+boutons Valider/À corriger, et bouton « Contester » directement sur chaque ligne du détail
+(réutilise `ouvrirContestationActe`, prompt précédent, sans dupliquer le mécanisme).
+Comptable assureur (`/dashboard-assureur/{comptable,comptable-adjoint}/factures-etablissement`,
+composant partagé, nouvelle entrée `navComptable`) : « Factures établissements prêtes à
+programmer » — vide tant qu'aucune n'est vérifiée, boutons Programmer/Marquer payée.
+
+### Tests
+Backend : 454/454 (`npx jest`, 28 nouveaux : 8 `soumettreFactureMensuelleEtablissement`
+(dont réutilisation après correction), 6 `verifierFactureMensuelleEtablissement` (VALIDEE
+et A_CORRIGER), 4 `programmer`/`marquerPayee`, 5 verrou d'accès
+`obtenirFactureMensuelleEtablissement`, 2 `listerActesDuMoisEtablissement`, 3
+`listerFacturesDossierEtablissement` — horloge figée, `jest.useFakeTimers`, pour un mois
+précédent déterministe). `npx tsc --noEmit` propre API et Web. Test HTTP réel (30/30) sur
+le scénario complet demandé : vue d'ensemble des 3 actes du mois en cours, liste « Mes
+factures » avec 2 sociétés clientes distinctes et un patient nommé (vérifie les champs
+nécessaires au filtre multicritère), le médecin conseil met un acte en litige, soumission
+de la facture mensuelle — montant exact (35 000 F, l'acte en litige à 9 000 F exclu
+automatiquement), un rôle non habilité ne peut pas vérifier (403), le médecin conseil
+renvoie À CORRIGER (retour à EN_PREPARATION, lignes libérées), resoumission — confirmé
+même id (pas de doublon), le comptable assureur ne voit rien tant que non vérifiée (liste
+vide, accès direct 403), le médecin conseil valide, le comptable assureur voit la facture
+(accès direct 200, 2 lignes), programmation puis paiement. Toutes les données de test
+éphémères supprimées, résidu nul vérifié indépendamment (0 dossier, 0 profil, 0 adhérent
+éphémère restants).
+
+Cette étape clôt le circuit de consolidation mensuelle des deux familles d'acteurs de soins
+(pharmacie et établissement) prévu depuis le plan directeur — même principe, même circuit à
+trois niveaux (soumission → vérification médicale/pharmaceutique → paiement assureur) pour
+les deux domaines.

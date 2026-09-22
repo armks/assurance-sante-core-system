@@ -64,6 +64,7 @@ model Organisation {
   contestationsPrescription ContestationPrescription[]
   contestationsActe ContestationActe[]
   facturesMensuellesPharmacie FactureMensuellePharmacie[]
+  facturesMensuellesEtablissement FactureMensuelleEtablissement[]
 
   @@map("organisations")
 }
@@ -156,6 +157,7 @@ model Profil {
   contestationsTraitees ContestationPrescription[] @relation("ContestationTraiteePar")
   contestationsActeOuvertes ContestationActe[] @relation("ContestationActeOuvertePar")
   contestationsActeTraitees ContestationActe[] @relation("ContestationActeTraiteePar")
+  facturesMensuellesEtablissementVerifiees FactureMensuelleEtablissement[] @relation("FactureMensuelleEtablissementVerifiee")
 
   @@map("profils")
 }
@@ -600,6 +602,7 @@ model EtablissementSante {
   verifications      VerificationEtablissement[]
   tarifsConventionnes TarifConventionne[]
   actesExecutes      ActeDossier[]      @relation("ActeEtablissementExecution")
+  facturesMensuelles FactureMensuelleEtablissement[]
 
   @@index([organisationId])
   @@index([statut])
@@ -1373,17 +1376,55 @@ model LigneFacturation {
   montantReclame   Decimal   @map("montant_reclame") @db.Decimal(14, 2)
   statut           String    @default("A_PAYER") @map("statut") // A_PAYER | PAYE
   datePaiement     DateTime? @map("date_paiement") @db.Timestamptz(6)
+  /// Consolidation mensuelle établissement (prisma/sql/047) — même principe que
+  /// `lignes_dispensation.facture_mensuelle_id` côté pharmacie : « réclame »
+  /// une ligne PAYE pour une facture mensuelle précise, snapshot à la soumission.
+  factureMensuelleEtablissementId String? @map("facture_mensuelle_etablissement_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factureDossier FactureDossier? @relation(fields: [factureDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   acteDossier    ActeDossier     @relation(fields: [acteDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factureMensuelleEtablissement FactureMensuelleEtablissement? @relation(fields: [factureMensuelleEtablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisationId])
   @@index([factureDossierId])
   @@index([acteDossierId])
   @@index([statut])
+  @@index([factureMensuelleEtablissementId])
   @@map("lignes_facturation")
+}
+
+/// factures_mensuelles_etablissement — miroir de FactureMensuellePharmacie pour
+/// l'établissement (centre médical) : consolidation mensuelle des LigneFacturation
+/// déjà PAYE (patient a confirmé + réglé son code de facturation, même principe
+/// que dispensations_pharmacie.statut = PAYEE) en un cycle de paiement unique
+/// assureur → établissement. prisma/sql/047.
+model FactureMensuelleEtablissement {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId    String    @map("organisation_id") @db.Uuid
+  etablissementId   String    @map("etablissement_id") @db.Uuid
+  /// Premier jour du mois concerné (ex. 2026-08-01 pour août 2026).
+  periode           DateTime  @db.Date
+  montantTotal      Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
+  statut            String    @default("EN_PREPARATION") // EN_PREPARATION | SOUMISE | VERIFIEE_MEDECIN_CONSEIL | PROGRAMMEE_PAIEMENT | PAYEE
+  dateSoumission    DateTime? @map("date_soumission") @db.Timestamptz(6)
+  verifieParId      String?   @map("verifie_par_id") @db.Uuid
+  dateVerification  DateTime? @map("date_verification") @db.Timestamptz(6)
+  dateProgrammation DateTime? @map("date_programmation") @db.Timestamptz(6)
+  datePaiement      DateTime? @map("date_paiement") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  etablissement EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  verifiePar    Profil?            @relation("FactureMensuelleEtablissementVerifiee", fields: [verifieParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lignes        LigneFacturation[]
+
+  @@unique([etablissementId, periode])
+  @@index([organisationId])
+  @@index([etablissementId])
+  @@index([statut])
+  @@map("factures_mensuelles_etablissement")
 }
 
 /// licences_organisation — administration SaaS (v14 §5). Une licence par tenant.

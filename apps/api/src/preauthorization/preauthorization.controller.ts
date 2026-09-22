@@ -19,7 +19,9 @@ import {
 } from './dto/acte.dto';
 import {
   GenererFactureSelectionDto,
+  SoumettreFactureMensuelleEtablissementDto,
   ValiderCodeFacturationDto,
+  VerifierFactureMensuelleEtablissementDto,
 } from './dto/facture.dto';
 import {
   CreerOrdonnanceDto,
@@ -277,5 +279,83 @@ export class PreauthorizationController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.preauth.confirmerPaiement(user, id);
+  }
+
+  // --- Consolidation mensuelle des factures établissement -------------
+
+  /** Côté COMPTABLE/ADMINISTRATIF établissement : « Mes factures » (FactureDossier, filtres multicritères côté client). */
+  @Get('factures-dossier/mes-factures')
+  facturesDossierEtablissement(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerFacturesDossierEtablissement(user);
+  }
+
+  /** Côté COMPTABLE/ADMINISTRATIF établissement : vue d'ensemble des actes du mois en cours. */
+  @Get('factures-mensuelles-etablissement/mois-en-cours')
+  actesDuMoisEtablissement(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerActesDuMoisEtablissement(user);
+  }
+
+  /** Côté COMPTABLE/ADMINISTRATIF établissement : soumet la consolidation du mois précédent. */
+  @Post('factures-mensuelles-etablissement')
+  soumettreFactureMensuelleEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: SoumettreFactureMensuelleEtablissementDto,
+  ) {
+    return this.preauth.soumettreFactureMensuelleEtablissement(user, dto);
+  }
+
+  /** Côté établissement : historique de SES factures mensuelles. */
+  @Get('factures-mensuelles-etablissement/mes-factures')
+  mesFacturesMensuellesEtablissement(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerMesFacturesMensuellesEtablissement(user);
+  }
+
+  /** Côté ASSUREUR_MEDECIN_CONSEIL exclusivement : « à vérifier » (SOUMISE). */
+  @Get('factures-mensuelles-etablissement/a-verifier')
+  facturesMensuellesEtablissementAVerifier(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerFacturesMensuellesEtablissementAVerifier(user);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : débloquées à partir de VERIFIEE_MEDECIN_CONSEIL. */
+  @Get('factures-mensuelles-etablissement/pour-comptable')
+  facturesMensuellesEtablissementPourComptable(@CurrentUser() user: AuthenticatedUser) {
+    return this.preauth.listerFacturesMensuellesEtablissementPourComptable(user);
+  }
+
+  /** Détail ligne-par-ligne — verrou d'accès vérifié explicitement dans le service. */
+  @Get('factures-mensuelles-etablissement/:id')
+  obtenirFactureMensuelleEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.obtenirFactureMensuelleEtablissement(user, id);
+  }
+
+  /** Côté ASSUREUR_MEDECIN_CONSEIL exclusivement : vérification globale de fin de mois (VALIDEE/A_CORRIGER). */
+  @Post('factures-mensuelles-etablissement/:id/verifier')
+  verifierFactureMensuelleEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: VerifierFactureMensuelleEtablissementDto,
+  ) {
+    return this.preauth.verifierFactureMensuelleEtablissement(user, id, dto);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : programme le paiement (VERIFIEE_MEDECIN_CONSEIL → PROGRAMMEE_PAIEMENT). */
+  @Post('factures-mensuelles-etablissement/:id/programmer-paiement')
+  programmerPaiementFactureMensuelleEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.programmerPaiementFactureMensuelleEtablissement(user, id);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE). */
+  @Post('factures-mensuelles-etablissement/:id/marquer-payee')
+  marquerFactureMensuelleEtablissementPayee(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.marquerFactureMensuelleEtablissementPayee(user, id);
   }
 }

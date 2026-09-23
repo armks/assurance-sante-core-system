@@ -2,6 +2,7 @@ import {
   ArrayMinSize,
   ArrayUnique,
   IsArray,
+  IsDateString,
   IsIn,
   IsNotEmpty,
   IsNumber,
@@ -60,4 +61,29 @@ export class ApprovisionnerCompteDto {
   @IsString({ each: true })
   @MaxLength(500, { each: true })
   piecesJustificatives?: string[];
+}
+
+/**
+ * Paiement RÉEL d'une facture mensuelle individuelle OU d'un paiement groupé
+ * — exactement l'un des deux (`factureMensuelleId` XOR `paiementGroupeId`),
+ * vérifié dans le service (pas modélisable en `class-validator` seul).
+ */
+export class PayerFactureDto {
+  @IsOptional() @IsUUID() factureMensuelleId?: string;
+  @IsOptional() @IsUUID() paiementGroupeId?: string;
+
+  @IsUUID() compteId!: string;
+
+  /** Omis : paie le solde restant dû (facture) / le montant total (groupe). */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) montant?: number;
+
+  /** Fournie ET dans le futur : programme le paiement SANS débiter — un
+   * nouvel appel sans cette date confirme et exécute le débit réel. */
+  @IsOptional() @IsDateString() dateProgrammee?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  preuvePaiement?: string[];
 }

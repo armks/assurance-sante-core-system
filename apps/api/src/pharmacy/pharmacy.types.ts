@@ -67,6 +67,10 @@ export const STATUTS_FACTURE_MENSUELLE = [
   'SOUMISE',
   'VALIDEE_PHARMACIEN_CONSEIL',
   'PROGRAMMEE_PAIEMENT',
+  /** Paiement réel programmé à une date future — voir `payment/payment.service.ts` `payerFacture`. */
+  'PAIEMENT_PROGRAMME',
+  /** Paiement réel partiel déjà effectué (`montantPaye` < `montantTotal`). */
+  'PARTIELLEMENT_REGLEE',
   'PAYEE',
 ] as const;
 export type StatutFactureMensuelle = (typeof STATUTS_FACTURE_MENSUELLE)[number];

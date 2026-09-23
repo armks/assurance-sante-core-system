@@ -4975,3 +4975,98 @@ disponible 70 000 F) refusée en 409 avec message explicite, solde inchangé apr
 plus en bonus `ASSUREUR_COMPTABLE_ADJOINT` refusé (403) sur le transfert ET la lecture de
 l'historique. Toutes les données de test éphémères supprimées, résidu nul vérifié
 indépendamment (0 mouvement, 0 compte financier, 0 profil restants).
+
+## 2026-09-23 (suite 2) — Paiement RÉEL des factures établissement/pharmacie relié aux comptes financiers
+
+Point de convergence le plus sensible du système jusqu'ici : jusqu'à ce prompt, « marquer
+payée/payé » (factures individuelles, `preauthorization`/`pharmacy`, ou groupes,
+`payment`) ne débitait RIEN — statut symbolique uniquement, aucune trace financière réelle.
+`payerFacture` (module `payment/`) remplace intégralement ces trois anciens endpoints
+symboliques (`marquerFactureMensuelleEtablissementPayee`, `marquerFactureMensuellePayee`,
+`marquerPaiementGroupePaye` — tous retirés, backend ET frontend, pour ne laisser aucun
+chemin de paiement fictif actif à côté du paiement réel) par un point d'entrée unique,
+`factureMensuelleId` OU `paiementGroupeId`.
+
+### Rôle : périmètre EXCLUSIF (rôle exact), pas celui du reste du circuit de facturation
+Choisir un compte à débiter est un acte de TRÉSORERIE, pas une étape du circuit de
+facturation — `payerFacture` est donc réservé au rôle EXACT `ASSUREUR_COMPTABLE`
+(`assertGestionComptesFinanciers`, JAMAIS l'adjoint), contrairement à
+`validerPourPaiement`/`associerFacturesPourPaiement` du même domaine qui restent
+accessibles à l'adjoint par héritage (`roleChain`, décision assumée des prompts
+précédents). Conséquence assumée côté écran « Suivi des paiements » : la page de
+`comptable-adjoint` reçoit une liste de comptes financiers vide (403 attendu sur
+`GET payment/comptes-financiers`, silencieux — pas une erreur de page), donc aucun compte
+à choisir dans le formulaire de paiement ; l'adjoint garde consultation/validation/
+regroupement, jamais le débit réel lui-même.
+
+### 1. Nouveaux statuts (communs aux 3 tables : factures établissement/pharmacie, groupes)
+- `PARTIELLEMENT_REGLEE` : paiement réel partiel déjà effectué (`montantPaye` < `montantTotal`,
+  factures individuelles uniquement — jamais un groupe, qui se paie toujours intégralement).
+  Distinct de l'existant « payée avec lignes reportées » (`nbLignesReportees`, litige) —
+  section renommée dans l'écran pour éviter la confusion entre les deux notions de
+  « partiellement réglée ».
+- `PAIEMENT_PROGRAMME` : paiement réel programmé à une date future — RIEN n'est débité
+  tant que non confirmé. 4 nouvelles colonnes portent l'intention en attente
+  (`paiementProgrammeCompteId/Montant/Preuves/Date` — pas de nouvelle table : un seul
+  paiement programmé possible à la fois par facture/groupe, cohérent avec les colonnes
+  déjà existantes `dateProgrammation`/`datePaiement` du même style).
+Migration 051 : `montant_paye` ajouté (défaut 0), contraintes `statut_check` et
+`*_coherente` étendues (les 2 nouveaux statuts exigent les mêmes `date_soumission`/
+`verifie_par_id`/`date_verification` que `VERIFIEE_MEDECIN_CONSEIL` et au-delà), policy RLS
+`ecriture_comptable` étendue aux 2 nouveaux statuts sur les 3 tables.
+
+### 2. `payerFacture(factureMensuelleId | paiementGroupeId, compteId, montant?, dateProgrammee?, preuvePaiement?)`
+Un seul endpoint pour les DEUX étapes « programmer » et « confirmer » — pas de deuxième
+endpoint séparé : rappeler `payerFacture` (mêmes identifiants) sur une facture/un groupe
+déjà `PAIEMENT_PROGRAMME`, SANS nouvelle `dateProgrammee`, confirme et exécute le débit réel
+maintenant (avec re-vérification fraîche du solde — il a pu changer depuis la
+programmation) ; avec une nouvelle date future, reprogramme. `factureMensuelleId` est
+cherché dans `factures_mensuelles_etablissement` PUIS `factures_mensuelles_pharmacie` (pas
+de discriminant de type demandé dans la signature — collision UUID entre les deux tables
+statistiquement impossible).
+- **Facture individuelle** : statuts acceptés `PROGRAMMEE_PAIEMENT`/`PAIEMENT_PROGRAMME`/
+  `PARTIELLEMENT_REGLEE` (le dernier permet des paiements partiels successifs jusqu'à solde
+  nul) ; refuse (409) si déjà intégrée à un paiement groupé — payer le groupe plutôt,
+  même garde que l'ancien `marquerFactureMensuelle(Etablissement)Payee`. `montant` omis =
+  solde restant dû (`montantTotal - montantPaye`) ; fourni et `> restant` → 400. Paiement
+  intégral → `PAYEE` + `datePaiement` ; partiel → `PARTIELLEMENT_REGLEE`, `montantPaye`
+  incrémenté, `montantRestant` recalculé et exposé.
+- **Paiement groupé** : statuts acceptés `PROGRAMME`/`PAIEMENT_PROGRAMME` ; toujours
+  intégral (`montant` fourni doit égaler `montantTotal` du groupe, sinon 400 — jamais de
+  distribution partielle entre les factures d'un groupe, non demandée) ; cascade `PAYEE` +
+  `montantPaye = montantTotal` sur CHAQUE facture membre (établissement et/ou pharmacie),
+  même mécanisme que l'ancien `marquerPaiementGroupePaye`.
+- Dans les deux cas, si `dateProgrammee` absente ou déjà passée : débite le compte ET crée
+  le `mouvementFinancier` (`type: 'PAIEMENT_FACTURE'`, réservé à cet usage dans le schéma
+  des mouvements financiers depuis le prompt précédent) dans LA MÊME transaction Prisma que
+  la mise à jour de statut — jamais l'un sans l'autre. Solde insuffisant → 409 explicite,
+  AUCUNE écriture (vérifié avant toute mutation).
+- `approvisionnerCompte` (existant) inchangé ; `PAIEMENT_FACTURE` reste le seul type de
+  mouvement émis par ce prompt — `APPROVISIONNEMENT` continue d'être émis par
+  `approvisionnerCompte` seul.
+
+### 3. Frontend
+Nouveau composant partagé `PaiementFactureForm` (compte à débiter, montant facultatif,
+date de programmation facultative, références de paiement facultatives) branché à 3
+endroits qui affichaient auparavant un bouton « Marquer payé(e) » symbolique : les tableaux
+« Paiements groupés » et factures individuelles de l'écran global « Suivi des paiements »,
+et — remplacé par un simple texte renvoyant vers cet écran — les deux écrans par domaine
+`factures-etablissement-comptable-ecran`/`factures-pharmacie-comptable-ecran` (évite de
+dupliquer 3 fois la logique de sélection de compte). Nouvelles sections dans l'écran
+global : « Paiements programmés (à confirmer) », « Réglées partiellement (paiement réel) » ;
+section existante renommée « Payées avec report » pour la distinguer du nouveau statut
+`PARTIELLEMENT_REGLEE`.
+
+### Tests
+Backend : 74 tests sur `payment.service.spec.ts` (dont le piège d'héritage revérifié sur
+`payerFacture` — `ASSUREUR_COMPTABLE_ADJOINT` refusé même via son `roleChain` hérité),
+suite complète 540/540. `npx tsc --noEmit` propre API et Web. Test HTTP réel (20/20) sur le
+scénario exact demandé avec montants vérifiés à l'exact : compte à 500 000 F, facture de
+120 000 F payée → compte à 380 000,00 F EXACTEMENT, mouvement tracé à 120 000,00 F pile,
+facture PAYEE ; paiement programmé à une date future sur une 2ᵉ facture (20 000 F) —
+solde et nombre de mouvements INCHANGÉS après la simple programmation, débité (360 000,00 F)
+et facture PAYEE SEULEMENT après un second appel de confirmation ; tentative de paiement
+d'une 3ᵉ facture dépassant le solde disponible → 409 explicite, solde et statut de la
+facture strictement inchangés (aucune déduction partielle). Toutes les données de test
+éphémères supprimées, résidu nul vérifié indépendamment (0 facture, 0 compte financier,
+0 profil, 0 mouvement restants).

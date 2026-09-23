@@ -1178,35 +1178,9 @@ export class PharmacyService {
     return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
   }
 
-  /** Réservé EXCLUSIVEMENT à ASSUREUR_COMPTABLE, uniquement après validation
-   * pour paiement — refusée si la facture appartient déjà à un paiement
-   * groupé (module payment/). */
-  async marquerFactureMensuellePayee(user: AuthenticatedUser, factureMensuelleId: string) {
-    const ctx = await this.contexteAppelant(user);
-    const facture = await this.chargerFacturePourComptable(ctx, factureMensuelleId);
-    if (facture.statut !== 'PROGRAMMEE_PAIEMENT') {
-      throw new ConflictException(
-        `Cette facture doit d'abord être validée pour paiement (statut actuel : ${facture.statut}).`,
-      );
-    }
-    const groupee = await this.prisma.paiementGroupeFacture.findFirst({
-      where: { factureMensuellePharmacieId: factureMensuelleId },
-    });
-    if (groupee) {
-      throw new ConflictException(
-        'Cette facture appartient à un paiement groupé — marquez le groupe payé plutôt que la facture individuellement.',
-      );
-    }
-    const maj = await this.prisma.$transaction(async (tx) => {
-      const f = await tx.factureMensuellePharmacie.update({
-        where: { id: factureMensuelleId },
-        data: { statut: 'PAYEE', datePaiement: new Date() },
-      });
-      await this.audit(tx, ctx.userId, 'PAIEMENT_FACTURE_MENSUELLE', 'factures_mensuelles_pharmacie', f.id, {});
-      return f;
-    });
-    return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
-  }
+  // Le paiement RÉEL (débit d'un compte financier) est désormais réservé à
+  // `PaymentService.payerFacture` (module payment/) — l'ancien
+  // `marquerFactureMensuellePayee` (symbolique) a été retiré.
 
   // --- Helpers -------------------------------------------------------
 

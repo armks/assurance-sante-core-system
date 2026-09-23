@@ -16,11 +16,12 @@ import {
 import {
   associerFacturesPourPaiement,
   decocherLigneContestee,
-  marquerPaiementGroupePaye,
   obtenirDetailFacture,
   validerPourPaiementGlobal,
   type LigneFactureDetail,
 } from '@/app/dashboard-assureur/paiements-actions';
+import type { CompteFinancier } from '@/components/dashboard/comptes-financiers-ecran';
+import { PaiementFactureForm } from '@/components/dashboard/paiement-facture-form';
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,6 +33,9 @@ export interface FactureGlobale {
   periode: string;
   statut: string;
   montantTotal: string;
+  montantPaye: string;
+  montantRestant: string;
+  paiementProgrammeDate: string | null;
   nbLignesReportees: number;
   dateSoumission: string | null;
   dateVerification: string | null;
@@ -50,6 +54,7 @@ export interface PaiementGroupeResume {
   nbFactures: number;
   dateProgrammee: string;
   datePaiement: string | null;
+  paiementProgrammeDate: string | null;
   statut: string;
 }
 
@@ -59,6 +64,8 @@ const LIBELLE_STATUT: Record<string, string> = {
   VERIFIEE_MEDECIN_CONSEIL: 'Vérifiée',
   VALIDEE_PHARMACIEN_CONSEIL: 'Validée',
   PROGRAMMEE_PAIEMENT: 'En paiement',
+  PAIEMENT_PROGRAMME: 'Paiement programmé',
+  PARTIELLEMENT_REGLEE: 'Réglée partiellement',
   PAYEE: 'Payée',
 };
 const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
@@ -67,9 +74,13 @@ const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> =
   VERIFIEE_MEDECIN_CONSEIL: 'attention',
   VALIDEE_PHARMACIEN_CONSEIL: 'attention',
   PROGRAMMEE_PAIEMENT: 'attention',
+  PAIEMENT_PROGRAMME: 'attention',
+  PARTIELLEMENT_REGLEE: 'attention',
   PAYEE: 'succes',
 };
 const STATUTS_VERIFIES = ['VERIFIEE_MEDECIN_CONSEIL', 'VALIDEE_PHARMACIEN_CONSEIL'];
+/** Statuts payables via `PaiementFactureForm` — voir `PaymentService.STATUTS_FACTURE_PAYABLE`. */
+const STATUTS_PAYABLES = ['PROGRAMMEE_PAIEMENT', 'PAIEMENT_PROGRAMME', 'PARTIELLEMENT_REGLEE'];
 
 const montant = (v: string) => `${Number(v).toLocaleString('fr-FR')} F`;
 const moisFr = (d: string) =>
@@ -111,10 +122,12 @@ function Selecteur({
 export function SuiviPaiementsEcran({
   facturesInitiales,
   paiementsGroupesInitiaux,
+  comptes,
   cible,
 }: {
   facturesInitiales: FactureGlobale[];
   paiementsGroupesInitiaux: PaiementGroupeResume[];
+  comptes: CompteFinancier[];
   cible: string;
 }) {
   const router = useRouter();
@@ -168,9 +181,15 @@ export function SuiviPaiementsEcran({
 
   const duMois = facturesFiltrees.filter((f) => periodeCle(f.periode) === periodePlusRecente);
   const enPaiement = facturesFiltrees.filter((f) => f.statut === 'PROGRAMMEE_PAIEMENT');
-  const partiellementReglees = facturesFiltrees.filter((f) => f.statut === 'PAYEE' && f.nbLignesReportees > 0);
+  const paiementsProgrammes = facturesFiltrees.filter((f) => f.statut === 'PAIEMENT_PROGRAMME');
+  const reglementsPartiels = facturesFiltrees.filter((f) => f.statut === 'PARTIELLEMENT_REGLEE');
+  // « Payées avec report » : distinct du paiement RÉEL partiel ci-dessus — ici
+  // la facture est intégralement PAYEE, mais certaines lignes contestées ont
+  // été reportées au mois suivant (`decocherLigneContestee`), jamais un solde
+  // restant dû en argent.
+  const payeesAvecReport = facturesFiltrees.filter((f) => f.statut === 'PAYEE' && f.nbLignesReportees > 0);
   const reglees = facturesFiltrees.filter((f) => f.statut === 'PAYEE' && f.nbLignesReportees === 0);
-  const impayees = facturesFiltrees.filter((f) => !['PROGRAMMEE_PAIEMENT', 'PAYEE'].includes(f.statut));
+  const impayees = facturesFiltrees.filter((f) => !STATUTS_PAYABLES.includes(f.statut) && f.statut !== 'PAYEE');
 
   async function ouvrirDetail(f: FactureGlobale) {
     const lignes = await obtenirDetailFacture(f.beneficiaireType, f.id);
@@ -225,12 +244,6 @@ export function SuiviPaiementsEcran({
     }
   }
 
-  async function marquerGroupePaye(id: string) {
-    const r = await marquerPaiementGroupePaye(id, cible);
-    if (r.ok) succes(r.message ?? 'Payé.');
-    else echec(r.error);
-  }
-
   const colonnesBase: ColonneTable<FactureGlobale>[] = [
     {
       cle: 'beneficiaireType',
@@ -269,6 +282,16 @@ export function SuiviPaiementsEcran({
           <Button size="xs" onClick={() => valider(f)}>
             Valider pour paiement
           </Button>
+        )}
+        {STATUTS_PAYABLES.includes(f.statut) && (
+          <PaiementFactureForm
+            factureMensuelleId={f.id}
+            montantRestant={f.montantRestant}
+            paiementProgrammeDate={f.paiementProgrammeDate}
+            comptes={comptes}
+            cible={cible}
+            onSucces={succes}
+          />
         )}
       </div>
     );
@@ -408,19 +431,25 @@ export function SuiviPaiementsEcran({
               },
               ...colonnesBase,
             ]}
-            actionLigne={(f) => (
-              <Button size="xs" variant="ghost" onClick={() => ouvrirDetail(f)}>
-                Détail
-              </Button>
-            )}
+            actionLigne={actionsPourStatut}
             vide="Aucune facture en paiement."
           />
         </CardContent>
       </Card>
 
-      {section('Partiellement réglées', partiellementReglees, 'Aucune facture partiellement réglée.')}
+      {section(
+        'Paiements programmés (à confirmer)',
+        paiementsProgrammes,
+        'Aucun paiement programmé en attente de confirmation.',
+      )}
+      {section('Réglées partiellement (paiement réel)', reglementsPartiels, 'Aucun règlement partiel en cours.')}
       {section('Impayées', impayees, 'Aucune facture impayée.')}
       {section('Réglées', reglees, 'Aucune facture réglée.')}
+      {section(
+        'Payées avec report',
+        payeesAvecReport,
+        'Aucune facture payée avec lignes reportées.',
+      )}
 
       <Card>
         <CardHeader>
@@ -452,17 +481,22 @@ export function SuiviPaiementsEcran({
                 rendu: (g) => (
                   <StatutBadge
                     statut={g.statut}
-                    map={{ PROGRAMME: 'attention', PAYE: 'succes' }}
-                    libelles={{ PROGRAMME: 'Programmé', PAYE: 'Payé' }}
+                    map={{ PROGRAMME: 'attention', PAIEMENT_PROGRAMME: 'attention', PAYE: 'succes' }}
+                    libelles={{ PROGRAMME: 'Programmé', PAIEMENT_PROGRAMME: 'Paiement programmé', PAYE: 'Payé' }}
                   />
                 ),
               },
             ]}
             actionLigne={(g) =>
-              g.statut === 'PROGRAMME' ? (
-                <Button size="xs" onClick={() => marquerGroupePaye(g.id)}>
-                  Marquer payé
-                </Button>
+              g.statut === 'PROGRAMME' || g.statut === 'PAIEMENT_PROGRAMME' ? (
+                <PaiementFactureForm
+                  paiementGroupeId={g.id}
+                  montantRestant={g.montantTotal}
+                  paiementProgrammeDate={g.paiementProgrammeDate}
+                  comptes={comptes}
+                  cible={cible}
+                  onSucces={succes}
+                />
               ) : null
             }
             vide="Aucun paiement groupé pour l’instant."

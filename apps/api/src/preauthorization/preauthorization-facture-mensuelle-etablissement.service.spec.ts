@@ -361,7 +361,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       expect(prisma.factureMensuelleEtablissement.update).not.toHaveBeenCalled();
     });
 
-    it('programme puis marque payée, dans l’ordre', async () => {
+    it('programme pour paiement une fois VERIFIEE_MEDECIN_CONSEIL et litige-free', async () => {
       identity.getMe.mockResolvedValue(comptableAssureur());
       prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
         id: 'fact-1',
@@ -376,47 +376,11 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
 
       const res = await service.validerPourPaiementEtablissement(USER, 'fact-1');
       expect(res.statut).toBe('PROGRAMMEE_PAIEMENT');
-
-      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
-        id: 'fact-1',
-        statut: 'PROGRAMMEE_PAIEMENT',
-        lignes: [],
-      });
-      prisma.paiementGroupeFacture.findFirst.mockResolvedValue(null);
-      prisma.factureMensuelleEtablissement.update.mockResolvedValue({
-        id: 'fact-1',
-        statut: 'PAYEE',
-        montantTotal: dec(6000),
-      });
-      const res2 = await service.marquerFactureMensuelleEtablissementPayee(USER, 'fact-1');
-      expect(res2.statut).toBe('PAYEE');
     });
 
-    it('refuse de marquer payée sans programmation préalable', async () => {
-      identity.getMe.mockResolvedValue(comptableAssureur());
-      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
-        id: 'fact-1',
-        statut: 'VERIFIEE_MEDECIN_CONSEIL',
-        lignes: [],
-      });
-      await expect(
-        service.marquerFactureMensuelleEtablissementPayee(USER, 'fact-1'),
-      ).rejects.toBeInstanceOf(ConflictException);
-    });
-
-    it('refuse de marquer payée une facture déjà intégrée à un paiement groupé', async () => {
-      identity.getMe.mockResolvedValue(comptableAssureur());
-      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
-        id: 'fact-1',
-        statut: 'PROGRAMMEE_PAIEMENT',
-        lignes: [],
-      });
-      prisma.paiementGroupeFacture.findFirst.mockResolvedValue({ id: 'pgf-1' });
-      await expect(
-        service.marquerFactureMensuelleEtablissementPayee(USER, 'fact-1'),
-      ).rejects.toBeInstanceOf(ConflictException);
-      expect(prisma.factureMensuelleEtablissement.update).not.toHaveBeenCalled();
-    });
+    // Le paiement RÉEL (marquerFactureMensuelleEtablissementPayee, symbolique,
+    // retiré) est désormais couvert par `PaymentService.payerFacture`
+    // (payment.service.spec.ts).
   });
 
   describe('decocherLigneContestee (établissement)', () => {

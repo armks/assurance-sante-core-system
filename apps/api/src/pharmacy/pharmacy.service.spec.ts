@@ -1114,49 +1114,8 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         expect(res.statut).toBe('PROGRAMMEE_PAIEMENT');
       });
 
-      it('marquerPayee avant validation pour paiement → 409', async () => {
-        identity.getMe.mockResolvedValue(comptableAssureur());
-        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
-          id: 'fact-1',
-          statut: 'VALIDEE_PHARMACIEN_CONSEIL',
-          lignes: [],
-        });
-        await expect(
-          service.marquerFactureMensuellePayee(USER, 'fact-1'),
-        ).rejects.toBeInstanceOf(ConflictException);
-      });
-
-      it('marque payée une fois PROGRAMMEE_PAIEMENT', async () => {
-        identity.getMe.mockResolvedValue(comptableAssureur());
-        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
-          id: 'fact-1',
-          statut: 'PROGRAMMEE_PAIEMENT',
-          lignes: [],
-        });
-        prisma.paiementGroupeFacture.findFirst.mockResolvedValue(null);
-        prisma.factureMensuellePharmacie.update.mockResolvedValue({
-          id: 'fact-1',
-          statut: 'PAYEE',
-          montantTotal: dec(6000),
-        });
-
-        const res = await service.marquerFactureMensuellePayee(USER, 'fact-1');
-        expect(res.statut).toBe('PAYEE');
-      });
-
-      it('refuse de marquer payée une facture déjà intégrée à un paiement groupé', async () => {
-        identity.getMe.mockResolvedValue(comptableAssureur());
-        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
-          id: 'fact-1',
-          statut: 'PROGRAMMEE_PAIEMENT',
-          lignes: [],
-        });
-        prisma.paiementGroupeFacture.findFirst.mockResolvedValue({ id: 'pgf-1' });
-        await expect(
-          service.marquerFactureMensuellePayee(USER, 'fact-1'),
-        ).rejects.toBeInstanceOf(ConflictException);
-        expect(prisma.factureMensuellePharmacie.update).not.toHaveBeenCalled();
-      });
+      // Le paiement RÉEL (marquerFactureMensuellePayee, symbolique, retiré) est
+      // désormais couvert par `PaymentService.payerFacture` (payment.service.spec.ts).
     });
 
     describe('decocherLigneContestee', () => {

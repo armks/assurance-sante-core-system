@@ -24,15 +24,6 @@ export async function validerPourPaiement(
   return { ok: true, message: 'Facture validée pour paiement.' };
 }
 
-export async function marquerFactureMensuellePayee(
-  factureMensuelleId: string,
-  cible: string,
-): Promise<ResultatSoumission> {
-  const res = await apiFetch(
-    `/api/v1/pharmacy/factures-mensuelles/${factureMensuelleId}/marquer-payee`,
-    { method: 'POST' },
-  );
-  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
-  revalidatePath(cible);
-  return { ok: true, message: 'Facture marquée payée.' };
-}
+// Le paiement RÉEL (débit d'un compte financier) se fait désormais depuis
+// « Suivi des paiements » (`payerFacture`, paiements-actions.ts) — l'ancien
+// `marquerFactureMensuellePayee` (symbolique) a été retiré.

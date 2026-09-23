@@ -190,12 +190,7 @@ export class PharmacyController {
     return this.pharmacy.validerPourPaiement(user, id);
   }
 
-  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE), sauf si intégrée à un paiement groupé. */
-  @Post('factures-mensuelles/:id/marquer-payee')
-  marquerFactureMensuellePayee(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.pharmacy.marquerFactureMensuellePayee(user, id);
-  }
+  // Le paiement RÉEL (débit d'un compte financier) est désormais réservé à
+  // `PaymentService.payerFacture` (module payment/, POST payment/payer-facture)
+  // — l'ancien `marquerFactureMensuellePayee` (symbolique) a été retiré.
 }

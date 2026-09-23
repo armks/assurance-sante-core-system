@@ -16,6 +16,7 @@ import {
   ApprovisionnerCompteDto,
   AssocierFacturesPourPaiementDto,
   CreerCompteFinancierDto,
+  PayerFactureDto,
 } from './dto/payment.dto';
 import {
   BUCKET_MOUVEMENTS_FINANCIERS,
@@ -249,58 +250,352 @@ export class PaymentService {
       nbFactures: g.factures.length,
       dateProgrammee: g.dateProgrammee,
       datePaiement: g.datePaiement,
+      paiementProgrammeDate: g.paiementProgrammeDate,
       statut: g.statut,
     }));
   }
 
-  /**
-   * Marque un paiement groupé payé — cascade PAYEE + `datePaiement` à TOUTES
-   * les factures liées (établissement ou pharmacie selon le groupe).
-   */
-  async marquerPaiementGroupePaye(user: AuthenticatedUser, paiementGroupeId: string) {
-    const ctx = await this.contexteAppelant(user);
-    this.assertComptable(ctx);
+  // =====================================================================
+  // Paiement RÉEL des factures mensuelles (établissement/pharmacie) et des
+  // paiements groupés — point de convergence le plus sensible : jamais de
+  // statut PAYEE sans un débit réel, exact, tracé (mêmes exigences de
+  // précision `Decimal` que le microservice Java d'adjudication). Remplace
+  // les anciens `marquerFactureMensuelle(Etablissement)Payee`/
+  // `marquerPaiementGroupePaye` (symboliques, ne débitaient jamais rien) —
+  // retirés pour ne laisser aucun chemin de paiement fictif actif.
+  // =====================================================================
 
+  private readonly STATUTS_FACTURE_PAYABLE = ['PROGRAMMEE_PAIEMENT', 'PAIEMENT_PROGRAMME', 'PARTIELLEMENT_REGLEE'];
+  private readonly STATUTS_GROUPE_PAYABLE = ['PROGRAMME', 'PAIEMENT_PROGRAMME'];
+
+  /**
+   * Paie une facture mensuelle individuelle OU un paiement groupé — exactement
+   * l'un des deux. Débite le compte choisi et crée le mouvement financier
+   * correspondant dans LA MÊME transaction, sauf si `dateProgrammee` est une
+   * date future : dans ce cas, RIEN n'est débité — la facture/le groupe passe
+   * au statut PAIEMENT_PROGRAMME, et un nouvel appel à `payerFacture` (sans
+   * date future) confirme et exécute le débit réel.
+   */
+  async payerFacture(user: AuthenticatedUser, dto: PayerFactureDto) {
+    const ctx = await this.contexteAppelant(user);
+    // Débite un compte financier — même périmètre EXCLUSIF que les comptes/
+    // mouvements financiers (rôle EXACT, jamais l'adjoint), PAS le périmètre
+    // plus large de validerPourPaiement/associerFacturesPourPaiement : choisir
+    // le compte à débiter est une opération de trésorerie, pas une étape du
+    // circuit de facturation.
+    this.assertGestionComptesFinanciers(ctx);
+
+    if (!!dto.factureMensuelleId === !!dto.paiementGroupeId) {
+      throw new BadRequestException('Fournir exactement un identifiant : factureMensuelleId OU paiementGroupeId.');
+    }
+
+    let dateProgrammee: Date | null = null;
+    if (dto.dateProgrammee) {
+      const d = new Date(dto.dateProgrammee);
+      if (Number.isNaN(d.getTime()) || d.getTime() <= Date.now()) {
+        throw new BadRequestException('dateProgrammee doit être une date valide, strictement dans le futur.');
+      }
+      dateProgrammee = d;
+    }
+
+    const compte = await this.prisma.compteFinancier.findFirst({
+      where: { id: dto.compteId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!compte) {
+      throw new NotFoundException('Compte financier introuvable.');
+    }
+
+    const preuvePaiement = dto.preuvePaiement ?? [];
+
+    if (dto.paiementGroupeId) {
+      return this.payerPaiementGroupe(ctx, dto.paiementGroupeId, compte, dateProgrammee, dto.montant, preuvePaiement);
+    }
+    return this.payerFactureIndividuelle(ctx, dto.factureMensuelleId!, compte, dateProgrammee, dto.montant, preuvePaiement);
+  }
+
+  private async payerFactureIndividuelle(
+    ctx: ContexteAppelant,
+    factureMensuelleId: string,
+    compte: { id: string; nom: string; soldeActuel: Prisma.Decimal },
+    dateProgrammee: Date | null,
+    montantDemande: number | undefined,
+    preuvePaiement: string[],
+  ) {
+    const etab = await this.prisma.factureMensuelleEtablissement.findFirst({
+      where: { id: factureMensuelleId, organisationId: ctx.organisationId },
+      include: { etablissement: { select: { nom: true } } },
+    });
+    const pharma = etab
+      ? null
+      : await this.prisma.factureMensuellePharmacie.findFirst({
+          where: { id: factureMensuelleId, organisationId: ctx.organisationId },
+          include: { pharmacie: { select: { nom: true } } },
+        });
+    if (!etab && !pharma) {
+      throw new NotFoundException('Facture mensuelle introuvable.');
+    }
+    const estEtablissement = !!etab;
+    const facture = (etab ?? pharma)!;
+    const nomBeneficiaire = estEtablissement ? etab!.etablissement.nom : pharma!.pharmacie.nom;
+    const tableCible = estEtablissement ? 'factures_mensuelles_etablissement' : 'factures_mensuelles_pharmacie';
+    const auditAction = estEtablissement ? 'PAIEMENT_FACTURE_MENSUELLE_ETABLISSEMENT' : 'PAIEMENT_FACTURE_MENSUELLE';
+
+    if (!this.STATUTS_FACTURE_PAYABLE.includes(facture.statut)) {
+      throw new ConflictException(
+        `Cette facture doit d'abord être validée pour paiement (statut actuel : ${facture.statut}).`,
+      );
+    }
+
+    const groupee = await this.prisma.paiementGroupeFacture.findFirst({
+      where: estEtablissement
+        ? { factureMensuelleEtablissementId: factureMensuelleId }
+        : { factureMensuellePharmacieId: factureMensuelleId },
+    });
+    if (groupee) {
+      throw new ConflictException(
+        'Cette facture appartient à un paiement groupé — payez le groupe plutôt que la facture individuellement.',
+      );
+    }
+
+    const montantTotal = new Decimal(facture.montantTotal.toString());
+    const montantDejaPaye = new Decimal(facture.montantPaye.toString());
+    const montantRestant = montantTotal.sub(montantDejaPaye);
+    const montant = montantDemande !== undefined ? new Decimal(montantDemande) : montantRestant;
+
+    if (montant.gt(montantRestant)) {
+      throw new BadRequestException(
+        `Le montant (${montant.toFixed(2)} F) dépasse le solde restant dû (${montantRestant.toFixed(2)} F).`,
+      );
+    }
+
+    if (dateProgrammee) {
+      const maj = await this.prisma.$transaction(async (tx) => {
+        const data = {
+          statut: 'PAIEMENT_PROGRAMME',
+          paiementProgrammeCompteId: compte.id,
+          paiementProgrammeMontant: montant.toFixed(2),
+          paiementProgrammePreuves: preuvePaiement,
+          paiementProgrammeDate: dateProgrammee,
+        };
+        const f = estEtablissement
+          ? await tx.factureMensuelleEtablissement.update({ where: { id: factureMensuelleId }, data })
+          : await tx.factureMensuellePharmacie.update({ where: { id: factureMensuelleId }, data });
+        await this.audit(
+          tx,
+          ctx.userId,
+          `PROGRAMMATION_${auditAction}`,
+          f.id,
+          { compteId: compte.id, montant: montant.toFixed(2), dateProgrammee, preuvePaiement },
+          tableCible,
+        );
+        return f;
+      });
+      return {
+        ...maj,
+        montantTotal: maj.montantTotal.toFixed(2),
+        montantPaye: maj.montantPaye.toFixed(2),
+        montantRestant: montantRestant.toFixed(2),
+      };
+    }
+
+    const soldeCompte = new Decimal(compte.soldeActuel.toString());
+    if (soldeCompte.lt(montant)) {
+      throw new ConflictException(
+        `Solde insuffisant sur le compte « ${compte.nom} » (${soldeCompte.toFixed(2)} F) pour payer ${montant.toFixed(2)} F.`,
+      );
+    }
+
+    const nouveauMontantPaye = montantDejaPaye.add(montant);
+    const complet = nouveauMontantPaye.gte(montantTotal);
+    const nouveauStatut = complet ? 'PAYEE' : 'PARTIELLEMENT_REGLEE';
+    const maintenant = new Date();
+
+    const resultat = await this.prisma.$transaction(async (tx) => {
+      await tx.compteFinancier.update({
+        where: { id: compte.id },
+        data: { soldeActuel: { decrement: montant.toFixed(2) } },
+      });
+      const data: Prisma.FactureMensuelleEtablissementUpdateInput & Prisma.FactureMensuellePharmacieUpdateInput = {
+        montantPaye: nouveauMontantPaye.toFixed(2),
+        statut: nouveauStatut,
+        paiementProgrammeCompteId: null,
+        paiementProgrammeMontant: null,
+        paiementProgrammePreuves: [],
+        paiementProgrammeDate: null,
+        ...(complet ? { datePaiement: maintenant } : {}),
+      };
+      const f = estEtablissement
+        ? await tx.factureMensuelleEtablissement.update({ where: { id: factureMensuelleId }, data })
+        : await tx.factureMensuellePharmacie.update({ where: { id: factureMensuelleId }, data });
+      await tx.mouvementFinancier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          compteSourceId: compte.id,
+          compteDestinationId: null,
+          type: 'PAIEMENT_FACTURE',
+          montant: montant.toFixed(2),
+          description: `Paiement facture mensuelle ${estEtablissement ? 'établissement' : 'pharmacie'} — ${nomBeneficiaire}`,
+          pieceJointeUrl: null,
+          effectueParId: ctx.userId,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        auditAction,
+        f.id,
+        { compteId: compte.id, montant: montant.toFixed(2), preuvePaiement, complet },
+        tableCible,
+      );
+      return f;
+    });
+
+    return {
+      ...resultat,
+      montantTotal: resultat.montantTotal.toFixed(2),
+      montantPaye: resultat.montantPaye.toFixed(2),
+      montantRestant: montantTotal.sub(nouveauMontantPaye).toFixed(2),
+    };
+  }
+
+  private async payerPaiementGroupe(
+    ctx: ContexteAppelant,
+    paiementGroupeId: string,
+    compte: { id: string; nom: string; soldeActuel: Prisma.Decimal },
+    dateProgrammee: Date | null,
+    montantDemande: number | undefined,
+    preuvePaiement: string[],
+  ) {
     const groupe = await this.prisma.paiementGroupe.findFirst({
       where: { id: paiementGroupeId, organisationId: ctx.organisationId },
-      include: { factures: true },
+      include: {
+        factures: {
+          include: { factureMensuelleEtablissement: true, factureMensuellePharmacie: true },
+        },
+      },
     });
     if (!groupe) {
       throw new NotFoundException('Paiement groupé introuvable.');
     }
-    if (groupe.statut !== 'PROGRAMME') {
+    if (!this.STATUTS_GROUPE_PAYABLE.includes(groupe.statut)) {
       throw new ConflictException(`Ce paiement groupé est déjà ${groupe.statut}.`);
     }
 
+    const montantTotal = new Decimal(groupe.montantTotal.toString());
+    const montant = montantDemande !== undefined ? new Decimal(montantDemande) : montantTotal;
+    if (!montant.eq(montantTotal)) {
+      throw new BadRequestException(
+        `Le paiement d'un groupe est toujours intégral — le montant doit égaler le montant total du groupe (${montantTotal.toFixed(2)} F).`,
+      );
+    }
+
+    if (dateProgrammee) {
+      const maj = await this.prisma.$transaction(async (tx) => {
+        const g = await tx.paiementGroupe.update({
+          where: { id: paiementGroupeId },
+          data: {
+            statut: 'PAIEMENT_PROGRAMME',
+            paiementProgrammeCompteId: compte.id,
+            paiementProgrammePreuves: preuvePaiement,
+            paiementProgrammeDate: dateProgrammee,
+          },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'PROGRAMMATION_PAIEMENT_GROUPE',
+          g.id,
+          { compteId: compte.id, montant: montant.toFixed(2), dateProgrammee, preuvePaiement },
+          'paiements_groupes',
+        );
+        return g;
+      });
+      return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
+    }
+
+    const soldeCompte = new Decimal(compte.soldeActuel.toString());
+    if (soldeCompte.lt(montant)) {
+      throw new ConflictException(
+        `Solde insuffisant sur le compte « ${compte.nom} » (${soldeCompte.toFixed(2)} F) pour payer ${montant.toFixed(2)} F.`,
+      );
+    }
+
+    const [etablissements, pharmacies] = await Promise.all([
+      groupe.beneficiaireType === 'ETABLISSEMENT'
+        ? this.prisma.etablissementSante.findMany({ where: { id: groupe.beneficiaireId }, select: { id: true, nom: true } })
+        : Promise.resolve([]),
+      groupe.beneficiaireType === 'PHARMACIE'
+        ? this.prisma.pharmacie.findMany({ where: { id: groupe.beneficiaireId }, select: { id: true, nom: true } })
+        : Promise.resolve([]),
+    ]);
+    const nomBeneficiaire = etablissements[0]?.nom ?? pharmacies[0]?.nom ?? '—';
+
     const maintenant = new Date();
-    const etabIds = groupe.factures
-      .map((f) => f.factureMensuelleEtablissementId)
-      .filter((id): id is string => id !== null);
-    const pharmaIds = groupe.factures
-      .map((f) => f.factureMensuellePharmacieId)
-      .filter((id): id is string => id !== null);
 
     const maj = await this.prisma.$transaction(async (tx) => {
-      if (etabIds.length > 0) {
-        await tx.factureMensuelleEtablissement.updateMany({
-          where: { id: { in: etabIds } },
-          data: { statut: 'PAYEE', datePaiement: maintenant },
-        });
-      }
-      if (pharmaIds.length > 0) {
-        await tx.factureMensuellePharmacie.updateMany({
-          where: { id: { in: pharmaIds } },
-          data: { statut: 'PAYEE', datePaiement: maintenant },
-        });
+      await tx.compteFinancier.update({
+        where: { id: compte.id },
+        data: { soldeActuel: { decrement: montant.toFixed(2) } },
+      });
+      for (const pgf of groupe.factures) {
+        if (pgf.factureMensuelleEtablissementId && pgf.factureMensuelleEtablissement) {
+          await tx.factureMensuelleEtablissement.update({
+            where: { id: pgf.factureMensuelleEtablissementId },
+            data: {
+              statut: 'PAYEE',
+              datePaiement: maintenant,
+              montantPaye: pgf.factureMensuelleEtablissement.montantTotal,
+              paiementProgrammeCompteId: null,
+              paiementProgrammeMontant: null,
+              paiementProgrammePreuves: [],
+              paiementProgrammeDate: null,
+            },
+          });
+        } else if (pgf.factureMensuellePharmacieId && pgf.factureMensuellePharmacie) {
+          await tx.factureMensuellePharmacie.update({
+            where: { id: pgf.factureMensuellePharmacieId },
+            data: {
+              statut: 'PAYEE',
+              datePaiement: maintenant,
+              montantPaye: pgf.factureMensuellePharmacie.montantTotal,
+              paiementProgrammeCompteId: null,
+              paiementProgrammeMontant: null,
+              paiementProgrammePreuves: [],
+              paiementProgrammeDate: null,
+            },
+          });
+        }
       }
       const g = await tx.paiementGroupe.update({
         where: { id: paiementGroupeId },
-        data: { statut: 'PAYE', datePaiement: maintenant },
+        data: {
+          statut: 'PAYE',
+          datePaiement: maintenant,
+          paiementProgrammeCompteId: null,
+          paiementProgrammePreuves: [],
+          paiementProgrammeDate: null,
+        },
       });
-      await this.audit(tx, ctx.userId, 'PAIEMENT_PAIEMENT_GROUPE', g.id, {
-        nbFacturesEtablissement: etabIds.length,
-        nbFacturesPharmacie: pharmaIds.length,
+      await tx.mouvementFinancier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          compteSourceId: compte.id,
+          compteDestinationId: null,
+          type: 'PAIEMENT_FACTURE',
+          montant: montant.toFixed(2),
+          description: `Paiement groupé — ${nomBeneficiaire} (${groupe.factures.length} facture(s))`,
+          pieceJointeUrl: null,
+          effectueParId: ctx.userId,
+        },
       });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'PAIEMENT_PAIEMENT_GROUPE',
+        g.id,
+        { compteId: compte.id, montant: montant.toFixed(2), preuvePaiement, nbFactures: groupe.factures.length },
+        'paiements_groupes',
+      );
       return g;
     });
 
@@ -390,6 +685,9 @@ export class PaymentService {
         periode: f.periode,
         statut: f.statut,
         montantTotal: f.montantTotal.toFixed(2),
+        montantPaye: f.montantPaye.toFixed(2),
+        montantRestant: new Decimal(f.montantTotal.toString()).sub(new Decimal(f.montantPaye.toString())).toFixed(2),
+        paiementProgrammeDate: f.paiementProgrammeDate,
         nbLignesReportees: f.nbLignesReportees,
         dateSoumission: f.dateSoumission,
         dateVerification: f.dateVerification,
@@ -412,6 +710,9 @@ export class PaymentService {
         periode: f.periode,
         statut: f.statut,
         montantTotal: f.montantTotal.toFixed(2),
+        montantPaye: f.montantPaye.toFixed(2),
+        montantRestant: new Decimal(f.montantTotal.toString()).sub(new Decimal(f.montantPaye.toString())).toFixed(2),
+        paiementProgrammeDate: f.paiementProgrammeDate,
         nbLignesReportees: f.nbLignesReportees,
         dateSoumission: f.dateSoumission,
         dateVerification: f.dateValidation,

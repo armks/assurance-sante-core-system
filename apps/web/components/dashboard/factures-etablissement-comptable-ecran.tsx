@@ -3,10 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import {
-  marquerFactureMensuelleEtablissementPayee,
-  validerPourPaiementEtablissement,
-} from '@/app/dashboard-assureur/factures-etablissement-actions';
+import { validerPourPaiementEtablissement } from '@/app/dashboard-assureur/factures-etablissement-actions';
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 
@@ -26,6 +23,8 @@ const LIBELLE_STATUT: Record<string, string> = {
   SOUMISE: 'Soumise — en attente du médecin conseil',
   VERIFIEE_MEDECIN_CONSEIL: 'Vérifiée — prête pour paiement',
   PROGRAMMEE_PAIEMENT: 'Validée pour paiement',
+  PAIEMENT_PROGRAMME: 'Paiement programmé',
+  PARTIELLEMENT_REGLEE: 'Réglée partiellement',
   PAYEE: 'Payée',
 };
 const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
@@ -33,6 +32,8 @@ const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> =
   SOUMISE: 'attention',
   VERIFIEE_MEDECIN_CONSEIL: 'attention',
   PROGRAMMEE_PAIEMENT: 'attention',
+  PAIEMENT_PROGRAMME: 'attention',
+  PARTIELLEMENT_REGLEE: 'attention',
   PAYEE: 'succes',
 };
 
@@ -99,12 +100,8 @@ export function FacturesEtablissementComptableEcran({
               </Button>
             );
           }
-          if (f.statut === 'PROGRAMMEE_PAIEMENT') {
-            return (
-              <Button size="xs" onClick={() => agir(marquerFactureMensuelleEtablissementPayee, f.id)}>
-                Marquer payée
-              </Button>
-            );
+          if (['PROGRAMMEE_PAIEMENT', 'PAIEMENT_PROGRAMME', 'PARTIELLEMENT_REGLEE'].includes(f.statut)) {
+            return <span className="text-xs text-muted-foreground">Payer depuis « Suivi des paiements »</span>;
           }
           return null;
         }}

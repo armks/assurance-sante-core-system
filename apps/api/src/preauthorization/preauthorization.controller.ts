@@ -360,12 +360,9 @@ export class PreauthorizationController {
     return this.preauth.validerPourPaiementEtablissement(user, id);
   }
 
-  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE), sauf si intégrée à un paiement groupé. */
-  @Post('factures-mensuelles-etablissement/:id/marquer-payee')
-  marquerFactureMensuelleEtablissementPayee(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.preauth.marquerFactureMensuelleEtablissementPayee(user, id);
-  }
+  // Le paiement RÉEL (débit d'un compte financier) est désormais réservé à
+  // `PaymentService.payerFacture` (module payment/, POST payment/payer-facture)
+  // — l'ancien `marquerFactureMensuelleEtablissementPayee` (symbolique, ne
+  // débitait jamais rien) a été retiré pour ne laisser aucun chemin de
+  // paiement fictif actif à côté du paiement réel.
 }

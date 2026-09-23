@@ -59,13 +59,33 @@ export async function associerFacturesPourPaiement(
   return { ok: true, message: `${factureMensuelleIds.length} facture(s) regroupée(s) en un paiement.` };
 }
 
-export async function marquerPaiementGroupePaye(paiementGroupeId: string, cible: string): Promise<ResultatSoumission> {
-  const res = await apiFetch(`/api/v1/payment/paiements-groupes/${paiementGroupeId}/marquer-paye`, {
+/**
+ * Paiement RÉEL (débit d'un compte financier) d'une facture individuelle OU
+ * d'un paiement groupé — exactement l'un des deux (`cible*` en paramètre
+ * d'appel, jamais les deux). Remplace l'ancien `marquerPaiementGroupePaye`
+ * (symbolique, retiré) : réservé aux comptes financiers réellement crédités.
+ */
+export interface PayerFactureParams {
+  factureMensuelleId?: string;
+  paiementGroupeId?: string;
+  compteId: string;
+  montant?: number;
+  dateProgrammee?: string;
+  preuvePaiement?: string[];
+}
+
+export async function payerFacture(params: PayerFactureParams, cible: string): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== ''));
+  const res = await apiFetch('/api/v1/payment/payer-facture', {
     method: 'POST',
+    body: JSON.stringify(body),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(cible);
-  return { ok: true, message: 'Paiement groupé marqué payé.' };
+  return {
+    ok: true,
+    message: params.dateProgrammee ? 'Paiement programmé — sera débité à confirmation.' : 'Paiement effectué.',
+  };
 }
 
 export interface LigneFactureDetail {

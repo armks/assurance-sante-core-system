@@ -1140,6 +1140,19 @@ model FactureMensuellePharmacie {
   nbLignesReportees Int       @default(0) @map("nb_lignes_reportees")
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  /// Paiement RÉEL (prisma/sql/051, `PaymentService.payerFacture`) — cumul
+  /// déjà réglé depuis un compte financier ; `montantTotal - montantPaye` =
+  /// solde restant dû (statut PARTIELLEMENT_REGLEE tant que > 0).
+  montantPaye Decimal @default(0) @map("montant_paye") @db.Decimal(14, 2)
+  /// Paiement programmé à une date future (`payerFacture` avec `dateProgrammee`)
+  /// — NE débite RIEN tant que non confirmé (rappel de `payerFacture` sans
+  /// date future, ou date atteinte) : statut passe alors à PAIEMENT_PROGRAMME,
+  /// ces 4 champs portent l'intention en attente de confirmation.
+  paiementProgrammeCompteId String?   @map("paiement_programme_compte_id") @db.Uuid
+  paiementProgrammeMontant  Decimal?  @map("paiement_programme_montant") @db.Decimal(14, 2)
+  paiementProgrammePreuves  String[]  @default([]) @map("paiement_programme_preuves")
+  paiementProgrammeDate     DateTime? @map("paiement_programme_date") @db.Timestamptz(6)
+
   organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   pharmacie    Pharmacie           @relation(fields: [pharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   validePar    Profil?             @relation("FactureMensuelleValidee", fields: [valideParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1440,6 +1453,14 @@ model FactureMensuelleEtablissement {
   nbLignesReportees Int       @default(0) @map("nb_lignes_reportees")
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  /// Paiement RÉEL (prisma/sql/051, `PaymentService.payerFacture`) — voir
+  /// `FactureMensuellePharmacie.montantPaye` pour le détail des 5 champs.
+  montantPaye Decimal @default(0) @map("montant_paye") @db.Decimal(14, 2)
+  paiementProgrammeCompteId String?   @map("paiement_programme_compte_id") @db.Uuid
+  paiementProgrammeMontant  Decimal?  @map("paiement_programme_montant") @db.Decimal(14, 2)
+  paiementProgrammePreuves  String[]  @default([]) @map("paiement_programme_preuves")
+  paiementProgrammeDate     DateTime? @map("paiement_programme_date") @db.Timestamptz(6)
+
   organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   etablissement EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   verifiePar    Profil?            @relation("FactureMensuelleEtablissementVerifiee", fields: [verifieParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1466,8 +1487,15 @@ model PaiementGroupe {
   montantTotal     Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
   dateProgrammee   DateTime  @default(now()) @map("date_programmee") @db.Timestamptz(6)
   datePaiement     DateTime? @map("date_paiement") @db.Timestamptz(6)
-  statut           String    @default("PROGRAMME") // PROGRAMME | PAYE
+  statut           String    @default("PROGRAMME") // PROGRAMME | PAIEMENT_PROGRAMME | PAYE
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  /// Paiement RÉEL programmé à une date future (`PaymentService.payerFacture`,
+  /// prisma/sql/051) — pas de montant distinct : toujours `montantTotal`
+  /// (paiement de groupe intégral uniquement, jamais partiel).
+  paiementProgrammeCompteId String?   @map("paiement_programme_compte_id") @db.Uuid
+  paiementProgrammePreuves  String[]  @default([]) @map("paiement_programme_preuves")
+  paiementProgrammeDate     DateTime? @map("paiement_programme_date") @db.Timestamptz(6)
 
   organisation Organisation            @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factures     PaiementGroupeFacture[]

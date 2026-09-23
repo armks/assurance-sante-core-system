@@ -17,6 +17,7 @@ import {
   ApprovisionnerCompteDto,
   AssocierFacturesPourPaiementDto,
   CreerCompteFinancierDto,
+  PayerFactureDto,
 } from './dto/payment.dto';
 import { PaymentService, type FichierTeleverse } from './payment.service';
 
@@ -51,13 +52,18 @@ export class PaymentController {
     return this.payment.associerFacturesPourPaiement(user, dto);
   }
 
-  /** Côté ASSUREUR_COMPTABLE exclusivement : marque le groupe payé (cascade sur ses factures). */
-  @Post('paiements-groupes/:id/marquer-paye')
-  marquerPaiementGroupePaye(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.payment.marquerPaiementGroupePaye(user, id);
+  // Le paiement RÉEL d'un groupe (débit d'un compte financier, cascade PAYEE
+  // sur ses factures) passe désormais par `payerFacture(paiementGroupeId, …)`
+  // — l'ancien `marquerPaiementGroupePaye` (symbolique) a été retiré pour ne
+  // laisser aucun chemin de paiement fictif actif à côté du paiement réel.
+
+  /** Réservé ASSUREUR_COMPTABLE : paiement RÉEL d'une facture individuelle OU
+   * d'un paiement groupé — débite un compte financier, ou programme le
+   * paiement à une date future (rappeler sans dateProgrammee pour confirmer
+   * et exécuter le débit réel). */
+  @Post('payer-facture')
+  payerFacture(@CurrentUser() user: AuthenticatedUser, @Body() dto: PayerFactureDto) {
+    return this.payment.payerFacture(user, dto);
   }
 
   // --- Comptes financiers de l'assureur — réservé EXCLUSIVEMENT au rôle

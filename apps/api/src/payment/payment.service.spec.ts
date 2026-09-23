@@ -50,14 +50,19 @@ describe('PaymentService', () => {
     prisma = {
       factureMensuelleEtablissement: {
         findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       factureMensuellePharmacie: {
         findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       paiementGroupeFacture: {
         findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
         createMany: jest.fn(),
       },
       paiementGroupe: {
@@ -213,47 +218,6 @@ describe('PaymentService', () => {
     });
   });
 
-  describe('marquerPaiementGroupePaye', () => {
-    it('rôle non autorisé → 403', async () => {
-      identity.getMe.mockResolvedValue(medecinConseil());
-      await expect(service.marquerPaiementGroupePaye(USER, 'pg-1')).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it('groupe introuvable → 404', async () => {
-      identity.getMe.mockResolvedValue(comptable());
-      prisma.paiementGroupe.findFirst.mockResolvedValue(null);
-      await expect(service.marquerPaiementGroupePaye(USER, 'pg-x')).rejects.toBeInstanceOf(NotFoundException);
-    });
-
-    it('déjà PAYE → 409', async () => {
-      identity.getMe.mockResolvedValue(comptable());
-      prisma.paiementGroupe.findFirst.mockResolvedValue({ id: 'pg-1', statut: 'PAYE', factures: [] });
-      await expect(service.marquerPaiementGroupePaye(USER, 'pg-1')).rejects.toBeInstanceOf(ConflictException);
-    });
-
-    it('cascade PAYEE + datePaiement sur toutes les factures établissement liées', async () => {
-      identity.getMe.mockResolvedValue(comptable());
-      prisma.paiementGroupe.findFirst.mockResolvedValue({
-        id: 'pg-1',
-        statut: 'PROGRAMME',
-        factures: [
-          { factureMensuelleEtablissementId: 'f1', factureMensuellePharmacieId: null },
-          { factureMensuelleEtablissementId: 'f2', factureMensuellePharmacieId: null },
-        ],
-      });
-      prisma.paiementGroupe.update.mockResolvedValue({ id: 'pg-1', statut: 'PAYE', montantTotal: dec(24000) });
-
-      const res = await service.marquerPaiementGroupePaye(USER, 'pg-1');
-
-      expect(prisma.factureMensuelleEtablissement.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['f1', 'f2'] } },
-        data: { statut: 'PAYEE', datePaiement: expect.any(Date) },
-      });
-      expect(prisma.factureMensuellePharmacie.updateMany).not.toHaveBeenCalled();
-      expect(res.statut).toBe('PAYE');
-    });
-  });
-
   describe('listerFacturesPourComptableGlobal', () => {
     it('rôle non autorisé → 403', async () => {
       identity.getMe.mockResolvedValue(medecinConseil());
@@ -268,6 +232,8 @@ describe('PaymentService', () => {
           statut: 'EN_PREPARATION',
           periode: new Date('2026-08-01'),
           montantTotal: dec(15000),
+          montantPaye: dec(0),
+          paiementProgrammeDate: null,
           nbLignesReportees: 0,
           dateSoumission: null,
           dateVerification: null,
@@ -294,6 +260,8 @@ describe('PaymentService', () => {
           statut: 'PAYEE',
           periode: new Date('2026-07-01'),
           montantTotal: dec(3000),
+          montantPaye: dec(3000),
+          paiementProgrammeDate: null,
           nbLignesReportees: 0,
           dateSoumission: null,
           dateValidation: null,
@@ -861,6 +829,369 @@ describe('PaymentService', () => {
 
       expect(res.url).toContain('/object/sign/mouvements-financiers/');
       expect(res.expiresIn).toBe(3600);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  payerFacture — point de convergence le plus sensible : paiement RÉEL
+  //  (débit exact d'un compte financier) d'une facture individuelle OU d'un
+  //  paiement groupé. Débiter un compte est une opération de TRÉSORERIE —
+  //  même périmètre EXCLUSIF que comptes/mouvements financiers (rôle EXACT
+  //  ASSUREUR_COMPTABLE, jamais l'adjoint), PAS le périmètre plus large de
+  //  validerPourPaiement/associerFacturesPourPaiement (roleChain, adjoint
+  //  inclus) : choisir le compte à débiter n'est pas une étape du circuit de
+  //  facturation, c'est un acte de gestion de trésorerie.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('payerFacture', () => {
+    const futur = () => new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+
+    it('rôle non autorisé (médecin conseil) → 403', async () => {
+      identity.getMe.mockResolvedValue(medecinConseil());
+      await expect(
+        service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('ASSUREUR_COMPTABLE_ADJOINT → 403 MÊME si son roleChain inclut ASSUREUR_COMPTABLE (piège d’héritage évité)', async () => {
+      identity.getMe.mockResolvedValue(comptableAdjoint());
+      await expect(
+        service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.compteFinancier.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('ni factureMensuelleId ni paiementGroupeId → 400', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      await expect(service.payerFacture(USER, { compteId: 'cf-1' })).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('les deux fournis → 400', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      await expect(
+        service.payerFacture(USER, { factureMensuelleId: 'fe-1', paiementGroupeId: 'pg-1', compteId: 'cf-1' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('dateProgrammee dans le passé → 400', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      await expect(
+        service.payerFacture(USER, {
+          factureMensuelleId: 'fe-1',
+          compteId: 'cf-1',
+          dateProgrammee: new Date(Date.now() - 1000).toISOString(),
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('compte financier introuvable → 404', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst.mockResolvedValue(null);
+      await expect(
+        service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-x' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    describe('facture individuelle', () => {
+      beforeEach(() => {
+        prisma.compteFinancier.findFirst.mockResolvedValue({ id: 'cf-1', nom: 'Compte principal', soldeActuel: dec(500000) });
+      });
+
+      it('facture introuvable (ni établissement ni pharmacie) → 404', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        await expect(
+          service.payerFacture(USER, { factureMensuelleId: 'fe-x', compteId: 'cf-1' }),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
+      it('statut non payable (EN_PREPARATION) → 409', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'EN_PREPARATION', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        await expect(
+          service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' }),
+        ).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('facture déjà groupée → 409, payer le groupe plutôt', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        prisma.paiementGroupeFacture.findFirst.mockResolvedValue({ id: 'pgf-1' });
+        await expect(
+          service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' }),
+        ).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('montant demandé > solde restant dû → 400', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        await expect(
+          service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1', montant: 999999 }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('solde du compte insuffisant → 409, aucune écriture', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.compteFinancier.findFirst.mockResolvedValue({ id: 'cf-1', nom: 'Petit compte', soldeActuel: dec(100) });
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        await expect(
+          service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' }),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(prisma.compteFinancier.update).not.toHaveBeenCalled();
+        expect(prisma.mouvementFinancier.create).not.toHaveBeenCalled();
+      });
+
+      it('paiement intégral exact : compte à 500 000 F débité de 120 000 F → 380 000,00 F, facture PAYEE', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        prisma.factureMensuelleEtablissement.update.mockResolvedValue({
+          id: 'fe-1', statut: 'PAYEE', montantTotal: dec(120000), montantPaye: dec(120000),
+        });
+
+        const res: any = await service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' });
+
+        expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+          where: { id: 'cf-1' },
+          data: { soldeActuel: { decrement: '120000.00' } },
+        });
+        expect(prisma.factureMensuelleEtablissement.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { id: 'fe-1' },
+            data: expect.objectContaining({ statut: 'PAYEE', montantPaye: '120000.00', datePaiement: expect.any(Date) }),
+          }),
+        );
+        expect(prisma.mouvementFinancier.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ compteSourceId: 'cf-1', compteDestinationId: null, type: 'PAIEMENT_FACTURE', montant: '120000.00' }),
+          }),
+        );
+        expect(res.montantTotal).toBe('120000.00');
+        expect(res.montantPaye).toBe('120000.00');
+        expect(res.montantRestant).toBe('0.00');
+      });
+
+      it('paiement partiel : montant < restant dû → PARTIELLEMENT_REGLEE, restant recalculé', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        prisma.factureMensuelleEtablissement.update.mockResolvedValue({
+          id: 'fe-1', statut: 'PARTIELLEMENT_REGLEE', montantTotal: dec(120000), montantPaye: dec(50000),
+        });
+
+        const res: any = await service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1', montant: 50000 });
+
+        expect(prisma.factureMensuelleEtablissement.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ statut: 'PARTIELLEMENT_REGLEE', montantPaye: '50000.00' }),
+          }),
+        );
+        expect(res.montantRestant).toBe('70000.00');
+      });
+
+      it('paiement partiel puis complément : restant recalculé depuis montantPaye déjà existant', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PARTIELLEMENT_REGLEE', montantTotal: dec(120000), montantPaye: dec(50000),
+          etablissement: { nom: 'FARAH' },
+        });
+        prisma.factureMensuelleEtablissement.update.mockResolvedValue({
+          id: 'fe-1', statut: 'PAYEE', montantTotal: dec(120000), montantPaye: dec(120000),
+        });
+
+        const res: any = await service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' });
+
+        expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+          where: { id: 'cf-1' },
+          data: { soldeActuel: { decrement: '70000.00' } },
+        });
+        expect(res.montantRestant).toBe('0.00');
+      });
+
+      it('dateProgrammee future : NE débite PAS, statut PAIEMENT_PROGRAMME, intention stockée', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        prisma.factureMensuelleEtablissement.update.mockResolvedValue({
+          id: 'fe-1', statut: 'PAIEMENT_PROGRAMME', montantTotal: dec(120000), montantPaye: dec(0),
+        });
+
+        const res = await service.payerFacture(USER, {
+          factureMensuelleId: 'fe-1',
+          compteId: 'cf-1',
+          dateProgrammee: futur(),
+          preuvePaiement: ['virement-2026-10.pdf'],
+        });
+
+        expect(prisma.compteFinancier.update).not.toHaveBeenCalled();
+        expect(prisma.mouvementFinancier.create).not.toHaveBeenCalled();
+        expect(prisma.factureMensuelleEtablissement.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              statut: 'PAIEMENT_PROGRAMME',
+              paiementProgrammeCompteId: 'cf-1',
+              paiementProgrammeMontant: '120000.00',
+              paiementProgrammePreuves: ['virement-2026-10.pdf'],
+            }),
+          }),
+        );
+        expect(res.statut).toBe('PAIEMENT_PROGRAMME');
+      });
+
+      it('confirmation (facture déjà PAIEMENT_PROGRAMME, rappel sans date) : débite réellement maintenant', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PAIEMENT_PROGRAMME', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        prisma.factureMensuelleEtablissement.update.mockResolvedValue({
+          id: 'fe-1', statut: 'PAYEE', montantTotal: dec(120000), montantPaye: dec(120000),
+        });
+
+        const res = await service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' });
+
+        expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+          where: { id: 'cf-1' },
+          data: { soldeActuel: { decrement: '120000.00' } },
+        });
+        expect(prisma.mouvementFinancier.create).toHaveBeenCalled();
+        expect(res.statut).toBe('PAYEE');
+      });
+
+      it('facture pharmacie (introuvable côté établissement, trouvée côté pharmacie)', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue(null);
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
+          id: 'fp-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(30000), montantPaye: dec(0),
+          pharmacie: { nom: 'Pharmacie Centrale' },
+        });
+        prisma.factureMensuellePharmacie.update.mockResolvedValue({
+          id: 'fp-1', statut: 'PAYEE', montantTotal: dec(30000), montantPaye: dec(30000),
+        });
+
+        const res = await service.payerFacture(USER, { factureMensuelleId: 'fp-1', compteId: 'cf-1' });
+
+        expect(prisma.factureMensuellePharmacie.update).toHaveBeenCalled();
+        expect(prisma.factureMensuelleEtablissement.update).not.toHaveBeenCalled();
+        expect(res.statut).toBe('PAYEE');
+      });
+    });
+
+    describe('paiement groupé', () => {
+      beforeEach(() => {
+        prisma.compteFinancier.findFirst.mockResolvedValue({ id: 'cf-1', nom: 'Compte principal', soldeActuel: dec(500000) });
+      });
+
+      it('groupe introuvable → 404', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.paiementGroupe.findFirst.mockResolvedValue(null);
+        await expect(
+          service.payerFacture(USER, { paiementGroupeId: 'pg-x', compteId: 'cf-1' }),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
+      it('déjà PAYE → 409', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.paiementGroupe.findFirst.mockResolvedValue({ id: 'pg-1', statut: 'PAYE', montantTotal: dec(24000), factures: [] });
+        await expect(
+          service.payerFacture(USER, { paiementGroupeId: 'pg-1', compteId: 'cf-1' }),
+        ).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('montant fourni ≠ montant total du groupe → 400 (jamais de paiement partiel de groupe)', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.paiementGroupe.findFirst.mockResolvedValue({ id: 'pg-1', statut: 'PROGRAMME', montantTotal: dec(24000), factures: [] });
+        await expect(
+          service.payerFacture(USER, { paiementGroupeId: 'pg-1', compteId: 'cf-1', montant: 10000 }),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('solde insuffisant → 409, aucune écriture', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.compteFinancier.findFirst.mockResolvedValue({ id: 'cf-1', nom: 'Petit compte', soldeActuel: dec(100) });
+        prisma.paiementGroupe.findFirst.mockResolvedValue({ id: 'pg-1', statut: 'PROGRAMME', montantTotal: dec(24000), factures: [] });
+        await expect(
+          service.payerFacture(USER, { paiementGroupeId: 'pg-1', compteId: 'cf-1' }),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(prisma.compteFinancier.update).not.toHaveBeenCalled();
+      });
+
+      it('paiement intégral : débite le compte, cascade PAYEE (montantPaye = montantTotal) sur établissement ET pharmacie', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        const montant1 = dec(15000);
+        const montant2 = dec(9000);
+        prisma.paiementGroupe.findFirst.mockResolvedValue({
+          id: 'pg-1',
+          statut: 'PROGRAMME',
+          montantTotal: dec(24000),
+          beneficiaireType: 'ETABLISSEMENT',
+          beneficiaireId: 'etab-1',
+          factures: [
+            {
+              factureMensuelleEtablissementId: 'fe-1',
+              factureMensuellePharmacieId: null,
+              factureMensuelleEtablissement: { id: 'fe-1', montantTotal: montant1 },
+              factureMensuellePharmacie: null,
+            },
+            {
+              factureMensuelleEtablissementId: 'fe-2',
+              factureMensuellePharmacieId: null,
+              factureMensuelleEtablissement: { id: 'fe-2', montantTotal: montant2 },
+              factureMensuellePharmacie: null,
+            },
+          ],
+        });
+        prisma.etablissementSante.findMany.mockResolvedValue([{ id: 'etab-1', nom: 'FARAH' }]);
+        prisma.paiementGroupe.update.mockResolvedValue({ id: 'pg-1', statut: 'PAYE', montantTotal: dec(24000) });
+
+        const res = await service.payerFacture(USER, { paiementGroupeId: 'pg-1', compteId: 'cf-1' });
+
+        expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+          where: { id: 'cf-1' },
+          data: { soldeActuel: { decrement: '24000.00' } },
+        });
+        expect(prisma.factureMensuelleEtablissement.update).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: 'fe-1' }, data: expect.objectContaining({ statut: 'PAYEE', montantPaye: montant1 }) }),
+        );
+        expect(prisma.factureMensuelleEtablissement.update).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: 'fe-2' }, data: expect.objectContaining({ statut: 'PAYEE', montantPaye: montant2 }) }),
+        );
+        expect(prisma.mouvementFinancier.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ montant: '24000.00', type: 'PAIEMENT_FACTURE' }) }),
+        );
+        expect(res.statut).toBe('PAYE');
+      });
+
+      it('dateProgrammee future : NE débite PAS, statut PAIEMENT_PROGRAMME', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.paiementGroupe.findFirst.mockResolvedValue({ id: 'pg-1', statut: 'PROGRAMME', montantTotal: dec(24000), factures: [] });
+        prisma.paiementGroupe.update.mockResolvedValue({ id: 'pg-1', statut: 'PAIEMENT_PROGRAMME', montantTotal: dec(24000) });
+
+        const res = await service.payerFacture(USER, {
+          paiementGroupeId: 'pg-1',
+          compteId: 'cf-1',
+          dateProgrammee: futur(),
+        });
+
+        expect(prisma.compteFinancier.update).not.toHaveBeenCalled();
+        expect(res.statut).toBe('PAIEMENT_PROGRAMME');
+      });
     });
   });
 });

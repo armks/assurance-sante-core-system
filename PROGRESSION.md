@@ -4898,3 +4898,80 @@ directement en base, puis `ASSUREUR_COMPTABLE_ADJOINT` refusé (403) sur la cré
 deux formes d'approvisionnement, ET la simple lecture de la liste. Toutes les données de
 test éphémères supprimées, résidu nul vérifié indépendamment (0 compte financier, 0 profil
 restants).
+
+## 2026-09-23 (suite) — Mouvements entre comptes financiers + suivi des dépenses courantes
+
+Étend le socle des comptes financiers (ci-dessus) avec la table de mouvements : même
+périmètre EXCLUSIF (`ASSUREUR_COMPTABLE`, jamais l'adjoint, comparaison sur le rôle exact).
+
+### 1. `mouvements_financiers` (prisma/sql/050) — table d'audit IMMUABLE
+`compte_source_id`/`compte_destination_id` nullables selon `type` (contrainte SQL
+`mouvements_financiers_comptes_coherents` : TRANSFERT exige les deux, DEPENSE et
+PAIEMENT_FACTURE la source seule, APPROVISIONNEMENT la destination seule), plus une
+contrainte anti-auto-transfert (`compte_source_id is distinct from compte_destination_id`).
+RLS lecture identique à `comptes_financiers` (rôle exact) ; écriture en `for insert`
+seulement (jamais `for all`) — cohérent avec « jamais modifiée après création, seulement
+des insertions », RLS et application interdisent toutes deux l'update/delete. `organisation_id`
+ajouté à la table bien que non listé explicitement dans la demande : nécessaire pour scoper
+la RLS et cohérent avec la règle transverse déjà appliquée à toutes les tables sensibles du
+projet. Bucket Storage privé dédié `mouvements-financiers` (même schéma que `contestations`/
+`cartes`) pour les pièces jointes (chèque/reçu, PDF/JPEG/PNG, 10 Mo max) — le champ
+`piece_jointe_url` stocke en réalité le CHEMIN dans le bucket, jamais une URL, signée à la
+demande (`GET payment/mouvements/:id/piece`, durée limitée) : même principe que
+`pieces_justificatives` des contestations, jamais d'URL permanente en base.
+
+`type` accepte aussi `APPROVISIONNEMENT` et `PAIEMENT_FACTURE` (demandés dans l'énoncé de la
+table) : `approvisionnerCompte` (déjà existant, prompt précédent) a été étendu pour y écrire
+également un mouvement — sinon l'historique par compte aurait un trou sur son propre mode de
+financement, alors que la table venait justement d'être conçue pour ça. `PAIEMENT_FACTURE`
+reste défini mais non émis : `marquerPaiementGroupePaye` ne débite aujourd'hui aucun compte
+financier (aucun lien entre les deux domaines n'a été demandé) — réservé à une intégration
+future plutôt qu'inventé ici.
+
+### 2. `transfererEntreComptes(compteSourceId, compteDestinationId, montant, description?, pieceJointe?)`
+Débite la source et crédite la destination dans LA MÊME transaction Prisma, refuse (409,
+message explicite avec le nom du compte et le solde disponible) si le solde source est
+insuffisant — vérifié AVANT toute écriture, aucun mouvement partiel possible. Rejette aussi
+compte source = compte destination (400) et un UUID mal formé (400, évite une erreur
+Postgres brute puisque ces champs arrivent en `multipart/form-data`, jamais validés par
+class-validator sur cette route — voir point 4). `description` n'était pas dans la signature
+demandée pour cette fonction (contrairement à `enregistrerDepense`) alors que la table
+l'exige : rendue optionnelle, auto-générée (« Transfert de « X » vers « Y ».») si omise.
+
+### 3. `enregistrerDepense(compteId, montant, description, pieceJointe?)`
+Débite un compte (bancaire ou caisse interne), refuse (409) si le solde est insuffisant —
+jamais de compte négatif par cette voie. `description` requise (min. 3 caractères, 400
+sinon), conforme à la signature demandée.
+
+### 4. Upload réel (multipart) — extension du mécanisme déjà en place pour les contestations
+`FileInterceptor('pieceJointe')` sur les deux routes POST ; champs texte extraits
+individuellement via `@Body('champ')` plutôt qu'un DTO `class-validator`, même convention
+que `ContestationController` (un DTO de classe n'est pas fiable sur une requête multipart où
+tous les champs arrivent en `string`). Validation manuelle côté service : UUID (regex),
+montant (`Decimal`, > 0), description. Mime autorisés PDF/JPEG/PNG, 10 Mo max (mêmes limites
+que les contestations).
+
+### 5. Écran `/dashboard-assureur/comptable/mouvements-financiers`
+Deux formulaires d'action (Nouveau transfert, Nouvelle dépense — sélecteurs de comptes avec
+solde affiché, champ fichier facultatif) + tableau d'historique avec filtres multicritères
+100% client-side (compte, type, période du/au, montant min/max — même approche que l'écran
+« Suivi des paiements » du prompt précédent : pas de filtres serveur, la table est petite et
+déjà chargée). Quand un compte précis est filtré, une colonne « Solde après » reconstitue le
+solde du compte à l'issue de CHAQUE mouvement en partant de son solde actuel et en défaisant
+les mouvements du plus récent au plus ancien — masquée quand le filtre est sur « tous les
+comptes » (un solde courant unique n'a pas de sens en mélangeant plusieurs comptes). Lien de
+navigation ajouté seulement à `[COMPTABLE]`, jamais `[COMPTABLE_ADJOINT]`, même asymétrie que
+« Comptes financiers ».
+
+### Tests
+Backend : 55 tests sur `payment.service.spec.ts` (27 nouveaux), suite complète 526/526.
+Piège d'héritage revérifié sur les 2 nouvelles fonctions ET sur `listerMouvementsFinanciers`/
+`obtenirUrlPieceJointeMouvement` avec le même helper `comptableAdjoint()`. `npx tsc --noEmit`
+propre API et Web. Test HTTP réel (16/16) : transfert de 30 000 F entre 2 comptes fraîchement
+créés (soldes 70 000 F / 50 000 F vérifiés en relisant la liste — atomicité confirmée),
+dépense de 5 000 F avec une pièce jointe PDF réellement téléversée (présence confirmée via
+`aUnePieceJointe` puis URL signée obtenue), tentative de transfert de 999 999 F (solde
+disponible 70 000 F) refusée en 409 avec message explicite, solde inchangé après le refus,
+plus en bonus `ASSUREUR_COMPTABLE_ADJOINT` refusé (403) sur le transfert ET la lecture de
+l'historique. Toutes les données de test éphémères supprimées, résidu nul vérifié
+indépendamment (0 mouvement, 0 compte financier, 0 profil restants).

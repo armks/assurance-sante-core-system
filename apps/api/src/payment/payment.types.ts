@@ -54,3 +54,22 @@ export interface ContexteAppelant {
   role: string | null;
   roleChain: string[];
 }
+
+// --- Mouvements entre comptes + dépenses courantes ------------------------
+
+/**
+ * `TRANSFERT`/`DEPENSE` sont émis par `transfererEntreComptes`/
+ * `enregistrerDepense` (ce module). `APPROVISIONNEMENT` est émis par
+ * `approvisionnerCompte` (déjà existant) pour que l'historique par compte
+ * reste complet. `PAIEMENT_FACTURE` est réservé à une intégration future avec
+ * le règlement des paiements groupés (`marquerPaiementGroupePaye` ne débite
+ * aujourd'hui aucun compte financier) — défini ici pour la contrainte SQL
+ * (prisma/sql/050) mais non encore émis par aucun flux.
+ */
+export const MOUVEMENT_TYPES = ['TRANSFERT', 'DEPENSE', 'APPROVISIONNEMENT', 'PAIEMENT_FACTURE'] as const;
+export type TypeMouvementFinancier = (typeof MOUVEMENT_TYPES)[number];
+
+/** Bucket Supabase Storage privé — jamais d'URL publique, toujours signée à la demande. */
+export const BUCKET_MOUVEMENTS_FINANCIERS = 'mouvements-financiers';
+export const TAILLE_MAX_PIECE_JOINTE_OCTETS = 10 * 1024 * 1024;
+export const MIME_TYPES_PIECE_JOINTE_AUTORISES = ['application/pdf', 'image/jpeg', 'image/png'];

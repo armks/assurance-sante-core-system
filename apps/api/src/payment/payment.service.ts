@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
@@ -17,14 +18,27 @@ import {
   CreerCompteFinancierDto,
 } from './dto/payment.dto';
 import {
+  BUCKET_MOUVEMENTS_FINANCIERS,
   CATEGORIE_ACTE_PHARMACIE,
   ContexteAppelant,
+  MIME_TYPES_PIECE_JOINTE_AUTORISES,
   ROLES_GESTION_COMPTES_FINANCIERS,
   ROLE_COMPTABLE_PAIEMENT_GROUPE,
   STATUT_FACTURE_MENSUELLE_GROUPABLE,
+  TAILLE_MAX_PIECE_JOINTE_OCTETS,
 } from './payment.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
+
+/** Forme minimale d'un fichier téléversé (multer, mémoire) — même convention
+ * que `ContestationService` (pas de dépendance à `@types/multer`), dupliquée
+ * localement plutôt qu'importée d'un autre module (un module = un domaine). */
+export interface FichierTeleverse {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+}
 
 /**
  * PaymentService — module `payment/` : regroupement de factures mensuelles
@@ -35,6 +49,7 @@ type Db = PrismaService | Prisma.TransactionClient;
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
+  private readonly dureeUrlSignee = 3600;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -526,6 +541,21 @@ export class PaymentService {
           data: { soldeActuel: { decrement: dto.montant.toFixed(2) } },
         });
       }
+      await tx.mouvementFinancier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          compteSourceId: compteSource?.id ?? null,
+          compteDestinationId: compteId,
+          type: 'APPROVISIONNEMENT',
+          montant: dto.montant.toFixed(2),
+          description:
+            dto.source === 'AUTRE_COMPTE'
+              ? `Approvisionnement depuis le compte « ${compteSource?.id ?? '—'} ».`
+              : (dto.piecesJustificatives ?? []).join(', ') || 'Approvisionnement externe.',
+          pieceJointeUrl: null,
+          effectueParId: ctx.userId,
+        },
+      });
       await this.audit(
         tx,
         ctx.userId,
@@ -543,6 +573,299 @@ export class PaymentService {
     });
 
     return { ...maj, soldeActuel: maj.soldeActuel.toFixed(2) };
+  }
+
+  // --- Mouvements entre comptes + dépenses courantes -----------------------
+
+  /**
+   * Historique des mouvements de l'organisation, plus récents d'abord — le
+   * filtrage (compte, type, période, montant) est fait côté écran, même
+   * convention que `listerFacturesPourComptableGlobal` (données dénormalisées,
+   * filtrage 100% client-side).
+   */
+  async listerMouvementsFinanciers(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionComptesFinanciers(ctx);
+
+    const mouvements = await this.prisma.mouvementFinancier.findMany({
+      where: { organisationId: ctx.organisationId },
+      include: {
+        compteSource: { select: { id: true, nom: true } },
+        compteDestination: { select: { id: true, nom: true } },
+        effectuePar: { select: { role: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return mouvements.map((m) => ({
+      id: m.id,
+      type: m.type,
+      montant: m.montant.toFixed(2),
+      description: m.description,
+      aUnePieceJointe: m.pieceJointeUrl !== null,
+      compteSource: m.compteSource ? { id: m.compteSource.id, nom: m.compteSource.nom } : null,
+      compteDestination: m.compteDestination ? { id: m.compteDestination.id, nom: m.compteDestination.nom } : null,
+      effectuePar: m.effectuePar.role,
+      createdAt: m.createdAt,
+    }));
+  }
+
+  /** URL signée (durée limitée) de la pièce jointe d'un mouvement — jamais d'URL publique. */
+  async obtenirUrlPieceJointeMouvement(user: AuthenticatedUser, mouvementId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionComptesFinanciers(ctx);
+
+    const mouvement = await this.prisma.mouvementFinancier.findFirst({
+      where: { id: mouvementId, organisationId: ctx.organisationId },
+    });
+    if (!mouvement) {
+      throw new NotFoundException('Mouvement introuvable.');
+    }
+    if (!mouvement.pieceJointeUrl) {
+      throw new NotFoundException("Ce mouvement n'a pas de pièce jointe.");
+    }
+    const url = await this.signerPieceJointe(mouvement.pieceJointeUrl);
+    return { url, expiresIn: this.dureeUrlSignee };
+  }
+
+  /**
+   * Transfert entre deux comptes financiers de l'organisation — débite la
+   * source et crédite la destination dans LA MÊME transaction (jamais l'un
+   * sans l'autre), refuse si le solde source est insuffisant.
+   */
+  async transfererEntreComptes(
+    user: AuthenticatedUser,
+    compteSourceId: string,
+    compteDestinationId: string,
+    montantBrut: string,
+    description: string | undefined,
+    pieceJointe: FichierTeleverse | null,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionComptesFinanciers(ctx);
+
+    this.assertUuid(compteSourceId, 'compteSourceId');
+    this.assertUuid(compteDestinationId, 'compteDestinationId');
+    if (compteSourceId === compteDestinationId) {
+      throw new BadRequestException('Le compte source et le compte destination doivent être différents.');
+    }
+    const montant = this.parserMontant(montantBrut);
+
+    const [source, destination] = await Promise.all([
+      this.prisma.compteFinancier.findFirst({
+        where: { id: compteSourceId, organisationId: ctx.organisationId, deletedAt: null },
+      }),
+      this.prisma.compteFinancier.findFirst({
+        where: { id: compteDestinationId, organisationId: ctx.organisationId, deletedAt: null },
+      }),
+    ]);
+    if (!source) throw new NotFoundException('Compte source introuvable.');
+    if (!destination) throw new NotFoundException('Compte destination introuvable.');
+
+    const soldeSource = new Decimal(source.soldeActuel.toString());
+    if (soldeSource.lt(montant)) {
+      throw new ConflictException(
+        `Solde insuffisant sur le compte source « ${source.nom} » (${soldeSource.toFixed(2)} F) pour transférer ${montant.toFixed(2)} F.`,
+      );
+    }
+
+    const pieceJointeUrl = pieceJointe ? await this.televerserPieceJointe(ctx.organisationId, pieceJointe) : null;
+    const descriptionFinale = description?.trim() || `Transfert de « ${source.nom} » vers « ${destination.nom} ».`;
+
+    const mouvement = await this.prisma.$transaction(async (tx) => {
+      await tx.compteFinancier.update({
+        where: { id: compteSourceId },
+        data: { soldeActuel: { decrement: montant.toFixed(2) } },
+      });
+      await tx.compteFinancier.update({
+        where: { id: compteDestinationId },
+        data: { soldeActuel: { increment: montant.toFixed(2) } },
+      });
+      const m = await tx.mouvementFinancier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          compteSourceId,
+          compteDestinationId,
+          type: 'TRANSFERT',
+          montant: montant.toFixed(2),
+          description: descriptionFinale,
+          pieceJointeUrl,
+          effectueParId: ctx.userId,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'TRANSFERT_ENTRE_COMPTES',
+        m.id,
+        { compteSourceId, compteDestinationId, montant: montant.toFixed(2) },
+        'mouvements_financiers',
+      );
+      return m;
+    });
+
+    return { ...mouvement, montant: mouvement.montant.toFixed(2) };
+  }
+
+  /**
+   * Dépense courante — débite un compte (bancaire ou caisse interne) et trace
+   * le mouvement. Refuse si le solde est insuffisant (jamais de compte
+   * négatif par cette voie).
+   */
+  async enregistrerDepense(
+    user: AuthenticatedUser,
+    compteId: string,
+    montantBrut: string,
+    description: string,
+    pieceJointe: FichierTeleverse | null,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionComptesFinanciers(ctx);
+
+    this.assertUuid(compteId, 'compteId');
+    if (!description || description.trim().length < 3) {
+      throw new BadRequestException('La description doit contenir au moins 3 caractères.');
+    }
+    const montant = this.parserMontant(montantBrut);
+
+    const compte = await this.prisma.compteFinancier.findFirst({
+      where: { id: compteId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!compte) {
+      throw new NotFoundException('Compte financier introuvable.');
+    }
+
+    const solde = new Decimal(compte.soldeActuel.toString());
+    if (solde.lt(montant)) {
+      throw new ConflictException(
+        `Solde insuffisant sur le compte « ${compte.nom} » (${solde.toFixed(2)} F) pour une dépense de ${montant.toFixed(2)} F.`,
+      );
+    }
+
+    const pieceJointeUrl = pieceJointe ? await this.televerserPieceJointe(ctx.organisationId, pieceJointe) : null;
+
+    const mouvement = await this.prisma.$transaction(async (tx) => {
+      await tx.compteFinancier.update({
+        where: { id: compteId },
+        data: { soldeActuel: { decrement: montant.toFixed(2) } },
+      });
+      const m = await tx.mouvementFinancier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          compteSourceId: compteId,
+          compteDestinationId: null,
+          type: 'DEPENSE',
+          montant: montant.toFixed(2),
+          description: description.trim(),
+          pieceJointeUrl,
+          effectueParId: ctx.userId,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'DEPENSE_COMPTE_FINANCIER',
+        m.id,
+        { compteId, montant: montant.toFixed(2) },
+        'mouvements_financiers',
+      );
+      return m;
+    });
+
+    return { ...mouvement, montant: mouvement.montant.toFixed(2) };
+  }
+
+  private parserMontant(montantBrut: string): Decimal {
+    if (montantBrut === undefined || montantBrut === null || montantBrut === '') {
+      throw new BadRequestException('Le montant est requis.');
+    }
+    let montant: Decimal;
+    try {
+      montant = new Decimal(String(montantBrut).replace(',', '.'));
+    } catch {
+      throw new BadRequestException('Le montant doit être un nombre valide.');
+    }
+    if (!montant.isFinite() || montant.lte(0)) {
+      throw new BadRequestException('Le montant doit être un nombre supérieur à zéro.');
+    }
+    return montant;
+  }
+
+  private static readonly REGEX_UUID =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  private assertUuid(valeur: string | undefined, nomChamp: string): void {
+    if (!valeur || !PaymentService.REGEX_UUID.test(valeur)) {
+      throw new BadRequestException(`${nomChamp} doit être un UUID valide.`);
+    }
+  }
+
+  // --- Stockage (Supabase Storage, bucket privé) ----------------------
+
+  private get baseStorage(): string {
+    return `${(process.env.SUPABASE_URL ?? '').replace(/\/$/, '')}/storage/v1`;
+  }
+
+  private get serviceKey(): string {
+    return process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+  }
+
+  private async televerserPieceJointe(organisationId: string, fichier: FichierTeleverse): Promise<string> {
+    if (!process.env.SUPABASE_URL || !this.serviceKey) {
+      throw new ServiceUnavailableException(
+        'Stockage des pièces jointes indisponible : SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY absents.',
+      );
+    }
+    if (!MIME_TYPES_PIECE_JOINTE_AUTORISES.includes(fichier.mimetype)) {
+      throw new BadRequestException(`Type de fichier non autorisé : ${fichier.mimetype}.`);
+    }
+    if (fichier.size > TAILLE_MAX_PIECE_JOINTE_OCTETS) {
+      throw new BadRequestException(`Fichier trop volumineux : ${fichier.originalname} (max 10 Mo).`);
+    }
+
+    const nomSur = `${Date.now()}-${fichier.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const chemin = `${organisationId}/${nomSur}`;
+
+    const up = await fetch(`${this.baseStorage}/object/${BUCKET_MOUVEMENTS_FINANCIERS}/${chemin}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.serviceKey}`,
+        apikey: this.serviceKey,
+        'Content-Type': fichier.mimetype,
+        'x-upsert': 'true',
+      },
+      body: fichier.buffer as unknown as BodyInit,
+    });
+    if (!up.ok) {
+      throw new ServiceUnavailableException(
+        `Téléversement de la pièce jointe refusé (${up.status} : ${(await up.text()).slice(0, 200)}).`,
+      );
+    }
+    return chemin;
+  }
+
+  private async signerPieceJointe(chemin: string): Promise<string> {
+    const sign = await fetch(
+      `${this.baseStorage}/object/sign/${BUCKET_MOUVEMENTS_FINANCIERS}/${chemin}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.serviceKey}`,
+          apikey: this.serviceKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ expiresIn: this.dureeUrlSignee }),
+      },
+    );
+    if (!sign.ok) {
+      throw new ServiceUnavailableException("Signature de l'URL de la pièce jointe refusée.");
+    }
+    const corps = (await sign.json()) as { signedURL?: string; signedUrl?: string };
+    const rel = corps.signedURL ?? corps.signedUrl;
+    if (!rel) {
+      throw new ServiceUnavailableException("Réponse de signature inattendue (pas d'URL).");
+    }
+    return `${this.baseStorage}${rel.startsWith('/') ? '' : '/'}${rel}`;
   }
 
   private async audit(

@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
@@ -7,7 +18,7 @@ import {
   AssocierFacturesPourPaiementDto,
   CreerCompteFinancierDto,
 } from './dto/payment.dto';
-import { PaymentService } from './payment.service';
+import { PaymentService, type FichierTeleverse } from './payment.service';
 
 /**
  * Endpoints REST du module `payment/` — regroupement de factures mensuelles
@@ -72,5 +83,55 @@ export class PaymentController {
     @Body() dto: ApprovisionnerCompteDto,
   ) {
     return this.payment.approvisionnerCompte(user, id, dto);
+  }
+
+  // --- Mouvements entre comptes + dépenses courantes — même périmètre
+  // EXCLUSIF que les comptes financiers. Multipart (pièce jointe optionnelle)
+  // : champs extraits individuellement via @Body('champ'), même convention
+  // que ContestationController (pas de DTO class-validator sur ces routes).
+
+  @Get('mouvements')
+  listerMouvementsFinanciers(@CurrentUser() user: AuthenticatedUser) {
+    return this.payment.listerMouvementsFinanciers(user);
+  }
+
+  @Get('mouvements/:id/piece')
+  obtenirUrlPieceJointeMouvement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.payment.obtenirUrlPieceJointeMouvement(user, id);
+  }
+
+  @Post('mouvements/transfert')
+  @UseInterceptors(FileInterceptor('pieceJointe'))
+  transfererEntreComptes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body('compteSourceId') compteSourceId: string,
+    @Body('compteDestinationId') compteDestinationId: string,
+    @Body('montant') montant: string,
+    @Body('description') description: string | undefined,
+    @UploadedFile() pieceJointe: FichierTeleverse | undefined,
+  ) {
+    return this.payment.transfererEntreComptes(
+      user,
+      compteSourceId,
+      compteDestinationId,
+      montant,
+      description,
+      pieceJointe ?? null,
+    );
+  }
+
+  @Post('mouvements/depense')
+  @UseInterceptors(FileInterceptor('pieceJointe'))
+  enregistrerDepense(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body('compteId') compteId: string,
+    @Body('montant') montant: string,
+    @Body('description') description: string,
+    @UploadedFile() pieceJointe: FichierTeleverse | undefined,
+  ) {
+    return this.payment.enregistrerDepense(user, compteId, montant, description, pieceJointe ?? null);
   }
 }

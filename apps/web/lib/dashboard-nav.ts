@@ -306,6 +306,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${COMPTABLE}/comptes-financiers`,
       icon: Wallet,
     },
+    {
+      label: 'Mouvements & dépenses',
+      href: `${COMPTABLE}/mouvements-financiers`,
+      icon: Wallet,
+    },
   ],
   [COMPTABLE_ADJOINT]: navComptable(COMPTABLE_ADJOINT),
   [INFORMATIQUE]: navInformatique(INFORMATIQUE),

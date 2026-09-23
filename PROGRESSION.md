@@ -5147,3 +5147,80 @@ puis présent le mois suivant, bénéficiaire ajouté en cours de mois immédiat
 généré le mois suivant), consolidation société passant de 1 à 2 adhérents facturés d'un
 mois à l'autre. Toutes les données de test éphémères supprimées, résidu nul vérifié
 indépendamment sur les deux scripts.
+
+## 2026-09-23 (suite 4) — Import en masse d'adhérents depuis Excel
+
+Nouveau module `member/import-adherents.service.ts` (même module que `AdherentService`/
+`MemberCarteService` — un domaine métier strict) pour une société cliente déjà créée avec
+sa police/formule établie.
+
+### Bibliothèque de parsing Excel — écartée `xlsx` (SheetJS) au profit d'`exceljs`
+`xlsx` était le choix évident mais `npm audit` révèle deux vulnérabilités HIGH connues
+(Prototype Pollution, ReDoS) sur le paquet npm officiel — inacceptable pour parser un
+fichier envoyé par un utilisateur (surface d'attaque directe). Remplacé par `exceljs`
+(seule vulnérabilité : modérée, sur un chemin de code — buffer explicite fourni à `uuid` —
+jamais emprunté ici).
+
+### 1. `importerAdherentsExcel(souscripteurId, fichier)` — réservé ASSUREUR_INFORMATIQUE/ASSUREUR_COMPTABLE
+Parse le .xlsx (colonnes nom/prénom/téléphone/email/date de naissance — en-têtes reconnus
+avec ou sans accents/espaces/tirets). La police/formule est déterminée par le
+`souscripteurId` choisi, jamais répétée ligne par ligne. **N'écrit AUCUN `Adherent`** —
+persiste un `ImportAdherents` en `EN_ATTENTE_VALIDATION` avec `lignesValides` (JSON, prêtes
+à créer) et `erreursDetail` (JSON, une entrée précise par ligne rejetée : numéro de ligne,
+données brutes, liste des erreurs) — jamais un fichier bloquant : les lignes valides
+avancent, les autres sont listées sans interrompre l'import.
+
+Erreurs détectées : champ obligatoire manquant (nom/prénom/téléphone/email/date de
+naissance), email invalide (`class-validator` `isEmail`, déjà une dépendance — pas de
+nouvelle lib pour ça), téléphone invalide (regex permissive 8-15 chiffres, +optionnel),
+date de naissance illisible (ISO ou JJ/MM/AAAA, ou cellule Excel déjà typée Date). Email en
+doublon vérifié à DEUX niveaux : **dans le fichier** (toutes les lignes partageant un même
+email sont rejetées — impossible de deviner laquelle est la bonne) ET **contre les
+adhérents déjà existants** de l'organisation entière.
+
+Le schéma (`Adherent`) gagne `email` (unique quand renseigné) et `telephone` — et `sexe`
+devient NULLABLE : les 5 colonnes demandées n'incluent pas le sexe, un champ jusque-là
+`not null`. Reste requis pour la création manuelle (`CreateAdherentDto`, inchangée) ; usage
+backend de `.sexe` vérifié étroit (4 occurrences, toutes dans `adherent.service.ts`) avant
+de changer la contrainte — risque de régression jugé faible.
+
+### 2. `imports_adherents` (prisma/sql/053)
+`souscripteur_id`, `fichier_nom`, `statut` EN_ATTENTE_VALIDATION/VALIDE/REJETE (ce dernier
+défini pour le schéma, non câblé à une action — aucun endpoint de rejet demandé),
+`nb_lignes_*`, `lignes_valides`/`erreurs_detail` en jsonb, `importe_par`/`valide_par`+
+`date_validation`. RLS scindée en 3 policies (lecture : les 3 rôles concernés ; insertion :
+INFORMATIQUE/COMPTABLE seuls ; mise à jour/validation : INFORMATIQUE/EXPLOITATION seuls) —
+pas de `regles_provisioning` : cette table gouverne un import métier, pas la création d'un
+compte utilisateur.
+
+### 3. `validerImportAdherents(importId)` — réservé ASSUREUR_INFORMATIQUE/ASSUREUR_EXPLOITATION
+Seul moment où les `Adherent` réels sont créés — numéro chronologique via la séquence déjà
+existante (`adherents_numero_seq`, inchangée), carte générée en réutilisant TEL QUEL
+`MemberCarteService.genererCarteAdherent` (aucune duplication de la génération PDF/QR/
+Storage). Un échec ponctuel de génération de carte (ex. Storage indisponible pour une ligne)
+n'interrompt ni les autres lignes ni la validation elle-même — l'adhérent existe déjà,
+listé dans `echecsCarte` pour régénération séparée plus tard. Requiert une police ACTIVE
+pour le souscripteur (409 sinon) et au moins une ligne valide (409 sinon) ; refuse un import
+déjà VALIDE/REJETE (409) ; rôle non habilité → 403 (`ASSUREUR_COMPTABLE`, qui a pourtant pu
+importer, ne peut pas valider — création et validation restent deux étapes distinctes,
+même principe que `validerAdherent`/coupure de facturation du prompt précédent).
+
+### 4. Écran `/dashboard-assureur/informatique/adherents`
+Bouton « Importer depuis Excel » (société + fichier .xlsx) et section « Imports en attente
+de validation » : un import par carte, aperçu des lignes valides (tableau) et en erreur
+(liste avec le motif précis par ligne) affiché à la demande — c'est cet aperçu, persistant
+tant que l'import n'est pas validé, qui sert de « confirmation avant validation » (pas un
+troisième état intermédiaire non persisté). Bouton « Valider l'import » visible seulement
+pour INFORMATIQUE/EXPLOITATION.
+
+### Tests
+Backend : 17 nouveaux tests (`import-adherents.service.spec.ts` — fichiers .xlsx réels
+générés via `exceljs` en mémoire, pas des mocks de parsing), suite complète 579/579.
+`npx tsc --noEmit` propre API et Web. Test HTTP réel (16/16) : fichier de 4 lignes (2
+valides, 2 en erreur car partageant le même email) importé par ASSUREUR_INFORMATIQUE →
+EN_ATTENTE_VALIDATION, 0 adhérent en base à ce stade (vérifié indépendamment) ;
+ASSUREUR_COMPTABLE refusé (403) sur la validation ; ASSUREUR_EXPLOITATION valide → 2
+adhérents créés avec numéro chronologique et numéro de carte réels, carte générée avec
+succès pour les deux (0 échec), les 2 lignes en erreur n'ont créé aucun adhérent. Toutes les
+données de test éphémères supprimées, résidu nul vérifié indépendamment (0 adhérent, 0
+import, 0 profil restants).

@@ -2,15 +2,21 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { AdherentsListe } from '@/components/dashboard/adherents/adherents-liste';
+import { ImportsAdherentsPanel } from '@/components/dashboard/adherents/imports-adherents-panel';
 import type {
   AdherentListe,
+  ImportAdherentsResume,
   OptionRef,
   PoliceRef,
 } from '@/components/dashboard/adherents/types';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
-import { peutGererMembres } from '@/lib/member';
+import {
+  peutGererMembres,
+  peutImporterAdherents,
+  peutValiderImportAdherents,
+} from '@/lib/member';
 
 export const metadata: Metadata = { title: 'Adhérents — Assurance Informatique' };
 
@@ -20,15 +26,20 @@ export default async function AdherentsPage() {
   );
   if (etat.kind !== 'ok') redirect('/dashboard');
 
-  const [resA, resS, resP] = await Promise.all([
+  const [resA, resS, resP, resI] = await Promise.all([
     apiFetch('/api/v1/member/adherents'),
     apiFetch('/api/v1/tenant/souscripteurs'),
     apiFetch('/api/v1/policy/polices'),
+    apiFetch('/api/v1/member/imports-adherents'),
   ]);
   const adherents: AdherentListe[] = resA.ok ? await resA.json() : [];
   const erreur = resA.ok ? null : await messageErreur(resA);
   const souscripteurs: OptionRef[] = resS.ok ? await resS.json() : [];
   const polices: PoliceRef[] = resP.ok ? await resP.json() : [];
+  // 403 attendu pour un rôle sans rapport avec l'import (ex. médecin conseil) —
+  // pas une erreur de page, juste un panneau vide pour ce rôle.
+  const imports: ImportAdherentsResume[] = resI.ok ? await resI.json() : [];
+  const roleChain = etat.identity.permissions.roleChain;
 
   return (
     <div className="space-y-8">
@@ -39,13 +50,23 @@ export default async function AdherentsPage() {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <AdherentsListe
-          adherents={adherents}
-          souscripteurs={souscripteurs}
-          polices={polices}
-          peutCreer={peutGererMembres(etat.identity.permissions.roleChain)}
-          basePath="/dashboard-assureur/informatique/adherents"
-        />
+        <>
+          <AdherentsListe
+            adherents={adherents}
+            souscripteurs={souscripteurs}
+            polices={polices}
+            peutCreer={peutGererMembres(roleChain)}
+            basePath="/dashboard-assureur/informatique/adherents"
+          />
+          {(peutImporterAdherents(roleChain) || peutValiderImportAdherents(roleChain)) && (
+            <ImportsAdherentsPanel
+              imports={imports}
+              souscripteurs={souscripteurs}
+              peutImporter={peutImporterAdherents(roleChain)}
+              peutValider={peutValiderImportAdherents(roleChain)}
+            />
+          )}
+        </>
       )}
     </div>
   );

@@ -124,8 +124,10 @@ export function AdherentDetail({
           </Ligne>
           <Ligne label="Date de naissance">{dateFr(adherent.dateNaissance)}</Ligne>
           <Ligne label="Sexe">
-            {adherent.sexe === 'F' ? 'Féminin' : 'Masculin'}
+            {adherent.sexe === 'F' ? 'Féminin' : adherent.sexe === 'M' ? 'Masculin' : 'Non renseigné'}
           </Ligne>
+          <Ligne label="Téléphone">{adherent.telephone}</Ligne>
+          <Ligne label="Email">{adherent.email}</Ligne>
           <Ligne label="N° de carte">
             <span className="font-mono text-xs">{adherent.numeroCarte}</span>
           </Ligne>

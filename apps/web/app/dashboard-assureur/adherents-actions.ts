@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import type { ResultatSoumission } from '@/components/dashboard/patterns';
+import type { ImportAdherentsResume } from '@/components/dashboard/adherents/types';
 import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
 
 /** Toutes les routes qui affichent le fichier des membres (assureur + société). */
@@ -159,4 +160,31 @@ export async function genererCarteBeneficiaire(
   );
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
   return { ok: true, ...(await res.json()) };
+}
+
+// --- Import en masse depuis Excel (réservé ASSUREUR_INFORMATIQUE/
+// ASSUREUR_COMPTABLE ; validation réservée ASSUREUR_INFORMATIQUE/
+// ASSUREUR_EXPLOITATION) — aucun adhérent créé avant validation. --------
+
+export async function importerAdherentsExcel(
+  souscripteurId: string,
+  fd: FormData,
+): Promise<{ ok: true; import: ImportAdherentsResume } | { ok: false; error: string; erreurs: string[] }> {
+  const res = await apiFetch(`/api/v1/member/souscripteurs/${souscripteurId}/imports-adherents`, {
+    method: 'POST',
+    body: fd,
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalider();
+  return { ok: true, import: await res.json() };
+}
+
+export async function validerImportAdherents(
+  importId: string,
+): Promise<{ ok: true; nbAdherentsCrees: number } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/imports-adherents/${importId}/valider`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider();
+  const corps = await res.json();
+  return { ok: true, nbAdherentsCrees: corps.nbAdherentsCrees };
 }

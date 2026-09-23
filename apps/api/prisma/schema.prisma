@@ -68,6 +68,7 @@ model Organisation {
   paiementsGroupes PaiementGroupe[]
   comptesFinanciers CompteFinancier[]
   mouvementsFinanciers MouvementFinancier[]
+  importsAdherents ImportAdherents[]
 
   @@map("organisations")
 }
@@ -164,6 +165,8 @@ model Profil {
   comptesFinanciersCrees CompteFinancier[]
   mouvementsFinanciersEffectues MouvementFinancier[]
   adherentsValides Adherent[] @relation("AdherentValidePar")
+  importsAdherentsImportes ImportAdherents[] @relation("ImportAdherentsImportePar")
+  importsAdherentsValides  ImportAdherents[] @relation("ImportAdherentsValidePar")
 
   @@map("profils")
 }
@@ -194,6 +197,7 @@ model Souscripteur {
   cotisations            Cotisation[]
   questionnairesMedicaux QuestionnaireMedical[]
   adherents              Adherent[]
+  importsAdherents       ImportAdherents[]
 
   @@index([organisationId])
   @@index([type])
@@ -212,9 +216,17 @@ model Adherent {
   nom                 String
   prenom              String
   dateNaissance       DateTime  @map("date_naissance") @db.Date
-  sexe                String // M | F
+  /// Nullable depuis prisma/sql/053 : l'import Excel en masse (`ImportAdherentsService`)
+  /// ne collecte pas ce champ (colonnes nom/prénom/téléphone/email/date de
+  /// naissance uniquement) — reste requis pour la création manuelle (`CreateAdherentDto`).
+  sexe                String? // M | F
   statut              String    @default("ACTIF") // ACTIF | SUSPENDU | RADIE
   numeroCarte         String    @unique @default(dbgenerated("('CM-'::text || lpad((nextval('cartes_membre_numero_seq'::regclass))::text, 10, '0'::text))")) @map("numero_carte")
+  /// Import Excel en masse (prisma/sql/053) — unique quand renseigné (nombreux
+  /// adhérents existants n'en ont pas). Vérifié en doublon AVANT la création
+  /// (ImportAdherentsService), jamais silencieusement écrasé.
+  email               String?   @unique
+  telephone           String?
   ibanOuRib           String?   @map("iban_ou_rib")
   banqueNom           String?   @map("banque_nom")
   modePaiementPrefere String?   @map("mode_paiement_prefere") // MOBILE_MONEY | VIREMENT_BANCAIRE
@@ -249,6 +261,44 @@ model Adherent {
   @@index([statut])
   @@index([deletedAt])
   @@map("adherents")
+}
+
+/// imports_adherents — import en masse depuis un fichier Excel (.xlsx) pour
+/// une société déjà créée avec sa police/formule (`ImportAdherentsService`,
+/// prisma/sql/053). N'AUCUN adhérent n'est créé à l'import : `lignesValides`
+/// porte les lignes déjà validées (format, email non dupliqué) en attente de
+/// `validerImportAdherents` — seul ce second appel crée les `Adherent` réels
+/// et leurs cartes. `erreursDetail` liste précisément chaque ligne rejetée
+/// sans jamais bloquer l'import des lignes valides.
+model ImportAdherents {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId  String    @map("organisation_id") @db.Uuid
+  souscripteurId  String    @map("souscripteur_id") @db.Uuid
+  fichierNom      String    @map("fichier_nom")
+  statut          String    @default("EN_ATTENTE_VALIDATION") // EN_ATTENTE_VALIDATION | VALIDE | REJETE
+  nbLignesTotal   Int       @map("nb_lignes_total")
+  nbLignesValides Int       @map("nb_lignes_valides")
+  nbLignesErreur  Int       @map("nb_lignes_erreur")
+  /// Lignes déjà validées à l'import — array JSON {nom, prenom, telephone,
+  /// email, dateNaissance} — consommées (créées en `Adherent`) une seule fois,
+  /// à `validerImportAdherents`.
+  lignesValides   Json      @map("lignes_valides")
+  /// Array JSON {ligne, donnees, erreurs[]} — une entrée par ligne rejetée.
+  erreursDetail   Json      @map("erreurs_detail")
+  importeParId    String    @map("importe_par") @db.Uuid
+  valideParId     String?   @map("valide_par") @db.Uuid
+  dateValidation  DateTime? @map("date_validation") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  importePar   Profil       @relation("ImportAdherentsImportePar", fields: [importeParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  validePar    Profil?      @relation("ImportAdherentsValidePar", fields: [valideParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@index([souscripteurId])
+  @@index([statut])
+  @@map("imports_adherents")
 }
 
 /// beneficiaires — ayants droit rattachés à un adhérent titulaire. prisma/sql/022.

@@ -50,6 +50,24 @@ export const ROLE_GESTION_MEMBRE_SOCIETE = 'SOCIETE_ADMINISTRATION';
 export const ROLE_VALIDATION_ADHERENT = 'ASSUREUR_EXPLOITATION';
 
 /**
+ * Import en masse d'adhérents depuis un fichier Excel (prisma/sql/053) —
+ * réservé à ASSUREUR_INFORMATIQUE et ASSUREUR_COMPTABLE (cohérents avec
+ * `ROLES_GESTION_SOUSCRIPTEUR`, tenant.types.ts). L'import ne crée AUCUN
+ * adhérent — seule `validerImportAdherents` (rôles distincts ci-dessous) le fait.
+ */
+export const ROLES_IMPORT_ADHERENTS = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_COMPTABLE'] as const;
+
+/**
+ * Validation d'un import d'adhérents — réservée à ASSUREUR_INFORMATIQUE et
+ * ASSUREUR_EXPLOITATION (jamais ASSUREUR_COMPTABLE, qui peut pourtant
+ * importer le fichier — création et validation restent deux étapes
+ * distinctes, même principe que `ROLE_VALIDATION_ADHERENT`).
+ */
+export const ROLES_VALIDATION_IMPORT_ADHERENTS = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION'] as const;
+
+export const STATUTS_IMPORT_ADHERENTS = ['EN_ATTENTE_VALIDATION', 'VALIDE', 'REJETE'] as const;
+
+/**
  * Identification par numéro de carte à l'accueil du centre médical — ADDITIF
  * au code de consultation, ne le remplace pas. Purement informatif (statut
  * ACTIF/SUSPENDU/RADIE) : n'ouvre aucun dossier, ne crée rien. Réservé à

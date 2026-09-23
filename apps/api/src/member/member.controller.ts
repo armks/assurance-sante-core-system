@@ -9,8 +9,11 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
@@ -23,6 +26,7 @@ import {
   UpdateAdherentDto,
   UpdateBeneficiaireDto,
 } from './dto/member.dto';
+import { ImportAdherentsService, type FichierTeleverse } from './import-adherents.service';
 
 /**
  * Endpoints REST du module member — fichier des membres (v9 phase 3, PROMPT 12).
@@ -36,6 +40,7 @@ export class MemberController {
   constructor(
     private readonly adherents: AdherentService,
     private readonly cartes: MemberCarteService,
+    private readonly imports: ImportAdherentsService,
   ) {}
 
   // --- Identification par numéro de carte (accueil centre médical) -----
@@ -196,5 +201,32 @@ export class MemberController {
     @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
   ) {
     return this.adherents.supprimerBeneficiaire(user, id, beneficiaireId);
+  }
+
+  // --- Import en masse depuis Excel (réservé ASSUREUR_INFORMATIQUE/
+  // ASSUREUR_COMPTABLE ; validation réservée ASSUREUR_INFORMATIQUE/
+  // ASSUREUR_EXPLOITATION) ------------------------------------------
+
+  @Post('souscripteurs/:souscripteurId/imports-adherents')
+  @UseInterceptors(FileInterceptor('fichier'))
+  importerAdherentsExcel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+    @UploadedFile() fichier: FichierTeleverse,
+  ) {
+    return this.imports.importerAdherentsExcel(user, souscripteurId, fichier);
+  }
+
+  @Get('imports-adherents')
+  listerImportsAdherents(@CurrentUser() user: AuthenticatedUser) {
+    return this.imports.listerImportsAdherents(user);
+  }
+
+  @Post('imports-adherents/:id/valider')
+  validerImportAdherents(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.imports.validerImportAdherents(user, id);
   }
 }

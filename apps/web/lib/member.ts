@@ -59,3 +59,16 @@ export function peutGererMembres(roleChain: string[] | undefined): boolean {
 export function peutValiderAdherent(roleChain: string[] | undefined): boolean {
   return (roleChain ?? []).includes('ASSUREUR_EXPLOITATION');
 }
+
+/** Import Excel en masse — réservé à ASSUREUR_INFORMATIQUE et ASSUREUR_COMPTABLE. */
+export function peutImporterAdherents(roleChain: string[] | undefined): boolean {
+  const rc = roleChain ?? [];
+  return rc.includes('ASSUREUR_INFORMATIQUE') || rc.includes('ASSUREUR_COMPTABLE');
+}
+
+/** Validation d'un import Excel — réservée à ASSUREUR_INFORMATIQUE et
+ * ASSUREUR_EXPLOITATION (jamais ASSUREUR_COMPTABLE, qui peut pourtant importer). */
+export function peutValiderImportAdherents(roleChain: string[] | undefined): boolean {
+  const rc = roleChain ?? [];
+  return rc.includes('ASSUREUR_INFORMATIQUE') || rc.includes('ASSUREUR_EXPLOITATION');
+}

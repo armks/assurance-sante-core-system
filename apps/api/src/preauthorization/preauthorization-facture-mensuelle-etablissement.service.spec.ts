@@ -57,6 +57,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       contestationActe: { findMany: jest.fn().mockResolvedValue([]) },
       ligneFacturation: {
         findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       factureMensuelleEtablissement: {
@@ -65,6 +66,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      paiementGroupeFacture: { findFirst: jest.fn().mockResolvedValue(null) },
       factureDossier: { findMany: jest.fn().mockResolvedValue([]) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
@@ -169,7 +171,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       );
       expect(prisma.ligneFacturation.updateMany).toHaveBeenCalledWith({
         where: { id: { in: ['lf-1', 'lf-3'] } },
-        data: { factureMensuelleEtablissementId: 'fact-1' },
+        data: { factureMensuelleEtablissementId: 'fact-1', reporteeMoisSuivant: false },
       });
       expect(res.nbLignesIncluses).toBe(2);
       expect(res.nbLignesExclues).toBe(1);
@@ -188,6 +190,25 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       expect(res.nbLignesIncluses).toBe(0);
       // Le filtre factureMensuelleEtablissementId: null est bien appliqué à la requête.
       expect(prisma.ligneFacturation.findMany.mock.calls[0][0].where.factureMensuelleEtablissementId).toBeNull();
+    });
+
+    it('réintègre une ligne reportée (litige résolu VALIDEE) indépendamment de son datePaiement d’origine', async () => {
+      identity.getMe.mockResolvedValue(comptableEtab());
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue(null);
+      prisma.ligneFacturation.findMany.mockResolvedValue([
+        { id: 'lf-1', acteDossierId: 'acte-1', montantReclame: dec(1500) },
+      ]);
+      prisma.contestationActe.findMany.mockResolvedValue([]); // litige résolu (VALIDEE, plus dans la liste)
+      prisma.factureMensuelleEtablissement.create.mockResolvedValue({ id: 'fact-3' });
+      prisma.factureMensuelleEtablissement.update.mockResolvedValue({ id: 'fact-3', statut: 'SOUMISE', montantTotal: dec(1500) });
+
+      const res = await service.soumettreFactureMensuelleEtablissement(USER, { periode: '2026-08-01' });
+
+      expect(prisma.ligneFacturation.findMany.mock.calls[0][0].where.OR).toEqual([
+        { datePaiement: expect.anything() },
+        { reporteeMoisSuivant: true },
+      ]);
+      expect(res.nbLignesIncluses).toBe(1);
     });
 
     it('réutilise (ne duplique pas) une facture EN_PREPARATION existante pour la même période (après un A_CORRIGER)', async () => {
@@ -310,20 +331,34 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
     });
   });
 
-  describe('programmerPaiementFactureMensuelleEtablissement / marquerFactureMensuelleEtablissementPayee', () => {
+  describe('validerPourPaiementEtablissement / marquerFactureMensuelleEtablissementPayee', () => {
     it("réservé exclusivement à ASSUREUR_COMPTABLE — médecin conseil → 403", async () => {
       identity.getMe.mockResolvedValue(medecinConseil());
       await expect(
-        service.programmerPaiementFactureMensuelleEtablissement(USER, 'fact-1'),
+        service.validerPourPaiementEtablissement(USER, 'fact-1'),
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
     it('refuse tant que non VERIFIEE_MEDECIN_CONSEIL', async () => {
       identity.getMe.mockResolvedValue(comptableAssureur());
-      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({ id: 'fact-1', statut: 'SOUMISE' });
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({ id: 'fact-1', statut: 'SOUMISE', lignes: [] });
       await expect(
-        service.programmerPaiementFactureMensuelleEtablissement(USER, 'fact-1'),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+        service.validerPourPaiementEtablissement(USER, 'fact-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('refuse si une ligne encore en litige non décochée subsiste', async () => {
+      identity.getMe.mockResolvedValue(comptableAssureur());
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+        id: 'fact-1',
+        statut: 'VERIFIEE_MEDECIN_CONSEIL',
+        lignes: [{ id: 'lf-1', acteDossierId: 'acte-1' }],
+      });
+      prisma.contestationActe.findMany.mockResolvedValue([{ acteDossierId: 'acte-1' }]);
+      await expect(
+        service.validerPourPaiementEtablissement(USER, 'fact-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.factureMensuelleEtablissement.update).not.toHaveBeenCalled();
     });
 
     it('programme puis marque payée, dans l’ordre', async () => {
@@ -331,6 +366,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
         id: 'fact-1',
         statut: 'VERIFIEE_MEDECIN_CONSEIL',
+        lignes: [],
       });
       prisma.factureMensuelleEtablissement.update.mockResolvedValue({
         id: 'fact-1',
@@ -338,13 +374,15 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
         montantTotal: dec(6000),
       });
 
-      const res = await service.programmerPaiementFactureMensuelleEtablissement(USER, 'fact-1');
+      const res = await service.validerPourPaiementEtablissement(USER, 'fact-1');
       expect(res.statut).toBe('PROGRAMMEE_PAIEMENT');
 
       prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
         id: 'fact-1',
         statut: 'PROGRAMMEE_PAIEMENT',
+        lignes: [],
       });
+      prisma.paiementGroupeFacture.findFirst.mockResolvedValue(null);
       prisma.factureMensuelleEtablissement.update.mockResolvedValue({
         id: 'fact-1',
         statut: 'PAYEE',
@@ -359,10 +397,89 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
         id: 'fact-1',
         statut: 'VERIFIEE_MEDECIN_CONSEIL',
+        lignes: [],
       });
       await expect(
         service.marquerFactureMensuelleEtablissementPayee(USER, 'fact-1'),
       ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('refuse de marquer payée une facture déjà intégrée à un paiement groupé', async () => {
+      identity.getMe.mockResolvedValue(comptableAssureur());
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+        id: 'fact-1',
+        statut: 'PROGRAMMEE_PAIEMENT',
+        lignes: [],
+      });
+      prisma.paiementGroupeFacture.findFirst.mockResolvedValue({ id: 'pgf-1' });
+      await expect(
+        service.marquerFactureMensuelleEtablissementPayee(USER, 'fact-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.factureMensuelleEtablissement.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('decocherLigneContestee (établissement)', () => {
+    const factureAvecLigne = (statut: string) => ({
+      id: 'fact-1',
+      statut,
+      montantTotal: dec(6000),
+      lignes: [{ id: 'lf-1', acteDossierId: 'acte-1', montantReclame: dec(1500) }],
+    });
+
+    it('rôle non autorisé (médecin établissement) → 403', async () => {
+      identity.getMe.mockResolvedValue(medecinEtab());
+      await expect(
+        service.decocherLigneContestee(USER, 'fact-1', 'lf-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('facture déjà PROGRAMMEE_PAIEMENT → 409 (trop tard)', async () => {
+      identity.getMe.mockResolvedValue(comptableAssureur());
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue(factureAvecLigne('PROGRAMMEE_PAIEMENT'));
+      await expect(
+        service.decocherLigneContestee(USER, 'fact-1', 'lf-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('ligne introuvable sur cette facture → 404', async () => {
+      identity.getMe.mockResolvedValue(comptableAssureur());
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue(factureAvecLigne('SOUMISE'));
+      await expect(
+        service.decocherLigneContestee(USER, 'fact-1', 'lf-x'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('ligne pas en litige → 400 (rien à retirer)', async () => {
+      identity.getMe.mockResolvedValue(comptableAssureur());
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue(factureAvecLigne('SOUMISE'));
+      prisma.contestationActe.findMany.mockResolvedValue([]);
+      await expect(
+        service.decocherLigneContestee(USER, 'fact-1', 'lf-1'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('retire la ligne en litige, recalcule le montant, marque reportée', async () => {
+      identity.getMe.mockResolvedValue(comptableAssureur());
+      prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue(factureAvecLigne('SOUMISE'));
+      prisma.contestationActe.findMany.mockResolvedValue([{ acteDossierId: 'acte-1' }]);
+      prisma.factureMensuelleEtablissement.update.mockResolvedValue({
+        id: 'fact-1',
+        montantTotal: dec(4500),
+        nbLignesReportees: 1,
+      });
+
+      const res = await service.decocherLigneContestee(USER, 'fact-1', 'lf-1');
+
+      expect(prisma.ligneFacturation.update).toHaveBeenCalledWith({
+        where: { id: 'lf-1' },
+        data: { factureMensuelleEtablissementId: null, reporteeMoisSuivant: true },
+      });
+      expect(prisma.factureMensuelleEtablissement.update).toHaveBeenCalledWith({
+        where: { id: 'fact-1' },
+        data: { montantTotal: '4500.00', nbLignesReportees: { increment: 1 } },
+      });
+      expect(res.montantTotal).toBe('4500.00');
     });
   });
 
@@ -372,6 +489,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       etablissementId: 'etab-1',
       statut,
       montantTotal: dec(6000),
+      nbLignesReportees: 0,
       dateSoumission: new Date(),
       dateVerification: null,
       dateProgrammation: null,
@@ -380,12 +498,12 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       lignes: [],
     });
 
-    it('comptable assureur → 403 tant que non VERIFIEE_MEDECIN_CONSEIL', async () => {
+    it('comptable assureur accède désormais à toute facture, quel que soit son statut (accès en revue global)', async () => {
       identity.getMe.mockResolvedValue(comptableAssureur());
       prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue(factureAvecLignes('SOUMISE'));
       await expect(
         service.obtenirFactureMensuelleEtablissement(USER, 'fact-1'),
-      ).rejects.toBeInstanceOf(ForbiddenException);
+      ).resolves.toMatchObject({ statut: 'SOUMISE' });
     });
 
     it('comptable assureur → 200 une fois VERIFIEE_MEDECIN_CONSEIL', async () => {

@@ -5,7 +5,7 @@ import { useState } from 'react';
 
 import {
   marquerFactureMensuellePayee,
-  programmerPaiementFactureMensuelle,
+  validerPourPaiement,
 } from '@/app/dashboard-assureur/factures-pharmacie-actions';
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
@@ -22,11 +22,15 @@ export interface FactureMensuellePharmacieComptable {
 }
 
 const LIBELLE_STATUT: Record<string, string> = {
-  VALIDEE_PHARMACIEN_CONSEIL: 'Validée — prête à programmer',
-  PROGRAMMEE_PAIEMENT: 'Paiement programmé',
+  EN_PREPARATION: 'En préparation',
+  SOUMISE: 'Soumise — en attente du pharmacien conseil',
+  VALIDEE_PHARMACIEN_CONSEIL: 'Validée — prête pour paiement',
+  PROGRAMMEE_PAIEMENT: 'Validée pour paiement',
   PAYEE: 'Payée',
 };
 const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
+  EN_PREPARATION: 'neutre',
+  SOUMISE: 'attention',
   VALIDEE_PHARMACIEN_CONSEIL: 'attention',
   PROGRAMMEE_PAIEMENT: 'attention',
   PAYEE: 'succes',
@@ -90,8 +94,8 @@ export function FacturesPharmacieComptableEcran({
         actionLigne={(f) => {
           if (f.statut === 'VALIDEE_PHARMACIEN_CONSEIL') {
             return (
-              <Button size="xs" onClick={() => agir(programmerPaiementFactureMensuelle, f.id)}>
-                Programmer le paiement
+              <Button size="xs" onClick={() => agir(validerPourPaiement, f.id)}>
+                Valider pour paiement
               </Button>
             );
           }
@@ -104,7 +108,7 @@ export function FacturesPharmacieComptableEcran({
           }
           return null;
         }}
-        vide="Aucune facture pharmacie validée par le pharmacien conseil pour l’instant."
+        vide="Aucune facture pharmacie pour l’instant."
       />
     </div>
   );

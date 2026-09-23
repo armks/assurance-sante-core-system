@@ -71,14 +71,6 @@ export const STATUTS_FACTURE_MENSUELLE = [
 ] as const;
 export type StatutFactureMensuelle = (typeof STATUTS_FACTURE_MENSUELLE)[number];
 
-/** Statuts dès lesquels ASSUREUR_COMPTABLE obtient l'accès (verrou explicite,
- * pas une simple convention d'écran — appliqué en RLS ET côté NestJS). */
-export const STATUTS_FACTURE_MENSUELLE_DEBLOQUES_COMPTABLE = [
-  'VALIDEE_PHARMACIEN_CONSEIL',
-  'PROGRAMMEE_PAIEMENT',
-  'PAYEE',
-] as const;
-
 export const ROLE_COMPTABLE_FACTURE_MENSUELLE = 'ASSUREUR_COMPTABLE';
 
 export interface ContexteAppelant {

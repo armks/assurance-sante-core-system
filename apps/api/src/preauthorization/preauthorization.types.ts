@@ -240,14 +240,6 @@ export const STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT = [
 export type StatutFactureMensuelleEtablissement =
   (typeof STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT)[number];
 
-/** Statuts dès lesquels ASSUREUR_COMPTABLE obtient l'accès (verrou explicite,
- * pas une simple convention d'écran — appliqué en RLS ET côté NestJS). */
-export const STATUTS_FACTURE_MENSUELLE_ETABLISSEMENT_DEBLOQUES_COMPTABLE = [
-  'VERIFIEE_MEDECIN_CONSEIL',
-  'PROGRAMMEE_PAIEMENT',
-  'PAYEE',
-] as const;
-
 /**
  * Vérification de fin de mois, GLOBALE et INDÉPENDANTE des validations
  * individuelles déjà faites pendant le mois par l'exploitation (pré-

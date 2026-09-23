@@ -36,7 +36,6 @@ import {
   ROLE_COMPTABLE_FACTURE_MENSUELLE,
   ROLE_PHARMACIEN_SEUL,
   STATUTS_DISPENSATION_MODIFIABLE,
-  STATUTS_FACTURE_MENSUELLE_DEBLOQUES_COMPTABLE,
   TAUX_COUVERTURE_DEFAUT,
 } from './pharmacy.types';
 
@@ -835,43 +834,59 @@ export class PharmacyService {
     const existante = await this.prisma.factureMensuellePharmacie.findFirst({
       where: { pharmacieId: ctx.pharmacieId, periode: debut },
     });
-    if (existante) {
+    if (existante && existante.statut !== 'EN_PREPARATION') {
       throw new ConflictException(
         `Une facture existe déjà pour cette période (statut : ${existante.statut}).`,
       );
     }
 
-    const dispensations = await this.prisma.dispensationPharmacie.findMany({
+    // OR reportee_mois_suivant : une ligne exclue pour litige lors d'une
+    // consolidation antérieure (soumission ou `decocherLigneContestee`) reste
+    // candidate indéfiniment, quel que soit son `datePaiement` d'origine —
+    // seul son statut de litige ACTUEL décide de sa réintégration.
+    const toutesLignes = await this.prisma.ligneDispensation.findMany({
       where: {
-        pharmacieId: ctx.pharmacieId,
-        statut: 'PAYEE',
-        datePaiement: { gte: debut, lt: fin },
+        factureMensuelleId: null,
+        dispensation: { pharmacieId: ctx.pharmacieId, statut: 'PAYEE' },
+        OR: [
+          { dispensation: { datePaiement: { gte: debut, lt: fin } } },
+          { reporteeMoisSuivant: true },
+        ],
       },
-      include: { lignes: true },
+      select: { id: true, ligneOrdonnanceId: true, montantAssurance: true },
     });
-    const toutesLignes = dispensations.flatMap((d) =>
-      d.lignes.filter((l) => l.factureMensuelleId === null),
-    );
     const enLitige = await this.chargerLignesEnLitige(toutesLignes.map((l) => l.ligneOrdonnanceId));
     const lignesFacturables = toutesLignes.filter((l) => !enLitige.has(l.ligneOrdonnanceId));
+    const lignesEncoreEnLitige = toutesLignes.filter((l) => enLitige.has(l.ligneOrdonnanceId));
     const montantTotal = lignesFacturables.reduce(
       (acc, l) => acc.add(new Decimal(l.montantAssurance.toString())),
       new Decimal(0),
     );
 
     const facture = await this.prisma.$transaction(async (tx) => {
-      const f = await tx.factureMensuellePharmacie.create({
-        data: {
-          organisationId: ctx.organisationId,
-          pharmacieId: ctx.pharmacieId!,
-          periode: debut,
-          montantTotal: montantTotal.toFixed(2),
-        },
-      });
+      const f = existante
+        ? await tx.factureMensuellePharmacie.update({
+            where: { id: existante.id },
+            data: { montantTotal: montantTotal.toFixed(2) },
+          })
+        : await tx.factureMensuellePharmacie.create({
+            data: {
+              organisationId: ctx.organisationId,
+              pharmacieId: ctx.pharmacieId!,
+              periode: debut,
+              montantTotal: montantTotal.toFixed(2),
+            },
+          });
       if (lignesFacturables.length > 0) {
         await tx.ligneDispensation.updateMany({
           where: { id: { in: lignesFacturables.map((l) => l.id) } },
-          data: { factureMensuelleId: f.id },
+          data: { factureMensuelleId: f.id, reporteeMoisSuivant: false },
+        });
+      }
+      if (lignesEncoreEnLitige.length > 0) {
+        await tx.ligneDispensation.updateMany({
+          where: { id: { in: lignesEncoreEnLitige.map((l) => l.id) } },
+          data: { reporteeMoisSuivant: true },
         });
       }
       const soumise = await tx.factureMensuellePharmacie.update({
@@ -917,16 +932,12 @@ export class PharmacyService {
 
     const estPharmacieConcernee = ctx.pharmacieId && ctx.pharmacieId === facture.pharmacieId;
     const estPharmacienConseil = ctx.roleChain.includes(ROLE_PHARMACIEN_CONSEIL);
-    const estComptableDebloque =
-      ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE) &&
-      (STATUTS_FACTURE_MENSUELLE_DEBLOQUES_COMPTABLE as readonly string[]).includes(facture.statut);
-    if (!estPharmacieConcernee && !estPharmacienConseil && !estComptableDebloque) {
-      throw new ForbiddenException(
-        ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE)
-          ? `Cette facture n'est pas encore validée par le pharmacien conseil (statut actuel : ${facture.statut}).`
-          : "Vous n'avez pas accès à cette facture mensuelle.",
-      );
+    const estComptable = ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE);
+    if (!estPharmacieConcernee && !estPharmacienConseil && !estComptable) {
+      throw new ForbiddenException("Vous n'avez pas accès à cette facture mensuelle.");
     }
+
+    const enLitige = await this.chargerLignesEnLitige(facture.lignes.map((l) => l.ligneOrdonnanceId));
 
     return {
       id: facture.id,
@@ -934,15 +945,18 @@ export class PharmacyService {
       periode: facture.periode,
       statut: facture.statut,
       montantTotal: facture.montantTotal.toFixed(2),
+      nbLignesReportees: facture.nbLignesReportees,
       dateSoumission: facture.dateSoumission,
       dateValidation: facture.dateValidation,
       dateProgrammation: facture.dateProgrammation,
       datePaiement: facture.datePaiement,
       lignes: facture.lignes.map((l) => ({
         id: l.id,
+        ligneOrdonnanceId: l.ligneOrdonnanceId,
         denominationMedicament: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
         quantite: l.quantite,
         montantAssurance: l.montantAssurance.toFixed(2),
+        enLitige: enLitige.has(l.ligneOrdonnanceId),
       })),
     };
   }
@@ -1037,20 +1051,18 @@ export class PharmacyService {
     return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
   }
 
-  /** Côté COMPTABLE : « Factures pharmacie prêtes à programmer » — VALIDEE_PHARMACIEN_CONSEIL
-   * et au-delà uniquement (verrou déjà appliqué en RLS, redondant ici par sûreté applicative). */
+  /** Côté COMPTABLE : « Factures pharmacie » — TOUT statut, organisation
+   * entière (accès en revue global). Le tri par catégorie (du mois, en
+   * paiement, réglées…) reste un filtrage côté écran. */
   async listerFacturesMensuellesPourComptable(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
     if (!ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE)) {
       throw new ForbiddenException('Réservé exclusivement à ASSUREUR_COMPTABLE.');
     }
     const factures = await this.prisma.factureMensuellePharmacie.findMany({
-      where: {
-        organisationId: ctx.organisationId,
-        statut: { in: STATUTS_FACTURE_MENSUELLE_DEBLOQUES_COMPTABLE as unknown as string[] },
-      },
+      where: { organisationId: ctx.organisationId },
       include: { pharmacie: { select: { nom: true } } },
-      orderBy: { dateValidation: 'asc' },
+      orderBy: { periode: 'desc' },
     });
     return factures.map((f) => ({
       id: f.id,
@@ -1058,6 +1070,8 @@ export class PharmacyService {
       periode: f.periode,
       statut: f.statut,
       montantTotal: f.montantTotal.toFixed(2),
+      nbLignesReportees: f.nbLignesReportees,
+      dateSoumission: f.dateSoumission,
       dateValidation: f.dateValidation,
       dateProgrammation: f.dateProgrammation,
       datePaiement: f.datePaiement,
@@ -1070,45 +1084,117 @@ export class PharmacyService {
     }
     const facture = await this.prisma.factureMensuellePharmacie.findFirst({
       where: { id: factureMensuelleId, organisationId: ctx.organisationId },
+      include: { lignes: { select: { id: true, ligneOrdonnanceId: true, montantAssurance: true } } },
     });
     if (!facture) {
       throw new NotFoundException('Facture mensuelle introuvable.');
     }
-    if (!(STATUTS_FACTURE_MENSUELLE_DEBLOQUES_COMPTABLE as readonly string[]).includes(facture.statut)) {
-      throw new ForbiddenException(
-        `Cette facture n'est pas encore validée par le pharmacien conseil (statut actuel : ${facture.statut}).`,
-      );
-    }
     return facture;
   }
 
-  /** Réservé EXCLUSIVEMENT à ASSUREUR_COMPTABLE, débloqué à partir de VALIDEE_PHARMACIEN_CONSEIL. */
-  async programmerPaiementFactureMensuelle(user: AuthenticatedUser, factureMensuelleId: string) {
+  /**
+   * Retire manuellement une ligne encore EN LITIGE d'une facture — réservé
+   * EXCLUSIVEMENT à ASSUREUR_COMPTABLE, applicable tant que la facture n'a pas
+   * dépassé la validation du pharmacien conseil (SOUMISE ou
+   * VALIDEE_PHARMACIEN_CONSEIL). Marquée `reporteeMoisSuivant` — réintégrée
+   * automatiquement dès que le litige associé n'est plus actif (VALIDEE), ou
+   * jamais si REJETEE.
+   */
+  async decocherLigneContestee(user: AuthenticatedUser, factureMensuelleId: string, ligneId: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_COMPTABLE_FACTURE_MENSUELLE)) {
+      throw new ForbiddenException('Réservé exclusivement à ASSUREUR_COMPTABLE.');
+    }
+    const facture = await this.chargerFacturePourComptable(ctx, factureMensuelleId);
+    if (!['SOUMISE', 'VALIDEE_PHARMACIEN_CONSEIL'].includes(facture.statut)) {
+      throw new ConflictException(
+        `Impossible de retirer une ligne : cette facture est déjà ${facture.statut}.`,
+      );
+    }
+    const ligne = facture.lignes.find((l) => l.id === ligneId);
+    if (!ligne) {
+      throw new NotFoundException("Cette ligne n'appartient pas à cette facture.");
+    }
+    const enLitige = await this.chargerLignesEnLitige([ligne.ligneOrdonnanceId]);
+    if (!enLitige.has(ligne.ligneOrdonnanceId)) {
+      throw new BadRequestException("Cette ligne n'est pas en litige — rien à retirer.");
+    }
+
+    const montantTotal = new Decimal(facture.montantTotal.toString()).sub(
+      new Decimal(ligne.montantAssurance.toString()),
+    );
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      await tx.ligneDispensation.update({
+        where: { id: ligne.id },
+        data: { factureMensuelleId: null, reporteeMoisSuivant: true },
+      });
+      const f = await tx.factureMensuellePharmacie.update({
+        where: { id: facture.id },
+        data: { montantTotal: montantTotal.toFixed(2), nbLignesReportees: { increment: 1 } },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'DECOCHAGE_LIGNE_CONTESTEE_FACTURE_MENSUELLE',
+        'factures_mensuelles_pharmacie',
+        f.id,
+        { ligneId: ligne.id, ligneOrdonnanceId: ligne.ligneOrdonnanceId, montantAssurance: ligne.montantAssurance.toFixed(2) },
+      );
+      return f;
+    });
+
+    return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
+  }
+
+  /**
+   * Valide une facture pour paiement — réservé EXCLUSIVEMENT à
+   * ASSUREUR_COMPTABLE, uniquement si AUCUNE ligne en litige non décochée ne
+   * subsiste. VALIDEE_PHARMACIEN_CONSEIL → PROGRAMMEE_PAIEMENT.
+   */
+  async validerPourPaiement(user: AuthenticatedUser, factureMensuelleId: string) {
     const ctx = await this.contexteAppelant(user);
     const facture = await this.chargerFacturePourComptable(ctx, factureMensuelleId);
     if (facture.statut !== 'VALIDEE_PHARMACIEN_CONSEIL') {
       throw new ConflictException(
-        `Cette facture est déjà ${facture.statut} — la programmation ne s'applique qu'après validation.`,
+        `Cette facture est déjà ${facture.statut} — la validation pour paiement ne s'applique qu'après validation du pharmacien conseil.`,
       );
+    }
+    const enLitige = await this.chargerLignesEnLitige(facture.lignes.map((l) => l.ligneOrdonnanceId));
+    if (enLitige.size > 0) {
+      throw new ConflictException({
+        message: `${enLitige.size} ligne(s) de cette facture sont encore en litige — décochez-les (decocherLigneContestee) avant de valider pour paiement.`,
+        ligneOrdonnanceIdsEnLitige: [...enLitige],
+      });
     }
     const maj = await this.prisma.$transaction(async (tx) => {
       const f = await tx.factureMensuellePharmacie.update({
         where: { id: factureMensuelleId },
         data: { statut: 'PROGRAMMEE_PAIEMENT', dateProgrammation: new Date() },
       });
-      await this.audit(tx, ctx.userId, 'PROGRAMMATION_PAIEMENT_FACTURE_MENSUELLE', 'factures_mensuelles_pharmacie', f.id, {});
+      await this.audit(tx, ctx.userId, 'VALIDATION_PAIEMENT_FACTURE_MENSUELLE', 'factures_mensuelles_pharmacie', f.id, {});
       return f;
     });
     return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
   }
 
-  /** Réservé EXCLUSIVEMENT à ASSUREUR_COMPTABLE, uniquement après programmation. */
+  /** Réservé EXCLUSIVEMENT à ASSUREUR_COMPTABLE, uniquement après validation
+   * pour paiement — refusée si la facture appartient déjà à un paiement
+   * groupé (module payment/). */
   async marquerFactureMensuellePayee(user: AuthenticatedUser, factureMensuelleId: string) {
     const ctx = await this.contexteAppelant(user);
     const facture = await this.chargerFacturePourComptable(ctx, factureMensuelleId);
     if (facture.statut !== 'PROGRAMMEE_PAIEMENT') {
       throw new ConflictException(
-        `Cette facture doit d'abord être programmée pour paiement (statut actuel : ${facture.statut}).`,
+        `Cette facture doit d'abord être validée pour paiement (statut actuel : ${facture.statut}).`,
+      );
+    }
+    const groupee = await this.prisma.paiementGroupeFacture.findFirst({
+      where: { factureMensuellePharmacieId: factureMensuelleId },
+    });
+    if (groupee) {
+      throw new ConflictException(
+        'Cette facture appartient à un paiement groupé — marquez le groupe payé plutôt que la facture individuellement.',
       );
     }
     const maj = await this.prisma.$transaction(async (tx) => {

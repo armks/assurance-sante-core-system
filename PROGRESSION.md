@@ -4760,3 +4760,76 @@ Cette étape clôt le circuit de consolidation mensuelle des deux familles d'act
 (pharmacie et établissement) prévu depuis le plan directeur — même principe, même circuit à
 trois niveaux (soumission → vérification médicale/pharmaceutique → paiement assureur) pour
 les deux domaines.
+
+## 2026-09-22 (suite 5) — Étend les factures mensuelles établissement/pharmacie : revue
+comptable globale, décochage de ligne contestée, paiements groupés
+
+### 1. ASSUREUR_COMPTABLE lit désormais TOUTES les factures mensuelles
+Le verrou par statut (`VERIFIEE_MEDECIN_CONSEIL`/`VALIDEE_PHARMACIEN_CONSEIL` et au-delà)
+est retiré de la LECTURE pour ce rôle — accès en revue global, organisation entière, tout
+statut, RLS ET NestJS alignés (migration prisma/sql/048). Le détail ligne-par-ligne
+(`obtenirFactureMensuelle(Etablissement)`) renvoie désormais explicitement `enLitige` par
+ligne. La lecture des établissements/pharmacies eux-mêmes et du médecin/pharmacien conseil
+reste inchangée (déjà organisation entière ou propre périmètre).
+
+### 2. `decocherLigneContestee(factureMensuelleId, ligneId)` — réservé EXCLUSIVEMENT à
+ASSUREUR_COMPTABLE
+Retire manuellement une ligne ENCORE EN LITIGE d'une facture SOUMISE ou déjà
+VERIFIEE_MEDECIN_CONSEIL/VALIDEE_PHARMACIEN_CONSEIL (jamais après — l'argent n'est pas
+encore engagé), recalcule `montantTotal`, incrémente `nbLignesReportees`. La ligne retirée
+est marquée `reportee_mois_suivant = true` (nouvelle colonne sur `lignes_facturation`/
+`lignes_dispensation`) : la PROCHAINE soumission (`soumettreFactureMensuelle(Etablissement)`,
+requête étendue avec un `OR reportee_mois_suivant = true` en plus de la fenêtre du mois)
+la reprend automatiquement — **dès que son litige n'est plus actif** (VALIDEE), sinon elle
+reste reportée indéfiniment ; si REJETEE, `STATUTS_CONTESTATION_EN_LITIGE` l'exclut déjà
+pour toujours, aucune règle supplémentaire nécessaire. Vérifié en HTTP réel via le
+mécanisme `A_CORRIGER` (remet la facture à EN_PREPARATION, seul état qui autorise une
+resoumission pour la même période — sans manipulation de l'horloge système, la
+réintégration ne dépend que du flag et du statut de litige, jamais de la date).
+
+### 3. `validerPourPaiement(Etablissement)` remplace `programmerPaiementFactureMensuelle(Etablissement)`
+Même transition (VERIFIEE_MEDECIN_CONSEIL/VALIDEE_PHARMACIEN_CONSEIL → PROGRAMMEE_PAIEMENT),
+mais avec la garde manquante ajoutée : refuse (409, détail des actes/lignes concernés) si
+UNE SEULE ligne en litige non décochée subsiste. Renommage délibéré plutôt qu'un endpoint
+parallèle : garder l'ancien nom aurait laissé un contournement de cette garde. Écrans et
+actions existants mis à jour (bouton « Valider pour paiement »).
+
+### 4. `payment/` — nouveau module (déjà prévu dans l'architecture v18, jamais construit)
+`paiements_groupes` + `paiements_groupes_factures` (liaison à cible exclusive établissement
+XOR pharmacie, même motif que `AutorisationRepetitionActe`) : `associerFacturesPourPaiement`
+regroupe plusieurs factures PROGRAMMEE_PAIEMENT du MÊME bénéficiaire (jamais mélangées) en
+un paiement unique (montant sommé, `date_programmee`) ; `marquerPaiementGroupePaye` cascade
+PAYEE + `date_paiement` sur toutes les factures liées. Une facture déjà groupée refuse
+désormais `marquerFactureMensuellePayee(Etablissement)` individuellement (message dirigeant
+vers le groupe). `listerFacturesPourComptableGlobal` unifie établissement + pharmacie en
+une liste dénormalisée (société/patient/catégorie d'acte distincts par facture, calculés
+depuis les lignes) pour un filtrage 100% client-side, même convention que `MesFacturesEcran`.
+
+### 5. Écran comptable — Suivi des paiements
+Nouvel écran global (`/dashboard-assureur/{comptable,comptable-adjoint}/paiements`) :
+5 tableaux (Factures du mois = période la plus récente ; En paiement = PROGRAMMEE_PAIEMENT,
+avec sélection multiple + regroupement ; Partiellement réglées = PAYEE avec
+`nbLignesReportees > 0` ; Impayées = tout le reste avant paiement ; Réglées = PAYEE sans
+reportée) avec 5 filtres combinables (bénéficiaire, société, type d'acte, adhérent/famille,
+période) appliqués côté client puis répercutés sur un diagramme `recharts` (montant total
+par période, selon les MÊMES filtres actifs). Détail à la demande (jamais pré-chargé pour
+toutes les factures) avec bouton Décocher par ligne en litige. Paiements groupés listés en
+bas avec action Marquer payé. `recharts` n'était PAS déjà une dépendance du projet malgré
+la mention — installée pour ce prompt (`npm install recharts`, apps/web).
+
+### Tests
+Backend : 484/484 (`npx jest`, 30 nouveaux : 7+5 `decocherLigneContestee`
+(pharmacie/établissement), 6+3 renommage/durcissement `validerPourPaiement`, 13 module
+`payment` (regroupement, cascade paiement, vue globale), tests de réintégration
+adaptés dans les deux specs de consolidation mensuelle). `npx tsc --noEmit` propre API et
+Web. Test HTTP réel (30/30) sur le scénario exact demandé : une ligne mise en litige APRÈS
+soumission bloque la vérification (409) ; le comptable la décoche (montant recalculé,
+refuse de décocher une ligne saine en 400) ; la vérification est alors débloquée
+(A_CORRIGER accepté) ; la contestation est tranchée VALIDEE ; la resoumission de LA MÊME
+facture réintègre automatiquement la ligne reportée (même id, montant complet, 3 lignes) ;
+vérification puis validation pour paiement ; regroupement de cette facture avec une
+seconde du même établissement en un paiement unique (montant sommé, refuse une facture
+déjà groupée en 409) ; marquage payé du groupe cascadé sur les 2 factures ; vue globale
+ASSUREUR_COMPTABLE confirmée. Toutes les données de test éphémères supprimées, résidu nul
+vérifié indépendamment (0 dossier, 0 facture mensuelle, 0 paiement groupé, 0 profil
+restants).

@@ -171,16 +171,26 @@ export class PharmacyController {
     return this.pharmacy.validerFactureMensuelle(user, id);
   }
 
-  /** Côté ASSUREUR_COMPTABLE exclusivement : programme le paiement (VALIDEE_PHARMACIEN_CONSEIL → PROGRAMMEE_PAIEMENT). */
-  @Post('factures-mensuelles/:id/programmer-paiement')
-  programmerPaiementFactureMensuelle(
+  /** Côté ASSUREUR_COMPTABLE exclusivement : retire une ligne encore en litige. */
+  @Post('factures-mensuelles/:id/lignes/:ligneId/decocher')
+  decocherLigneContestee(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('ligneId', ParseUUIDPipe) ligneId: string,
+  ) {
+    return this.pharmacy.decocherLigneContestee(user, id, ligneId);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : valide pour paiement (VALIDEE_PHARMACIEN_CONSEIL → PROGRAMMEE_PAIEMENT), aucune ligne en litige non décochée. */
+  @Post('factures-mensuelles/:id/valider-pour-paiement')
+  validerPourPaiement(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.pharmacy.programmerPaiementFactureMensuelle(user, id);
+    return this.pharmacy.validerPourPaiement(user, id);
   }
 
-  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE). */
+  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE), sauf si intégrée à un paiement groupé. */
   @Post('factures-mensuelles/:id/marquer-payee')
   marquerFactureMensuellePayee(
     @CurrentUser() user: AuthenticatedUser,

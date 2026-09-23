@@ -84,7 +84,13 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
       },
-      ligneDispensation: { createMany: jest.fn(), findFirst: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+      ligneDispensation: {
+        createMany: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+        updateMany: jest.fn(),
+      },
       contestationPrescription: { findMany: jest.fn().mockResolvedValue([]) },
       factureMensuellePharmacie: {
         create: jest.fn(),
@@ -92,6 +98,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn().mockResolvedValue([]),
       },
+      paiementGroupeFacture: { findFirst: jest.fn().mockResolvedValue(null) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -922,20 +929,10 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
 
       it('agrège les lignes PAYEE, exclut celles en litige, et ne stampe que les facturables', async () => {
         identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
-        prisma.dispensationPharmacie.findMany.mockResolvedValue([
-          {
-            id: 'disp-1',
-            lignes: [
-              { id: 'ligne-disp-1', ligneOrdonnanceId: 'lo-1', factureMensuelleId: null, montantAssurance: dec(4000) },
-              { id: 'ligne-disp-2', ligneOrdonnanceId: 'lo-2', factureMensuelleId: null, montantAssurance: dec(1500) },
-            ],
-          },
-          {
-            id: 'disp-2',
-            lignes: [
-              { id: 'ligne-disp-3', ligneOrdonnanceId: 'lo-3', factureMensuelleId: null, montantAssurance: dec(2000) },
-            ],
-          },
+        prisma.ligneDispensation.findMany.mockResolvedValue([
+          { id: 'ligne-disp-1', ligneOrdonnanceId: 'lo-1', montantAssurance: dec(4000) },
+          { id: 'ligne-disp-2', ligneOrdonnanceId: 'lo-2', montantAssurance: dec(1500) },
+          { id: 'ligne-disp-3', ligneOrdonnanceId: 'lo-3', montantAssurance: dec(2000) },
         ]);
         prisma.contestationPrescription.findMany.mockResolvedValue([{ ligneOrdonnanceId: 'lo-2' }]); // lo-2 en litige
         prisma.factureMensuellePharmacie.create.mockResolvedValue({ id: 'fact-1' });
@@ -955,22 +952,15 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         );
         expect(prisma.ligneDispensation.updateMany).toHaveBeenCalledWith({
           where: { id: { in: ['ligne-disp-1', 'ligne-disp-3'] } },
-          data: { factureMensuelleId: 'fact-1' },
+          data: { factureMensuelleId: 'fact-1', reporteeMoisSuivant: false },
         });
         expect(res.nbLignesIncluses).toBe(2);
         expect(res.nbLignesExclues).toBe(1);
       });
 
-      it("n'inclut jamais une ligne déjà réclamée par une facture précédente", async () => {
+      it("n'inclut jamais une ligne déjà réclamée par une facture précédente (filtrée côté requête)", async () => {
         identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
-        prisma.dispensationPharmacie.findMany.mockResolvedValue([
-          {
-            id: 'disp-1',
-            lignes: [
-              { id: 'ligne-disp-1', ligneOrdonnanceId: 'lo-1', factureMensuelleId: 'fact-ancienne', montantAssurance: dec(4000) },
-            ],
-          },
-        ]);
+        prisma.ligneDispensation.findMany.mockResolvedValue([]);
         prisma.factureMensuellePharmacie.create.mockResolvedValue({ id: 'fact-2' });
         prisma.factureMensuellePharmacie.update.mockResolvedValue({ id: 'fact-2', statut: 'SOUMISE', montantTotal: dec(0) });
 
@@ -978,6 +968,41 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
 
         expect(prisma.ligneDispensation.updateMany).not.toHaveBeenCalled();
         expect(res.nbLignesIncluses).toBe(0);
+        expect(prisma.ligneDispensation.findMany.mock.calls[0][0].where.factureMensuelleId).toBeNull();
+      });
+
+      it('réutilise (ne duplique pas) une facture EN_PREPARATION existante pour la même période', async () => {
+        identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({ id: 'fact-existante', statut: 'EN_PREPARATION' });
+        prisma.ligneDispensation.findMany.mockResolvedValue([
+          { id: 'ligne-disp-1', ligneOrdonnanceId: 'lo-1', montantAssurance: dec(3000) },
+        ]);
+        prisma.factureMensuellePharmacie.update
+          .mockResolvedValueOnce({ id: 'fact-existante', montantTotal: dec(3000) })
+          .mockResolvedValueOnce({ id: 'fact-existante', statut: 'SOUMISE', montantTotal: dec(3000) });
+
+        const res = await service.soumettreFactureMensuelle(USER, { periode: '2026-08-01' });
+
+        expect(prisma.factureMensuellePharmacie.create).not.toHaveBeenCalled();
+        expect(res.id).toBe('fact-existante');
+      });
+
+      it('réintègre une ligne reportée (litige résolu VALIDEE) indépendamment de son datePaiement d’origine', async () => {
+        identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+        prisma.ligneDispensation.findMany.mockResolvedValue([
+          { id: 'ligne-disp-1', ligneOrdonnanceId: 'lo-1', montantAssurance: dec(1500) },
+        ]);
+        prisma.contestationPrescription.findMany.mockResolvedValue([]); // litige résolu (VALIDEE, plus dans la liste)
+        prisma.factureMensuellePharmacie.create.mockResolvedValue({ id: 'fact-3' });
+        prisma.factureMensuellePharmacie.update.mockResolvedValue({ id: 'fact-3', statut: 'SOUMISE', montantTotal: dec(1500) });
+
+        const res = await service.soumettreFactureMensuelle(USER, { periode: '2026-08-01' });
+
+        expect(prisma.ligneDispensation.findMany.mock.calls[0][0].where.OR).toEqual([
+          { dispensation: { datePaiement: expect.anything() } },
+          { reporteeMoisSuivant: true },
+        ]);
+        expect(res.nbLignesIncluses).toBe(1);
       });
     });
 
@@ -1042,27 +1067,42 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       });
     });
 
-    describe('programmerPaiementFactureMensuelle / marquerFactureMensuellePayee', () => {
+    describe('validerPourPaiement / marquerFactureMensuellePayee', () => {
       it('rôle non autorisé (pharmacien) → 403', async () => {
         identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
         await expect(
-          service.programmerPaiementFactureMensuelle(USER, 'fact-1'),
+          service.validerPourPaiement(USER, 'fact-1'),
         ).rejects.toBeInstanceOf(ForbiddenException);
       });
 
-      it('verrou explicite : comptable sur une facture pas encore VALIDEE_PHARMACIEN_CONSEIL → 403', async () => {
+      it('facture pas encore VALIDEE_PHARMACIEN_CONSEIL → 409', async () => {
         identity.getMe.mockResolvedValue(comptableAssureur());
-        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({ id: 'fact-1', statut: 'SOUMISE' });
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({ id: 'fact-1', statut: 'SOUMISE', lignes: [] });
         await expect(
-          service.programmerPaiementFactureMensuelle(USER, 'fact-1'),
-        ).rejects.toBeInstanceOf(ForbiddenException);
+          service.validerPourPaiement(USER, 'fact-1'),
+        ).rejects.toBeInstanceOf(ConflictException);
       });
 
-      it('programme le paiement une fois VALIDEE_PHARMACIEN_CONSEIL', async () => {
+      it('refuse si une ligne encore en litige non décochée subsiste', async () => {
         identity.getMe.mockResolvedValue(comptableAssureur());
         prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
           id: 'fact-1',
           statut: 'VALIDEE_PHARMACIEN_CONSEIL',
+          lignes: [{ id: 'ld-1', ligneOrdonnanceId: 'lo-1', montantAssurance: dec(1000) }],
+        });
+        prisma.contestationPrescription.findMany.mockResolvedValue([{ ligneOrdonnanceId: 'lo-1' }]);
+        await expect(
+          service.validerPourPaiement(USER, 'fact-1'),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(prisma.factureMensuellePharmacie.update).not.toHaveBeenCalled();
+      });
+
+      it('valide pour paiement une fois VALIDEE_PHARMACIEN_CONSEIL et litige-free', async () => {
+        identity.getMe.mockResolvedValue(comptableAssureur());
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
+          id: 'fact-1',
+          statut: 'VALIDEE_PHARMACIEN_CONSEIL',
+          lignes: [],
         });
         prisma.factureMensuellePharmacie.update.mockResolvedValue({
           id: 'fact-1',
@@ -1070,15 +1110,16 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
           montantTotal: dec(6000),
         });
 
-        const res = await service.programmerPaiementFactureMensuelle(USER, 'fact-1');
+        const res = await service.validerPourPaiement(USER, 'fact-1');
         expect(res.statut).toBe('PROGRAMMEE_PAIEMENT');
       });
 
-      it('marquerPayee avant programmation → 409', async () => {
+      it('marquerPayee avant validation pour paiement → 409', async () => {
         identity.getMe.mockResolvedValue(comptableAssureur());
         prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
           id: 'fact-1',
           statut: 'VALIDEE_PHARMACIEN_CONSEIL',
+          lignes: [],
         });
         await expect(
           service.marquerFactureMensuellePayee(USER, 'fact-1'),
@@ -1090,7 +1131,9 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
           id: 'fact-1',
           statut: 'PROGRAMMEE_PAIEMENT',
+          lignes: [],
         });
+        prisma.paiementGroupeFacture.findFirst.mockResolvedValue(null);
         prisma.factureMensuellePharmacie.update.mockResolvedValue({
           id: 'fact-1',
           statut: 'PAYEE',
@@ -1099,6 +1142,84 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
 
         const res = await service.marquerFactureMensuellePayee(USER, 'fact-1');
         expect(res.statut).toBe('PAYEE');
+      });
+
+      it('refuse de marquer payée une facture déjà intégrée à un paiement groupé', async () => {
+        identity.getMe.mockResolvedValue(comptableAssureur());
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
+          id: 'fact-1',
+          statut: 'PROGRAMMEE_PAIEMENT',
+          lignes: [],
+        });
+        prisma.paiementGroupeFacture.findFirst.mockResolvedValue({ id: 'pgf-1' });
+        await expect(
+          service.marquerFactureMensuellePayee(USER, 'fact-1'),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(prisma.factureMensuellePharmacie.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('decocherLigneContestee', () => {
+      const factureAvecLigne = (statut: string) => ({
+        id: 'fact-1',
+        statut,
+        montantTotal: dec(6000),
+        lignes: [{ id: 'ld-1', ligneOrdonnanceId: 'lo-1', montantAssurance: dec(1500) }],
+      });
+
+      it('rôle non autorisé (pharmacien) → 403', async () => {
+        identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+        await expect(
+          service.decocherLigneContestee(USER, 'fact-1', 'ld-1'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it('facture déjà PROGRAMMEE_PAIEMENT → 409 (trop tard)', async () => {
+        identity.getMe.mockResolvedValue(comptableAssureur());
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(factureAvecLigne('PROGRAMMEE_PAIEMENT'));
+        await expect(
+          service.decocherLigneContestee(USER, 'fact-1', 'ld-1'),
+        ).rejects.toBeInstanceOf(ConflictException);
+      });
+
+      it('ligne introuvable sur cette facture → 404', async () => {
+        identity.getMe.mockResolvedValue(comptableAssureur());
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(factureAvecLigne('SOUMISE'));
+        await expect(
+          service.decocherLigneContestee(USER, 'fact-1', 'ld-x'),
+        ).rejects.toBeInstanceOf(NotFoundException);
+      });
+
+      it('ligne pas en litige → 400 (rien à retirer)', async () => {
+        identity.getMe.mockResolvedValue(comptableAssureur());
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(factureAvecLigne('SOUMISE'));
+        prisma.contestationPrescription.findMany.mockResolvedValue([]);
+        await expect(
+          service.decocherLigneContestee(USER, 'fact-1', 'ld-1'),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('retire la ligne en litige, recalcule le montant, marque reportée', async () => {
+        identity.getMe.mockResolvedValue(comptableAssureur());
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(factureAvecLigne('SOUMISE'));
+        prisma.contestationPrescription.findMany.mockResolvedValue([{ ligneOrdonnanceId: 'lo-1' }]);
+        prisma.factureMensuellePharmacie.update.mockResolvedValue({
+          id: 'fact-1',
+          montantTotal: dec(4500),
+          nbLignesReportees: 1,
+        });
+
+        const res = await service.decocherLigneContestee(USER, 'fact-1', 'ld-1');
+
+        expect(prisma.ligneDispensation.update).toHaveBeenCalledWith({
+          where: { id: 'ld-1' },
+          data: { factureMensuelleId: null, reporteeMoisSuivant: true },
+        });
+        expect(prisma.factureMensuellePharmacie.update).toHaveBeenCalledWith({
+          where: { id: 'fact-1' },
+          data: { montantTotal: '4500.00', nbLignesReportees: { increment: 1 } },
+        });
+        expect(res.montantTotal).toBe('4500.00');
       });
     });
 
@@ -1110,6 +1231,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         pharmacie: { nom: 'Pharmacie Test' },
         periode: new Date('2026-08-01'),
         montantTotal: dec(6000),
+        nbLignesReportees: 0,
         dateSoumission: null,
         dateValidation: null,
         dateProgrammation: null,
@@ -1117,13 +1239,13 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         lignes: [],
       });
 
-      it('ASSUREUR_COMPTABLE refusé tant que la facture est SOUMISE (verrou explicite)', async () => {
+      it('ASSUREUR_COMPTABLE accède désormais à toute facture, quel que soit son statut (accès en revue global)', async () => {
         identity.getMe.mockResolvedValue(comptableAssureur());
         prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(factureBrute('SOUMISE'));
-        await expect(service.obtenirFactureMensuelle(USER, 'fact-1')).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.obtenirFactureMensuelle(USER, 'fact-1')).resolves.toMatchObject({ statut: 'SOUMISE' });
       });
 
-      it('ASSUREUR_COMPTABLE autorisé dès VALIDEE_PHARMACIEN_CONSEIL', async () => {
+      it('ASSUREUR_COMPTABLE accède aussi une fois VALIDEE_PHARMACIEN_CONSEIL', async () => {
         identity.getMe.mockResolvedValue(comptableAssureur());
         prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(factureBrute('VALIDEE_PHARMACIEN_CONSEIL'));
         await expect(service.obtenirFactureMensuelle(USER, 'fact-1')).resolves.toMatchObject({ statut: 'VALIDEE_PHARMACIEN_CONSEIL' });

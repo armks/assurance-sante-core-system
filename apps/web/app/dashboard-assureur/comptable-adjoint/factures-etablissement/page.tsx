@@ -24,8 +24,8 @@ export default async function ComptableAdjointFacturesEtablissementPage() {
   return (
     <div className="space-y-8">
       <PageTitre
-        titre="Factures établissements prêtes à programmer"
-        description="Consolidations mensuelles vérifiées par le médecin conseil — invisibles ici tant qu'elles ne le sont pas."
+        titre="Factures établissements"
+        description="Toutes les consolidations mensuelles des établissements, tout statut — validez pour paiement une fois vérifiées par le médecin conseil."
       />
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>

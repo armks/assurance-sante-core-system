@@ -341,16 +341,26 @@ export class PreauthorizationController {
     return this.preauth.verifierFactureMensuelleEtablissement(user, id, dto);
   }
 
-  /** Côté ASSUREUR_COMPTABLE exclusivement : programme le paiement (VERIFIEE_MEDECIN_CONSEIL → PROGRAMMEE_PAIEMENT). */
-  @Post('factures-mensuelles-etablissement/:id/programmer-paiement')
-  programmerPaiementFactureMensuelleEtablissement(
+  /** Côté ASSUREUR_COMPTABLE exclusivement : retire une ligne encore en litige. */
+  @Post('factures-mensuelles-etablissement/:id/lignes/:ligneId/decocher')
+  decocherLigneContesteeEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('ligneId', ParseUUIDPipe) ligneId: string,
+  ) {
+    return this.preauth.decocherLigneContestee(user, id, ligneId);
+  }
+
+  /** Côté ASSUREUR_COMPTABLE exclusivement : valide pour paiement (VERIFIEE_MEDECIN_CONSEIL → PROGRAMMEE_PAIEMENT), aucune ligne en litige non décochée. */
+  @Post('factures-mensuelles-etablissement/:id/valider-pour-paiement')
+  validerPourPaiementEtablissement(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return this.preauth.programmerPaiementFactureMensuelleEtablissement(user, id);
+    return this.preauth.validerPourPaiementEtablissement(user, id);
   }
 
-  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE). */
+  /** Côté ASSUREUR_COMPTABLE exclusivement : marque payée (PROGRAMMEE_PAIEMENT → PAYEE), sauf si intégrée à un paiement groupé. */
   @Post('factures-mensuelles-etablissement/:id/marquer-payee')
   marquerFactureMensuelleEtablissementPayee(
     @CurrentUser() user: AuthenticatedUser,

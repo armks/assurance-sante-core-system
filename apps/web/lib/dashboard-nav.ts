@@ -6,6 +6,7 @@ import {
   FileText,
   HeartPulse,
   LayoutDashboard,
+  LineChart,
   type LucideIcon,
   Package,
   Pill,
@@ -365,6 +366,11 @@ function navComptable(racineVueEnsemble: string): NavItem[] {
       label: 'Factures établissements',
       href: `${racineVueEnsemble}/factures-etablissement`,
       icon: CreditCard,
+    },
+    {
+      label: 'Suivi des paiements',
+      href: `${racineVueEnsemble}/paiements`,
+      icon: LineChart,
     },
   ];
 }

@@ -5,7 +5,7 @@ import { useState } from 'react';
 
 import {
   marquerFactureMensuelleEtablissementPayee,
-  programmerPaiementFactureMensuelleEtablissement,
+  validerPourPaiementEtablissement,
 } from '@/app/dashboard-assureur/factures-etablissement-actions';
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
@@ -22,11 +22,15 @@ export interface FactureMensuelleEtablissementComptable {
 }
 
 const LIBELLE_STATUT: Record<string, string> = {
-  VERIFIEE_MEDECIN_CONSEIL: 'Vérifiée — prête à programmer',
-  PROGRAMMEE_PAIEMENT: 'Paiement programmé',
+  EN_PREPARATION: 'En préparation',
+  SOUMISE: 'Soumise — en attente du médecin conseil',
+  VERIFIEE_MEDECIN_CONSEIL: 'Vérifiée — prête pour paiement',
+  PROGRAMMEE_PAIEMENT: 'Validée pour paiement',
   PAYEE: 'Payée',
 };
 const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
+  EN_PREPARATION: 'neutre',
+  SOUMISE: 'attention',
   VERIFIEE_MEDECIN_CONSEIL: 'attention',
   PROGRAMMEE_PAIEMENT: 'attention',
   PAYEE: 'succes',
@@ -90,8 +94,8 @@ export function FacturesEtablissementComptableEcran({
         actionLigne={(f) => {
           if (f.statut === 'VERIFIEE_MEDECIN_CONSEIL') {
             return (
-              <Button size="xs" onClick={() => agir(programmerPaiementFactureMensuelleEtablissement, f.id)}>
-                Programmer le paiement
+              <Button size="xs" onClick={() => agir(validerPourPaiementEtablissement, f.id)}>
+                Valider pour paiement
               </Button>
             );
           }
@@ -104,7 +108,7 @@ export function FacturesEtablissementComptableEcran({
           }
           return null;
         }}
-        vide="Aucune facture établissement vérifiée par le médecin conseil pour l’instant."
+        vide="Aucune facture établissement pour l’instant."
       />
     </div>
   );

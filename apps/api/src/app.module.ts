@@ -10,6 +10,7 @@ import { IdentityModule } from './identity/identity.module';
 import { InvitationsModule } from './invitations/invitations.module';
 import { MemberModule } from './member/member.module';
 import { PharmacyModule } from './pharmacy/pharmacy.module';
+import { PaymentModule } from './payment/payment.module';
 import { PlanModule } from './plan/plan.module';
 import { PolicyModule } from './policy/policy.module';
 import { PreauthorizationModule } from './preauthorization/preauthorization.module';
@@ -41,6 +42,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     PharmacyModule,
     ClaimsModule,
     ContestationModule,
+    PaymentModule,
     SuperadminModule,
   ],
 })

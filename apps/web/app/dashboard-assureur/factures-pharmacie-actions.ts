@@ -11,17 +11,17 @@ import { apiFetch, detailErreur } from '@/lib/api';
  * identiques côté API) — `cible` en paramètre, même convention que
  * `preautorisation-exploitation-actions.ts`.
  */
-export async function programmerPaiementFactureMensuelle(
+export async function validerPourPaiement(
   factureMensuelleId: string,
   cible: string,
 ): Promise<ResultatSoumission> {
   const res = await apiFetch(
-    `/api/v1/pharmacy/factures-mensuelles/${factureMensuelleId}/programmer-paiement`,
+    `/api/v1/pharmacy/factures-mensuelles/${factureMensuelleId}/valider-pour-paiement`,
     { method: 'POST' },
   );
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(cible);
-  return { ok: true, message: 'Paiement programmé.' };
+  return { ok: true, message: 'Facture validée pour paiement.' };
 }
 
 export async function marquerFactureMensuellePayee(

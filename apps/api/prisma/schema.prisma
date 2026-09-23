@@ -65,6 +65,7 @@ model Organisation {
   contestationsActe ContestationActe[]
   facturesMensuellesPharmacie FactureMensuellePharmacie[]
   facturesMensuellesEtablissement FactureMensuelleEtablissement[]
+  paiementsGroupes PaiementGroupe[]
 
   @@map("organisations")
 }
@@ -1090,6 +1091,12 @@ model LigneDispensation {
   /// soumission, jamais en litige). Reste NULL tant que la ligne n'a pas été
   /// incluse — une ligne exclue pour litige redevient éligible le mois suivant.
   factureMensuelleId String? @map("facture_mensuelle_id") @db.Uuid
+  /// Décochée manuellement par ASSUREUR_COMPTABLE (`decocherLigneContestee`,
+  /// prisma/sql/048) ou exclue automatiquement à la soumission pour litige —
+  /// candidate à la réintégration automatique dès que la contestation associée
+  /// n'est plus en litige (VALIDEE) ; reste définitivement non réclamée si
+  /// REJETEE (`STATUTS_CONTESTATION_EN_LITIGE` inclut déjà REJETEE).
+  reporteeMoisSuivant Boolean @default(false) @map("reportee_mois_suivant")
 
   dispensation    DispensationPharmacie      @relation(fields: [dispensationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   ligneOrdonnance LigneOrdonnance            @relation(fields: [ligneOrdonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1123,12 +1130,17 @@ model FactureMensuellePharmacie {
   dateValidation    DateTime? @map("date_validation") @db.Timestamptz(6)
   dateProgrammation DateTime? @map("date_programmation") @db.Timestamptz(6)
   datePaiement      DateTime? @map("date_paiement") @db.Timestamptz(6)
+  /// Nombre de lignes décochées pour litige depuis cette facture (prisma/sql/048,
+  /// `decocherLigneContestee`) — distingue une facture PAYEE intégralement d'une
+  /// facture PAYEE mais partiellement réglée (certaines lignes reportées).
+  nbLignesReportees Int       @default(0) @map("nb_lignes_reportees")
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organisation Organisation        @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   pharmacie    Pharmacie           @relation(fields: [pharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   validePar    Profil?             @relation("FactureMensuelleValidee", fields: [valideParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lignes       LigneDispensation[]
+  paiementGroupeFactures PaiementGroupeFacture[]
 
   @@unique([pharmacieId, periode])
   @@index([organisationId])
@@ -1380,6 +1392,11 @@ model LigneFacturation {
   /// `lignes_dispensation.facture_mensuelle_id` côté pharmacie : « réclame »
   /// une ligne PAYE pour une facture mensuelle précise, snapshot à la soumission.
   factureMensuelleEtablissementId String? @map("facture_mensuelle_etablissement_id") @db.Uuid
+  /// Décochée manuellement (`decocherLigneContestee`, prisma/sql/048) ou exclue
+  /// automatiquement pour litige — candidate à la réintégration automatique dès
+  /// que la contestation associée n'est plus en litige (VALIDEE) ; reste
+  /// définitivement non réclamée si REJETEE.
+  reporteeMoisSuivant Boolean @default(false) @map("reportee_mois_suivant")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1413,18 +1430,64 @@ model FactureMensuelleEtablissement {
   dateVerification  DateTime? @map("date_verification") @db.Timestamptz(6)
   dateProgrammation DateTime? @map("date_programmation") @db.Timestamptz(6)
   datePaiement      DateTime? @map("date_paiement") @db.Timestamptz(6)
+  /// Nombre de lignes décochées pour litige depuis cette facture (prisma/sql/048,
+  /// `decocherLigneContestee`) — distingue une facture PAYEE intégralement d'une
+  /// facture PAYEE mais partiellement réglée (certaines lignes reportées).
+  nbLignesReportees Int       @default(0) @map("nb_lignes_reportees")
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organisation  Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   etablissement EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   verifiePar    Profil?            @relation("FactureMensuelleEtablissementVerifiee", fields: [verifieParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   lignes        LigneFacturation[]
+  paiementGroupeFactures PaiementGroupeFacture[]
 
   @@unique([etablissementId, periode])
   @@index([organisationId])
   @@index([etablissementId])
   @@index([statut])
   @@map("factures_mensuelles_etablissement")
+}
+
+/// paiements_groupes — regroupe plusieurs factures mensuelles VALIDEES (statut
+/// PROGRAMMEE_PAIEMENT) du MÊME bénéficiaire (un établissement OU une pharmacie,
+/// jamais mélangés) en un paiement unique programmé. `beneficiaireId` référence
+/// `etablissements_sante.id` ou `pharmacies.id` selon `beneficiaireType` — pas de
+/// FK directe possible (référence polymorphe), validée côté service. prisma/sql/048.
+model PaiementGroupe {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId   String    @map("organisation_id") @db.Uuid
+  beneficiaireType String    @map("beneficiaire_type") // ETABLISSEMENT | PHARMACIE
+  beneficiaireId   String    @map("beneficiaire_id") @db.Uuid
+  montantTotal     Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
+  dateProgrammee   DateTime  @default(now()) @map("date_programmee") @db.Timestamptz(6)
+  datePaiement     DateTime? @map("date_paiement") @db.Timestamptz(6)
+  statut           String    @default("PROGRAMME") // PROGRAMME | PAYE
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation Organisation            @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factures     PaiementGroupeFacture[]
+
+  @@index([organisationId])
+  @@index([beneficiaireType, beneficiaireId])
+  @@index([statut])
+  @@map("paiements_groupes")
+}
+
+/// Table de liaison — exactement l'une des deux FK non nulle (établissement OU
+/// pharmacie), même pattern que `AutorisationRepetitionActe` (codeActe/typeVisite).
+model PaiementGroupeFacture {
+  id                              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  paiementGroupeId                String  @map("paiement_groupe_id") @db.Uuid
+  factureMensuelleEtablissementId String? @map("facture_mensuelle_etablissement_id") @db.Uuid
+  factureMensuellePharmacieId     String? @map("facture_mensuelle_pharmacie_id") @db.Uuid
+
+  paiementGroupe                PaiementGroupe                 @relation(fields: [paiementGroupeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  factureMensuelleEtablissement  FactureMensuelleEtablissement? @relation(fields: [factureMensuelleEtablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  factureMensuellePharmacie      FactureMensuellePharmacie?     @relation(fields: [factureMensuellePharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([paiementGroupeId])
+  @@map("paiements_groupes_factures")
 }
 
 /// licences_organisation — administration SaaS (v14 §5). Une licence par tenant.

@@ -79,3 +79,12 @@ export class EnregistrerPaiementDto {
   @Min(0)
   montant!: number;
 }
+
+export class ConsoliderFactureSocieteDto {
+  @IsISO8601()
+  periode!: string;
+
+  @IsOptional()
+  @IsISO8601()
+  dateEcheance?: string;
+}

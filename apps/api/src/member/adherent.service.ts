@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -22,6 +23,7 @@ import {
   ENTITE_SOCIETE_AFFILIEE,
   ROLE_GESTION_MEMBRE_SOCIETE,
   ROLE_RECHERCHE_CARTE,
+  ROLE_VALIDATION_ADHERENT,
   ROLES_GESTION_MEMBRE,
 } from './member.types';
 
@@ -104,6 +106,40 @@ export class AdherentService {
         'adherents',
       );
       return adherent.id;
+    });
+
+    return this.chargerAdherent(ctx, id);
+  }
+
+  /**
+   * Valide un adhérent PRINCIPAL — réservé EXCLUSIVEMENT à ASSUREUR_EXPLOITATION
+   * (jamais DIRECTION/INFORMATIQUE, qui peuvent créer l'adhérent mais pas le
+   * valider — deux étapes distinctes). Stampe `dateValidation`/`valideParId`,
+   * seul repère utilisé par `BillingService.genererCotisationsPeriode` pour la
+   * coupure de facturation mensuelle. Jamais applicable à un `Beneficiaire`.
+   */
+  async validerAdherent(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_VALIDATION_ADHERENT)) {
+      throw new ForbiddenException('La validation d’un adhérent est réservée à ASSUREUR_EXPLOITATION.');
+    }
+    const adherent = await this.prisma.adherent.findFirst({
+      where: { id, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!adherent) {
+      throw new NotFoundException('Adhérent introuvable.');
+    }
+    if (adherent.dateValidation) {
+      throw new ConflictException(`Cet adhérent est déjà validé depuis le ${adherent.dateValidation.toISOString().slice(0, 10)}.`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const maintenant = new Date();
+      await tx.adherent.update({
+        where: { id },
+        data: { dateValidation: maintenant, valideParId: ctx.userId },
+      });
+      await this.audit(tx, ctx.userId, 'VALIDATION_ADHERENT', id, { dateValidation: maintenant.toISOString() }, 'adherents');
     });
 
     return this.chargerAdherent(ctx, id);

@@ -51,6 +51,19 @@ export async function changerStatutAdherent(
   return { ok: true, statut: a.statut };
 }
 
+/** Réservé EXCLUSIVEMENT à ASSUREUR_EXPLOITATION côté API — gouverne la
+ * coupure de facturation mensuelle (billing/). */
+export async function validerAdherent(
+  id: string,
+): Promise<{ ok: true; dateValidation: string } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/adherents/${id}/valider`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const a = (await res.json()) as { dateValidation: string };
+  revalider();
+  revalider(`/${id}`);
+  return { ok: true, dateValidation: a.dateValidation };
+}
+
 export async function ajouterBeneficiaire(
   adherentId: string,
   input: {

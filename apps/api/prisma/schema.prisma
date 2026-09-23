@@ -163,6 +163,7 @@ model Profil {
   facturesMensuellesEtablissementVerifiees FactureMensuelleEtablissement[] @relation("FactureMensuelleEtablissementVerifiee")
   comptesFinanciersCrees CompteFinancier[]
   mouvementsFinanciersEffectues MouvementFinancier[]
+  adherentsValides Adherent[] @relation("AdherentValidePar")
 
   @@map("profils")
 }
@@ -217,6 +218,13 @@ model Adherent {
   ibanOuRib           String?   @map("iban_ou_rib")
   banqueNom           String?   @map("banque_nom")
   modePaiementPrefere String?   @map("mode_paiement_prefere") // MOBILE_MONEY | VIREMENT_BANCAIRE
+  /// Validation par ASSUREUR_EXPLOITATION (prisma/sql/052) — gouverne la
+  /// coupure de facturation mensuelle (`BillingService.genererCotisationsPeriode`) :
+  /// seul un adhérent PRINCIPAL déjà validé avant le 1er du mois entre dans la
+  /// facturation de ce mois. Jamais renseigné pour un `Beneficiaire` (pas de
+  /// coupure sur les bénéficiaires — ajout pris en compte immédiatement).
+  dateValidation      DateTime? @map("date_validation") @db.Timestamptz(6)
+  valideParId         String?   @map("valide_par_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -224,6 +232,7 @@ model Adherent {
   organisation      Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   souscripteur      Souscripteur       @relation(fields: [souscripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   police            Police?            @relation(fields: [policeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  validePar         Profil?            @relation("AdherentValidePar", fields: [valideParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   beneficiaires     Beneficiaire[]
   profils           Profil[]
   cotisations       Cotisation[]

@@ -48,6 +48,9 @@ export interface AdherentDetail extends AdherentListe {
   banqueNom: string | null;
   modePaiementPrefere: string | null;
   createdAt: string;
+  /** Validation par ASSUREUR_EXPLOITATION — gouverne la coupure de
+   * facturation mensuelle (billing/). `null` tant que non validé. */
+  dateValidation: string | null;
   beneficiaires: Beneficiaire[];
   police:
     | (AdherentListe['police'] & {

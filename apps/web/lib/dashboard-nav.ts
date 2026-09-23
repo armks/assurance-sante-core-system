@@ -389,6 +389,11 @@ function navComptable(racineVueEnsemble: string): NavItem[] {
       href: `${racineVueEnsemble}/paiements`,
       icon: LineChart,
     },
+    {
+      label: 'Facturation sociétés',
+      href: `${racineVueEnsemble}/facturation-societes`,
+      icon: Building2,
+    },
   ];
 }
 

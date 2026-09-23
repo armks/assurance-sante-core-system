@@ -14,6 +14,7 @@ import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { BillingService } from './billing.service';
 import {
   CalculerCotisationDto,
+  ConsoliderFactureSocieteDto,
   CreateGrilleDto,
   EnregistrerPaiementDto,
   GenererCotisationsDto,
@@ -97,5 +98,24 @@ export class BillingController {
     @Body() dto: EnregistrerPaiementDto,
   ) {
     return this.billing.enregistrerPaiement(user, id, dto);
+  }
+
+  // --- Facturation par société (coupure de facturation mensuelle) ---
+  @Get('souscripteurs/:souscripteurId/adherents-facturation')
+  listerAdherentsPourFacturation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+    @Query('periode') periode: string,
+  ) {
+    return this.billing.listerAdherentsPourFacturation(user, souscripteurId, periode);
+  }
+
+  @Post('souscripteurs/:souscripteurId/consolider-facture')
+  consoliderFacturationSociete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+    @Body() dto: ConsoliderFactureSocieteDto,
+  ) {
+    return this.billing.consoliderFacturationSociete(user, souscripteurId, dto.periode, dto.dateEcheance);
   }
 }

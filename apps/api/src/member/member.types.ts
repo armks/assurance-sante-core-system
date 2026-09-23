@@ -39,6 +39,17 @@ export const ROLES_GESTION_MEMBRE = [
 export const ROLE_GESTION_MEMBRE_SOCIETE = 'SOCIETE_ADMINISTRATION';
 
 /**
+ * Validation d'un adhérent PRINCIPAL (jamais un `Beneficiaire`) — réservée
+ * EXCLUSIVEMENT à ASSUREUR_EXPLOITATION (pas DIRECTION/INFORMATIQUE, qui
+ * peuvent pourtant créer l'adhérent via `ROLES_GESTION_MEMBRE` — la création
+ * et la validation sont deux étapes distinctes). Gouverne la coupure de
+ * facturation mensuelle (`BillingService.genererCotisationsPeriode`,
+ * prisma/sql/052) : `Adherent.dateValidation` doit être antérieure au 1er du
+ * mois facturé pour que l'adhérent y soit inclus.
+ */
+export const ROLE_VALIDATION_ADHERENT = 'ASSUREUR_EXPLOITATION';
+
+/**
  * Identification par numéro de carte à l'accueil du centre médical — ADDITIF
  * au code de consultation, ne le remplace pas. Purement informatif (statut
  * ACTIF/SUSPENDU/RADIE) : n'ouvre aucun dossier, ne crée rien. Réservé à

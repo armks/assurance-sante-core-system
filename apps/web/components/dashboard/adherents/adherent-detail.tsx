@@ -9,6 +9,7 @@ import {
   changerStatutBeneficiaire,
   modifierBeneficiaire,
   supprimerBeneficiaire,
+  validerAdherent,
 } from '@/app/dashboard-assureur/adherents-actions';
 import {
   ChampSelect,
@@ -49,9 +50,12 @@ function Ligne({ label, children }: { label: string; children: React.ReactNode }
 export function AdherentDetail({
   adherent,
   peutGerer,
+  peutValider = false,
 }: {
   adherent: AdherentDetailType;
   peutGerer: boolean;
+  /** ASSUREUR_EXPLOITATION exclusivement — distinct de `peutGerer`. */
+  peutValider?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -139,6 +143,28 @@ export function AdherentDetail({
             {adherent.modePaiementPrefere?.replace(/_/g, ' ') ?? null}
           </Ligne>
           <Ligne label="Créé le">{dateFr(adherent.createdAt)}</Ligne>
+          <Ligne label="Validation (facturation)">
+            {adherent.dateValidation ? (
+              `Validé le ${dateFr(adherent.dateValidation)}`
+            ) : peutValider ? (
+              <Button
+                size="xs"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    setErreur(null);
+                    const r = await validerAdherent(adherent.id);
+                    if (r.ok) router.refresh();
+                    else setErreur(r.error);
+                  })
+                }
+              >
+                Valider cet adhérent
+              </Button>
+            ) : (
+              'Non validé'
+            )}
+          </Ligne>
         </CardContent>
       </Card>
 

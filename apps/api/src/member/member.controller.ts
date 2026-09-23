@@ -98,6 +98,16 @@ export class MemberController {
     return this.adherents.changerStatutAdherent(user, id, dto);
   }
 
+  /** Réservé EXCLUSIVEMENT à ASSUREUR_EXPLOITATION — gouverne la coupure de
+   * facturation mensuelle (billing/). */
+  @Post('adherents/:id/valider')
+  validerAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.adherents.validerAdherent(user, id);
+  }
+
   @Delete('adherents/:id')
   @HttpCode(204)
   supprimerAdherent(

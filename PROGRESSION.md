@@ -5070,3 +5070,80 @@ d'une 3ᵉ facture dépassant le solde disponible → 409 explicite, solde et st
 facture strictement inchangés (aucune déduction partielle). Toutes les données de test
 éphémères supprimées, résidu nul vérifié indépendamment (0 facture, 0 compte financier,
 0 profil, 0 mouvement restants).
+
+## 2026-09-23 (suite 3) — Vérification étanchéité adjoint, extension provisioning/tarification, coupure de facturation mensuelle — FIN DE L'ÉTAPE « trésorerie de l'assureur »
+
+Clôture l'arc des 4 prompts précédents (comptes financiers → mouvements/dépenses →
+paiement réel → cette vérification/extension finale). Quatre volets indépendants.
+
+### 1. Vérification HTTP réelle (pas seulement lecture de code) de l'étanchéité adjoint
+Même exigence qu'au Prompt B (comptes financiers) : test HTTP réel, comptes/facture RÉELS
+préparés par un ASSUREUR_COMPTABLE titulaire, puis les 5 actions tentées par
+`ASSUREUR_COMPTABLE_ADJOINT` sur ces MÊMES ressources — `creerCompteFinancier`,
+`approvisionnerCompte`, `transfererEntreComptes`, `enregistrerDepense`, `payerFacture`.
+13/13 vérifications : les 5 actions refusées en 403, ET vérification indépendante en base
+qu'aucune des tentatives n'a eu le moindre effet (soldes inchangés, facture toujours
+PROGRAMMEE_PAIEMENT, aucun compte créé par l'adjoint, aucun mouvement financier créé).
+
+### 2. Provisioning/tenant : périmètres distincts pour ASSUREUR_COMPTABLE
+`ROLES_GESTION_SOUSCRIPTEUR` (tenant.types.ts) étendu à ASSUREUR_COMPTABLE — peut désormais
+`creerSouscripteur`. Pas de nouvelle ligne `regles_provisioning` : cette table gouverne la
+création de COMPTES UTILISATEUR (rôles/profils), pas la création d'entités métier comme un
+souscripteur — l'ajouter là n'aurait eu aucun effet ; le vrai mécanisme est le `roleChain`
+vérifié dans `TenantService.assertGestion()`, désormais étendu, plus la policy RLS
+`souscripteurs_modif` (prisma/sql/052, défense en profondeur).
+
+Découverte en creusant `grilles_tarifaires` : `ROLES_GESTION_BILLING` (billing.types.ts)
+incluait DÉJÀ ASSUREUR_COMPTABLE pour la création de grilles — en contradiction directe
+avec l'énoncé (« reste exclusif à ASSUREUR_INFORMATIQUE »). Corrigé en scindant en deux
+constantes : `ROLES_GESTION_BILLING` (cotisations, paiements — ASSUREUR_COMPTABLE +
+ASSUREUR_INFORMATIQUE, inchangé) et la nouvelle `ROLES_GESTION_GRILLES_TARIFAIRES`
+(ASSUREUR_INFORMATIQUE SEUL), cette dernière appliquée à `creerGrille` via un nouveau
+`assertGestionGrilles()`. RLS `grilles_tarifaires_ecriture` alignée (retrait de
+ASSUREUR_COMPTABLE). `tarifs_conventionnes` (provider/) était déjà exclusif à
+ASSUREUR_INFORMATIQUE (RLS ET NestJS) — vérifié, rien à changer.
+
+### 3. Coupure de facturation mensuelle — `genererCotisationsPeriode` (billing/)
+`Adherent` (prisma/sql/052) gagne `dateValidation`/`valideParId` — AUCUN champ équivalent
+sur `Beneficiaire` (jamais de coupure sur les bénéficiaires, cohérent avec l'énoncé).
+Nouvelle méthode `AdherentService.validerAdherent()`, réservée EXCLUSIVEMENT à
+ASSUREUR_EXPLOITATION (`ROLE_VALIDATION_ADHERENT`) — jamais DIRECTION/INFORMATIQUE, qui
+peuvent pourtant CRÉER l'adhérent (`ROLES_GESTION_MEMBRE`) : la création et la validation
+sont deux étapes distinctes, cette dernière gouvernant désormais la facturation. Bouton
+« Valider cet adhérent » ajouté à l'écran détail adhérent existant (sinon la règle aurait
+été inutilisable en pratique) — visible uniquement si `peutValiderAdherent` (nouveau helper
+`lib/member.ts`, distinct de `peutGererMembres`).
+
+`genererCotisationsPeriode` : pour chaque adhérent demandé, si `dateValidation` absente ou
+`>= premierJourDuMois(periode)`, la ligne est REPORTÉE (`reportee: true` dans le résultat,
+compteur `reportees`) — aucune cotisation créée pour ce mois, sans faire échouer le reste du
+lot. Le même adhérent redemandé pour le mois suivant est généré normalement dès que sa date
+de validation est antérieure à CE nouveau 1er du mois — pas de mécanisme de report actif à
+construire, la coupure se réévalue simplement à chaque appel.
+
+### 4. Écran « Facturation sociétés » (comptable + comptable-adjoint)
+Deux nouvelles méthodes billing/ : `listerAdherentsPourFacturation(souscripteurId, periode)`
+(adhérents PRINCIPAUX validés avant la coupure, âge et `nbBeneficiaires` calculés à la
+demande — reflète l'ÉTAT ACTUEL des bénéficiaires, jamais soumis à la coupure) et
+`consoliderFacturationSociete(souscripteurId, periode)` (« Consolider et valider la facture
+société ») qui réutilise TEL QUEL `genererCotisationsPeriode` en lui passant la liste déjà
+filtrée des adhérents éligibles (la coupure n'est écrite qu'une fois, jamais dupliquée),
+puis crée UNE `Cotisation` consolidée au niveau société (`societeId` renseigné, `adherentId`
+null — même principe « exactement l'un des deux » que `PaiementGroupeFacture`) sommant leurs
+montants. Écran `/dashboard-assureur/{comptable,comptable-adjoint}/facturation-societes` :
+sélecteur société + mois, tableau des adhérents éligibles, bouton de consolidation.
+
+### Tests
+Backend : +21 tests billing (`creerGrille` exclusion, coupure sur `genererCotisationsPeriode`
+dans les 3 cas — avant/après/jamais validé —, `listerAdherentsPourFacturation`,
+`consoliderFacturationSociete`), +5 tests `validerAdherent` (adherent.service.spec.ts), +1
+test tenant (ASSUREUR_COMPTABLE crée un souscripteur), 1 test existant corrigé (attendait à
+tort un refus pour ASSUREUR_COMPTABLE). Suite complète 562/562. `npx tsc --noEmit` propre
+API et Web. Deux scripts HTTP réels : (a) étanchéité adjoint, 13/13 — cf. §1 ; (b) coupure de
+facturation, 16/16 — bonus provisioning (comptable crée un souscripteur, refusé sur une
+grille tarifaire), adhérent validé le 2 du mois absent de la facturation du mois courant
+puis présent le mois suivant, bénéficiaire ajouté en cours de mois immédiatement reflété
+(`nbBeneficiaires`), coupure brute vérifiée sur `genererCotisationsPeriode` (reporté puis
+généré le mois suivant), consolidation société passant de 1 à 2 adhérents facturés d'un
+mois à l'autre. Toutes les données de test éphémères supprimées, résidu nul vérifié
+indépendamment sur les deux scripts.

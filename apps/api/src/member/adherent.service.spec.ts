@@ -299,6 +299,50 @@ describe('AdherentService — fichier des membres', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════
+  //  Validation d'un adhérent PRINCIPAL — réservée EXCLUSIVEMENT à
+  //  ASSUREUR_EXPLOITATION (jamais DIRECTION/INFORMATIQUE, qui peuvent
+  //  pourtant créer l'adhérent — deux étapes distinctes). Gouverne la
+  //  coupure de facturation mensuelle (billing/).
+  // ═══════════════════════════════════════════════════════════════════
+  describe('validerAdherent', () => {
+    it('refuse ASSUREUR_DIRECTION (peut créer l’adhérent, pas le valider)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_DIRECTION']));
+      await expect(service.validerAdherent(USER, 'adh-1')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
+    });
+
+    it('refuse ASSUREUR_INFORMATIQUE', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      await expect(service.validerAdherent(USER, 'adh-1')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('adhérent introuvable → 404', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.adherent.findFirst.mockResolvedValue(null);
+      await expect(service.validerAdherent(USER, 'adh-x')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('déjà validé → 409, aucune écriture', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, dateValidation: new Date('2026-08-01') });
+      await expect(service.validerAdherent(USER, 'adh-1')).rejects.toMatchObject({ status: 409 });
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_EXPLOITATION valide : stampe dateValidation et valideParId', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.adherent.findFirst.mockResolvedValueOnce({ ...ADHERENT_CREE, dateValidation: null });
+
+      await service.validerAdherent(USER, 'adh-1');
+
+      expect(prisma.adherent.update).toHaveBeenCalledWith({
+        where: { id: 'adh-1' },
+        data: { dateValidation: expect.any(Date), valideParId: 'u1' },
+      });
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════
   //  Recherche par numéro de carte (accueil centre médical) — ADDITIF au
   //  code de consultation, purement informatif, réservé à
   //  CENTRE_MEDICAL_ACCUEIL exclusivement.

@@ -210,14 +210,32 @@ describe('TenantService', () => {
     expect(prisma.souscripteur.update).not.toHaveBeenCalled();
   });
 
-  it('refuse la gestion à un rôle non habilité (comptable)', async () => {
+  it('refuse la gestion à un rôle non habilité (médecin conseil)', async () => {
     identity.getMe.mockResolvedValue(
-      identiteAvec({ roleChain: ['ASSUREUR_COMPTABLE'] }),
+      identiteAvec({ roleChain: ['ASSUREUR_MEDECIN_CONSEIL'] }),
     );
 
     await expect(
       service.creer(USER, { type: 'ENTREPRISE', nom: 'X' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('ASSUREUR_COMPTABLE peut créer un souscripteur (prisma/sql/052)', async () => {
+    identity.getMe.mockResolvedValue(
+      identiteAvec({ roleChain: ['ASSUREUR_COMPTABLE'] }),
+    );
+    prisma.souscripteur.create.mockResolvedValue({ id: 'sous-2' });
+    prisma.souscripteur.findFirst.mockResolvedValue({
+      id: 'sous-2',
+      organisationId: 'org-1',
+      type: 'ENTREPRISE',
+      nom: 'Créée par le comptable',
+      membresComite: [],
+    });
+
+    const res = await service.creer(USER, { type: 'ENTREPRISE', nom: 'Créée par le comptable' });
+
+    expect(res.id).toBe('sous-2');
   });
 
   it('refuse tout accès à un profil hors entité ASSUREUR', async () => {

@@ -21,6 +21,7 @@ import {
   CalculCotisation,
   ContexteAppelant,
   ROLES_GESTION_BILLING,
+  ROLES_GESTION_GRILLES_TARIFAIRES,
 } from './billing.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -61,7 +62,7 @@ export class BillingService {
 
   async creerGrille(user: AuthenticatedUser, dto: CreateGrilleDto) {
     const ctx = await this.contexteAppelant(user);
-    this.assertGestion(ctx);
+    this.assertGestionGrilles(ctx);
 
     if (dto.trancheAgeMax < dto.trancheAgeMin) {
       throw new BadRequestException(
@@ -250,12 +251,14 @@ export class BillingService {
     }
 
     const periode = new Date(dto.periode);
+    const premierJourDuMois = this.premierJourDuMois(periode);
     const dateEcheance = dto.dateEcheance
       ? new Date(dto.dateEcheance)
       : this.plusJours(periode, 30);
 
     const resultats: unknown[] = [];
     let generees = 0;
+    let reportees = 0;
 
     for (const adherent of dto.adherents) {
       const existe = await this.prisma.cotisation.findFirst({
@@ -268,6 +271,30 @@ export class BillingService {
       });
       if (existe) {
         resultats.push({ ...existe, deja: true });
+        continue;
+      }
+
+      // Coupure de facturation mensuelle (prisma/sql/052) : un adhérent
+      // PRINCIPAL doit être validé par ASSUREUR_EXPLOITATION AVANT le 1er du
+      // mois facturé pour y être inclus — jamais appliqué aux bénéficiaires
+      // (pas de champ équivalent sur `beneficiaires`, ni de génération
+      // individuelle les concernant ici).
+      const adherentDB = await this.prisma.adherent.findFirst({
+        where: { id: adherent.adherentId, organisationId: ctx.organisationId, deletedAt: null },
+        select: { id: true, dateValidation: true },
+      });
+      if (!adherentDB) {
+        throw new NotFoundException(`Adhérent ${adherent.adherentId} introuvable.`);
+      }
+      if (!adherentDB.dateValidation || adherentDB.dateValidation >= premierJourDuMois) {
+        resultats.push({
+          adherentId: adherent.adherentId,
+          reportee: true,
+          motif: adherentDB.dateValidation
+            ? `Validé le ${adherentDB.dateValidation.toISOString().slice(0, 10)} — après la coupure du 1er du mois, reporté au mois suivant.`
+            : 'Adhérent pas encore validé par ASSUREUR_EXPLOITATION — reporté tant que non validé.',
+        });
+        reportees += 1;
         continue;
       }
 
@@ -303,7 +330,181 @@ export class BillingService {
       generees += 1;
     }
 
-    return { periode: dto.periode.slice(0, 10), generees, cotisations: resultats };
+    return { periode: dto.periode.slice(0, 10), generees, reportees, cotisations: resultats };
+  }
+
+  /**
+   * Adhérents PRINCIPAUX (jamais les bénéficiaires) d'un souscripteur déjà
+   * validés avant la coupure du 1er du mois de `periode` — ceux éligibles à
+   * la facturation de CE mois (écran comptable « Liste des adhérents pour
+   * facturation »). `nbBeneficiaires` reflète l'état ACTUEL (pas de coupure
+   * sur les bénéficiaires — un ajout en cours de mois y apparaît aussitôt).
+   */
+  async listerAdherentsPourFacturation(
+    user: AuthenticatedUser,
+    souscripteurId: string,
+    periodeStr: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+
+    const souscripteur = await this.prisma.souscripteur.findFirst({
+      where: { id: souscripteurId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!souscripteur) {
+      throw new NotFoundException('Souscripteur introuvable.');
+    }
+
+    const periode = new Date(periodeStr);
+    const premierJourDuMois = this.premierJourDuMois(periode);
+
+    const adherents = await this.prisma.adherent.findMany({
+      where: {
+        souscripteurId,
+        organisationId: ctx.organisationId,
+        statut: 'ACTIF',
+        deletedAt: null,
+        dateValidation: { not: null, lt: premierJourDuMois },
+      },
+      include: {
+        beneficiaires: { where: { deletedAt: null } },
+        police: { select: { id: true, numeroPolice: true, statut: true } },
+      },
+      orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
+    });
+
+    return adherents.map((a) => ({
+      id: a.id,
+      numeroAdherent: a.numeroAdherent,
+      nom: a.nom,
+      prenom: a.prenom,
+      dateNaissance: a.dateNaissance,
+      age: this.calculerAge(a.dateNaissance, periode),
+      dateValidation: a.dateValidation,
+      policeId: a.policeId,
+      police: a.police,
+      nbBeneficiaires: a.beneficiaires.length,
+    }));
+  }
+
+  /**
+   * « Consolider et valider la facture société » (écran comptable) : génère
+   * les cotisations individuelles des adhérents éligibles (réutilise
+   * `genererCotisationsPeriode` — coupure de facturation appliquée une seule
+   * fois, jamais dupliquée), puis crée UNE cotisation consolidée au niveau
+   * société (`Cotisation.societeId` renseigné, `adherentId` null — même
+   * principe « exactement l'un des deux » que `PaiementGroupeFacture`)
+   * sommant leurs montants — la facture globale par société cliente du mois.
+   */
+  async consoliderFacturationSociete(
+    user: AuthenticatedUser,
+    souscripteurId: string,
+    periodeStr: string,
+    dateEcheanceStr?: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+
+    const souscripteur = await this.prisma.souscripteur.findFirst({
+      where: { id: souscripteurId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!souscripteur) {
+      throw new NotFoundException('Souscripteur introuvable.');
+    }
+
+    const police = await this.prisma.police.findFirst({
+      where: { souscripteurId, organisationId: ctx.organisationId, statut: 'ACTIVE', deletedAt: null },
+    });
+    if (!police) {
+      throw new ConflictException('Aucune police ACTIVE pour ce souscripteur — consolidation impossible.');
+    }
+
+    const periode = new Date(periodeStr);
+
+    const dejaConsolidee = await this.prisma.cotisation.findFirst({
+      where: { societeId: souscripteurId, periode, deletedAt: null },
+    });
+    if (dejaConsolidee) {
+      throw new ConflictException(
+        `Une facture société consolidée existe déjà pour cette période (${new Decimal(dejaConsolidee.montantDu.toString()).toFixed(2)} F).`,
+      );
+    }
+
+    const premierJourDuMois = this.premierJourDuMois(periode);
+    const eligibles = await this.prisma.adherent.findMany({
+      where: {
+        souscripteurId,
+        organisationId: ctx.organisationId,
+        statut: 'ACTIF',
+        deletedAt: null,
+        dateValidation: { not: null, lt: premierJourDuMois },
+      },
+      select: { id: true, dateNaissance: true },
+    });
+    if (eligibles.length === 0) {
+      throw new ConflictException(
+        'Aucun adhérent principal éligible (validé avant la coupure du 1er du mois) pour cette période.',
+      );
+    }
+
+    const generation = await this.genererCotisationsPeriode(user, police.id, {
+      periode: periodeStr,
+      dateEcheance: dateEcheanceStr,
+      adherents: eligibles.map((a) => ({
+        adherentId: a.id,
+        age: this.calculerAge(a.dateNaissance, periode),
+      })),
+    });
+
+    const dateEcheance = dateEcheanceStr ? new Date(dateEcheanceStr) : this.plusJours(periode, 30);
+    const cotisationsIndividuelles = await this.prisma.cotisation.findMany({
+      where: {
+        policeId: police.id,
+        periode,
+        deletedAt: null,
+        adherentId: { in: eligibles.map((a) => a.id) },
+      },
+    });
+    const montantTotal = cotisationsIndividuelles.reduce(
+      (acc, c) => acc.add(new Decimal(c.montantDu.toString())),
+      new Decimal(0),
+    );
+
+    const consolidee = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.cotisation.create({
+        data: {
+          policeId: police.id,
+          adherentId: null,
+          societeId: souscripteurId,
+          periode,
+          montantDu: montantTotal.toFixed(2),
+          dateEcheance,
+          statut: 'A_PAYER',
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'CONSOLIDATION_FACTURE_SOCIETE',
+        c.id,
+        {
+          souscripteurId,
+          periode: periodeStr.slice(0, 10),
+          nbAdherentsFactures: generation.generees,
+          nbAdherentsReportes: generation.reportees,
+          montantTotal: montantTotal.toFixed(2),
+        },
+        'cotisations',
+      );
+      return c;
+    });
+
+    return {
+      ...consolidee,
+      montantDu: consolidee.montantDu.toFixed(2),
+      nbAdherentsFactures: generation.generees,
+      nbAdherentsReportes: generation.reportees,
+    };
   }
 
   async listerCotisationsPolice(user: AuthenticatedUser, policeId: string) {
@@ -489,6 +690,20 @@ export class BillingService {
     }
   }
 
+  /** Grilles tarifaires (standard ET négociées) — périmètre plus étroit que
+   * `assertGestion` : ASSUREUR_COMPTABLE en est exclu (voir
+   * `ROLES_GESTION_GRILLES_TARIFAIRES`). */
+  private assertGestionGrilles(ctx: ContexteAppelant): void {
+    const autorise = ctx.roleChain.some((code) =>
+      (ROLES_GESTION_GRILLES_TARIFAIRES as readonly string[]).includes(code),
+    );
+    if (!autorise) {
+      throw new ForbiddenException(
+        'Rôle insuffisant : la gestion des grilles tarifaires est réservée à ASSUREUR_INFORMATIQUE.',
+      );
+    }
+  }
+
   private async chargerPoliceGestion(
     organisationId: string,
     id: string,
@@ -551,6 +766,21 @@ export class BillingService {
 
   private plusJours(d: Date, n: number): Date {
     return new Date(d.getTime() + n * 86_400_000);
+  }
+
+  /** Premier jour (UTC minuit) du mois de `d` — coupure de facturation. */
+  private premierJourDuMois(d: Date): Date {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+  }
+
+  /** Âge en années révolues à la date `reference`. */
+  private calculerAge(dateNaissance: Date, reference: Date): number {
+    let age = reference.getUTCFullYear() - dateNaissance.getUTCFullYear();
+    const anniversaireCetteAnnee = new Date(
+      Date.UTC(reference.getUTCFullYear(), dateNaissance.getUTCMonth(), dateNaissance.getUTCDate()),
+    );
+    if (reference < anniversaireCetteAnnee) age -= 1;
+    return age;
   }
 
   /** Écriture d'audit — toujours via la fonction Postgres `log_audit()` (v9 §1.6). */

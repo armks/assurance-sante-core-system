@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { LIBELLE_STATUT_MEMBRE, TON_STATUT_MEMBRE } from '@/lib/member';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
-import { peutGererMembres } from '@/lib/member';
+import { peutGererMembres, peutValiderAdherent } from '@/lib/member';
 
 export const metadata: Metadata = { title: 'Adhérent — Assurance Informatique' };
 
@@ -53,6 +53,7 @@ export default async function AdherentPage({
       <AdherentDetail
         adherent={adherent}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
+        peutValider={peutValiderAdherent(etat.identity.permissions.roleChain)}
       />
     </div>
   );

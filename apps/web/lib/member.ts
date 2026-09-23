@@ -52,3 +52,10 @@ export function peutGererMembres(roleChain: string[] | undefined): boolean {
     rc.includes(ROLE_GESTION_MEMBRE_SOCIETE)
   );
 }
+
+/** Validation d'un adhérent principal — réservée à ASSUREUR_EXPLOITATION
+ * exclusivement (gouverne la coupure de facturation mensuelle), distinct de
+ * `peutGererMembres` (création/statut, ouvert à DIRECTION/INFORMATIQUE aussi). */
+export function peutValiderAdherent(roleChain: string[] | undefined): boolean {
+  return (roleChain ?? []).includes('ASSUREUR_EXPLOITATION');
+}

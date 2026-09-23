@@ -66,6 +66,7 @@ model Organisation {
   facturesMensuellesPharmacie FactureMensuellePharmacie[]
   facturesMensuellesEtablissement FactureMensuelleEtablissement[]
   paiementsGroupes PaiementGroupe[]
+  comptesFinanciers CompteFinancier[]
 
   @@map("organisations")
 }
@@ -159,6 +160,7 @@ model Profil {
   contestationsActeOuvertes ContestationActe[] @relation("ContestationActeOuvertePar")
   contestationsActeTraitees ContestationActe[] @relation("ContestationActeTraiteePar")
   facturesMensuellesEtablissementVerifiees FactureMensuelleEtablissement[] @relation("FactureMensuelleEtablissementVerifiee")
+  comptesFinanciersCrees CompteFinancier[]
 
   @@map("profils")
 }
@@ -1488,6 +1490,32 @@ model PaiementGroupeFacture {
 
   @@index([paiementGroupeId])
   @@map("paiements_groupes_factures")
+}
+
+/// comptes_financiers — socle des comptes financiers de l'assureur (trésorerie
+/// interne : comptes bancaires + caisses internes). Écriture (ET lecture)
+/// strictement réservées au rôle EXACT ASSUREUR_COMPTABLE — JAMAIS
+/// ASSUREUR_COMPTABLE_ADJOINT (voir `payment.types.ts`,
+/// ROLES_GESTION_COMPTES_FINANCIERS, pour le détail du piège d'héritage
+/// évité). prisma/sql/049.
+model CompteFinancier {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String    @map("organisation_id") @db.Uuid
+  type           String // BANCAIRE | CAISSE_INTERNE
+  nom            String
+  banqueNom      String?   @map("banque_nom")
+  numeroCompte   String?   @map("numero_compte")
+  soldeActuel    Decimal   @default(0) @map("solde_actuel") @db.Decimal(14, 2)
+  creeParId      String    @map("cree_par") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  creePar      Profil       @relation(fields: [creeParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@map("comptes_financiers")
 }
 
 /// licences_organisation — administration SaaS (v14 §5). Une licence par tenant.

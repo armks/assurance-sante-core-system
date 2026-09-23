@@ -19,14 +19,23 @@ const USER: AuthenticatedUser = {
   token: 'jwt',
 };
 
-function profil(role: string) {
+function profil(role: string, roleChain: string[] = [role]) {
   return {
     profil: { id: 'u1', organisationId: 'org-1', role, adherentId: null, etablissementId: null, pharmacieId: null },
-    permissions: { roleChain: [role] },
+    permissions: { roleChain },
   };
 }
 const comptable = () => profil('ASSUREUR_COMPTABLE');
 const medecinConseil = () => profil('ASSUREUR_MEDECIN_CONSEIL');
+/**
+ * roleChain simule fidèlement `IdentityService.resoudreChaineRoles` : l'adjoint
+ * porte SA PROPRE valeur `role` (`ASSUREUR_COMPTABLE_ADJOINT`) mais son
+ * `roleChain` remonte le parent (`role_parent_code`) et INCLUT donc
+ * `ASSUREUR_COMPTABLE` — un helper qui omettrait cette remontée ne testerait
+ * pas le vrai piège (un `roleChain.includes(...)` passerait à tort le test
+ * même avec une implémentation boguée à corriger).
+ */
+const comptableAdjoint = () => profil('ASSUREUR_COMPTABLE_ADJOINT', ['ASSUREUR_COMPTABLE_ADJOINT', 'ASSUREUR_COMPTABLE']);
 
 /** Prisma Decimal-like : suffit d'avoir toFixed / toString pour le service. */
 const dec = (n: number) => ({ toFixed: (d = 2) => n.toFixed(d), toString: () => String(n) });
@@ -58,6 +67,12 @@ describe('PaymentService', () => {
       },
       etablissementSante: { findMany: jest.fn().mockResolvedValue([]) },
       pharmacie: { findMany: jest.fn().mockResolvedValue([]) },
+      compteFinancier: {
+        create: jest.fn(),
+        update: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -305,6 +320,190 @@ describe('PaymentService', () => {
           categoriesActe: ['PHARMACIE'],
         }),
       ]);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Comptes financiers — réservé EXCLUSIVEMENT au rôle EXACT
+  //  ASSUREUR_COMPTABLE, jamais ASSUREUR_COMPTABLE_ADJOINT (piège
+  //  d'héritage : roleChain/profil_a_role remontent l'adjoint vers son
+  //  parent, ctx.role ne doit JAMAIS l'être).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('listerComptesFinanciers', () => {
+    it('rôle non autorisé (médecin conseil) → 403', async () => {
+      identity.getMe.mockResolvedValue(medecinConseil());
+      await expect(service.listerComptesFinanciers(USER)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('ASSUREUR_COMPTABLE_ADJOINT → 403 MÊME si son roleChain inclut ASSUREUR_COMPTABLE (piège d’héritage évité)', async () => {
+      identity.getMe.mockResolvedValue(comptableAdjoint());
+      await expect(service.listerComptesFinanciers(USER)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.compteFinancier.findMany).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_COMPTABLE (titulaire) → liste avec solde formaté', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findMany.mockResolvedValue([
+        {
+          id: 'cf-1',
+          type: 'BANCAIRE',
+          nom: 'Compte principal',
+          banqueNom: 'NSIA Banque',
+          numeroCompte: 'CI001234',
+          soldeActuel: dec(500000),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          creePar: { role: 'ASSUREUR_COMPTABLE' },
+        },
+      ]);
+      const res = await service.listerComptesFinanciers(USER);
+      expect(res).toEqual([expect.objectContaining({ id: 'cf-1', soldeActuel: '500000.00' })]);
+    });
+  });
+
+  describe('creerCompteFinancier', () => {
+    const dto = { type: 'BANCAIRE' as const, nom: 'Compte principal', fondsInitial: 100000 };
+
+    it('rôle non autorisé (médecin conseil) → 403', async () => {
+      identity.getMe.mockResolvedValue(medecinConseil());
+      await expect(service.creerCompteFinancier(USER, dto)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.compteFinancier.create).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_COMPTABLE_ADJOINT → 403 (jamais l’adjoint, même via son roleChain hérité)', async () => {
+      identity.getMe.mockResolvedValue(comptableAdjoint());
+      await expect(service.creerCompteFinancier(USER, dto)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.compteFinancier.create).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_COMPTABLE (titulaire) crée le compte avec son solde de départ', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.create.mockResolvedValue({
+        id: 'cf-1',
+        type: 'BANCAIRE',
+        nom: 'Compte principal',
+        soldeActuel: dec(100000),
+      });
+
+      const res = await service.creerCompteFinancier(USER, dto);
+
+      expect(prisma.compteFinancier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            organisationId: 'org-1',
+            type: 'BANCAIRE',
+            nom: 'Compte principal',
+            soldeActuel: '100000.00',
+            creeParId: 'u1',
+          }),
+        }),
+      );
+      expect(res.soldeActuel).toBe('100000.00');
+    });
+  });
+
+  describe('approvisionnerCompte', () => {
+    it('rôle non autorisé (médecin conseil) → 403', async () => {
+      identity.getMe.mockResolvedValue(medecinConseil());
+      await expect(
+        service.approvisionnerCompte(USER, 'cf-1', { montant: 1000, source: 'EXTERNE' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('ASSUREUR_COMPTABLE_ADJOINT → 403 (jamais l’adjoint)', async () => {
+      identity.getMe.mockResolvedValue(comptableAdjoint());
+      await expect(
+        service.approvisionnerCompte(USER, 'cf-1', { montant: 1000, source: 'EXTERNE' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.compteFinancier.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('compte introuvable → 404', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst.mockResolvedValue(null);
+      await expect(
+        service.approvisionnerCompte(USER, 'cf-x', { montant: 1000, source: 'EXTERNE' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('source EXTERNE : augmente le solde, aucun débit ailleurs', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst.mockResolvedValueOnce({ id: 'cf-1', soldeActuel: dec(100000) });
+      prisma.compteFinancier.update.mockResolvedValue({ id: 'cf-1', soldeActuel: dec(150000) });
+
+      const res = await service.approvisionnerCompte(USER, 'cf-1', {
+        montant: 50000,
+        source: 'EXTERNE',
+        piecesJustificatives: ['virement-2026-09.pdf'],
+      });
+
+      expect(prisma.compteFinancier.update).toHaveBeenCalledTimes(1);
+      expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+        where: { id: 'cf-1' },
+        data: { soldeActuel: { increment: '50000.00' } },
+      });
+      expect(res.soldeActuel).toBe('150000.00');
+    });
+
+    it('source AUTRE_COMPTE sans compteSourceId → 400', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst.mockResolvedValueOnce({ id: 'cf-1', soldeActuel: dec(100000) });
+      await expect(
+        service.approvisionnerCompte(USER, 'cf-1', { montant: 1000, source: 'AUTRE_COMPTE' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('source AUTRE_COMPTE identique à la cible → 400', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst.mockResolvedValueOnce({ id: 'cf-1', soldeActuel: dec(100000) });
+      await expect(
+        service.approvisionnerCompte(USER, 'cf-1', { montant: 1000, source: 'AUTRE_COMPTE', compteSourceId: 'cf-1' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('source AUTRE_COMPTE : compte source introuvable → 404', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst
+        .mockResolvedValueOnce({ id: 'cf-1', soldeActuel: dec(100000) })
+        .mockResolvedValueOnce(null);
+      await expect(
+        service.approvisionnerCompte(USER, 'cf-1', { montant: 1000, source: 'AUTRE_COMPTE', compteSourceId: 'cf-2' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('source AUTRE_COMPTE : solde source insuffisant → 409, aucune écriture', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst
+        .mockResolvedValueOnce({ id: 'cf-1', soldeActuel: dec(100000) })
+        .mockResolvedValueOnce({ id: 'cf-2', soldeActuel: dec(500) });
+      await expect(
+        service.approvisionnerCompte(USER, 'cf-1', { montant: 1000, source: 'AUTRE_COMPTE', compteSourceId: 'cf-2' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.compteFinancier.update).not.toHaveBeenCalled();
+    });
+
+    it('source AUTRE_COMPTE : crédite la cible ET débite la source dans la même transaction', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst
+        .mockResolvedValueOnce({ id: 'cf-1', soldeActuel: dec(100000) })
+        .mockResolvedValueOnce({ id: 'cf-2', soldeActuel: dec(50000) });
+      prisma.compteFinancier.update.mockResolvedValue({ id: 'cf-1', soldeActuel: dec(130000) });
+
+      const res = await service.approvisionnerCompte(USER, 'cf-1', {
+        montant: 30000,
+        source: 'AUTRE_COMPTE',
+        compteSourceId: 'cf-2',
+      });
+
+      expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+        where: { id: 'cf-1' },
+        data: { soldeActuel: { increment: '30000.00' } },
+      });
+      expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+        where: { id: 'cf-2' },
+        data: { soldeActuel: { decrement: '30000.00' } },
+      });
+      expect(res.soldeActuel).toBe('130000.00');
     });
   });
 });

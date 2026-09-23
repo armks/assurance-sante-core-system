@@ -4833,3 +4833,68 @@ déjà groupée en 409) ; marquage payé du groupe cascadé sur les 2 factures ;
 ASSUREUR_COMPTABLE confirmée. Toutes les données de test éphémères supprimées, résidu nul
 vérifié indépendamment (0 dossier, 0 facture mensuelle, 0 paiement groupé, 0 profil
 restants).
+
+## 2026-09-23 — Socle des comptes financiers de l'assureur (trésorerie interne)
+
+Ajouté au module `payment/` (comptes bancaires + caisses internes — le même domaine que
+les paiements groupés, qui EN dépendent conceptuellement) plutôt qu'un nouveau module,
+pour éviter de fragmenter davantage un périmètre déjà cohérent.
+
+### Piège d'héritage explicitement évité (leçon appliquée, pas seulement citée)
+La demande était explicite : réservé à ASSUREUR_COMPTABLE, JAMAIS son adjoint. Or
+`profil_a_role()` (RLS) ET `IdentityService.resoudreChaineRoles`/`roleChain` (NestJS)
+remontent TOUS DEUX un rôle adjoint vers son `role_parent_code` — `ASSUREUR_COMPTABLE_
+ADJOINT` a donc `'ASSUREUR_COMPTABLE'` dans son PROPRE `roleChain`. C'est un comportement
+VOULU et déjà exploité ailleurs (factures mensuelles, paiements groupés : commentaire
+existant « ASSUREUR_COMPTABLE_ADJOINT par héritage, profil_a_role résout un niveau de
+parent »). Ici, `ctx.roleChain.includes('ASSUREUR_COMPTABLE')` aurait donc laissé passer
+l'adjoint MALGRÉ l'intention. Corrigé par une comparaison sur le rôle EXACT et non résolu :
+`ctx.role` côté NestJS (`profils.role` brut, pas la chaîne), `p.role = 'ASSUREUR_COMPTABLE'`
+côté RLS (jamais `profil_a_role`). `permissions.peutValider` écarté aussi : capacité
+générique par rôle, propre à d'autres écrans (accueil, produits, utilisateurs…), sans
+rapport avec ce périmètre précis. `ROLES_GESTION_COMPTES_FINANCIERS` (payment.types.ts)
+documente ce choix pour éviter de reproduire l'erreur.
+
+### 1. `comptes_financiers` (prisma/sql/049)
+`type` BANCAIRE/CAISSE_INTERNE, `banque_nom`/`numero_compte` nullables, `solde_actuel`,
+`cree_par`. RLS lecture ET écriture toutes deux verrouillées sur le rôle exact (pas de
+lecture élargie à ASSUREUR_INFORMATIQUE ici, contrairement aux factures mensuelles/
+paiements groupés — l'énoncé demandait une réserve totale, pas seulement sur l'écriture).
+
+### 2. `creerCompteFinancier(type, nom, fondsInitial)`
+Crée le compte avec son solde de départ, journalise via `log_audit()` (table cible
+`comptes_financiers`, paramètre ajouté à `PaymentService.audit()` — jusque-là câblé en dur
+sur `paiements_groupes`).
+
+### 3. `approvisionnerCompte(compteId, montant, source, compteSourceId?, piecesJustificatives?)`
+Augmente le solde du compte cible. Si `source = 'AUTRE_COMPTE'` : exige `compteSourceId`,
+refuse l'auto-approvisionnement, vérifie un solde source suffisant (409 sinon — sans cette
+garde un compte pourrait passer négatif sans qu'aucune règle du prompt ne l'autorise), puis
+CRÉDITE la cible ET DÉBITE la source dans la MÊME transaction Prisma (les deux mouvements
+réussissent ou échouent ensemble — jamais d'argent créé de nulle part). `piecesJustificatives`
+et `source`/`compteSourceId` sont journalisés en détail dans `log_audit()` (pas de table de
+mouvements séparée : non demandée, l'audit log fait office d'historique, cohérent avec la
+règle transverse « toute écriture d'audit passe par log_audit() »).
+
+### 4. Écran `/dashboard-assureur/comptable/comptes-financiers`
+Liste + création + approvisionnement (formulaire avec champ dynamique : sélecteur de
+compte source affiché uniquement si la source choisie est « Un autre compte »), solde
+recalculé immédiatement après chaque action (`router.refresh()`). Lien de navigation
+ajouté SEULEMENT à l'entrée `[COMPTABLE]` de `dashboard-nav.ts`, jamais à
+`[COMPTABLE_ADJOINT]` (qui partage par ailleurs la même fonction `navComptable()`) —
+l'adjoint ne voit même pas le lien, cohérent avec le 403 qu'il obtiendrait de toute façon.
+
+### Tests
+Backend : 499/499 (`npx jest`, 28 nouveaux : dont 6 tests dédiés au piège d'héritage —
+`ASSUREUR_COMPTABLE_ADJOINT` avec un `roleChain` simulé fidèlement à
+`IdentityService.resoudreChaineRoles` (incluant bien le parent hérité) pour prouver que le
+test aurait échoué avec une implémentation basée sur `roleChain.includes(...)`, plus les
+cas 404/400/409 d'`approvisionnerCompte`). `npx tsc --noEmit` propre API et Web. Test HTTP
+réel (15/15) sur le scénario exact demandé : création d'un compte bancaire avec fonds
+initial (100 000 F), approvisionnement externe (+50 000 F, 150 000 F), création d'une
+caisse interne (40 000 F), approvisionnement du compte bancaire DEPUIS la caisse (+20 000 F,
+170 000 F) avec débit simultané vérifié en relisant la liste (caisse à 20 000 F) ET
+directement en base, puis `ASSUREUR_COMPTABLE_ADJOINT` refusé (403) sur la création, les
+deux formes d'approvisionnement, ET la simple lecture de la liste. Toutes les données de
+test éphémères supprimées, résidu nul vérifié indépendamment (0 compte financier, 0 profil
+restants).

@@ -11,10 +11,15 @@ import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AssocierFacturesPourPaiementDto } from './dto/payment.dto';
+import {
+  ApprovisionnerCompteDto,
+  AssocierFacturesPourPaiementDto,
+  CreerCompteFinancierDto,
+} from './dto/payment.dto';
 import {
   CATEGORIE_ACTE_PHARMACIE,
   ContexteAppelant,
+  ROLES_GESTION_COMPTES_FINANCIERS,
   ROLE_COMPTABLE_PAIEMENT_GROUPE,
   STATUT_FACTURE_MENSUELLE_GROUPABLE,
 } from './payment.types';
@@ -44,6 +49,7 @@ export class PaymentService {
     return {
       userId: profil.id,
       organisationId: profil.organisationId,
+      role: profil.role,
       roleChain: permissions?.roleChain ?? [],
     };
   }
@@ -51,6 +57,22 @@ export class PaymentService {
   private assertComptable(ctx: ContexteAppelant): void {
     if (!ctx.roleChain.includes(ROLE_COMPTABLE_PAIEMENT_GROUPE)) {
       throw new ForbiddenException('Réservé exclusivement à ASSUREUR_COMPTABLE.');
+    }
+  }
+
+  /**
+   * Gestion des comptes financiers — réservée EXCLUSIVEMENT au rôle EXACT
+   * ASSUREUR_COMPTABLE. Vérifie `ctx.role` (valeur PROPRE au profil), JAMAIS
+   * `ctx.roleChain` (qui remonte ASSUREUR_COMPTABLE_ADJOINT vers son parent
+   * ASSUREUR_COMPTABLE — comportement voulu pour les paiements groupés
+   * ci-dessus, explicitement exclu ici) ni `permissions.peutValider` (capacité
+   * générique sans rapport avec ce périmètre précis).
+   */
+  private assertGestionComptesFinanciers(ctx: ContexteAppelant): void {
+    if (!(ROLES_GESTION_COMPTES_FINANCIERS as readonly string[]).includes(ctx.role ?? '')) {
+      throw new ForbiddenException(
+        'Réservé exclusivement à ASSUREUR_COMPTABLE (jamais son adjoint).',
+      );
     }
   }
 
@@ -391,18 +413,151 @@ export class PaymentService {
     );
   }
 
+  // =====================================================================
+  // Comptes financiers de l'assureur (trésorerie interne) — réservé
+  // EXCLUSIVEMENT au rôle EXACT ASSUREUR_COMPTABLE, jamais son adjoint.
+  // =====================================================================
+
+  /** Liste des comptes financiers de l'organisation, solde à jour. */
+  async listerComptesFinanciers(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionComptesFinanciers(ctx);
+
+    const comptes = await this.prisma.compteFinancier.findMany({
+      where: { organisationId: ctx.organisationId, deletedAt: null },
+      include: { creePar: { select: { role: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return comptes.map((c) => ({
+      id: c.id,
+      type: c.type,
+      nom: c.nom,
+      banqueNom: c.banqueNom,
+      numeroCompte: c.numeroCompte,
+      soldeActuel: c.soldeActuel.toFixed(2),
+      creePar: c.creePar.role,
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt,
+    }));
+  }
+
+  /** Crée un compte financier avec son solde de départ — journalisé via log_audit(). */
+  async creerCompteFinancier(user: AuthenticatedUser, dto: CreerCompteFinancierDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionComptesFinanciers(ctx);
+
+    const compte = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.compteFinancier.create({
+        data: {
+          organisationId: ctx.organisationId,
+          type: dto.type,
+          nom: dto.nom,
+          banqueNom: dto.banqueNom ?? null,
+          numeroCompte: dto.numeroCompte ?? null,
+          soldeActuel: dto.fondsInitial.toFixed(2),
+          creeParId: ctx.userId,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'CREATION_COMPTE_FINANCIER',
+        c.id,
+        { type: dto.type, nom: dto.nom, fondsInitial: dto.fondsInitial.toFixed(2) },
+        'comptes_financiers',
+      );
+      return c;
+    });
+
+    return { ...compte, soldeActuel: compte.soldeActuel.toFixed(2) };
+  }
+
+  /**
+   * Approvisionne un compte — augmente son solde et trace la source. Si
+   * `source === 'AUTRE_COMPTE'`, débite le compte source dans LA MÊME
+   * transaction (jamais d'argent créé de nulle part sans trace) : les deux
+   * mouvements réussissent ou échouent ensemble.
+   */
+  async approvisionnerCompte(user: AuthenticatedUser, compteId: string, dto: ApprovisionnerCompteDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionComptesFinanciers(ctx);
+
+    const compte = await this.prisma.compteFinancier.findFirst({
+      where: { id: compteId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!compte) {
+      throw new NotFoundException('Compte financier introuvable.');
+    }
+
+    let compteSource: { id: string; soldeActuel: Prisma.Decimal } | null = null;
+    if (dto.source === 'AUTRE_COMPTE') {
+      if (!dto.compteSourceId) {
+        throw new BadRequestException(
+          "compteSourceId est requis lorsque la source est 'AUTRE_COMPTE'.",
+        );
+      }
+      if (dto.compteSourceId === compteId) {
+        throw new BadRequestException("Un compte ne peut pas s'approvisionner depuis lui-même.");
+      }
+      compteSource = await this.prisma.compteFinancier.findFirst({
+        where: { id: dto.compteSourceId, organisationId: ctx.organisationId, deletedAt: null },
+        select: { id: true, soldeActuel: true },
+      });
+      if (!compteSource) {
+        throw new NotFoundException('Compte source introuvable.');
+      }
+      const montant = new Decimal(dto.montant);
+      if (new Decimal(compteSource.soldeActuel.toString()).lt(montant)) {
+        throw new ConflictException(
+          `Solde insuffisant sur le compte source (${new Decimal(compteSource.soldeActuel.toString()).toFixed(2)} F) pour débiter ${montant.toFixed(2)} F.`,
+        );
+      }
+    }
+
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.compteFinancier.update({
+        where: { id: compteId },
+        data: { soldeActuel: { increment: dto.montant.toFixed(2) } },
+      });
+      if (compteSource) {
+        await tx.compteFinancier.update({
+          where: { id: compteSource.id },
+          data: { soldeActuel: { decrement: dto.montant.toFixed(2) } },
+        });
+      }
+      await this.audit(
+        tx,
+        ctx.userId,
+        'APPROVISIONNEMENT_COMPTE_FINANCIER',
+        c.id,
+        {
+          montant: dto.montant.toFixed(2),
+          source: dto.source,
+          compteSourceId: compteSource?.id ?? null,
+          piecesJustificatives: dto.piecesJustificatives ?? [],
+        },
+        'comptes_financiers',
+      );
+      return c;
+    });
+
+    return { ...maj, soldeActuel: maj.soldeActuel.toFixed(2) };
+  }
+
   private async audit(
     db: Db,
     userId: string,
     action: string,
     enregistrementId: string,
     details: Prisma.InputJsonValue | null,
+    tableCible: string = 'paiements_groupes',
   ): Promise<void> {
     try {
       await db.$executeRaw`
         SELECT log_audit(
           ${action}::text,
-          ${'paiements_groupes'}::text,
+          ${tableCible}::text,
           ${enregistrementId}::uuid,
           ${userId}::uuid,
           ${details === null ? null : JSON.stringify(details)}::jsonb

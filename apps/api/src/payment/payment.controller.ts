@@ -2,7 +2,11 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@n
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { AssocierFacturesPourPaiementDto } from './dto/payment.dto';
+import {
+  ApprovisionnerCompteDto,
+  AssocierFacturesPourPaiementDto,
+  CreerCompteFinancierDto,
+} from './dto/payment.dto';
 import { PaymentService } from './payment.service';
 
 /**
@@ -43,5 +47,30 @@ export class PaymentController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.payment.marquerPaiementGroupePaye(user, id);
+  }
+
+  // --- Comptes financiers de l'assureur — réservé EXCLUSIVEMENT au rôle
+  // EXACT ASSUREUR_COMPTABLE, jamais ASSUREUR_COMPTABLE_ADJOINT. ------------
+
+  @Get('comptes-financiers')
+  listerComptesFinanciers(@CurrentUser() user: AuthenticatedUser) {
+    return this.payment.listerComptesFinanciers(user);
+  }
+
+  @Post('comptes-financiers')
+  creerCompteFinancier(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreerCompteFinancierDto,
+  ) {
+    return this.payment.creerCompteFinancier(user, dto);
+  }
+
+  @Post('comptes-financiers/:id/approvisionner')
+  approvisionnerCompte(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ApprovisionnerCompteDto,
+  ) {
+    return this.payment.approvisionnerCompte(user, id, dto);
   }
 }

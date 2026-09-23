@@ -294,7 +294,19 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   // Réclamations (`ROLES_LECTURE_CLAIMS` ne l'inclut PAS — contrairement à
   // Exploitation, aucun accès du tout, pas même en lecture), ni Utilisateurs
   // (jamais créateur ni validateur dans `regles_provisioning`).
-  [COMPTABLE]: navComptable(COMPTABLE),
+  // « Comptes financiers » N'EST PAS partagé avec l'adjoint (contrairement au
+  // reste de cette liste) : réservé EXCLUSIVEMENT au rôle EXACT
+  // ASSUREUR_COMPTABLE côté API (ROLES_GESTION_COMPTES_FINANCIERS,
+  // payment.types.ts) — ajouté SEULEMENT à l'entrée du titulaire, jamais via
+  // `navComptable()` qui reste partagé.
+  [COMPTABLE]: [
+    ...navComptable(COMPTABLE),
+    {
+      label: 'Comptes financiers',
+      href: `${COMPTABLE}/comptes-financiers`,
+      icon: Wallet,
+    },
+  ],
   [COMPTABLE_ADJOINT]: navComptable(COMPTABLE_ADJOINT),
   [INFORMATIQUE]: navInformatique(INFORMATIQUE),
   // Informatique adjoint : rôle hérité de l'informatique (roleChain, niveauAcces).

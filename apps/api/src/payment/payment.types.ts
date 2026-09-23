@@ -24,8 +24,33 @@ export const STATUT_FACTURE_MENSUELLE_GROUPABLE = 'PROGRAMMEE_PAIEMENT';
  * dupliqué depuis `pharmacy.types.ts` (CATEGORIE_ACTE_PHARMACIE). */
 export const CATEGORIE_ACTE_PHARMACIE = 'PHARMACIE';
 
+// --- Comptes financiers de l'assureur (trésorerie interne) ---------------
+
+export const TYPES_COMPTE_FINANCIER = ['BANCAIRE', 'CAISSE_INTERNE'] as const;
+export type TypeCompteFinancier = (typeof TYPES_COMPTE_FINANCIER)[number];
+
+export const SOURCES_APPROVISIONNEMENT = ['EXTERNE', 'AUTRE_COMPTE'] as const;
+export type SourceApprovisionnement = (typeof SOURCES_APPROVISIONNEMENT)[number];
+
+/**
+ * Gestion des comptes financiers — réservée EXCLUSIVEMENT au rôle EXACT
+ * ASSUREUR_COMPTABLE, jamais ASSUREUR_COMPTABLE_ADJOINT. Vérifiée sur
+ * `ctx.role` (valeur PROPRE au profil, telle qu'assignée), JAMAIS sur
+ * `ctx.roleChain` ni via `profil_a_role` (tous deux remontent l'adjoint vers
+ * son parent — `role_parent_code`, comportement délibérément exploité
+ * ailleurs pour les factures mensuelles/paiements groupés, mais explicitement
+ * exclu ici) — et jamais via `permissions.peutValider` (reflète une capacité
+ * générique propre au rôle, indépendante de ce périmètre précis : deux
+ * rôles totalement étrangers à la comptabilité financière peuvent très bien
+ * partager `peutValider = true`/`false` sans rapport avec cette autorisation).
+ */
+export const ROLES_GESTION_COMPTES_FINANCIERS = ['ASSUREUR_COMPTABLE'] as const;
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;
+  /** Rôle PROPRE du profil (`profils.role`), sans résolution d'héritage —
+   * seul champ fiable pour distinguer ASSUREUR_COMPTABLE de son adjoint. */
+  role: string | null;
   roleChain: string[];
 }

@@ -5224,3 +5224,75 @@ adhérents créés avec numéro chronologique et numéro de carte réels, carte 
 succès pour les deux (0 échec), les 2 lignes en erreur n'ont créé aucun adhérent. Toutes les
 données de test éphémères supprimées, résidu nul vérifié indépendamment (0 adhérent, 0
 import, 0 profil restants).
+
+## 2026-09-23 (suite 5) — Gestion collaborative de la liste d'adhérents par la société cliente
+
+Étend `imports_adherents` (déjà construit au prompt précédent) pour que
+`SOCIETE_ASSUREE`/`SOCIETE_ADMINISTRATION` puissent proposer des ajouts d'adhérents et de
+bénéficiaires directement, sans passer par l'import Excel de l'informatique — même circuit
+de validation, sans aucune duplication.
+
+### 1. Nouveau statut `BROUILLON` (prisma/sql/054)
+`imports_adherents.fichier_nom` devient nullable (aucun fichier pour une liste composée à la
+main) ; `statut` accepte désormais `BROUILLON | EN_ATTENTE_VALIDATION | VALIDE | REJETE`.
+Un brouillon est éditable ligne par ligne par la société (ajout/modification/suppression),
+jamais visible par l'assureur tant qu'il n'est pas soumis. Nouvelles policies RLS société
+(lecture/insertion/mise à jour de son propre brouillon, scopé `societe_id = souscripteur_id`),
+en plus des policies assureur déjà en place (permissives, combinées en OR).
+
+### 2. `ImportAdherentsService` — 7 nouveaux endpoints, réservés SOCIETE_ASSUREE/ADMINISTRATION
+`proposerAdherent`/`proposerBeneficiaire` (créent le brouillon au premier appel, find-or-
+create), `modifierPropositionAdherent`/`modifierPropositionBeneficiaire`/`supprimerProposition`
+(par index de ligne, refusés avec 409 si le brouillon a déjà été soumis), `soumettrePourValidation`
+(BROUILLON → EN_ATTENTE_VALIDATION, refuse une liste vide), `obtenirBrouillonSociete` (lecture
+du brouillon en cours). Toujours scopés à SA PROPRE société (`ctx.societeId === souscripteurId`,
+même principe que `AdherentService.assertGestion`) — `ROLES_PROPOSITION_ADHERENTS_SOCIETE`
+élargi par rapport à `ROLE_GESTION_MEMBRE_SOCIETE` (SOCIETE_ADMINISTRATION seule) : proposer
+reste soumis à validation assureur, donc moins risqué que la création directe déjà ouverte à
+SOCIETE_ADMINISTRATION. Un bénéficiaire proposé se rattache toujours à un `Adherent` déjà RÉEL
+de la société (jamais à une autre ligne du même brouillon — hors périmètre, non demandé).
+
+`lignesValides` devient un array discriminé par `type` (`ADHERENT` | `BENEFICIAIRE`) —
+`validerImportAdherents` (inchangé dans son contrat, déjà construit au prompt précédent)
+branche dessus sans distinction d'origine : crée les `Adherent` (police ACTIVE requise
+seulement si le lot contient au moins un ADHERENT) puis les `Beneficiaire`, génère leur carte
+respective (`genererCarteAdherent`/`genererCarteBeneficiaire`, réutilisés tels quels), un
+échec de génération ne bloque toujours ni les autres lignes ni la validation.
+
+### 3. `ClaimsService` — lecture des réclamations scopée à la société (mode `'SOCIETE'`)
+`reclamations` n'ayant pas de colonne société (dette déjà notée au fix du 2026-09-11), le
+scope est dérivé via `adherentIdsSociete()` (sous-ensemble des `adherents` de son
+`souscripteurId`) — `ROLES_SOCIETE_CLAIMS = ['SOCIETE_ASSUREE', 'SOCIETE_ADMINISTRATION']`.
+`listerReclamations`/`obtenirReclamation` filtrent sur `adherentId IN (...)` en mode SOCIETE,
+jamais l'organisation entière ; une réclamation d'un adhérent d'une AUTRE société → 404 (pas
+de fuite). Policy RLS `reclamations_lecture_societe` posée en miroir (prisma/sql/054). Les
+deux `include` (liste + détail) gagnent `adherent`/`beneficiaire` (nom/prénom) pour que
+l'écran société sache de qui il s'agit — inchangé pour les autres modes de lecture.
+
+### 4. Frontend
+- `AdherentsListe` (composant partagé assureur/société) : recherche étendue à la formule
+  (`police.produit.nom`) + nouveau filtre select « Formule » — satisfait la recherche
+  multicritère demandée (police/formule, nom) sans dupliquer l'écran.
+- `PropositionsAdherentsPanel` (nouveau, sous `/dashboard-societe/administration/adherents`,
+  visible aussi pour `SOCIETE_ASSUREE` qui partage cette URL) : composer/modifier/supprimer
+  ses propositions ligne par ligne, bouton « Soumettre pour validation ». `ImportsAdherentsPanel`
+  (écran informatique, inchangé dans sa logique) étendu pour afficher proprement les lignes
+  BENEFICIAIRE (table séparée) en plus des ADHERENT.
+- Nouvel écran `/dashboard-societe/administration/reclamations` (`ReclamationsSocieteEcran`) :
+  colonnes adhérent/bénéficiaire, montant, remboursé, statut, date d'ouverture (`createdAt`)
+  et date de conclusion (`updatedAt` si statut terminal — `reclamations` n'a pas de colonne
+  dédiée, non demandée) ; compteurs Ouvertes/Conclues. Nav ajoutée pour
+  SOCIETE_ADMINISTRATION et SOCIETE_ASSUREE (URL partagée, même convention que « Adhérents »).
+
+### Tests
+Backend : 21 nouveaux tests `import-adherents.service.spec.ts` (propositions, modification,
+suppression, soumission, scoping société de `listerImportsAdherents`, validation d'un lot
+BENEFICIAIRE-only) + 8 nouveaux `claims.service.spec.ts` (lecture société scopée, 404
+inter-société, 403 rôle non habilité) — suite complète API 604/604, `npx tsc --noEmit`
+propre API et Web. Test HTTP réel (30/30 vérifications) : SOCIETE_COMPTABLE refusé (403) sur
+la proposition et sur la modification/suppression ; SOCIETE_ASSUREE propose un adhérent puis
+un bénéficiaire (rattaché à un adhérent existant), voit son brouillon, modifie la ligne
+adhérent avant soumission, soumet (409 sur toute modification après) ; 0 adhérent/bénéficiaire
+en base avant validation (vérifié indépendamment) ; ASSUREUR_INFORMATIQUE voit la liste
+soumise et valide → 1 adhérent + 1 bénéficiaire créés avec numéro/carte réels, 0 échec.
+Toutes les données de test éphémères supprimées, résidu nul vérifié indépendamment.

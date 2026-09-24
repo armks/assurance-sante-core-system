@@ -86,6 +86,20 @@ export const ROLES_ADHERENT_CLAIMS = [
   'SOUSCRIPTEUR_INDIVIDUEL',
 ] as const;
 
+/**
+ * Rôles SOCIETE (entité `SOCIETE_AFFILIEE`) autorisés à lire les réclamations
+ * de LEURS PROPRES adhérents (écran « Réclamations » société cliente, prompt
+ * dédié gestion collaborative). `reclamations` n'a pas de colonne société —
+ * le scope est dérivé via `adherentId IN (adherents.id WHERE souscripteurId =
+ * ctx.societeId)`, voir `ClaimsService.adherentIdsSociete`/`modeLecture`.
+ * Cohérent avec la policy RLS `reclamations_lecture_societe` (prisma/sql/054).
+ * Dupliqué localement (même principe que `ROLES_ADHERENT_CLAIMS` ci-dessus).
+ */
+export const ROLES_SOCIETE_CLAIMS = [
+  'SOCIETE_ASSUREE',
+  'SOCIETE_ADMINISTRATION',
+] as const;
+
 /** Code ajouté à `codes_rejet` quand un rejet est prononcé après revue manuelle. */
 export const CODE_REJET_MANUEL = 'REJET_MANUEL';
 
@@ -122,4 +136,6 @@ export interface ContexteAppelant {
   roleChain: string[];
   /** `profils.adherent_id` — renseigné pour les rôles ADHERENT (self-service). */
   adherentId: string | null;
+  /** `profils.societe_id` — renseigné pour les rôles SOCIETE_*. */
+  societeId: string | null;
 }

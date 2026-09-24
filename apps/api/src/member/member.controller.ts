@@ -23,6 +23,8 @@ import {
   ChangerStatutDto,
   CreateAdherentDto,
   CreateBeneficiaireDto,
+  ProposerAdherentDto,
+  ProposerBeneficiaireDto,
   UpdateAdherentDto,
   UpdateBeneficiaireDto,
 } from './dto/member.dto';
@@ -228,5 +230,72 @@ export class MemberController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.imports.validerImportAdherents(user, id);
+  }
+
+  // --- Propositions collaboratives société (réservé SOCIETE_ASSUREE/
+  // SOCIETE_ADMINISTRATION, pour leur propre société) — même circuit de
+  // validation que l'import Excel une fois soumises. ------------------
+
+  @Get('souscripteurs/:souscripteurId/brouillon-adherents')
+  obtenirBrouillonSociete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+  ) {
+    return this.imports.obtenirBrouillonSociete(user, souscripteurId);
+  }
+
+  @Post('souscripteurs/:souscripteurId/propositions/adherent')
+  proposerAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+    @Body() dto: ProposerAdherentDto,
+  ) {
+    return this.imports.proposerAdherent(user, souscripteurId, dto);
+  }
+
+  @Post('souscripteurs/:souscripteurId/propositions/beneficiaire')
+  proposerBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+    @Body() dto: ProposerBeneficiaireDto,
+  ) {
+    return this.imports.proposerBeneficiaire(user, souscripteurId, dto);
+  }
+
+  @Patch('imports-adherents/:id/propositions/adherent/:index')
+  modifierPropositionAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('index') index: string,
+    @Body() dto: ProposerAdherentDto,
+  ) {
+    return this.imports.modifierPropositionAdherent(user, id, Number(index), dto);
+  }
+
+  @Patch('imports-adherents/:id/propositions/beneficiaire/:index')
+  modifierPropositionBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('index') index: string,
+    @Body() dto: ProposerBeneficiaireDto,
+  ) {
+    return this.imports.modifierPropositionBeneficiaire(user, id, Number(index), dto);
+  }
+
+  @Delete('imports-adherents/:id/propositions/:index')
+  supprimerProposition(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('index') index: string,
+  ) {
+    return this.imports.supprimerProposition(user, id, Number(index));
+  }
+
+  @Post('imports-adherents/:id/soumettre')
+  soumettrePourValidation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.imports.soumettrePourValidation(user, id);
   }
 }

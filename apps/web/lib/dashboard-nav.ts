@@ -139,16 +139,29 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${SOCIETE_ADMINISTRATION}/adherents`,
       icon: Users,
     },
+    {
+      label: 'Réclamations',
+      href: `${SOCIETE_ADMINISTRATION}/reclamations`,
+      icon: Scale,
+    },
   ],
   // Contact principal de l'entreprise cliente : vue d'ensemble propre +
-  // renvoi vers l'écran adhérents déjà construit pour SOCIETE_ADMINISTRATION
-  // (lecture seule pour ce rôle — l'API ne lui accorde pas l'écriture).
+  // renvoi vers les écrans adhérents/réclamations déjà construits pour
+  // SOCIETE_ADMINISTRATION (URL partagée — lecture seule sur les adhérents,
+  // l'API ne lui accorde pas l'écriture directe ; peut en revanche PROPOSER
+  // des ajouts, cf. `ROLES_PROPOSITION_ADHERENTS_SOCIETE` ; réclamations en
+  // lecture pour ses propres adhérents, cf. `ROLES_SOCIETE_CLAIMS`).
   [SOCIETE_ASSUREE]: [
     { label: "Vue d'ensemble", href: SOCIETE_ASSUREE, icon: LayoutDashboard },
     {
       label: 'Adhérents',
       href: `${SOCIETE_ADMINISTRATION}/adherents`,
       icon: Users,
+    },
+    {
+      label: 'Réclamations',
+      href: `${SOCIETE_ADMINISTRATION}/reclamations`,
+      icon: Scale,
     },
   ],
   // Lecture des cotisations/factures de la société ; pas de confirmation de

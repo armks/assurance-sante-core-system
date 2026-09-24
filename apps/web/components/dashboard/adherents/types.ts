@@ -32,13 +32,35 @@ export interface AdherentListe {
   _count?: { beneficiaires: number };
 }
 
-export interface LigneImportValide {
+/** Adhérent PRINCIPAL — issu d'un import Excel OU d'une proposition société. */
+export interface LigneAdherentValide {
+  type: 'ADHERENT';
   nom: string;
   prenom: string;
   telephone: string;
   email: string;
   dateNaissance: string;
 }
+
+/** Bénéficiaire proposé par une société, rattaché à un adhérent EXISTANT
+ * (`adherentNom` : instantané d'affichage uniquement). */
+export interface LigneBeneficiaireValide {
+  type: 'BENEFICIAIRE';
+  adherentId: string;
+  adherentNom: string;
+  lienParente: string;
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  sexe: string;
+}
+
+/** Une ligne d'import Excel legacy peut ne pas porter `type` (fichiers créés
+ * avant l'introduction des propositions société) — toujours un ADHERENT. */
+export type LigneImportValide =
+  | LigneAdherentValide
+  | LigneBeneficiaireValide
+  | (Omit<LigneAdherentValide, 'type'> & { type?: undefined });
 
 export interface LigneImportErreur {
   ligne: number;
@@ -48,7 +70,8 @@ export interface LigneImportErreur {
 
 export interface ImportAdherentsResume {
   id: string;
-  fichierNom: string;
+  /** `null` pour un brouillon de propositions société (jamais un import Excel). */
+  fichierNom: string | null;
   statut: string;
   nbLignesTotal: number;
   nbLignesValides: number;

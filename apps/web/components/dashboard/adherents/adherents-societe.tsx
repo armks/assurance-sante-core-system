@@ -3,9 +3,10 @@ import { redirect } from 'next/navigation';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
-import { peutGererMembres } from '@/lib/member';
+import { peutGererMembres, peutProposerMembres } from '@/lib/member';
 import { AdherentsListe } from './adherents-liste';
-import type { AdherentListe, OptionRef, PoliceRef } from './types';
+import { PropositionsAdherentsPanel } from './propositions-adherents-panel';
+import type { AdherentListe, ImportAdherentsResume, OptionRef, PoliceRef } from './types';
 
 /**
  * Écran « Adhérents » de la filière société — factorisé pour être rendu à
@@ -20,16 +21,22 @@ export async function AdherentsSociete({ basePath }: { basePath: string }) {
   if (etat.kind !== 'ok') redirect('/dashboard');
 
   const societeId = etat.identity.permissions.scope.societeId ?? undefined;
+  const roleChain = etat.identity.permissions.roleChain;
+  const peutProposer = peutProposerMembres(roleChain) && !!societeId;
 
-  const [resA, resS, resP] = await Promise.all([
+  const [resA, resS, resP, resI] = await Promise.all([
     apiFetch('/api/v1/member/adherents'),
     apiFetch('/api/v1/tenant/souscripteurs'),
     apiFetch('/api/v1/policy/polices'),
+    peutProposer ? apiFetch('/api/v1/member/imports-adherents') : Promise.resolve(null),
   ]);
   const adherents: AdherentListe[] = resA.ok ? await resA.json() : [];
   const erreur = resA.ok ? null : await messageErreur(resA);
   const souscripteurs: OptionRef[] = resS.ok ? await resS.json() : [];
   const polices: PoliceRef[] = resP.ok ? await resP.json() : [];
+  const imports: ImportAdherentsResume[] = resI?.ok ? await resI.json() : [];
+  const brouillon = imports.find((i) => i.statut === 'BROUILLON') ?? null;
+  const soumis = imports.filter((i) => i.statut !== 'BROUILLON');
 
   return (
     <div className="space-y-8">
@@ -40,14 +47,24 @@ export async function AdherentsSociete({ basePath }: { basePath: string }) {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <AdherentsListe
-          adherents={adherents}
-          souscripteurs={souscripteurs}
-          polices={polices}
-          peutCreer={peutGererMembres(etat.identity.permissions.roleChain)}
-          basePath={basePath}
-          souscripteurVerrou={societeId}
-        />
+        <>
+          <AdherentsListe
+            adherents={adherents}
+            souscripteurs={souscripteurs}
+            polices={polices}
+            peutCreer={peutGererMembres(roleChain)}
+            basePath={basePath}
+            souscripteurVerrou={societeId}
+          />
+          {peutProposer && societeId && (
+            <PropositionsAdherentsPanel
+              souscripteurId={societeId}
+              brouillon={brouillon}
+              soumis={soumis}
+              adherents={adherents}
+            />
+          )}
+        </>
       )}
     </div>
   );

@@ -30,8 +30,9 @@ const identite = (
   roleChain: string[],
   organisationId: string | null = 'org-1',
   adherentId: string | null = null,
+  societeId: string | null = null,
 ) => ({
-  profil: { id: 'u1', organisationId, adherentId },
+  profil: { id: 'u1', organisationId, adherentId, societeId },
   permissions: roleChain.length ? { roleChain } : null,
 });
 
@@ -322,7 +323,9 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
 //  Lecture des réclamations — fuite inter-société corrigée (audit filière
 //  société) : `organisationId` seul ne suffit pas, `reclamations` n'a pas de
 //  colonne société → en attendant ce scoping, la lecture est réservée au
-//  personnel ASSUREUR habilité (ROLES_LECTURE_CLAIMS).
+//  personnel ASSUREUR habilité (ROLES_LECTURE_CLAIMS), à l'adhérent concerné
+//  (ses propres réclamations), ou à sa société (ses propres adhérents,
+//  ROLES_SOCIETE_CLAIMS — prompt gestion collaborative).
 // ═══════════════════════════════════════════════════════════════════════
 describe('ClaimsService — autorisation de lecture (listerReclamations / obtenirReclamation)', () => {
   let service: ClaimsService;
@@ -332,6 +335,7 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
   beforeEach(async () => {
     prisma = {
       reclamation: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+      adherent: { findMany: jest.fn().mockResolvedValue([]) },
     };
     identity = { getMe: jest.fn() };
 
@@ -346,7 +350,7 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
     service = moduleRef.get(ClaimsService);
   });
 
-  it('SOCIETE_ASSUREE ne peut PAS lister les réclamations → 403 (pas de fuite)', async () => {
+  it('SOCIETE_ASSUREE sans societeId rattaché → 403 (compte mal provisionné, pas de fuite)', async () => {
     identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE']));
     await expect(service.listerReclamations(USER, {})).rejects.toBeInstanceOf(
       ForbiddenException,
@@ -432,5 +436,72 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
     await expect(service.listerReclamations(USER, {})).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+
+  // ═════════════════════════════════════════════════════════════════════
+  //  Lecture SOCIETE (gestion collaborative société cliente) : pas de
+  //  colonne société sur `reclamations` — le scope est dérivé via les
+  //  adhérents de la société (`adherentIdsSociete`), jamais l'organisation
+  //  entière ni une autre société.
+  // ═════════════════════════════════════════════════════════════════════
+  it('SOCIETE_ADMINISTRATION liste les réclamations de SES adhérents, scopées', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_ADMINISTRATION'], 'org-1', null, 'sous-1'),
+    );
+    prisma.adherent.findMany.mockResolvedValue([{ id: 'adh-1' }, { id: 'adh-2' }]);
+
+    await service.listerReclamations(USER, {});
+
+    expect(prisma.adherent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ souscripteurId: 'sous-1' }) }),
+    );
+    expect(prisma.reclamation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organisationId: 'org-1',
+          adherentId: { in: ['adh-1', 'adh-2'] },
+        }),
+      }),
+    );
+  });
+
+  it('SOCIETE_ASSUREE lit la réclamation d’un de SES adhérents par id', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_ASSUREE'], 'org-1', null, 'sous-1'),
+    );
+    prisma.adherent.findMany.mockResolvedValue([{ id: 'adh-1' }]);
+    prisma.reclamation.findFirst.mockResolvedValue({ id: 'rec-1', adherentId: 'adh-1' });
+
+    const res = await service.obtenirReclamation(USER, 'rec-1');
+
+    expect(res).toBeDefined();
+    expect(prisma.reclamation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'rec-1', adherentId: { in: ['adh-1'] } }),
+      }),
+    );
+  });
+
+  it('SOCIETE_ASSUREE ne peut PAS lire la réclamation d’un adhérent d’une AUTRE société (404, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_ASSUREE'], 'org-1', null, 'sous-1'),
+    );
+    // ses propres adhérents ne comprennent pas celui de la réclamation visée
+    prisma.adherent.findMany.mockResolvedValue([{ id: 'adh-1' }]);
+    prisma.reclamation.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.obtenirReclamation(USER, 'rec-autre-societe'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('SOCIETE_COMPTABLE ne peut PAS lire une réclamation par id → 403 (rôle non habilité, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_COMPTABLE'], 'org-1', null, 'sous-1'),
+    );
+    await expect(
+      service.obtenirReclamation(USER, 'rec-autre-societe'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.reclamation.findFirst).not.toHaveBeenCalled();
   });
 });

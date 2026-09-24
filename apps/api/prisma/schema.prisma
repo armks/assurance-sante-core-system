@@ -274,14 +274,23 @@ model ImportAdherents {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId  String    @map("organisation_id") @db.Uuid
   souscripteurId  String    @map("souscripteur_id") @db.Uuid
-  fichierNom      String    @map("fichier_nom")
-  statut          String    @default("EN_ATTENTE_VALIDATION") // EN_ATTENTE_VALIDATION | VALIDE | REJETE
+  /// Null pour un brouillon de propositions société (prisma/sql/054) — pas de
+  /// fichier, les lignes sont ajoutées une à une via `proposerAdherent`/
+  /// `proposerBeneficiaire`.
+  fichierNom      String?   @map("fichier_nom")
+  statut          String    @default("EN_ATTENTE_VALIDATION") // BROUILLON | EN_ATTENTE_VALIDATION | VALIDE | REJETE
   nbLignesTotal   Int       @map("nb_lignes_total")
   nbLignesValides Int       @map("nb_lignes_valides")
   nbLignesErreur  Int       @map("nb_lignes_erreur")
-  /// Lignes déjà validées à l'import — array JSON {nom, prenom, telephone,
-  /// email, dateNaissance} — consommées (créées en `Adherent`) une seule fois,
-  /// à `validerImportAdherents`.
+  /// Lignes déjà validées — array JSON discriminé par `type` :
+  /// `{type:'ADHERENT', nom, prenom, telephone, email, dateNaissance}` ou
+  /// `{type:'BENEFICIAIRE', adherentId, adherentNom, lienParente, nom, prenom,
+  /// dateNaissance, sexe}` — consommées (créées en `Adherent`/`Beneficiaire`)
+  /// une seule fois, à `validerImportAdherents`. Modifiables ligne par ligne
+  /// (`modifierPropositionAdherent`/`Beneficiaire`, `supprimerProposition`)
+  /// tant que `statut = 'BROUILLON'` (propositions société uniquement — un
+  /// import Excel de l'informatique saute directement en EN_ATTENTE_VALIDATION,
+  /// jamais BROUILLON).
   lignesValides   Json      @map("lignes_valides")
   /// Array JSON {ligne, donnees, erreurs[]} — une entrée par ligne rejetée.
   erreursDetail   Json      @map("erreurs_detail")

@@ -13,9 +13,11 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberCarteService } from './carte.service';
+import { ProposerAdherentDto, ProposerBeneficiaireDto } from './dto/member.dto';
 import {
   ContexteAppelant,
   ROLES_IMPORT_ADHERENTS,
+  ROLES_PROPOSITION_ADHERENTS_SOCIETE,
   ROLES_VALIDATION_IMPORT_ADHERENTS,
 } from './member.types';
 
@@ -28,13 +30,32 @@ export interface FichierTeleverse {
   size: number;
 }
 
-interface LigneValide {
+/** Adhérent PRINCIPAL — issu d'un import Excel OU d'une proposition société. */
+interface LigneAdherentProposee {
+  type: 'ADHERENT';
   nom: string;
   prenom: string;
   telephone: string;
   email: string;
   dateNaissance: string; // ISO (YYYY-MM-DD)
 }
+
+/** Bénéficiaire proposé par une société, rattaché à un `Adherent` EXISTANT de
+ * cette même société (jamais un adhérent proposé dans le même lot — hors
+ * périmètre, non demandé). `adherentNom` est un instantané d'affichage
+ * uniquement, jamais utilisé pour la création (toujours `adherentId`, la FK réelle). */
+interface LigneBeneficiaireProposee {
+  type: 'BENEFICIAIRE';
+  adherentId: string;
+  adherentNom: string;
+  lienParente: string;
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  sexe: string;
+}
+
+type LigneValide = LigneAdherentProposee | LigneBeneficiaireProposee;
 
 interface LigneErreur {
   ligne: number;
@@ -48,8 +69,12 @@ const MIME_TYPES_AUTORISES = [
   'application/octet-stream', // certains navigateurs/OS n'envoient pas le MIME xlsx exact
 ];
 
+/** Colonnes Excel — toujours un ADHERENT (jamais un BENEFICIAIRE, réservé
+ * aux propositions société interactives). */
+type ColonneExcel = keyof Omit<LigneAdherentProposee, 'type'>;
+
 /** Alias d'en-tête acceptés (normalisés : minuscule, sans accent, sans espace/tiret/underscore). */
-const ALIAS_ENTETES: Record<string, keyof LigneValide> = {
+const ALIAS_ENTETES: Record<string, ColonneExcel> = {
   nom: 'nom',
   prenom: 'prenom',
   telephone: 'telephone',
@@ -133,6 +158,20 @@ export class ImportAdherentsService {
     }
   }
 
+  /** Proposition d'ajout par une société — réservée à SOCIETE_ASSUREE/
+   * SOCIETE_ADMINISTRATION, et seulement pour SA PROPRE société (même
+   * principe que `AdherentService.assertGestion`). */
+  private assertProposition(ctx: ContexteAppelant, souscripteurId: string): void {
+    const aLeRole = ctx.roleChain.some((code) =>
+      (ROLES_PROPOSITION_ADHERENTS_SOCIETE as readonly string[]).includes(code),
+    );
+    if (!aLeRole || ctx.societeId !== souscripteurId) {
+      throw new ForbiddenException(
+        "La proposition d'adhérents/bénéficiaires est réservée à SOCIETE_ASSUREE et SOCIETE_ADMINISTRATION, pour leur propre société.",
+      );
+    }
+  }
+
   /**
    * Parse le fichier .xlsx et journalise l'import en EN_ATTENTE_VALIDATION —
    * AUCUN `Adherent` créé ici. Chaque ligne en erreur (email en doublon,
@@ -193,14 +232,29 @@ export class ImportAdherentsService {
     return importCree;
   }
 
+  /**
+   * Personnel ASSUREUR habilité : tous les imports de l'organisation, JAMAIS
+   * les BROUILLON (propositions société encore en cours d'édition, pas
+   * encore soumises — même principe que « visibles par la société jusqu'à
+   * ce qu'elle consolide »). Société (SOCIETE_ASSUREE/ADMINISTRATION) : SES
+   * PROPRES imports uniquement, tout statut (y compris son brouillon en cours).
+   */
   async listerImportsAdherents(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
-    const rolesAutorises: readonly string[] = [...ROLES_IMPORT_ADHERENTS, ...ROLES_VALIDATION_IMPORT_ADHERENTS];
-    if (!ctx.roleChain.some((code) => rolesAutorises.includes(code))) {
+    const rolesAssureur: readonly string[] = [...ROLES_IMPORT_ADHERENTS, ...ROLES_VALIDATION_IMPORT_ADHERENTS];
+    const estAssureur = ctx.roleChain.some((code) => rolesAssureur.includes(code));
+    const estSociete = ctx.roleChain.some((code) =>
+      (ROLES_PROPOSITION_ADHERENTS_SOCIETE as readonly string[]).includes(code),
+    );
+    if (!estAssureur && !estSociete) {
       throw new ForbiddenException("Accès réservé au personnel habilité à l'import des adhérents.");
     }
     return this.prisma.importAdherents.findMany({
-      where: { organisationId: ctx.organisationId },
+      where: {
+        organisationId: ctx.organisationId,
+        ...(estAssureur && !estSociete ? { statut: { not: 'BROUILLON' } } : {}),
+        ...(estSociete && !estAssureur ? { souscripteurId: ctx.societeId ?? '__aucun__' } : {}),
+      },
       include: {
         souscripteur: { select: { id: true, nom: true } },
         importePar: { select: { role: true } },
@@ -208,6 +262,295 @@ export class ImportAdherentsService {
       },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  /** Le brouillon EN COURS de la société pour ce souscripteur (ou `null`). */
+  async obtenirBrouillonSociete(user: AuthenticatedUser, souscripteurId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertProposition(ctx, souscripteurId);
+    return this.prisma.importAdherents.findFirst({
+      where: { organisationId: ctx.organisationId, souscripteurId, statut: 'BROUILLON' },
+    });
+  }
+
+  /** Trouve le brouillon ouvert de la société, ou en crée un. */
+  private async brouillonSociete(ctx: ContexteAppelant, souscripteurId: string) {
+    const existant = await this.prisma.importAdherents.findFirst({
+      where: { organisationId: ctx.organisationId, souscripteurId, statut: 'BROUILLON' },
+    });
+    if (existant) return existant;
+    return this.prisma.importAdherents.create({
+      data: {
+        organisationId: ctx.organisationId,
+        souscripteurId,
+        fichierNom: null,
+        statut: 'BROUILLON',
+        nbLignesTotal: 0,
+        nbLignesValides: 0,
+        nbLignesErreur: 0,
+        lignesValides: [] as unknown as object,
+        erreursDetail: [] as unknown as object,
+        importeParId: ctx.userId,
+      },
+    });
+  }
+
+  /** Charge un brouillon dont l'appelant (société) est propriétaire et qui
+   * est encore éditable — 404 si absent/pas le sien, 409 si déjà soumis. */
+  private async chargerBrouillonPourEdition(ctx: ContexteAppelant, importId: string) {
+    const imp = await this.prisma.importAdherents.findFirst({
+      where: { id: importId, organisationId: ctx.organisationId },
+    });
+    if (!imp) {
+      throw new NotFoundException('Proposition introuvable.');
+    }
+    this.assertProposition(ctx, imp.souscripteurId);
+    if (imp.statut !== 'BROUILLON') {
+      throw new ConflictException(`Cette liste n'est plus modifiable (statut actuel : ${imp.statut}).`);
+    }
+    return imp;
+  }
+
+  /**
+   * Ajoute une proposition d'adhérent PRINCIPAL au brouillon en cours de la
+   * société (créé automatiquement s'il n'existe pas encore) — mêmes règles
+   * de validation que l'import Excel (champs requis, format email/téléphone,
+   * email non dupliqué), appliquées immédiatement : une ligne invalide est
+   * refusée tout de suite (400), jamais stockée en erreur pour plus tard —
+   * périmètre différent de l'import par lot.
+   */
+  async proposerAdherent(user: AuthenticatedUser, souscripteurId: string, dto: ProposerAdherentDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertProposition(ctx, souscripteurId);
+
+    const { erreurs, dateNaissanceISO, telephoneNormalise, emailNormalise } = this.validerChampsAdherent(
+      dto.nom,
+      dto.prenom,
+      dto.telephone,
+      dto.email,
+      dto.dateNaissance,
+    );
+    if (erreurs.length > 0) {
+      throw new BadRequestException({ message: 'Ligne invalide.', erreurs });
+    }
+
+    const existant = await this.prisma.adherent.findFirst({
+      where: { organisationId: ctx.organisationId, email: emailNormalise, deletedAt: null },
+      select: { id: true },
+    });
+    if (existant) {
+      throw new ConflictException(`Cet email est déjà utilisé par un adhérent existant (${emailNormalise}).`);
+    }
+
+    const brouillon = await this.brouillonSociete(ctx, souscripteurId);
+    const lignes = (brouillon.lignesValides as unknown as LigneValide[]) ?? [];
+    if (lignes.some((l) => l.type === 'ADHERENT' && l.email === emailNormalise)) {
+      throw new ConflictException(`Cet email est déjà proposé dans votre liste en cours (${emailNormalise}).`);
+    }
+
+    const nouvelleLigne: LigneAdherentProposee = {
+      type: 'ADHERENT',
+      nom: dto.nom.trim(),
+      prenom: dto.prenom.trim(),
+      telephone: telephoneNormalise,
+      email: emailNormalise,
+      dateNaissance: dateNaissanceISO!,
+    };
+    const lignesMaj = [...lignes, nouvelleLigne];
+
+    const imp = await this.prisma.importAdherents.update({
+      where: { id: brouillon.id },
+      data: { lignesValides: lignesMaj as unknown as object, nbLignesTotal: lignesMaj.length, nbLignesValides: lignesMaj.length },
+    });
+    await this.audit(this.prisma, ctx.userId, 'PROPOSITION_ADHERENT', imp.id, { nom: dto.nom, prenom: dto.prenom });
+    return imp;
+  }
+
+  /** Ajoute une proposition de bénéficiaire, rattaché à un adhérent EXISTANT
+   * de la propre société de l'appelant. */
+  async proposerBeneficiaire(user: AuthenticatedUser, souscripteurId: string, dto: ProposerBeneficiaireDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertProposition(ctx, souscripteurId);
+
+    const adherent = await this.prisma.adherent.findFirst({
+      where: { id: dto.adherentId, souscripteurId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!adherent) {
+      throw new NotFoundException('Adhérent introuvable pour votre société.');
+    }
+    if (!dto.nom.trim() || !dto.prenom.trim()) {
+      throw new BadRequestException('Nom et prénom sont requis.');
+    }
+    const dateNaissance = this.parserDate(dto.dateNaissance);
+    if (!dateNaissance) {
+      throw new BadRequestException('Date de naissance invalide.');
+    }
+
+    const brouillon = await this.brouillonSociete(ctx, souscripteurId);
+    const lignes = (brouillon.lignesValides as unknown as LigneValide[]) ?? [];
+    const nouvelleLigne: LigneBeneficiaireProposee = {
+      type: 'BENEFICIAIRE',
+      adherentId: dto.adherentId,
+      adherentNom: `${adherent.nom} ${adherent.prenom}`,
+      lienParente: dto.lienParente,
+      nom: dto.nom.trim(),
+      prenom: dto.prenom.trim(),
+      dateNaissance: dateNaissance.toISOString().slice(0, 10),
+      sexe: dto.sexe,
+    };
+    const lignesMaj = [...lignes, nouvelleLigne];
+
+    const imp = await this.prisma.importAdherents.update({
+      where: { id: brouillon.id },
+      data: { lignesValides: lignesMaj as unknown as object, nbLignesTotal: lignesMaj.length, nbLignesValides: lignesMaj.length },
+    });
+    await this.audit(this.prisma, ctx.userId, 'PROPOSITION_BENEFICIAIRE', imp.id, {
+      adherentId: dto.adherentId,
+      nom: dto.nom,
+      prenom: dto.prenom,
+    });
+    return imp;
+  }
+
+  /** Modifie une proposition d'adhérent PRINCIPAL par son index dans le
+   * brouillon — tant que non soumis (`statut = BROUILLON`). */
+  async modifierPropositionAdherent(
+    user: AuthenticatedUser,
+    importId: string,
+    index: number,
+    dto: ProposerAdherentDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    const imp = await this.chargerBrouillonPourEdition(ctx, importId);
+    const lignes = (imp.lignesValides as unknown as LigneValide[]) ?? [];
+    const ligne = lignes[index];
+    if (!ligne || ligne.type !== 'ADHERENT') {
+      throw new NotFoundException('Ligne introuvable.');
+    }
+
+    const { erreurs, dateNaissanceISO, telephoneNormalise, emailNormalise } = this.validerChampsAdherent(
+      dto.nom,
+      dto.prenom,
+      dto.telephone,
+      dto.email,
+      dto.dateNaissance,
+    );
+    if (erreurs.length > 0) {
+      throw new BadRequestException({ message: 'Ligne invalide.', erreurs });
+    }
+
+    const existant = await this.prisma.adherent.findFirst({
+      where: { organisationId: ctx.organisationId, email: emailNormalise, deletedAt: null },
+      select: { id: true },
+    });
+    if (existant) {
+      throw new ConflictException(`Cet email est déjà utilisé par un adhérent existant (${emailNormalise}).`);
+    }
+    if (lignes.some((l, i) => i !== index && l.type === 'ADHERENT' && l.email === emailNormalise)) {
+      throw new ConflictException(`Cet email est déjà proposé dans votre liste en cours (${emailNormalise}).`);
+    }
+
+    const lignesMaj = [...lignes];
+    lignesMaj[index] = {
+      type: 'ADHERENT',
+      nom: dto.nom.trim(),
+      prenom: dto.prenom.trim(),
+      telephone: telephoneNormalise,
+      email: emailNormalise,
+      dateNaissance: dateNaissanceISO!,
+    };
+    const imp2 = await this.prisma.importAdherents.update({
+      where: { id: importId },
+      data: { lignesValides: lignesMaj as unknown as object },
+    });
+    await this.audit(this.prisma, ctx.userId, 'MODIFICATION_PROPOSITION_ADHERENT', imp2.id, { index });
+    return imp2;
+  }
+
+  /** Modifie une proposition de bénéficiaire par son index dans le brouillon. */
+  async modifierPropositionBeneficiaire(
+    user: AuthenticatedUser,
+    importId: string,
+    index: number,
+    dto: ProposerBeneficiaireDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    const imp = await this.chargerBrouillonPourEdition(ctx, importId);
+    const lignes = (imp.lignesValides as unknown as LigneValide[]) ?? [];
+    const ligne = lignes[index];
+    if (!ligne || ligne.type !== 'BENEFICIAIRE') {
+      throw new NotFoundException('Ligne introuvable.');
+    }
+
+    const adherent = await this.prisma.adherent.findFirst({
+      where: { id: dto.adherentId, souscripteurId: imp.souscripteurId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!adherent) {
+      throw new NotFoundException('Adhérent introuvable pour votre société.');
+    }
+    if (!dto.nom.trim() || !dto.prenom.trim()) {
+      throw new BadRequestException('Nom et prénom sont requis.');
+    }
+    const dateNaissance = this.parserDate(dto.dateNaissance);
+    if (!dateNaissance) {
+      throw new BadRequestException('Date de naissance invalide.');
+    }
+
+    const lignesMaj = [...lignes];
+    lignesMaj[index] = {
+      type: 'BENEFICIAIRE',
+      adherentId: dto.adherentId,
+      adherentNom: `${adherent.nom} ${adherent.prenom}`,
+      lienParente: dto.lienParente,
+      nom: dto.nom.trim(),
+      prenom: dto.prenom.trim(),
+      dateNaissance: dateNaissance.toISOString().slice(0, 10),
+      sexe: dto.sexe,
+    };
+    const imp2 = await this.prisma.importAdherents.update({
+      where: { id: importId },
+      data: { lignesValides: lignesMaj as unknown as object },
+    });
+    await this.audit(this.prisma, ctx.userId, 'MODIFICATION_PROPOSITION_BENEFICIAIRE', imp2.id, { index });
+    return imp2;
+  }
+
+  /** Retire une proposition (adhérent ou bénéficiaire) par son index. */
+  async supprimerProposition(user: AuthenticatedUser, importId: string, index: number) {
+    const ctx = await this.contexteAppelant(user);
+    const imp = await this.chargerBrouillonPourEdition(ctx, importId);
+    const lignes = (imp.lignesValides as unknown as LigneValide[]) ?? [];
+    if (index < 0 || index >= lignes.length) {
+      throw new NotFoundException('Ligne introuvable.');
+    }
+    const lignesMaj = lignes.filter((_, i) => i !== index);
+    const imp2 = await this.prisma.importAdherents.update({
+      where: { id: importId },
+      data: { lignesValides: lignesMaj as unknown as object, nbLignesTotal: lignesMaj.length, nbLignesValides: lignesMaj.length },
+    });
+    await this.audit(this.prisma, ctx.userId, 'SUPPRESSION_PROPOSITION', imp2.id, { index });
+    return imp2;
+  }
+
+  /**
+   * Consolide la liste : BROUILLON → EN_ATTENTE_VALIDATION, même statut
+   * qu'un import Excel — `validerImportAdherents` (déjà construit) s'applique
+   * ensuite SANS AUCUNE distinction d'origine.
+   */
+  async soumettrePourValidation(user: AuthenticatedUser, importId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const imp = await this.chargerBrouillonPourEdition(ctx, importId);
+    const lignes = (imp.lignesValides as unknown as LigneValide[]) ?? [];
+    if (lignes.length === 0) {
+      throw new ConflictException('Ajoutez au moins une ligne avant de soumettre pour validation.');
+    }
+
+    const imp2 = await this.prisma.importAdherents.update({
+      where: { id: importId },
+      data: { statut: 'EN_ATTENTE_VALIDATION' },
+    });
+    await this.audit(this.prisma, ctx.userId, 'SOUMISSION_PROPOSITIONS_ADHERENTS', imp2.id, { nbLignes: lignes.length });
+    return imp2;
   }
 
   /**
@@ -236,21 +579,50 @@ export class ImportAdherentsService {
       throw new ConflictException('Aucune ligne valide à importer.');
     }
 
-    const police = await this.prisma.police.findFirst({
-      where: { souscripteurId: imp.souscripteurId, organisationId: ctx.organisationId, statut: 'ACTIVE', deletedAt: null },
-    });
-    if (!police) {
+    // La police n'est requise que pour créer un ADHERENT (jamais un
+    // BENEFICIAIRE, qui se rattache à un adhérent déjà existant) — un lot de
+    // propositions société peut ne contenir que des bénéficiaires.
+    const aDesAdherents = lignes.some((l) => l.type === 'ADHERENT');
+    const police = aDesAdherents
+      ? await this.prisma.police.findFirst({
+          where: { souscripteurId: imp.souscripteurId, organisationId: ctx.organisationId, statut: 'ACTIVE', deletedAt: null },
+        })
+      : null;
+    if (aDesAdherents && !police) {
       throw new ConflictException('Aucune police ACTIVE pour ce souscripteur — validation impossible.');
     }
 
     const adherentIds: string[] = [];
+    const beneficiaires: { adherentId: string; beneficiaireId: string }[] = [];
     for (const ligne of lignes) {
+      if (ligne.type === 'BENEFICIAIRE') {
+        const beneficiaire = await this.prisma.$transaction(async (tx) => {
+          const b = await tx.beneficiaire.create({
+            data: {
+              adherentId: ligne.adherentId,
+              lienParente: ligne.lienParente,
+              nom: ligne.nom,
+              prenom: ligne.prenom,
+              dateNaissance: new Date(ligne.dateNaissance),
+              sexe: ligne.sexe,
+            },
+          });
+          await this.audit(tx, ctx.userId, 'CREATION_BENEFICIAIRE_IMPORT', b.id, {
+            importId: imp.id,
+            adherentId: ligne.adherentId,
+          }, 'beneficiaires');
+          return b;
+        });
+        beneficiaires.push({ adherentId: ligne.adherentId, beneficiaireId: beneficiaire.id });
+        continue;
+      }
+
       const adherent = await this.prisma.$transaction(async (tx) => {
         const a = await tx.adherent.create({
           data: {
             organisationId: ctx.organisationId,
             souscripteurId: imp.souscripteurId,
-            policeId: police.id,
+            policeId: police!.id,
             nom: ligne.nom,
             prenom: ligne.prenom,
             dateNaissance: new Date(ligne.dateNaissance),
@@ -280,6 +652,18 @@ export class ImportAdherentsService {
         );
       }
     }
+    for (const { adherentId, beneficiaireId } of beneficiaires) {
+      try {
+        await this.cartes.genererCarteBeneficiaire(user, adherentId, beneficiaireId);
+      } catch (error) {
+        echecsCarte.push(beneficiaireId);
+        this.logger.error(
+          `Génération de carte échouée pour le bénéficiaire ${beneficiaireId} (import ${importId}) : ${
+            error instanceof Error ? error.message : 'erreur inconnue'
+          }`,
+        );
+      }
+    }
 
     const importMaj = await this.prisma.$transaction(async (tx) => {
       const imp2 = await tx.importAdherents.update({
@@ -288,12 +672,20 @@ export class ImportAdherentsService {
       });
       await this.audit(tx, ctx.userId, 'VALIDATION_IMPORT_ADHERENTS', imp2.id, {
         nbAdherentsCrees: adherentIds.length,
+        nbBeneficiairesCrees: beneficiaires.length,
         nbCartesEnEchec: echecsCarte.length,
       });
       return imp2;
     });
 
-    return { ...importMaj, nbAdherentsCrees: adherentIds.length, adherentIds, echecsCarte };
+    return {
+      ...importMaj,
+      nbAdherentsCrees: adherentIds.length,
+      nbBeneficiairesCrees: beneficiaires.length,
+      adherentIds,
+      beneficiaires,
+      echecsCarte,
+    };
   }
 
   // --- Parsing Excel ---------------------------------------------------
@@ -314,7 +706,7 @@ export class ImportAdherentsService {
     }
 
     const ligneEntete = feuille.getRow(1);
-    const colonnes = new Map<keyof LigneValide, number>();
+    const colonnes = new Map<ColonneExcel, number>();
     ligneEntete.eachCell((cell, colNumber) => {
       const cle = ALIAS_ENTETES[normaliserEntete(String(cell.value ?? ''))];
       if (cle) colonnes.set(cle, colNumber);
@@ -326,7 +718,7 @@ export class ImportAdherentsService {
       throw new BadRequestException(`Colonnes manquantes dans le fichier : ${manquantes.join(', ')}.`);
     }
 
-    const brut = (n: number, col: keyof LigneValide) => {
+    const brut = (n: number, col: ColonneExcel) => {
       const idx = colonnes.get(col)!;
       const valeur = feuille.getRow(n).getCell(idx).value;
       if (valeur instanceof Date) return valeur;
@@ -335,7 +727,7 @@ export class ImportAdherentsService {
       return String(valeur).trim();
     };
 
-    const candidats: { ligne: number; donnees: Record<string, string>; parsed: LigneValide | null; erreurs: string[] }[] = [];
+    const candidats: { ligne: number; donnees: Record<string, string>; parsed: LigneAdherentProposee | null; erreurs: string[] }[] = [];
 
     for (let n = 2; n <= feuille.rowCount; n++) {
       const row = feuille.getRow(n);
@@ -365,7 +757,10 @@ export class ImportAdherentsService {
         ligne: n,
         donnees,
         erreurs,
-        parsed: erreurs.length === 0 ? { nom, prenom, telephone, email, dateNaissance: dateNaissance!.toISOString().slice(0, 10) } : null,
+        parsed:
+          erreurs.length === 0
+            ? { type: 'ADHERENT', nom, prenom, telephone, email, dateNaissance: dateNaissance!.toISOString().slice(0, 10) }
+            : null,
       });
     }
 
@@ -427,6 +822,35 @@ export class ImportAdherentsService {
       return Number.isNaN(d.getTime()) ? null : d;
     }
     return null;
+  }
+
+  /** Validation d'une ligne ADHERENT — mêmes règles que le parsing Excel
+   * (`parserEtValider`), réutilisées par les propositions société
+   * interactives (`proposerAdherent`/`modifierPropositionAdherent`). */
+  private validerChampsAdherent(
+    nom: string,
+    prenom: string,
+    telephoneBrut: string,
+    emailBrut: string,
+    dateNaissanceBrute: unknown,
+  ): { erreurs: string[]; dateNaissanceISO: string | null; telephoneNormalise: string; emailNormalise: string } {
+    const telephoneNormalise = String(telephoneBrut ?? '').replace(/[\s.-]/g, '');
+    const emailNormalise = String(emailBrut ?? '').trim().toLowerCase();
+    const erreurs: string[] = [];
+    if (!nom?.trim()) erreurs.push('nom manquant');
+    if (!prenom?.trim()) erreurs.push('prénom manquant');
+    if (!telephoneNormalise) erreurs.push('téléphone manquant');
+    else if (!REGEX_TELEPHONE.test(telephoneNormalise)) erreurs.push(`téléphone invalide (${telephoneNormalise})`);
+    if (!emailNormalise) erreurs.push('email manquant');
+    else if (!isEmail(emailNormalise)) erreurs.push(`email invalide (${emailNormalise})`);
+    const date = this.parserDate(dateNaissanceBrute);
+    if (!date) erreurs.push('date de naissance invalide ou manquante');
+    return {
+      erreurs,
+      dateNaissanceISO: date ? date.toISOString().slice(0, 10) : null,
+      telephoneNormalise,
+      emailNormalise,
+    };
   }
 
   private async audit(

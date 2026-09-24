@@ -18,11 +18,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ImportAdherentsResume, OptionRef } from './types';
 
 const LIBELLE_STATUT: Record<string, string> = {
+  BROUILLON: 'Brouillon (société)',
   EN_ATTENTE_VALIDATION: 'En attente de validation',
   VALIDE: 'Validé',
   REJETE: 'Rejeté',
 };
-const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger'> = {
+const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
+  BROUILLON: 'neutre',
   EN_ATTENTE_VALIDATION: 'attention',
   VALIDE: 'succes',
   REJETE: 'danger',
@@ -67,12 +69,14 @@ function ImporterExcelForm({ souscripteurs }: { souscripteurs: OptionRef[] }) {
 }
 
 function DetailImport({ imp }: { imp: ImportAdherentsResume }) {
+  const adherents = imp.lignesValides.filter((l) => l.type !== 'BENEFICIAIRE');
+  const beneficiaires = imp.lignesValides.filter((l) => l.type === 'BENEFICIAIRE');
   return (
     <div className="space-y-3 border-t pt-3">
-      {imp.lignesValides.length > 0 && (
+      {adherents.length > 0 && (
         <div>
           <p className="mb-1 text-xs font-medium text-muted-foreground">
-            Lignes valides ({imp.lignesValides.length})
+            Adhérents ({adherents.length})
           </p>
           <table className="w-full text-sm">
             <thead>
@@ -84,11 +88,38 @@ function DetailImport({ imp }: { imp: ImportAdherentsResume }) {
               </tr>
             </thead>
             <tbody>
-              {imp.lignesValides.map((l, i) => (
+              {adherents.map((l, i) => (
                 <tr key={i} className="border-b last:border-0">
                   <td className="py-1">{l.nom} {l.prenom}</td>
                   <td className="py-1">{l.telephone}</td>
                   <td className="py-1">{l.email}</td>
+                  <td className="py-1">{new Date(l.dateNaissance).toLocaleDateString('fr-FR')}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {beneficiaires.length > 0 && (
+        <div>
+          <p className="mb-1 text-xs font-medium text-muted-foreground">
+            Bénéficiaires ({beneficiaires.length})
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-muted-foreground">
+                <th className="py-1">Nom / prénom</th>
+                <th className="py-1">Rattaché à</th>
+                <th className="py-1">Lien</th>
+                <th className="py-1">Naissance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {beneficiaires.map((l, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="py-1">{l.nom} {l.prenom}</td>
+                  <td className="py-1">{'adherentNom' in l ? l.adherentNom : '—'}</td>
+                  <td className="py-1">{'lienParente' in l ? l.lienParente : '—'}</td>
                   <td className="py-1">{new Date(l.dateNaissance).toLocaleDateString('fr-FR')}</td>
                 </tr>
               ))}
@@ -180,7 +211,7 @@ export function ImportsAdherentsPanel({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium">
-                  {imp.fichierNom} — {imp.souscripteur.nom}
+                  {imp.fichierNom ?? 'Propositions société'} — {imp.souscripteur.nom}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {dateHeureFr(imp.createdAt)} · {imp.nbLignesValides} valide(s) / {imp.nbLignesErreur} erreur(s) sur {imp.nbLignesTotal}

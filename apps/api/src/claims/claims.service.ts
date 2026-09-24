@@ -34,6 +34,7 @@ import {
   ROLES_ADHERENT_CLAIMS,
   ROLES_GESTION_CLAIMS,
   ROLES_LECTURE_CLAIMS,
+  ROLES_SOCIETE_CLAIMS,
   type TypeReclamation,
   TYPES_RECLAMATION_MEDICAUX,
 } from './claims.types';
@@ -42,7 +43,7 @@ import {
 type SourceReclamation = { acteDossierId: string } | { dispensationId: string };
 
 /** Mode de lecture résolu par `modeLecture()` — voir son commentaire. */
-type ModeLecture = 'STAFF' | 'ADHERENT';
+type ModeLecture = 'STAFF' | 'ADHERENT' | 'SOCIETE';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -156,7 +157,7 @@ export class ClaimsService {
       montant: string;
     },
   ) {
-    const ctx: ContexteAppelant = { ...ctxAppelant, roleChain: [], adherentId: null };
+    const ctx: ContexteAppelant = { ...ctxAppelant, roleChain: [], adherentId: null, societeId: null };
     const reclamation = await this.creerOuChargerReclamation(
       ctx,
       { dispensationId: params.dispensationId },
@@ -381,15 +382,22 @@ export class ClaimsService {
   ) {
     const ctx = await this.contexteAppelant(user);
     const mode = this.modeLecture(ctx);
+    const scopeSociete =
+      mode === 'SOCIETE' ? { adherentId: { in: await this.adherentIdsSociete(ctx) } } : {};
     return this.prisma.reclamation.findMany({
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
         ...(mode === 'ADHERENT' ? { adherentId: ctx.adherentId } : {}),
+        ...scopeSociete,
         ...(filtres.statut ? { statut: filtres.statut } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      include: { remboursement: true },
+      include: {
+        remboursement: true,
+        adherent: { select: { id: true, nom: true, prenom: true, numeroAdherent: true } },
+        beneficiaire: { select: { id: true, nom: true, prenom: true } },
+      },
     });
   }
 
@@ -497,6 +505,7 @@ export class ClaimsService {
       organisationId: profil.organisationId,
       roleChain: permissions?.roleChain ?? [],
       adherentId: profil.adherentId ?? null,
+      societeId: profil.societeId ?? null,
     };
   }
 
@@ -524,6 +533,11 @@ export class ClaimsService {
    * ADHERENT (audit dashboard adhérent) est donc autorisé à lire — mais SCOPÉ
    * STRICTEMENT sur ses propres réclamations (`chargerReclamation` mode
    * `'ADHERENT'`), jamais celles d'un autre adhérent de l'organisation.
+   *
+   * De même, une société cliente (SOCIETE_ASSUREE/ADMINISTRATION) peut lire
+   * les réclamations de SES PROPRES adhérents (écran « Réclamations » société,
+   * gestion collaborative) — scope dérivé via `adherentIdsSociete` (pas de
+   * colonne société directe sur `reclamations`), mode `'SOCIETE'`.
    */
   private modeLecture(ctx: ContexteAppelant): ModeLecture {
     const estStaff = ctx.roleChain.some((code) =>
@@ -536,9 +550,24 @@ export class ClaimsService {
     );
     if (estAdherent && ctx.adherentId) return 'ADHERENT';
 
-    throw new ForbiddenException(
-      'Rôle insuffisant : la consultation des réclamations est réservée aux rôles ASSUREUR habilités (direction, exploitation, informatique, médecin-conseil) ou à l’adhérent concerné pour ses propres réclamations.',
+    const estSociete = ctx.roleChain.some((code) =>
+      (ROLES_SOCIETE_CLAIMS as readonly string[]).includes(code),
     );
+    if (estSociete && ctx.societeId) return 'SOCIETE';
+
+    throw new ForbiddenException(
+      'Rôle insuffisant : la consultation des réclamations est réservée aux rôles ASSUREUR habilités (direction, exploitation, informatique, médecin-conseil), à l’adhérent concerné pour ses propres réclamations, ou à sa société pour ses propres adhérents.',
+    );
+  }
+
+  /** Ids des adhérents de la propre société de l'appelant — dérive le scope
+   * `'SOCIETE'` en l'absence de colonne société/souscripteur sur `reclamations`. */
+  private async adherentIdsSociete(ctx: ContexteAppelant): Promise<string[]> {
+    const adherents = await this.prisma.adherent.findMany({
+      where: { souscripteurId: ctx.societeId ?? '__aucun__', organisationId: ctx.organisationId, deletedAt: null },
+      select: { id: true },
+    });
+    return adherents.map((a) => a.id);
   }
 
   private async chargerReclamation(
@@ -546,14 +575,21 @@ export class ClaimsService {
     id: string,
     mode: ModeLecture = 'STAFF',
   ) {
+    const scopeSociete =
+      mode === 'SOCIETE' ? { adherentId: { in: await this.adherentIdsSociete(ctx) } } : {};
     const reclamation = await this.prisma.reclamation.findFirst({
       where: {
         id,
         organisationId: ctx.organisationId,
         deletedAt: null,
         ...(mode === 'ADHERENT' ? { adherentId: ctx.adherentId } : {}),
+        ...scopeSociete,
       },
-      include: { remboursement: true },
+      include: {
+        remboursement: true,
+        adherent: { select: { id: true, nom: true, prenom: true, numeroAdherent: true } },
+        beneficiaire: { select: { id: true, nom: true, prenom: true } },
+      },
     });
     if (!reclamation) {
       throw new NotFoundException('Réclamation introuvable.');

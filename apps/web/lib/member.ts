@@ -72,3 +72,14 @@ export function peutValiderImportAdherents(roleChain: string[] | undefined): boo
   const rc = roleChain ?? [];
   return rc.includes('ASSUREUR_INFORMATIQUE') || rc.includes('ASSUREUR_EXPLOITATION');
 }
+
+/** Propositions collaboratives d'ajout d'adhérents/bénéficiaires par une
+ * société cliente (brouillon → soumission) — élargi par rapport à
+ * `peutGererMembres` côté société : SOCIETE_ASSUREE peut PROPOSER (encore
+ * soumis à validation assureur) sans pouvoir créer directement. */
+export const ROLES_PROPOSITION_MEMBRE_SOCIETE = ['SOCIETE_ASSUREE', 'SOCIETE_ADMINISTRATION'];
+
+export function peutProposerMembres(roleChain: string[] | undefined): boolean {
+  const rc = roleChain ?? [];
+  return rc.some((r) => ROLES_PROPOSITION_MEMBRE_SOCIETE.includes(r));
+}

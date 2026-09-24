@@ -65,7 +65,21 @@ export const ROLES_IMPORT_ADHERENTS = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_COMPTA
  */
 export const ROLES_VALIDATION_IMPORT_ADHERENTS = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION'] as const;
 
-export const STATUTS_IMPORT_ADHERENTS = ['EN_ATTENTE_VALIDATION', 'VALIDE', 'REJETE'] as const;
+/** `BROUILLON` ajouté (prisma/sql/054) : propositions société éditables une à
+ * une, avant « Soumettre pour validation » — jamais atteint par un import
+ * Excel de l'informatique, qui saute directement en EN_ATTENTE_VALIDATION. */
+export const STATUTS_IMPORT_ADHERENTS = ['BROUILLON', 'EN_ATTENTE_VALIDATION', 'VALIDE', 'REJETE'] as const;
+
+/**
+ * Propositions collaboratives d'ajout d'adhérents/bénéficiaires par une
+ * société cliente (prisma/sql/054) — réservé à SOCIETE_ASSUREE et
+ * SOCIETE_ADMINISTRATION (élargi par rapport à `ROLE_GESTION_MEMBRE_SOCIETE`,
+ * seul habilité à créer un adhérent DIRECTEMENT via `creerAdherent` : une
+ * simple PROPOSITION, encore soumise à validation assureur, est un risque
+ * moindre que la création immédiate). Toujours scopé à SA PROPRE société
+ * (`ctx.societeId === souscripteurId`), même principe que `assertGestion`.
+ */
+export const ROLES_PROPOSITION_ADHERENTS_SOCIETE = ['SOCIETE_ASSUREE', 'SOCIETE_ADMINISTRATION'] as const;
 
 /**
  * Identification par numéro de carte à l'accueil du centre médical — ADDITIF

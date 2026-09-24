@@ -106,8 +106,8 @@ export function AdherentsListe({
         cleLigne={(a) => a.id}
         parPage={15}
         recherche={{
-          placeholder: 'Nom, prénom, n° adhérent…',
-          champs: ['nom', 'prenom', 'numeroAdherent', 'souscripteur.nom'],
+          placeholder: 'Nom, prénom, n° adhérent, formule…',
+          champs: ['nom', 'prenom', 'numeroAdherent', 'souscripteur.nom', 'police.produit.nom'],
         }}
         filtres={[
           {
@@ -117,6 +117,18 @@ export function AdherentsListe({
               valeur: s,
               libelle: LIBELLE_STATUT_MEMBRE[s],
             })),
+          },
+          {
+            cle: 'formule',
+            libelle: 'Formule',
+            valeur: (row) => (row as AdherentListe).police?.produit?.nom ?? null,
+            options: Array.from(
+              new Set(
+                adherents
+                  .map((a) => a.police?.produit?.nom)
+                  .filter((nom): nom is string => Boolean(nom)),
+              ),
+            ).map((nom) => ({ valeur: nom, libelle: nom })),
           },
         ]}
         colonnes={colonnes}

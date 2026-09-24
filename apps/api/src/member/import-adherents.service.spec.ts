@@ -21,8 +21,14 @@ const USER: AuthenticatedUser = {
   token: 'jwt',
 };
 
-const identite = (roleChain: string[]) => ({
-  profil: { id: 'u1', organisationId: 'org-1', societeId: null, entite: 'ASSUREUR', adherentId: null },
+const identite = (roleChain: string[], societeId: string | null = null) => ({
+  profil: {
+    id: 'u1',
+    organisationId: 'org-1',
+    societeId,
+    entite: societeId ? 'SOCIETE_AFFILIEE' : 'ASSUREUR',
+    adherentId: null,
+  },
   permissions: roleChain.length ? { roleChain } : null,
 });
 
@@ -48,13 +54,18 @@ describe('ImportAdherentsService', () => {
   let service: ImportAdherentsService;
   let prisma: any;
   let identity: { getMe: jest.Mock };
-  let cartes: { genererCarteAdherent: jest.Mock };
+  let cartes: { genererCarteAdherent: jest.Mock; genererCarteBeneficiaire: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
       souscripteur: { findFirst: jest.fn() },
       police: { findFirst: jest.fn() },
-      adherent: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
+      adherent: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
+      beneficiaire: { create: jest.fn() },
       importAdherents: {
         create: jest.fn(),
         findFirst: jest.fn(),
@@ -65,7 +76,10 @@ describe('ImportAdherentsService', () => {
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     identity = { getMe: jest.fn() };
-    cartes = { genererCarteAdherent: jest.fn().mockResolvedValue({ url: 'https://signed' }) };
+    cartes = {
+      genererCarteAdherent: jest.fn().mockResolvedValue({ url: 'https://signed' }),
+      genererCarteBeneficiaire: jest.fn().mockResolvedValue({ url: 'https://signed' }),
+    };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -214,8 +228,8 @@ describe('ImportAdherentsService', () => {
       souscripteurId: 'sous-1',
       statut: 'EN_ATTENTE_VALIDATION',
       lignesValides: [
-        { nom: 'Yao', prenom: 'Awa', telephone: '0700000001', email: 'awa@test.ci', dateNaissance: '1990-05-14' },
-        { nom: 'Konan', prenom: 'Yves', telephone: '0700000002', email: 'yves@test.ci', dateNaissance: '1985-01-01' },
+        { type: 'ADHERENT', nom: 'Yao', prenom: 'Awa', telephone: '0700000001', email: 'awa@test.ci', dateNaissance: '1990-05-14' },
+        { type: 'ADHERENT', nom: 'Konan', prenom: 'Yves', telephone: '0700000002', email: 'yves@test.ci', dateNaissance: '1985-01-01' },
       ],
     };
 
@@ -308,6 +322,254 @@ describe('ImportAdherentsService', () => {
 
       identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
       await expect(service.listerImportsAdherents(USER)).resolves.toEqual([]);
+    });
+
+    it('personnel ASSUREUR : exclut les BROUILLON (pas encore soumis par la société)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      await service.listerImportsAdherents(USER);
+      expect(prisma.importAdherents.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ statut: { not: 'BROUILLON' } }) }),
+      );
+    });
+
+    it('société : scopée à SA PROPRE société, tout statut (y compris son brouillon)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      await service.listerImportsAdherents(USER);
+      expect(prisma.importAdherents.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ souscripteurId: 'sous-1' }) }),
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Propositions collaboratives société — SOCIETE_ASSUREE/ADMINISTRATION
+  //  uniquement, jamais une autre société (ctx.societeId === souscripteurId).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('proposerAdherent', () => {
+    const DTO = { nom: 'Yao', prenom: 'Awa', telephone: '0700000001', email: 'awa@test.ci', dateNaissance: '1990-05-14' };
+
+    it('refuse un rôle non habilité (comptable société)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_COMPTABLE'], 'sous-1'));
+      await expect(service.proposerAdherent(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("refuse une AUTRE société que la sienne", async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      await expect(service.proposerAdherent(USER, 'sous-AUTRE', DTO)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('ligne invalide (téléphone) → 400, aucun brouillon créé', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      await expect(
+        service.proposerAdherent(USER, 'sous-1', { ...DTO, telephone: 'abc' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.importAdherents.create).not.toHaveBeenCalled();
+    });
+
+    it('email déjà utilisé par un adhérent existant → 409', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-existant' });
+      await expect(service.proposerAdherent(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('crée le brouillon (inexistant) et y ajoute la ligne', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue(null); // pas de brouillon existant
+      prisma.importAdherents.create.mockResolvedValue({ id: 'imp-1', lignesValides: [] });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1', lignesValides: [{ type: 'ADHERENT', ...DTO }] });
+
+      const res = await service.proposerAdherent(USER, 'sous-1', DTO);
+
+      expect(prisma.importAdherents.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ souscripteurId: 'sous-1', statut: 'BROUILLON', fichierNom: null }) }),
+      );
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'imp-1' },
+          data: expect.objectContaining({
+            lignesValides: [expect.objectContaining({ type: 'ADHERENT', nom: 'Yao', email: 'awa@test.ci' })],
+            nbLignesTotal: 1,
+            nbLignesValides: 1,
+          }),
+        }),
+      );
+      expect(res.id).toBe('imp-1');
+    });
+
+    it('réutilise le brouillon déjà ouvert plutôt que d’en créer un second', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue({
+        id: 'imp-1',
+        lignesValides: [{ type: 'ADHERENT', nom: 'Konan', prenom: 'Yves', telephone: '0700000002', email: 'yves@test.ci', dateNaissance: '1985-01-01' }],
+      });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
+
+      await service.proposerAdherent(USER, 'sous-1', DTO);
+
+      expect(prisma.importAdherents.create).not.toHaveBeenCalled();
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ nbLignesTotal: 2 }) }),
+      );
+    });
+
+    it('email déjà proposé dans le brouillon en cours → 409', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue({
+        id: 'imp-1',
+        lignesValides: [{ type: 'ADHERENT', nom: 'Autre', prenom: 'Personne', telephone: '0700009999', email: DTO.email, dateNaissance: '1980-01-01' }],
+      });
+      await expect(service.proposerAdherent(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.importAdherents.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('proposerBeneficiaire', () => {
+    const DTO = { adherentId: 'adh-1', lienParente: 'ENFANT', nom: 'Petit', prenom: 'Yao', dateNaissance: '2015-03-10', sexe: 'M' };
+
+    it('refuse un rôle non habilité', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_RECEPTION'], 'sous-1'));
+      await expect(service.proposerBeneficiaire(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it("adhérent introuvable pour cette société → 404", async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.adherent.findFirst.mockResolvedValue(null);
+      await expect(service.proposerBeneficiaire(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('crée le brouillon et y ajoute la proposition de bénéficiaire', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-1', nom: 'Yao', prenom: 'Awa' });
+      prisma.importAdherents.findFirst.mockResolvedValue(null);
+      prisma.importAdherents.create.mockResolvedValue({ id: 'imp-1', lignesValides: [] });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
+
+      await service.proposerBeneficiaire(USER, 'sous-1', DTO);
+
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            lignesValides: [
+              expect.objectContaining({ type: 'BENEFICIAIRE', adherentId: 'adh-1', adherentNom: 'Yao Awa', lienParente: 'ENFANT' }),
+            ],
+          }),
+        }),
+      );
+    });
+  });
+
+  describe('modifierPropositionAdherent / supprimerProposition / soumettrePourValidation', () => {
+    const BROUILLON = {
+      id: 'imp-1',
+      organisationId: 'org-1',
+      souscripteurId: 'sous-1',
+      statut: 'BROUILLON',
+      lignesValides: [
+        { type: 'ADHERENT', nom: 'Yao', prenom: 'Awa', telephone: '0700000001', email: 'awa@test.ci', dateNaissance: '1990-05-14' },
+      ],
+    };
+
+    it('modifierPropositionAdherent : refuse si déjà soumis (plus BROUILLON)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue({ ...BROUILLON, statut: 'EN_ATTENTE_VALIDATION' });
+      await expect(
+        service.modifierPropositionAdherent(USER, 'imp-1', 0, { nom: 'X', prenom: 'Y', telephone: '0700000009', email: 'x@test.ci', dateNaissance: '1990-01-01' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('modifierPropositionAdherent : met à jour la ligne par son index', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue(BROUILLON);
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
+
+      await service.modifierPropositionAdherent(USER, 'imp-1', 0, {
+        nom: 'Yao', prenom: 'Awa', telephone: '0700000099', email: 'awa-corrige@test.ci', dateNaissance: '1990-05-14',
+      });
+
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            lignesValides: [expect.objectContaining({ email: 'awa-corrige@test.ci', telephone: '0700000099' })],
+          }),
+        }),
+      );
+    });
+
+    it('supprimerProposition : retire la ligne par son index', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue(BROUILLON);
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
+
+      await service.supprimerProposition(USER, 'imp-1', 0);
+
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ lignesValides: [], nbLignesTotal: 0, nbLignesValides: 0 }) }),
+      );
+    });
+
+    it('soumettrePourValidation : refuse un brouillon vide', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue({ ...BROUILLON, lignesValides: [] });
+      await expect(service.soumettrePourValidation(USER, 'imp-1')).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('soumettrePourValidation : BROUILLON → EN_ATTENTE_VALIDATION', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue(BROUILLON);
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1', statut: 'EN_ATTENTE_VALIDATION' });
+
+      const res = await service.soumettrePourValidation(USER, 'imp-1');
+
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'imp-1' }, data: { statut: 'EN_ATTENTE_VALIDATION' } }),
+      );
+      expect(res.statut).toBe('EN_ATTENTE_VALIDATION');
+    });
+
+    it("une AUTRE société ne peut ni modifier ni soumettre ce brouillon", async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-AUTRE'));
+      prisma.importAdherents.findFirst.mockResolvedValue(BROUILLON);
+      await expect(service.soumettrePourValidation(USER, 'imp-1')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  describe('obtenirBrouillonSociete', () => {
+    it('refuse un rôle non habilité', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_RECEPTION'], 'sous-1'));
+      await expect(service.obtenirBrouillonSociete(USER, 'sous-1')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('renvoie null si aucun brouillon en cours', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue(null);
+      await expect(service.obtenirBrouillonSociete(USER, 'sous-1')).resolves.toBeNull();
+    });
+  });
+
+  describe('validerImportAdherents — lignes BENEFICIAIRE (propositions société)', () => {
+    it("crée le Beneficiaire et sa carte, sans exiger de police ACTIVE si le lot ne contient AUCUN adhérent", async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.importAdherents.findFirst.mockResolvedValue({
+        id: 'imp-1',
+        organisationId: 'org-1',
+        souscripteurId: 'sous-1',
+        statut: 'EN_ATTENTE_VALIDATION',
+        lignesValides: [
+          { type: 'BENEFICIAIRE', adherentId: 'adh-1', adherentNom: 'Yao Awa', lienParente: 'ENFANT', nom: 'Petit', prenom: 'Yao', dateNaissance: '2015-03-10', sexe: 'M' },
+        ],
+      });
+      prisma.beneficiaire.create.mockResolvedValue({ id: 'ben-1' });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1', statut: 'VALIDE' });
+
+      const res = await service.validerImportAdherents(USER, 'imp-1');
+
+      expect(prisma.police.findFirst).not.toHaveBeenCalled();
+      expect(prisma.beneficiaire.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ adherentId: 'adh-1', lienParente: 'ENFANT', sexe: 'M' }) }),
+      );
+      expect(cartes.genererCarteBeneficiaire).toHaveBeenCalledWith(USER, 'adh-1', 'ben-1');
+      expect(res.nbAdherentsCrees).toBe(0);
+      expect(res.nbBeneficiairesCrees).toBe(1);
     });
   });
 });

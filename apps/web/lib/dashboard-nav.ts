@@ -93,14 +93,31 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     { label: 'Ma carte', href: `${ADHERENT}/carte`, icon: CreditCard },
   ],
   // SOUSCRIPTEUR_INDIVIDUEL : rôle distinct d'ADHERENT_TITULAIRE (même entité
-  // ADHERENT, dashboardRoute propre en base). Périmètre de cet écran limité,
-  // sur demande explicite, au dossier de souscription individuelle
-  // (questionnaire médical + tarification, module `underwriting/`) — les
-  // écrans de soins (consultation/ordonnances/factures/réclamations/carte)
-  // sont API-accessibles à ce rôle (ROLES_ADHERENT les traite à l'identique
-  // d'ADHERENT_TITULAIRE) mais non branchés ici, hors périmètre de ce prompt.
+  // ADHERENT, dashboardRoute propre en base). Le narrowing au seul dossier de
+  // souscription (questionnaire médical + tarification, module `underwriting/`)
+  // était une limite de périmètre du prompt du 2026-09-15 (« hors périmètre de
+  // ce prompt »), pas une décision métier — vérifié avant d'élargir (2026-09-24) :
+  // aucune raison de sécurité/produit trouvée, ROLES_ADHERENT traite déjà ce
+  // rôle à l'identique d'ADHERENT_TITULAIRE côté API pour ces écrans. Les liens
+  // pointent vers les mêmes routes que `[ADHERENT]` (le layout ne distingue le
+  // rôle que par `dashboardRoute`, la page sous-jacente est partagée) — jamais
+  // de duplication. « Mes bénéficiaires » et « Réclamations » restent hors
+  // périmètre, non demandés pour ce rôle.
   [ADHERENT_INDIVIDUEL]: [
     { label: "Vue d'ensemble", href: ADHERENT_INDIVIDUEL, icon: LayoutDashboard },
+    {
+      label: 'Consultation',
+      href: `${ADHERENT}/consultation`,
+      icon: Stethoscope,
+    },
+    { label: 'Ordonnances', href: `${ADHERENT}/ordonnances`, icon: Pill },
+    {
+      label: 'Dispensations',
+      href: `${ADHERENT}/dispensations`,
+      icon: PackageCheck,
+    },
+    { label: 'Factures', href: `${ADHERENT}/factures`, icon: ReceiptText },
+    { label: 'Ma carte', href: `${ADHERENT}/carte`, icon: CreditCard },
   ],
   // Espace PHARMACIE — module `pharmacy/` (verrou par ligne). Pharmacien et
   // caissière partagent le même écran de dispensation (`DispensationFlowEcran`,

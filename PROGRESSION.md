@@ -5757,3 +5757,38 @@ l'enfant de l'adhérent connecté (vérifié indépendamment en base) ; lecture 
 détail d'une facture émise pour le conjoint (code de facturation inclus, montants
 corrects) ; non-régression confirmée — un adhérent tiers sans lien avec cette facture reçoit
 toujours 403.
+
+## 2026-09-24 (suite 7) — Élargit la navigation SOUSCRIPTEUR_INDIVIDUEL (consultation/ordonnances/factures/dispensations/carte)
+
+### Vérification préalable demandée : le narrowing du 2026-09-15 était-il volontaire pour une raison produit/sécurité ?
+Réponse : **non** — relu l'entrée PROGRESSION.md du 2026-09-15 et le commentaire de
+`dashboard-nav.ts` : le périmètre de `/dashboard-adherent/individuel` avait été limité au
+seul dossier de souscription (questionnaire médical + tarification) **« hors périmètre de
+ce prompt »**, une limite de temps/scope du prompt qui avait corrigé le 404
+`SOUSCRIPTEUR_INDIVIDUEL`, pas une décision métier. Le commentaire notait déjà explicitement
+que les écrans de soins étaient « API-accessibles à ce rôle (`ROLES_ADHERENT` les traite à
+l'identique d'`ADHERENT_TITULAIRE`) mais non branchés ici ». Aucune raison de sécurité trouvée
+en creusant le code des 5 écrans concernés (aucun n'a de branche conditionnelle sur le rôle
+exact, seulement sur `profil.entite === 'ADHERENT'`, commun aux deux rôles) — élargissement
+fait sans réserve.
+
+### Correction
+`lib/dashboard-nav.ts` — `NAV_PAR_DASHBOARD['/dashboard-adherent/individuel']` : ajoute
+Consultation, Ordonnances, Dispensations, Factures, Ma carte, **pointant vers les mêmes
+routes partagées que `[ADHERENT]`** (`/dashboard-adherent/consultation`, etc.) — jamais de
+duplication de page : le layout ne distingue le rôle que par `dashboardRoute` (la sidebar
+affichée), la page sous-jacente est déjà entièrement partagée et déjà scopée sur
+`ctx.adherentId` indépendamment du rôle exact. Aucun fichier backend touché. « Mes
+bénéficiaires » et « Réclamations » restent volontairement hors périmètre — non demandés
+pour ce rôle par l'utilisateur, à considérer séparément si besoin.
+
+### Test en navigateur réel (compte SOUSCRIPTEUR_INDIVIDUEL, 20/20 vérifications)
+Provisioning complet (organisation → souscripteur INDIVIDUEL → produit publié → police
+ACTIVE → adhérent → profil `SOUSCRIPTEUR_INDIVIDUEL` avec `societeId`/`adherentId`, même
+schéma que documenté au 2026-09-15), session Next.js authentique via cookies `@supabase/ssr` :
+la page `/dashboard-adherent/individuel` rendue affiche maintenant les 5 nouveaux liens de
+sidebar (et toujours pas « Mes bénéficiaires »/« Réclamations ») ; les 5 pages partagées
+(`consultation`, `ordonnances`, `dispensations`, `factures`, `carte`) répondent 200 avec la
+sidebar individuel affichée, sans redirection ni 403 ; preuve fonctionnelle au-delà du simple
+rendu de page — un vrai code de consultation généré par ce compte `SOUSCRIPTEUR_INDIVIDUEL`
+est créé en base avec le bon `adherentId`. Données et compte éphémères supprimés.

@@ -179,6 +179,66 @@ describe('PreauthorizationService — Code de Consultation', () => {
     );
   });
 
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Couverture bénéficiaires (audit du 2026-09-24) : chargerCodeAdherent
+  //  (confirmerPresence/annulerCode) ne vérifiait que `code.adherentId ===
+  //  ctx.adherentId`, refusant l'accès à l'adhérent pour un code émis pour
+  //  l'un de ses propres bénéficiaires — même incohérence qu'obtenirFacture.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('confirmerPresence / annulerCode — couverture bénéficiaires', () => {
+    it('confirmerPresence sur le code d’un enfant (bénéficiaire) → autorisé', async () => {
+      identity.getMe.mockResolvedValue(identiteAdherent());
+      prisma.codeConsultation.findFirst.mockResolvedValue({
+        id: 'code-1', organisationId: 'org-1', adherentId: null, beneficiaireId: 'ben-1', statut: 'EMIS',
+      });
+      prisma.beneficiaire.findFirst.mockResolvedValue({ id: 'ben-1', adherentId: ADH });
+
+      const res = await service.confirmerPresence(USER, 'code-1');
+
+      expect(prisma.beneficiaire.findFirst).toHaveBeenCalledWith({
+        where: { id: 'ben-1', adherentId: ADH, deletedAt: null },
+        select: { id: true },
+      });
+      expect(res).toEqual({ id: 'code-1', statut: 'CONFIRME_PATIENT' });
+    });
+
+    it('annulerCode sur le code d’un enfant (bénéficiaire) → autorisé', async () => {
+      identity.getMe.mockResolvedValue(identiteAdherent());
+      prisma.codeConsultation.findFirst.mockResolvedValue({
+        id: 'code-1', organisationId: 'org-1', adherentId: null, beneficiaireId: 'ben-1', statut: 'EMIS',
+      });
+      prisma.beneficiaire.findFirst.mockResolvedValue({ id: 'ben-1', adherentId: ADH });
+
+      const res = await service.annulerCode(USER, 'code-1');
+
+      expect(res).toEqual({ id: 'code-1', statut: 'ANNULE' });
+    });
+
+    it('confirmerPresence sur le code du bénéficiaire d’un AUTRE adhérent → 403 (pas de fuite)', async () => {
+      identity.getMe.mockResolvedValue(identiteAdherent());
+      prisma.codeConsultation.findFirst.mockResolvedValue({
+        id: 'code-1', organisationId: 'org-1', adherentId: null, beneficiaireId: 'ben-1', statut: 'EMIS',
+      });
+      prisma.beneficiaire.findFirst.mockResolvedValue(null); // ben-1 n'appartient pas à ADH
+
+      await expect(
+        service.confirmerPresence(USER, 'code-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('confirmerPresence sur le code d’un AUTRE adhérent (pas un bénéficiaire) → 403', async () => {
+      identity.getMe.mockResolvedValue(identiteAdherent());
+      prisma.codeConsultation.findFirst.mockResolvedValue({
+        id: 'code-1', organisationId: 'org-1', adherentId: 'adh-autre', beneficiaireId: null, statut: 'EMIS',
+      });
+
+      await expect(
+        service.confirmerPresence(USER, 'code-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.beneficiaire.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
   it('VALIDATION avec un MAUVAIS établissement → 403, le dossier n’est pas ouvert', async () => {
     identity.getMe.mockResolvedValue(identiteEtablissement());
     prisma.codeConsultation.findUnique.mockResolvedValue({

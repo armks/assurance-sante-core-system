@@ -5714,3 +5714,46 @@ statuts respectifs (une seconde dispensation déjà `VALIDEE` n'affiche pas son 
 montants part assurance (4000) et part patient (1000) ; après un appel réel à `POST
 pharmacy/dispensations/valider-code` (ce que fait le bouton), la page re-rendue ne montre
 plus le code ni le statut « en attente » — confirmé indépendamment en base (`statut: VALIDEE`).
+
+## 2026-09-24 (suite 6) — Corrige les 2 incohérences lecture/écriture bénéficiaires (codes-consultation, factures)
+
+Dernier point de l'audit des codes patient : `chargerCodeAdherent` et `obtenirFacture` ne
+vérifiaient que `ctx.adherentId === xxx.adherentId`, refusant l'accès à l'adhérent pour un
+code/une facture émis pour l'un de ses propres bénéficiaires — alors que les listes
+(`listerMesCodes`, `listerMesFactures`, via `filtreMoiEtMesBeneficiaires`) les incluent déjà.
+
+### 1. Nouvelle méthode partagée `estMonBeneficiaire(ctx, beneficiaireId)`
+`preauthorization.service.ts` — équivalent de `filtreMoiEtMesBeneficiaires` mais pour la
+lecture d'UN seul enregistrement (où un simple `where` ne suffit pas) : vérifie que
+`beneficiaireId` appartient bien à `ctx.adherentId` (`Beneficiaire.findFirst`). Réutilisée
+par les deux corrections ci-dessous — même logique, un seul endroit.
+
+### 2. `chargerCodeAdherent` (confirmerPresence / annulerCode)
+Élargi : `estLAdherent || estSonBeneficiaire` avant de lever `ForbiddenException`. Un
+adhérent peut désormais confirmer sa présence ou annuler un code de consultation émis pour
+l'un de ses bénéficiaires (enfant, conjoint…), pas seulement les siens propres. Sémantique
+d'exception INCHANGÉE (toujours 403 « Ce code ne vous appartient pas » pour un code d'un
+tiers, jamais un changement de 403 vers 404) — correction volontairement minimale, limitée
+à l'élargissement de la condition d'appartenance.
+
+### 3. `obtenirFacture`
+Même correction : `estLAdherent` couvre désormais `ctx.adherentId === facture.adherentId`
+OU `estMonBeneficiaire(ctx, facture.beneficiaireId)`. Comme cette variable pilote aussi le
+masquage de `codeFacturation`, le code de facturation d'une facture de bénéficiaire est
+maintenant révélé à l'adhérent propriétaire, cohérent avec `listerMesFactures`.
+
+### Tests
+Backend : 6 nouveaux tests (4 dans `preauthorization.service.spec.ts` — confirmerPresence/
+annulerCode sur le code d'un bénéficiaire, refus sur le code d'un tiers, non-appel de
+`beneficiaire.findFirst` si `beneficiaireId` est null ; 2 dans `preauthorization-facture.
+service.spec.ts` — obtenirFacture sur la facture d'un bénéficiaire, refus si le bénéficiaire
+n'est pas le sien). Suite complète : 718 tests backend (712 + 6), 21 Java inchangés,
+`tsc --noEmit` propre.
+
+Test HTTP réel (11/11 vérifications, script Node éphémère — adhérent + bénéficiaire ENFANT
++ bénéficiaire CONJOINT + un adhérent tiers pour la non-régression, tout supprimé après
+coup) : confirmation ET annulation réussies sur deux codes de consultation émis pour
+l'enfant de l'adhérent connecté (vérifié indépendamment en base) ; lecture complète du
+détail d'une facture émise pour le conjoint (code de facturation inclus, montants
+corrects) ; non-régression confirmée — un adhérent tiers sans lien avec cette facture reçoit
+toujours 403.

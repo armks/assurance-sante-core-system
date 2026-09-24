@@ -2145,10 +2145,12 @@ export class PreauthorizationService {
    * `organisationId` — n'importe quel compte authentifié de l'organisation
    * (un AUTRE adhérent y compris) pouvait lire les montants, statut et
    * `adherentId` de N'IMPORTE QUELLE facture, seul `codeFacturation` étant
-   * masqué. Désormais : l'adhérent propriétaire OU le personnel habilité à
-   * générer/gérer les factures (`ROLES_GENERATION_FACTURE`, scopé à son
-   * établissement pour le personnel de centre médical — même contrôle que
-   * `genererFacture`/`ajouterActe`) ; tout autre appelant → 403.
+   * masqué. Désormais : l'adhérent propriétaire (ou l'un de ses bénéficiaires,
+   * corrigé le 2026-09-24 — même incohérence que `chargerCodeAdherent`) OU le
+   * personnel habilité à générer/gérer les factures
+   * (`ROLES_GENERATION_FACTURE`, scopé à son établissement pour le personnel
+   * de centre médical — même contrôle que `genererFacture`/`ajouterActe`) ;
+   * tout autre appelant → 403.
    */
   async obtenirFacture(user: AuthenticatedUser, factureId: string) {
     const ctx = await this.contexteAppelant(user);
@@ -2164,7 +2166,8 @@ export class PreauthorizationService {
     }
 
     const estLAdherent =
-      !!ctx.adherentId && ctx.adherentId === facture.adherentId;
+      (!!ctx.adherentId && ctx.adherentId === facture.adherentId) ||
+      (await this.estMonBeneficiaire(ctx, facture.beneficiaireId));
     const estStaffHabilite = ctx.roleChain.some((r) =>
       (ROLES_GENERATION_FACTURE as readonly string[]).includes(r),
     );
@@ -2925,6 +2928,29 @@ export class PreauthorizationService {
     };
   }
 
+  /**
+   * `beneficiaireId` donné appartient-il à l'adhérent connecté ? Même logique
+   * d'appartenance que `filtreMoiEtMesBeneficiaires`, pour les lectures d'UN
+   * seul enregistrement (pas une liste) où l'on ne peut pas passer par un
+   * simple `where` — audit couverture bénéficiaires (2026-09-24) :
+   * `chargerCodeAdherent`/`obtenirFacture` ne vérifiaient QUE `adherentId`,
+   * refusant l'accès à un adhérent consultant le code/la facture d'un de ses
+   * propres bénéficiaires.
+   */
+  private async estMonBeneficiaire(
+    ctx: ContexteAppelant,
+    beneficiaireId: string | null,
+  ): Promise<boolean> {
+    if (!ctx.adherentId || !beneficiaireId) {
+      return false;
+    }
+    const beneficiaire = await this.prisma.beneficiaire.findFirst({
+      where: { id: beneficiaireId, adherentId: ctx.adherentId, deletedAt: null },
+      select: { id: true },
+    });
+    return beneficiaire !== null;
+  }
+
   private async chargerCodeAdherent(ctx: ContexteAppelant, codeId: string) {
     const code = await this.prisma.codeConsultation.findFirst({
       where: { id: codeId, organisationId: ctx.organisationId },
@@ -2932,7 +2958,9 @@ export class PreauthorizationService {
     if (!code) {
       throw new NotFoundException('Code de consultation introuvable.');
     }
-    if (!ctx.adherentId || code.adherentId !== ctx.adherentId) {
+    const estLAdherent = !!ctx.adherentId && code.adherentId === ctx.adherentId;
+    const estSonBeneficiaire = await this.estMonBeneficiaire(ctx, code.beneficiaireId);
+    if (!estLAdherent && !estSonBeneficiaire) {
       throw new ForbiddenException('Ce code ne vous appartient pas.');
     }
     return code;

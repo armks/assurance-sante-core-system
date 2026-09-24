@@ -75,7 +75,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
       },
-      beneficiaire: { findMany: jest.fn().mockResolvedValue([]) },
+      beneficiaire: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -474,6 +474,43 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       profil('CENTRE_MEDICAL_MEDECIN', { etablissementId: 'etab-1' }),
     );
     prisma.factureDossier.findFirst.mockResolvedValue(FACTURE);
+    await expect(
+      service.obtenirFacture(USER, 'fac-1'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Couverture bénéficiaires (audit du 2026-09-24) : obtenirFacture ne
+  //  vérifiait que `ctx.adherentId === facture.adherentId`, refusant l'accès
+  //  à l'adhérent consultant la facture d'un de ses propres bénéficiaires
+  //  (adherentId alors null, beneficiaireId renseigné) — même incohérence que
+  //  chargerCodeAdherent.
+  // ═══════════════════════════════════════════════════════════════════════
+  const FACTURE_BENEFICIAIRE = {
+    ...FACTURE,
+    adherentId: null,
+    beneficiaireId: 'ben-1',
+  };
+
+  it('obtenirFacture par l’adhérent pour la facture de SON bénéficiaire → 200, code inclus', async () => {
+    identity.getMe.mockResolvedValue(profil('ADHERENT_TITULAIRE', { adherentId: ADH }));
+    prisma.factureDossier.findFirst.mockResolvedValue(FACTURE_BENEFICIAIRE);
+    prisma.beneficiaire.findFirst.mockResolvedValue({ id: 'ben-1' });
+
+    const res = await service.obtenirFacture(USER, 'fac-1');
+
+    expect(prisma.beneficiaire.findFirst).toHaveBeenCalledWith({
+      where: { id: 'ben-1', adherentId: ADH, deletedAt: null },
+      select: { id: true },
+    });
+    expect((res as any).codeFacturation).toBe('AB23CD45');
+  });
+
+  it('obtenirFacture pour la facture du bénéficiaire d’un AUTRE adhérent → 403 (pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(profil('ADHERENT_TITULAIRE', { adherentId: 'adh-2' }));
+    prisma.factureDossier.findFirst.mockResolvedValue(FACTURE_BENEFICIAIRE);
+    prisma.beneficiaire.findFirst.mockResolvedValue(null); // ben-1 n'appartient pas à adh-2
+
     await expect(
       service.obtenirFacture(USER, 'fac-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);

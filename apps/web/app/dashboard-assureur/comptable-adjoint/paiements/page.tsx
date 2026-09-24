@@ -25,12 +25,15 @@ export default async function ComptableAdjointPaiementsPage() {
     apiFetch('/api/v1/payment/comptes-financiers'),
   ]);
   const factures: FactureGlobale[] = resFactures.ok ? await resFactures.json() : [];
+  // 403 attendu ici pour l'adjoint : paiements-groupes (comme comptes-financiers
+  // et payerFacture) est réservé au rôle EXACT ASSUREUR_COMPTABLE depuis la
+  // fermeture de l'exception du 2026-09-24 (PROGRESSION.md) — l'adjoint garde la
+  // consultation/validation des factures, mais ni le regroupement ni le paiement
+  // réel ne lui sont accessibles. Dégradé silencieusement en liste vide plutôt
+  // que de bloquer toute la page.
   const groupes: PaiementGroupeResume[] = resGroupes.ok ? await resGroupes.json() : [];
-  // 403 attendu ici : payerFacture (comme comptes-financiers) est réservé au
-  // rôle EXACT ASSUREUR_COMPTABLE — l'adjoint garde la consultation/validation/
-  // regroupement, mais aucun compte à proposer pour le paiement réel lui-même.
   const comptes: CompteFinancier[] = resComptes.ok ? await resComptes.json() : [];
-  const erreur = resFactures.ok ? (resGroupes.ok ? null : await messageErreur(resGroupes)) : await messageErreur(resFactures);
+  const erreur = resFactures.ok ? null : await messageErreur(resFactures);
 
   return (
     <div className="space-y-8">

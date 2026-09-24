@@ -70,6 +70,13 @@ export class PaymentService {
     };
   }
 
+  /**
+   * Vue d'ensemble en LECTURE seule (`listerFacturesPourComptableGlobal`) —
+   * volontairement ouverte à `ctx.roleChain` (donc à ASSUREUR_COMPTABLE_ADJOINT
+   * par héritage) : consultation globale des factures, aucun mouvement
+   * d'argent. Ne PAS réutiliser pour une action qui modifie ou engage de
+   * l'argent — voir `assertGestionComptesFinanciers` pour ce cas.
+   */
   private assertComptable(ctx: ContexteAppelant): void {
     if (!ctx.roleChain.includes(ROLE_COMPTABLE_PAIEMENT_GROUPE)) {
       throw new ForbiddenException('Réservé exclusivement à ASSUREUR_COMPTABLE.');
@@ -77,12 +84,16 @@ export class PaymentService {
   }
 
   /**
-   * Gestion des comptes financiers — réservée EXCLUSIVEMENT au rôle EXACT
-   * ASSUREUR_COMPTABLE. Vérifie `ctx.role` (valeur PROPRE au profil), JAMAIS
-   * `ctx.roleChain` (qui remonte ASSUREUR_COMPTABLE_ADJOINT vers son parent
-   * ASSUREUR_COMPTABLE — comportement voulu pour les paiements groupés
-   * ci-dessus, explicitement exclu ici) ni `permissions.peutValider` (capacité
-   * générique sans rapport avec ce périmètre précis).
+   * Gestion des comptes financiers ET des paiements groupés — réservée
+   * EXCLUSIVEMENT au rôle EXACT ASSUREUR_COMPTABLE. Vérifie `ctx.role` (valeur
+   * PROPRE au profil), JAMAIS `ctx.roleChain` (qui remonte
+   * ASSUREUR_COMPTABLE_ADJOINT vers son parent ASSUREUR_COMPTABLE) ni
+   * `permissions.peutValider` (capacité générique sans rapport avec ce
+   * périmètre précis). Les paiements groupés (`associerFacturesPourPaiement`,
+   * `listerPaiementsGroupes`) utilisaient auparavant `assertComptable`
+   * (roleChain, adjoint inclus) — exception volontaire refermée sur demande
+   * explicite (audit du 2026-09-24, PROGRESSION.md) : plus aucune action
+   * touchant à l'argent n'est accessible à l'adjoint.
    */
   private assertGestionComptesFinanciers(ctx: ContexteAppelant): void {
     if (!(ROLES_GESTION_COMPTES_FINANCIERS as readonly string[]).includes(ctx.role ?? '')) {
@@ -101,7 +112,7 @@ export class PaymentService {
    */
   async associerFacturesPourPaiement(user: AuthenticatedUser, dto: AssocierFacturesPourPaiementDto) {
     const ctx = await this.contexteAppelant(user);
-    this.assertComptable(ctx);
+    this.assertGestionComptesFinanciers(ctx);
 
     const ids = [...new Set(dto.factureMensuelleIds)];
 
@@ -215,10 +226,10 @@ export class PaymentService {
     return { ...groupe, montantTotal: groupe.montantTotal.toFixed(2), nbFactures: ids.length };
   }
 
-  /** Liste des paiements groupés — réservé à ASSUREUR_COMPTABLE, organisation entière. */
+  /** Liste des paiements groupés — réservé au rôle EXACT ASSUREUR_COMPTABLE (jamais l'adjoint). */
   async listerPaiementsGroupes(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
-    this.assertComptable(ctx);
+    this.assertGestionComptesFinanciers(ctx);
 
     const groupes = await this.prisma.paiementGroupe.findMany({
       where: { organisationId: ctx.organisationId },

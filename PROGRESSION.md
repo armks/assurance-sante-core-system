@@ -5518,3 +5518,74 @@ facture mensuelle pharmacie SOUMISE rejetée via `{decision:'A_CORRIGER'}` repas
 chemin `VALIDEE` continue de fonctionner normalement (non-régression) ; (3) un compte
 financier créé avec `fondsInitial: 150000.75` puis approvisionné de `1500.50` conserve un
 solde exact à `151501.25` au centime près, à la fois dans la réponse HTTP et en base.
+
+## 2026-09-24 (suite 3) — Consolidation d'audit : 4 décisions tranchées (paiements groupés, bouton Payer, double validation confirmée, coupure du 1er du mois factorisée) — FIN DE CET AUDIT DE CONSOLIDATION
+
+Dernier volet de l'audit du 2026-09-24 : 4 points restés en suspens après les corrections
+précédentes (log_audit, rejet facture pharmacie, Decimal), chacun tranché explicitement par
+l'utilisateur plutôt que corrigé silencieusement.
+
+### 1. Fermeture de l'exception `paiements_groupes` pour ASSUREUR_COMPTABLE_ADJOINT
+`assertComptable` (`payment.service.ts`) vérifiait `ctx.roleChain` (incluant l'adjoint par
+héritage) — une exception VOLONTAIRE documentée, distincte de `assertGestionComptesFinanciers`
+(rôle EXACT). Sur décision explicite, cette exception est refermée : `associerFacturesPourPaiement`
+et `listerPaiementsGroupes` appellent désormais `assertGestionComptesFinanciers` (rôle exact,
+jamais l'adjoint). `assertComptable`/`ROLE_COMPTABLE_PAIEMENT_GROUPE` restent utilisés
+uniquement par `listerFacturesPourComptableGlobal` (vue d'ensemble en LECTURE seule, aucun
+mouvement d'argent) — volontairement PAS touchée, ce n'est pas une action financière.
+Commentaires des deux méthodes de garde mis à jour pour refléter ce nouveau partage des rôles.
+
+### 2. Bouton "Payer" retiré pour l'adjoint quand aucun compte n'est accessible
+`PaiementFactureForm` (composant partagé par les 3 écrans de paiement — factures individuelles
+et paiements groupés) affiche désormais « Action réservée au comptable titulaire » à la place
+du bouton dès que `comptes.length === 0`, plutôt que de rendre un sélecteur de compte vide.
+`comptable-adjoint/paiements/page.tsx` : le calcul de `erreur` ne dépend plus que de
+`resFactures` — un 403 sur `paiements-groupes` (conséquence du point 1) ou sur
+`comptes-financiers` (déjà le cas avant ce prompt) dégrade silencieusement en liste vide au
+lieu de bloquer toute la page avec un message d'erreur.
+
+### 3. Double validation des bénéficiaires — confirmé comme choix assumé
+Aucune modification : le circuit à deux validations successives (SOCIETE_ADMINISTRATION puis
+ASSUREUR_INFORMATIQUE/EXPLOITATION) pour un bénéficiaire ajouté par l'adhérent lui-même reste
+tel quel, ce n'est pas une incohérence à corriger.
+
+### 4. Utilitaire partagé `premierJourDuMois`/`premierJourDuMoisSuivant`
+L'audit avait supposé 3 implémentations inline dans `billing.service.ts` — vérification faite,
+`billing.service.ts` n'avait en réalité qu'une seule méthode privée déjà factorisée
+(`premierJourDuMois(d)`, 1er jour du mois DE `d`, utilisée 3 fois comme coupure de facturation),
+pas de duplication à corriger là. Les vraies duplications de « 1er jour du mois SUIVANT »
+étaient dans `member/import-adherents.service.ts` (`resoudreMoisEffet`, mois d'effet par défaut
+des mouvements de personnel) et `preauthorization.service.ts` (`listerActesDuMoisEtablissement`,
+borne de fin pour la vue « actes du mois »). Décision (validée avec l'utilisateur) : créer un
+utilitaire complet plutôt que de s'en tenir à la description initiale — nouveau fichier
+`src/common/dates.util.ts` exportant `premierJourDuMois(d)` et
+`premierJourDuMoisSuivant(reference?)`, tous deux en UTC minuit. Migration sans changement de
+comportement : les 3 appels de `billing.service.ts` vers `premierJourDuMois` partagé (la
+méthode privée est supprimée), `resoudreMoisEffet` et `listerActesDuMoisEtablissement` vers les
+deux fonctions partagées selon le cas.
+
+### Tests
+Backend : 4 nouveaux tests RBAC (`associerFacturesPourPaiement`/`listerPaiementsGroupes` —
+adjoint 403, titulaire 200) dans `payment.service.spec.ts` ; nouveau fichier
+`src/common/dates.util.spec.ts` (11 tests : fin de mois, année bissextile 2024, passage
+décembre → janvier, valeur par défaut) ; suite complète des 3 fichiers touchés par la
+factorisation (`billing.service.spec.ts`, `import-adherents.service.spec.ts`,
+`preauthorization.service.spec.ts`) rejouée sans aucune modification de test nécessaire — même
+résultat qu'avant, confirmant l'absence de changement de comportement. Suite complète : 678
+tests backend (655 + 8 du prompt précédent + 4 RBAC + 11 dates.util), 21 Java, `tsc --noEmit`
+propre API et Web.
+
+Test HTTP réel (11/11 vérifications, script Node éphémère avec vraie session Next.js via
+cookies `@supabase/ssr` en plus des tokens Bearer, tout supprimé après coup) : adjoint reçoit
+403 sur `GET`/`POST paiements-groupes`, titulaire reçoit toujours 200 (non-régression) ; la
+vue globale en lecture (`GET factures-mensuelles`) reste accessible à l'adjoint (non-régression,
+volontairement pas touchée) ; page `comptable-adjoint/paiements` réellement rendue (session
+cookie authentique) pour une facture `PROGRAMMEE_PAIEMENT` : aucun bouton « Payer » dans le
+HTML, message « Action réservée au comptable titulaire » présent, page non bloquée par une
+erreur malgré le 403 sur paiements-groupes ; page `comptable/paiements` du titulaire (même
+composant partagé) : bouton « Payer » toujours présent (non-régression).
+
+**Fin de cet audit de consolidation** : les 3 problèmes critiques (log_audit avalé, rejet
+facture pharmacie manquant, rupture Decimal) et les 4 décisions de fermeture/clarification
+(paiements groupés, bouton Payer, double validation, coupure du 1er du mois) issus de l'audit
+du 2026-09-24 sont désormais tous traités, testés et documentés.

@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { isEmail } from 'class-validator';
 import ExcelJS from 'exceljs';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.util';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdherentService } from './adherent.service';
@@ -1059,10 +1060,9 @@ export class ImportAdherentsService {
       if (Number.isNaN(d.getTime())) {
         throw new BadRequestException('moisEffet invalide (date attendue).');
       }
-      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+      return premierJourDuMois(d);
     }
-    const maintenant = new Date();
-    return new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() + 1, 1));
+    return premierJourDuMoisSuivant();
   }
 
   private parserDate(valeur: unknown): Date | null {

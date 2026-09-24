@@ -118,6 +118,14 @@ describe('PaymentService', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
     });
 
+    it('ASSUREUR_COMPTABLE_ADJOINT → 403 (exception paiements groupés refermée, audit du 2026-09-24)', async () => {
+      identity.getMe.mockResolvedValue(comptableAdjoint());
+      await expect(
+        service.associerFacturesPourPaiement(USER, { beneficiaireType: 'ETABLISSEMENT', factureMensuelleIds: ['f1'] }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.factureMensuelleEtablissement.findMany).not.toHaveBeenCalled();
+    });
+
     it('une facture introuvable → 404', async () => {
       identity.getMe.mockResolvedValue(comptable());
       prisma.factureMensuelleEtablissement.findMany.mockResolvedValue([{ id: 'f1', statut: 'PROGRAMMEE_PAIEMENT', etablissementId: 'etab-1', montantTotal: dec(1000) }]);
@@ -215,6 +223,31 @@ describe('PaymentService', () => {
         data: [{ paiementGroupeId: 'pg-2', factureMensuellePharmacieId: 'f1' }],
       });
       expect(res.montantTotal).toBe('5000.00');
+    });
+  });
+
+  describe('listerPaiementsGroupes', () => {
+    it('rôle non autorisé (médecin conseil) → 403', async () => {
+      identity.getMe.mockResolvedValue(medecinConseil());
+      await expect(service.listerPaiementsGroupes(USER)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('ASSUREUR_COMPTABLE_ADJOINT → 403 (exception paiements groupés refermée, audit du 2026-09-24)', async () => {
+      identity.getMe.mockResolvedValue(comptableAdjoint());
+      await expect(service.listerPaiementsGroupes(USER)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.paiementGroupe.findMany).not.toHaveBeenCalled();
+    });
+
+    it('ASSUREUR_COMPTABLE (titulaire) liste les paiements groupés', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.paiementGroupe.findMany.mockResolvedValue([
+        { id: 'pg-1', beneficiaireType: 'ETABLISSEMENT', beneficiaireId: 'etab-1', montantTotal: dec(1000), statut: 'PROGRAMME', factures: [] },
+      ]);
+      prisma.etablissementSante.findMany.mockResolvedValue([{ id: 'etab-1', nom: 'FARAH' }]);
+
+      const res = await service.listerPaiementsGroupes(USER);
+
+      expect(res).toHaveLength(1);
     });
   });
 

@@ -36,6 +36,10 @@ export function PaiementFactureForm({
 }) {
   const dejaProgramme = !!paiementProgrammeDate;
 
+  if (comptes.length === 0) {
+    return <span className="text-xs text-muted-foreground">Action réservée au comptable titulaire.</span>;
+  }
+
   return (
     <FormulaireModal
       titre={dejaProgramme ? 'Confirmer ou reprogrammer le paiement' : 'Payer'}

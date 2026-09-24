@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { premierJourDuMois } from '../common/dates.util';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -251,7 +252,7 @@ export class BillingService {
     }
 
     const periode = new Date(dto.periode);
-    const premierJourDuMois = this.premierJourDuMois(periode);
+    const debutMois = premierJourDuMois(periode);
     const dateEcheance = dto.dateEcheance
       ? new Date(dto.dateEcheance)
       : this.plusJours(periode, 30);
@@ -286,7 +287,7 @@ export class BillingService {
       if (!adherentDB) {
         throw new NotFoundException(`Adhérent ${adherent.adherentId} introuvable.`);
       }
-      if (!adherentDB.dateValidation || adherentDB.dateValidation >= premierJourDuMois) {
+      if (!adherentDB.dateValidation || adherentDB.dateValidation >= debutMois) {
         resultats.push({
           adherentId: adherent.adherentId,
           reportee: true,
@@ -356,7 +357,7 @@ export class BillingService {
     }
 
     const periode = new Date(periodeStr);
-    const premierJourDuMois = this.premierJourDuMois(periode);
+    const debutMois = premierJourDuMois(periode);
 
     const adherents = await this.prisma.adherent.findMany({
       where: {
@@ -364,7 +365,7 @@ export class BillingService {
         organisationId: ctx.organisationId,
         statut: 'ACTIF',
         deletedAt: null,
-        dateValidation: { not: null, lt: premierJourDuMois },
+        dateValidation: { not: null, lt: debutMois },
       },
       include: {
         beneficiaires: { where: { deletedAt: null } },
@@ -430,14 +431,14 @@ export class BillingService {
       );
     }
 
-    const premierJourDuMois = this.premierJourDuMois(periode);
+    const debutMois = premierJourDuMois(periode);
     const eligibles = await this.prisma.adherent.findMany({
       where: {
         souscripteurId,
         organisationId: ctx.organisationId,
         statut: 'ACTIF',
         deletedAt: null,
-        dateValidation: { not: null, lt: premierJourDuMois },
+        dateValidation: { not: null, lt: debutMois },
       },
       select: { id: true, dateNaissance: true },
     });
@@ -766,11 +767,6 @@ export class BillingService {
 
   private plusJours(d: Date, n: number): Date {
     return new Date(d.getTime() + n * 86_400_000);
-  }
-
-  /** Premier jour (UTC minuit) du mois de `d` — coupure de facturation. */
-  private premierJourDuMois(d: Date): Date {
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
   }
 
   /** Âge en années révolues à la date `reference`. */

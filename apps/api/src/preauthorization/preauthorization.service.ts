@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
+import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.util';
 import { STATUTS_CONTESTATION_EN_LITIGE } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -2275,8 +2276,8 @@ export class PreauthorizationService {
       );
     }
     const maintenant = new Date();
-    const debut = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth(), 1));
-    const fin = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() + 1, 1));
+    const debut = premierJourDuMois(maintenant);
+    const fin = premierJourDuMoisSuivant(maintenant);
 
     const actes = await this.prisma.acteDossier.findMany({
       where: {

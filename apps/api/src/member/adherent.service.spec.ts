@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdherentService } from './adherent.service';
+import { MemberCarteService } from './carte.service';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -55,6 +57,7 @@ describe('AdherentService — fichier des membres', () => {
   let service: AdherentService;
   let prisma: any;
   let identity: { getMe: jest.Mock };
+  let cartes: { genererCarteAdherent: jest.Mock; genererCarteBeneficiaire: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -82,10 +85,15 @@ describe('AdherentService — fichier des membres', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([{ numero_carte: 'CM-0000000099' }]),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     identity = {
       getMe: jest.fn().mockResolvedValue(identite(['ASSUREUR_EXPLOITATION'])),
+    };
+    cartes = {
+      genererCarteAdherent: jest.fn().mockResolvedValue({ url: 'https://signed' }),
+      genererCarteBeneficiaire: jest.fn().mockResolvedValue({ url: 'https://signed' }),
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -93,6 +101,7 @@ describe('AdherentService — fichier des membres', () => {
         AdherentService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
+        { provide: MemberCarteService, useValue: cartes },
       ],
     }).compile();
     service = moduleRef.get(AdherentService);
@@ -426,6 +435,276 @@ describe('AdherentService — fichier des membres', () => {
           where: expect.objectContaining({ organisationId: 'org-1' }),
         }),
       );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Bénéficiaires proposés par l'ADHÉRENT lui-même — double validation
+  //  (EN_ATTENTE_SOCIETE → EN_ATTENTE_ASSUREUR → ACTIF, carte attribuée au
+  //  tout dernier moment) + immutabilité post-carte + photo sans validation.
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('proposerMonBeneficiaire', () => {
+    it('refuse un compte non ADHERENT (ex. SOCIETE_ADMINISTRATION)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      await expect(
+        service.proposerMonBeneficiaire(USER, {
+          lienParente: 'ENFANT', nom: 'Petit', prenom: 'Yao', dateNaissance: '2015-03-10', sexe: 'M',
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.beneficiaire.create).not.toHaveBeenCalled();
+    });
+
+    it('crée le bénéficiaire EN_ATTENTE_SOCIETE, sans numéro de carte', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.beneficiaire.create.mockResolvedValue({ id: 'ben-1', statut: 'EN_ATTENTE_SOCIETE', numeroCarte: null });
+      prisma.beneficiaire.findFirst.mockResolvedValue({ id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_SOCIETE', numeroCarte: null });
+
+      await service.proposerMonBeneficiaire(USER, {
+        lienParente: 'ENFANT', nom: 'Petit', prenom: 'Yao', dateNaissance: '2015-03-10', sexe: 'M',
+      });
+
+      expect(prisma.beneficiaire.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ adherentId: 'adh-1', numeroCarte: null, statut: 'EN_ATTENTE_SOCIETE' }),
+        }),
+      );
+    });
+  });
+
+  describe('modifierMonBeneficiaire', () => {
+    it('refuse un compte non ADHERENT', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      await expect(
+        service.modifierMonBeneficiaire(USER, 'ben-1', { nom: 'X' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('autorise la modification tant que numeroCarte est null (EN_ATTENTE_SOCIETE ou EN_ATTENTE_ASSUREUR)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_ASSUREUR', numeroCarte: null,
+      });
+      prisma.beneficiaire.update.mockResolvedValue({});
+
+      await service.modifierMonBeneficiaire(USER, 'ben-1', { nom: 'Corrige' });
+
+      expect(prisma.beneficiaire.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'ben-1' }, data: expect.objectContaining({ nom: 'Corrige' }) }),
+      );
+    });
+
+    it('refuse (409) dès que numeroCarte est renseigné — immuable pour l’adhérent', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', statut: 'ACTIF', numeroCarte: 'CM-0000000099',
+      });
+
+      await expect(
+        service.modifierMonBeneficiaire(USER, 'ben-1', { nom: 'Trop-tard' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.beneficiaire.update).not.toHaveBeenCalled();
+    });
+
+    it('404 si le bénéficiaire n’appartient pas à l’appelant', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue(null);
+      await expect(
+        service.modifierMonBeneficiaire(USER, 'ben-autre', { nom: 'X' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('validerBeneficiaireSociete', () => {
+    it('refuse un rôle autre que SOCIETE_ADMINISTRATION', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], { societeId: 'sous-1' }));
+      await expect(
+        service.validerBeneficiaireSociete(USER, 'ben-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('404 si le bénéficiaire appartient à une AUTRE société (pas de fuite)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_SOCIETE',
+        adherent: { organisationId: 'org-1', souscripteurId: 'sous-AUTRE' },
+      });
+      await expect(
+        service.validerBeneficiaireSociete(USER, 'ben-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('409 si le bénéficiaire n’est pas EN_ATTENTE_SOCIETE', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_ASSUREUR',
+        adherent: { organisationId: 'org-1', souscripteurId: 'sous-1' },
+      });
+      await expect(
+        service.validerBeneficiaireSociete(USER, 'ben-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('EN_ATTENTE_SOCIETE → EN_ATTENTE_ASSUREUR, sans carte', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      prisma.beneficiaire.findFirst
+        .mockResolvedValueOnce({
+          id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_SOCIETE',
+          adherent: { organisationId: 'org-1', souscripteurId: 'sous-1' },
+        })
+        .mockResolvedValueOnce({ id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_ASSUREUR', numeroCarte: null });
+      prisma.beneficiaire.update.mockResolvedValue({});
+
+      const res = await service.validerBeneficiaireSociete(USER, 'ben-1');
+
+      expect(prisma.beneficiaire.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'ben-1' }, data: { statut: 'EN_ATTENTE_ASSUREUR' } }),
+      );
+      expect(res.statut).toBe('EN_ATTENTE_ASSUREUR');
+    });
+  });
+
+  describe('validerBeneficiaireAssureur', () => {
+    it('refuse un rôle non habilité (ex. SOCIETE_ADMINISTRATION)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      await expect(
+        service.validerBeneficiaireAssureur(USER, 'ben-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('409 si le bénéficiaire n’est pas EN_ATTENTE_ASSUREUR', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_SOCIETE',
+        adherent: { id: 'adh-1', organisationId: 'org-1' },
+      });
+      await expect(
+        service.validerBeneficiaireAssureur(USER, 'ben-1'),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('EN_ATTENTE_ASSUREUR → ACTIF : attribue le numéro de carte et génère la carte automatiquement', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.beneficiaire.findFirst
+        .mockResolvedValueOnce({
+          id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_ASSUREUR',
+          adherent: { id: 'adh-1', organisationId: 'org-1' },
+        })
+        .mockResolvedValueOnce({ id: 'ben-1', adherentId: 'adh-1', statut: 'ACTIF', numeroCarte: 'CM-0000000099' });
+      prisma.$queryRaw.mockResolvedValue([{ numero_carte: 'CM-0000000099' }]);
+
+      const res = await service.validerBeneficiaireAssureur(USER, 'ben-1');
+
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+      expect(cartes.genererCarteBeneficiaire).toHaveBeenCalledWith(USER, 'adh-1', 'ben-1');
+      expect(res.statut).toBe('ACTIF');
+      expect(res.echecCarte).toBeNull();
+    });
+
+    it('un échec de génération de carte ne bloque pas la validation (tolérant, comme validerImportAdherents)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.beneficiaire.findFirst
+        .mockResolvedValueOnce({
+          id: 'ben-1', adherentId: 'adh-1', statut: 'EN_ATTENTE_ASSUREUR',
+          adherent: { id: 'adh-1', organisationId: 'org-1' },
+        })
+        .mockResolvedValueOnce({ id: 'ben-1', adherentId: 'adh-1', statut: 'ACTIF', numeroCarte: 'CM-0000000099' });
+      prisma.$queryRaw.mockResolvedValue([{ numero_carte: 'CM-0000000099' }]);
+      cartes.genererCarteBeneficiaire.mockRejectedValue(new Error('Storage indisponible'));
+
+      const res = await service.validerBeneficiaireAssureur(USER, 'ben-1');
+
+      expect(res.statut).toBe('ACTIF');
+      expect(res.echecCarte).toBe('Storage indisponible');
+    });
+  });
+
+  describe('photo de profil (adhérent + bénéficiaires)', () => {
+    const okFetch = () =>
+      jest
+        .fn()
+        .mockResolvedValueOnce({ ok: true }) // upload
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ signedURL: '/object/sign/photos/x?token=abc' }) }); // sign
+
+    beforeEach(() => {
+      process.env.SUPABASE_URL = 'https://example.supabase.co';
+      process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
+    });
+
+    it('televerserPhotoAdherent : refuse pour un adhérent autre que soi-même', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      await expect(
+        service.televerserPhotoAdherent(USER, 'adh-AUTRE', {
+          buffer: Buffer.from('img'), originalname: 'p.jpg', mimetype: 'image/jpeg', size: 100,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('televerserPhotoAdherent : refuse un format non image', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      await expect(
+        service.televerserPhotoAdherent(USER, 'adh-1', {
+          buffer: Buffer.from('x'), originalname: 'p.pdf', mimetype: 'application/pdf', size: 100,
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('televerserPhotoAdherent : téléverse et met à jour photoUrl (sans aucune validation)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      global.fetch = okFetch() as any;
+
+      const res = await service.televerserPhotoAdherent(USER, 'adh-1', {
+        buffer: Buffer.from('img'), originalname: 'p.jpg', mimetype: 'image/jpeg', size: 100,
+      });
+
+      expect(prisma.adherent.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'adh-1' }, data: { photoUrl: 'org-1/adherents/adh-1/photo.jpg' } }),
+      );
+      expect(res.url).toContain('/object/sign/photos/x');
+    });
+
+    it('televerserPhotoBeneficiaire : refuse si le bénéficiaire n’appartient pas à l’appelant', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue(null);
+      await expect(
+        service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-autre', {
+          buffer: Buffer.from('img'), originalname: 'p.png', mimetype: 'image/png', size: 100,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('televerserPhotoBeneficiaire : téléverse la photo d’un bénéficiaire propre', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue({ id: 'ben-1', adherentId: 'adh-1' });
+      global.fetch = okFetch() as any;
+
+      await service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-1', {
+        buffer: Buffer.from('img'), originalname: 'p.png', mimetype: 'image/png', size: 100,
+      });
+
+      expect(prisma.beneficiaire.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'ben-1' }, data: { photoUrl: 'org-1/beneficiaires/ben-1/photo.png' } }),
+      );
+    });
+
+    it('obtenirPhotoAdherent : 404 si aucune photo', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT_CREE, id: 'adh-1', beneficiaires: [], souscripteur: null, photoUrl: null,
+      });
+      await expect(service.obtenirPhotoAdherent(USER, 'adh-1')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('obtenirPhotoAdherent : renvoie une URL signée fraîche à partir du chemin stocké', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT_CREE, id: 'adh-1', beneficiaires: [], souscripteur: null, photoUrl: 'org-1/adherents/adh-1/photo.jpg',
+      });
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue({ ok: true, json: async () => ({ signedURL: '/object/sign/photos/y?token=zzz' }) }) as any;
+
+      const res = await service.obtenirPhotoAdherent(USER, 'adh-1');
+      expect(res.url).toContain('/object/sign/photos/y');
     });
   });
 });

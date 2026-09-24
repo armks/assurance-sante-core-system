@@ -10,6 +10,8 @@ import {
   modifierBeneficiaire,
   supprimerBeneficiaire,
   validerAdherent,
+  validerBeneficiaireAssureur,
+  validerBeneficiaireSociete,
 } from '@/app/dashboard-assureur/adherents-actions';
 import {
   ChampSelect,
@@ -22,10 +24,14 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
+  LIBELLE_STATUT_BENEFICIAIRE,
   LIBELLE_STATUT_MEMBRE,
   LIENS_PARENTE,
   SEXES,
+  STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR,
+  STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE,
   STATUTS_MEMBRE,
+  TON_STATUT_BENEFICIAIRE,
   TON_STATUT_MEMBRE,
 } from '@/lib/member';
 import { CarteBouton } from './carte-bouton';
@@ -51,11 +57,19 @@ export function AdherentDetail({
   adherent,
   peutGerer,
   peutValider = false,
+  peutValiderBeneficiaireSociete: peutValiderSociete = false,
+  peutValiderBeneficiaireAssureur: peutValiderAssureur = false,
 }: {
   adherent: AdherentDetailType;
   peutGerer: boolean;
   /** ASSUREUR_EXPLOITATION exclusivement — distinct de `peutGerer`. */
   peutValider?: boolean;
+  /** SOCIETE_ADMINISTRATION — 1re validation d'un bénéficiaire proposé par
+   * l'adhérent lui-même (EN_ATTENTE_SOCIETE → EN_ATTENTE_ASSUREUR). */
+  peutValiderBeneficiaireSociete?: boolean;
+  /** ASSUREUR_INFORMATIQUE/EXPLOITATION — 2e et dernière validation
+   * (EN_ATTENTE_ASSUREUR → ACTIF, carte générée à ce moment). */
+  peutValiderBeneficiaireAssureur?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -83,7 +97,9 @@ export function AdherentDetail({
     {
       cle: 'numeroCarte',
       entete: 'N° carte',
-      rendu: (b) => <span className="font-mono text-xs">{b.numeroCarte}</span>,
+      rendu: (b) => (
+        <span className="font-mono text-xs">{b.numeroCarte ?? '—'}</span>
+      ),
     },
     {
       cle: 'statut',
@@ -91,8 +107,8 @@ export function AdherentDetail({
       rendu: (b) => (
         <StatutBadge
           statut={b.statut}
-          map={TON_STATUT_MEMBRE}
-          libelles={LIBELLE_STATUT_MEMBRE}
+          map={TON_STATUT_BENEFICIAIRE}
+          libelles={LIBELLE_STATUT_BENEFICIAIRE}
         />
       ),
     },
@@ -307,6 +323,38 @@ export function AdherentDetail({
             }
             actionLigne={(b) => (
               <div className="flex items-center gap-2">
+                {peutValiderSociete && b.statut === STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE && (
+                  <Button
+                    size="xs"
+                    disabled={pending}
+                    onClick={() =>
+                      start(async () => {
+                        setErreur(null);
+                        const r = await validerBeneficiaireSociete(b.id);
+                        if (r.ok) router.refresh();
+                        else setErreur(r.error);
+                      })
+                    }
+                  >
+                    Valider (société)
+                  </Button>
+                )}
+                {peutValiderAssureur && b.statut === STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR && (
+                  <Button
+                    size="xs"
+                    disabled={pending}
+                    onClick={() =>
+                      start(async () => {
+                        setErreur(null);
+                        const r = await validerBeneficiaireAssureur(b.id);
+                        if (r.ok) router.refresh();
+                        else setErreur(r.error);
+                      })
+                    }
+                  >
+                    Valider (assureur) — génère la carte
+                  </Button>
+                )}
                 {peutGerer && (
                   <CarteBouton
                     adherentId={adherent.id}
@@ -315,7 +363,7 @@ export function AdherentDetail({
                     raisonIndispo={
                       b.statut !== 'ACTIF'
                         ? `le bénéficiaire est ${
-                            LIBELLE_STATUT_MEMBRE[b.statut] ?? b.statut
+                            LIBELLE_STATUT_BENEFICIAIRE[b.statut] ?? b.statut
                           }`
                         : `l’adhérent titulaire est ${
                             LIBELLE_STATUT_MEMBRE[adherent.statut] ?? adherent.statut

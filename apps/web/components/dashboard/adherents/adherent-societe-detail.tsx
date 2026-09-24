@@ -7,7 +7,12 @@ import { PageTitre } from '@/components/page-titre';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
-import { LIBELLE_STATUT_MEMBRE, TON_STATUT_MEMBRE, peutGererMembres } from '@/lib/member';
+import {
+  LIBELLE_STATUT_MEMBRE,
+  TON_STATUT_MEMBRE,
+  peutGererMembres,
+  peutValiderBeneficiaireSociete,
+} from '@/lib/member';
 import { AdherentDetail } from './adherent-detail';
 import type { AdherentDetail as AdherentDetailType } from './types';
 
@@ -54,6 +59,7 @@ export async function AdherentSocieteDetail({
       <AdherentDetail
         adherent={adherent}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
+        peutValiderBeneficiaireSociete={peutValiderBeneficiaireSociete(etat.identity.permissions.roleChain)}
       />
     </div>
   );

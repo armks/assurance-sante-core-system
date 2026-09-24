@@ -30,6 +30,9 @@ export interface AdherentListe {
     produit: { nom: string; version: number } | null;
   } | null;
   _count?: { beneficiaires: number };
+  /** Chemin de stockage (bucket privé `photos`) — jamais affiché directement,
+   * résolu via `obtenirPhotoAdherent`/`obtenirPhotoBeneficiaire`. */
+  photoUrl?: string | null;
 }
 
 /** Adhérent PRINCIPAL — issu d'un import Excel OU d'une proposition société. */
@@ -87,13 +90,17 @@ export interface ImportAdherentsResume {
 
 export interface Beneficiaire {
   id: string;
-  numeroCarte: string;
+  /** `null` tant que la double validation (EN_ATTENTE_SOCIETE →
+   * EN_ATTENTE_ASSUREUR) n'a pas abouti — attribué à ACTIF uniquement. */
+  numeroCarte: string | null;
   lienParente: string;
   nom: string;
   prenom: string;
   dateNaissance: string;
   sexe: string;
+  /** EN_ATTENTE_SOCIETE | EN_ATTENTE_ASSUREUR | ACTIF | SUSPENDU | RADIE. */
   statut: string;
+  photoUrl?: string | null;
 }
 
 export interface AdherentDetail extends AdherentListe {

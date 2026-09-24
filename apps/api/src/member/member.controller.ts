@@ -298,4 +298,81 @@ export class MemberController {
   ) {
     return this.imports.soumettrePourValidation(user, id);
   }
+
+  // --- Bénéficiaires proposés par l'ADHÉRENT lui-même (double validation
+  // SOCIETE_ADMINISTRATION puis ASSUREUR_INFORMATIQUE/EXPLOITATION avant
+  // génération du numero_carte) + photo de profil (sans validation). --------
+
+  @Post('adherents/:id/beneficiaires/proposition')
+  proposerMonBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateBeneficiaireDto,
+  ) {
+    return this.adherents.proposerMonBeneficiaire(user, dto);
+  }
+
+  @Patch('adherents/:id/beneficiaires/:beneficiaireId/proposition')
+  modifierMonBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+    @Body() dto: UpdateBeneficiaireDto,
+  ) {
+    return this.adherents.modifierMonBeneficiaire(user, beneficiaireId, dto);
+  }
+
+  @Post('beneficiaires/:beneficiaireId/valider-societe')
+  validerBeneficiaireSociete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+  ) {
+    return this.adherents.validerBeneficiaireSociete(user, beneficiaireId);
+  }
+
+  @Post('beneficiaires/:beneficiaireId/valider-assureur')
+  validerBeneficiaireAssureur(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+  ) {
+    return this.adherents.validerBeneficiaireAssureur(user, beneficiaireId);
+  }
+
+  @Post('adherents/:id/photo')
+  @UseInterceptors(FileInterceptor('photo'))
+  televerserPhotoAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() fichier: FichierTeleverse,
+  ) {
+    return this.adherents.televerserPhotoAdherent(user, id, fichier);
+  }
+
+  @Get('adherents/:id/photo')
+  obtenirPhotoAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.adherents.obtenirPhotoAdherent(user, id);
+  }
+
+  @Post('adherents/:id/beneficiaires/:beneficiaireId/photo')
+  @UseInterceptors(FileInterceptor('photo'))
+  televerserPhotoBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+    @UploadedFile() fichier: FichierTeleverse,
+  ) {
+    return this.adherents.televerserPhotoBeneficiaire(user, id, beneficiaireId, fichier);
+  }
+
+  @Get('adherents/:id/beneficiaires/:beneficiaireId/photo')
+  obtenirPhotoBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+  ) {
+    return this.adherents.obtenirPhotoBeneficiaire(user, id, beneficiaireId);
+  }
 }

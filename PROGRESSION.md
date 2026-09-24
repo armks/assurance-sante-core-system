@@ -5296,3 +5296,89 @@ adhérent avant soumission, soumet (409 sur toute modification après) ; 0 adhé
 en base avant validation (vérifié indépendamment) ; ASSUREUR_INFORMATIQUE voit la liste
 soumise et valide → 1 adhérent + 1 bénéficiaire créés avec numéro/carte réels, 0 échec.
 Toutes les données de test éphémères supprimées, résidu nul vérifié indépendamment.
+
+## 2026-09-24 — Photo de profil + double validation d'un bénéficiaire ajouté par l'adhérent lui-même
+
+Étend le dashboard adhérent pour la gestion de son propre profil et de ses bénéficiaires,
+avec un circuit de double validation distinct de celui des propositions société (2026-09-23
+suite 5) : ici c'est l'ADHÉRENT lui-même qui propose, jamais sa société.
+
+### 1. `photo_url` sur `adherents` et `beneficiaires` (prisma/sql/055)
+Chemin de stockage (jamais une URL signée, éphémère par nature) dans un nouveau bucket
+privé `photos` — même recette que `cartes` (prisma/sql/023) : `public = false`, aucune
+policy `storage.objects`, écriture/signature exclusivement via `service_role`
+(`AdherentService`, endpoints `POST/GET .../photo`, `FileInterceptor` réutilisé tel quel).
+Modifiable par l'adhérent SANS AUCUNE validation (donnée non structurante, y compris
+pour un bénéficiaire encore en attente) — nom de fichier fixe (`photo.<ext>`, `x-upsert`)
+pour ne jamais accumuler d'anciens fichiers orphelins à chaque changement.
+
+### 2. Double validation d'un bénéficiaire proposé par l'adhérent (prisma/sql/055)
+`beneficiaires.numero_carte` devient nullable (INSERT explicite de NULL, hors du défaut de
+séquence — inchangé pour la création directe par SOCIETE_ADMINISTRATION/ASSUREUR, qui reçoit
+toujours un numéro immédiatement) ; `statut` accepte désormais `EN_ATTENTE_SOCIETE` et
+`EN_ATTENTE_ASSUREUR` en plus de ACTIF/SUSPENDU/RADIE, avec une contrainte de cohérence
+(`beneficiaires_carte_coherente`) : en attente ⇒ jamais de carte, ACTIF/SUSPENDU/RADIE ⇒
+toujours une carte.
+
+- `proposerMonBeneficiaire` (`POST /member/adherents/:id/beneficiaires/proposition`,
+  self-service ADHERENT) crée directement une vraie ligne `Beneficiaire` (pas de staging
+  JSON, à la différence des propositions société) au statut `EN_ATTENTE_SOCIETE`, sans carte.
+- `validerBeneficiaireSociete` (`POST /member/beneficiaires/:id/valider-societe`, réservé
+  SOCIETE_ADMINISTRATION, scopé à SA PROPRE société) : `EN_ATTENTE_SOCIETE` →
+  `EN_ATTENTE_ASSUREUR`. Toujours pas de carte à ce stade.
+- `validerBeneficiaireAssureur` (`POST /member/beneficiaires/:id/valider-assureur`, réservé
+  ASSUREUR_INFORMATIQUE/EXPLOITATION) : `EN_ATTENTE_ASSUREUR` → `ACTIF`, numéro de carte
+  attribué manuellement à cet instant précis (`nextval` de la même séquence que le défaut de
+  colonne, puisqu'une `UPDATE` ne déclenche jamais un défaut de création), puis génération
+  automatique de la carte (réutilise `MemberCarteService.genererCarteBeneficiaire` tel quel) —
+  un échec de génération ne bloque ni la validation ni l'attribution du numéro (même
+  tolérance que `validerImportAdherents`).
+
+### 3. Immutabilité post-carte — additif, pas de régression sur le circuit existant
+`modifierMonBeneficiaire` (self-service ADHERENT) refuse explicitement (409) dès que
+`numeroCarte` n'est plus `null` — c'est la carte, pas le passage par la validation société,
+qui verrouille (règle explicite du prompt : modifiable pendant EN_ATTENTE_SOCIETE ET
+EN_ATTENTE_ASSUREUR). Décision consciente, actée avec l'utilisateur : cette immutabilité ne
+s'applique QU'à ce nouvel endpoint self-service — le circuit existant `modifierBeneficiaire`
+(SOCIETE_ADMINISTRATION/ASSUREUR, création directe avec carte immédiate) reste inchangé,
+cohérent avec les décisions additives des prompts précédents.
+
+### 4. Couverture bénéficiaires des dossiers de soins — gap réel trouvé et corrigé
+Audit demandé par le prompt : `listerMesCodes`, `listerMesCodesOrdonnance` et
+`listerMesFactures` (preauthorization/) ne filtraient QUE `adherentId`, alors que
+`CodeConsultation`/`CodeOrdonnance`/`FactureDossier` ont `adherentId`/`beneficiaireId`
+mutuellement exclusifs — un acte pris pour un bénéficiaire n'apparaissait donc JAMAIS dans
+les listes self-service de l'adhérent. Même gap trouvé et corrigé dans
+`ClaimsService.listerReclamations`/`chargerReclamation` (mode `'ADHERENT'`). Corrigé en
+élargissant chaque `where` en `OR: [{adherentId}, {beneficiaireId: {in: [...]}}]` (ids des
+bénéficiaires propres, requête dédiée). À l'occasion, corrigé un bug adjacent dans
+`genererCodeConsultation` : une demande de code pour un bénéficiaire sans `dto.adherentId`
+explicite retombait sur `ctx.adherentId`, violant la mutuelle exclusivité — désormais
+`adherentId` reste `null` dès qu'un `beneficiaireId` est fourni, et la propriété du
+bénéficiaire ciblé est vérifiée (403 sinon, fuite inter-adhérent fermée).
+
+### 5. Frontend
+- Nouvel écran `/dashboard-adherent/beneficiaires` (`BeneficiairesEcran`) : photo de profil
+  (upload direct, avatar cliquable), liste des bénéficiaires avec statut visible
+  (badges dédiés « En attente (société) »/« En attente (assureur) »), proposition d'ajout,
+  modification tant que `numeroCarte` est `null`. Nav ajoutée pour le dashboard adhérent.
+- `adherent-detail.tsx` (écran staff partagé société/assureur informatique) étendu : boutons
+  « Valider (société) »/« Valider (assureur) — génère la carte » sur les bénéficiaires en
+  attente, visibles selon le rôle connecté ; `numeroCarte` affiché `—` tant que `null`.
+
+### Tests
+Backend : 21 nouveaux tests `adherent.service.spec.ts` (proposition, modification,
+immutabilité post-carte, double validation, photo adhérent/bénéficiaire), 6 nouveaux tests
+répartis sur `preauthorization.service.spec.ts`/`preauthorization-ordonnance.service.spec.ts`/
+`preauthorization-facture.service.spec.ts` (couverture bénéficiaires + ownership check),
+2 nouveaux `claims.service.spec.ts` — suite complète API 632/632, `npx tsc --noEmit` propre
+API et Web. Test HTTP réel (30/30 vérifications) : l'adhérent propose un bénéficiaire
+(statut EN_ATTENTE_SOCIETE, carte NULL), le modifie, SOCIETE_ADMINISTRATION valide
+(EN_ATTENTE_ASSUREUR, toujours pas de carte), ASSUREUR_COMPTABLE refusé (403) aux deux
+étapes de validation, ASSUREUR_INFORMATIQUE valide en dernier → statut ACTIF, numéro de
+carte réel attribué SEULEMENT à ce moment ; tentative de modification après génération de
+carte → 409, valeurs inchangées en base (immutabilité confirmée) ; re-validation société sur
+un bénéficiaire déjà ACTIF → 409 ; upload photo adhérent + bénéficiaire (chemin de stockage
+correct en base, URL signée renvoyée par upload et par lecture). Toutes les données de test
+éphémères supprimées, résidu nul vérifié indépendamment (organisation, profils, comptes
+Supabase Auth).

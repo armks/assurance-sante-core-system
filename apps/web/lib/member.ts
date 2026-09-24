@@ -83,3 +83,35 @@ export function peutProposerMembres(roleChain: string[] | undefined): boolean {
   const rc = roleChain ?? [];
   return rc.some((r) => ROLES_PROPOSITION_MEMBRE_SOCIETE.includes(r));
 }
+
+/**
+ * Double validation d'un bénéficiaire proposé par l'ADHÉRENT lui-même
+ * (distinct des propositions société ci-dessus) : EN_ATTENTE_SOCIETE →
+ * EN_ATTENTE_ASSUREUR → ACTIF (numéro de carte attribué à ce moment précis).
+ */
+export const STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE = 'EN_ATTENTE_SOCIETE';
+export const STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR = 'EN_ATTENTE_ASSUREUR';
+
+export const LIBELLE_STATUT_BENEFICIAIRE: Record<string, string> = {
+  ...LIBELLE_STATUT_MEMBRE,
+  EN_ATTENTE_SOCIETE: 'En attente (société)',
+  EN_ATTENTE_ASSUREUR: 'En attente (assureur)',
+};
+
+export const TON_STATUT_BENEFICIAIRE: Record<
+  string,
+  'succes' | 'attention' | 'danger'
+> = {
+  ...TON_STATUT_MEMBRE,
+  EN_ATTENTE_SOCIETE: 'attention',
+  EN_ATTENTE_ASSUREUR: 'attention',
+};
+
+export function peutValiderBeneficiaireSociete(roleChain: string[] | undefined): boolean {
+  return (roleChain ?? []).includes('SOCIETE_ADMINISTRATION');
+}
+
+export function peutValiderBeneficiaireAssureur(roleChain: string[] | undefined): boolean {
+  const rc = roleChain ?? [];
+  return rc.includes('ASSUREUR_INFORMATIQUE') || rc.includes('ASSUREUR_EXPLOITATION');
+}

@@ -336,6 +336,7 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
     prisma = {
       reclamation: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
       adherent: { findMany: jest.fn().mockResolvedValue([]) },
+      beneficiaire: { findMany: jest.fn().mockResolvedValue([]) },
     };
     identity = { getMe: jest.fn() };
 
@@ -393,7 +394,25 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
       expect.objectContaining({
         where: expect.objectContaining({
           organisationId: 'org-1',
-          adherentId: 'adh-1',
+          OR: expect.arrayContaining([{ adherentId: 'adh-1' }]),
+        }),
+      }),
+    );
+  });
+
+  it('ADHERENT_TITULAIRE liste aussi les réclamations de SES bénéficiaires (couverture bénéficiaires)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], 'org-1', 'adh-1'),
+    );
+    prisma.beneficiaire.findMany.mockResolvedValue([{ id: 'ben-1' }, { id: 'ben-2' }]);
+    await service.listerReclamations(USER, {});
+    expect(prisma.beneficiaire.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ adherentId: 'adh-1' }) }),
+    );
+    expect(prisma.reclamation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [{ adherentId: 'adh-1' }, { beneficiaireId: { in: ['ben-1', 'ben-2'] } }],
         }),
       }),
     );
@@ -412,9 +431,27 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
     expect(res).toBeDefined();
     expect(prisma.reclamation.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ id: 'rec-1', adherentId: 'adh-1' }),
+        where: expect.objectContaining({
+          id: 'rec-1',
+          OR: expect.arrayContaining([{ adherentId: 'adh-1' }]),
+        }),
       }),
     );
+  });
+
+  it('ADHERENT_TITULAIRE lit la réclamation ouverte pour un de SES bénéficiaires (couverture bénéficiaires)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['ADHERENT_TITULAIRE'], 'org-1', 'adh-1'),
+    );
+    prisma.beneficiaire.findMany.mockResolvedValue([{ id: 'ben-1' }]);
+    prisma.reclamation.findFirst.mockResolvedValue({
+      id: 'rec-1',
+      organisationId: 'org-1',
+      adherentId: null,
+      beneficiaireId: 'ben-1',
+    });
+    const res = await service.obtenirReclamation(USER, 'rec-1');
+    expect(res).toBeDefined();
   });
 
   it('ADHERENT_TITULAIRE ne peut PAS lire la réclamation d’un autre adhérent (404, pas de fuite)', async () => {

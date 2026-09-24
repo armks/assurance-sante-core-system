@@ -71,6 +71,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   [ADHERENT]: [
     { label: "Vue d'ensemble", href: ADHERENT, icon: LayoutDashboard },
     {
+      label: 'Mes bénéficiaires',
+      href: `${ADHERENT}/beneficiaires`,
+      icon: Users,
+    },
+    {
       label: 'Consultation',
       href: `${ADHERENT}/consultation`,
       icon: Stethoscope,

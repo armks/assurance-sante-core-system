@@ -82,6 +82,29 @@ export const STATUTS_IMPORT_ADHERENTS = ['BROUILLON', 'EN_ATTENTE_VALIDATION', '
 export const ROLES_PROPOSITION_ADHERENTS_SOCIETE = ['SOCIETE_ASSUREE', 'SOCIETE_ADMINISTRATION'] as const;
 
 /**
+ * Double validation d'un bénéficiaire proposé par l'ADHÉRENT lui-même
+ * (prisma/sql/055, distinct des propositions société ci-dessus) : d'abord
+ * `SOCIETE_ADMINISTRATION` (`ROLE_GESTION_MEMBRE_SOCIETE`, réutilisé —
+ * EN_ATTENTE_SOCIETE → EN_ATTENTE_ASSUREUR), puis l'un de ces deux rôles
+ * ASSUREUR (EN_ATTENTE_ASSUREUR → ACTIF, `numero_carte` attribué et carte
+ * générée à ce moment précis, jamais avant). Additif : la création DIRECTE
+ * d'un bénéficiaire par SOCIETE_ADMINISTRATION/ASSUREUR (`ajouterBeneficiaire`,
+ * déjà existante) reste inchangée — statut ACTIF et carte immédiats.
+ */
+export const STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE = 'EN_ATTENTE_SOCIETE';
+export const STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR = 'EN_ATTENTE_ASSUREUR';
+export const ROLES_VALIDATION_BENEFICIAIRE_ASSUREUR = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION'] as const;
+
+/**
+ * Photo de profil (adhérent ou bénéficiaire, prisma/sql/055) — bucket privé
+ * `photos` (même recette que `cartes`, prisma/sql/023). Donnée non
+ * structurante : modifiable par l'adhérent sans validation, y compris pour
+ * un bénéficiaire encore EN_ATTENTE_SOCIETE/EN_ATTENTE_ASSUREUR.
+ */
+export const TAILLE_MAX_PHOTO_OCTETS = 5 * 1024 * 1024;
+export const MIME_TYPES_PHOTO_AUTORISES = ['image/jpeg', 'image/png', 'image/webp'];
+
+/**
  * Identification par numéro de carte à l'accueil du centre médical — ADDITIF
  * au code de consultation, ne le remplace pas. Purement informatif (statut
  * ACTIF/SUSPENDU/RADIE) : n'ouvre aucun dossier, ne crée rien. Réservé à

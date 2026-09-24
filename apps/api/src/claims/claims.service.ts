@@ -384,11 +384,18 @@ export class ClaimsService {
     const mode = this.modeLecture(ctx);
     const scopeSociete =
       mode === 'SOCIETE' ? { adherentId: { in: await this.adherentIdsSociete(ctx) } } : {};
+    // Couverture bénéficiaires (audit dashboard adhérent) : `adherentId`/
+    // `beneficiaireId` sont mutuellement exclusifs sur `Reclamation` — une
+    // réclamation ouverte pour un bénéficiaire n'a jamais `adherentId` renseigné.
+    const scopeAdherent =
+      mode === 'ADHERENT' && ctx.adherentId
+        ? { OR: [{ adherentId: ctx.adherentId }, { beneficiaireId: { in: await this.beneficiaireIdsPropres(ctx.adherentId) } }] }
+        : {};
     return this.prisma.reclamation.findMany({
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
-        ...(mode === 'ADHERENT' ? { adherentId: ctx.adherentId } : {}),
+        ...scopeAdherent,
         ...scopeSociete,
         ...(filtres.statut ? { statut: filtres.statut } : {}),
       },
@@ -570,6 +577,17 @@ export class ClaimsService {
     return adherents.map((a) => a.id);
   }
 
+  /** Ids des bénéficiaires de l'adhérent connecté — dérive la couverture
+   * bénéficiaires du mode `'ADHERENT'` (`adherentId`/`beneficiaireId` sont
+   * mutuellement exclusifs sur `Reclamation`). */
+  private async beneficiaireIdsPropres(adherentId: string): Promise<string[]> {
+    const beneficiaires = await this.prisma.beneficiaire.findMany({
+      where: { adherentId, deletedAt: null },
+      select: { id: true },
+    });
+    return beneficiaires.map((b) => b.id);
+  }
+
   private async chargerReclamation(
     ctx: ContexteAppelant,
     id: string,
@@ -577,12 +595,16 @@ export class ClaimsService {
   ) {
     const scopeSociete =
       mode === 'SOCIETE' ? { adherentId: { in: await this.adherentIdsSociete(ctx) } } : {};
+    const scopeAdherent =
+      mode === 'ADHERENT' && ctx.adherentId
+        ? { OR: [{ adherentId: ctx.adherentId }, { beneficiaireId: { in: await this.beneficiaireIdsPropres(ctx.adherentId) } }] }
+        : {};
     const reclamation = await this.prisma.reclamation.findFirst({
       where: {
         id,
         organisationId: ctx.organisationId,
         deletedAt: null,
-        ...(mode === 'ADHERENT' ? { adherentId: ctx.adherentId } : {}),
+        ...scopeAdherent,
         ...scopeSociete,
       },
       include: {

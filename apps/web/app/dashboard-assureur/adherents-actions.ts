@@ -188,3 +188,31 @@ export async function validerImportAdherents(
   const corps = await res.json();
   return { ok: true, nbAdherentsCrees: corps.nbAdherentsCrees };
 }
+
+// --- Double validation d'un bénéficiaire proposé par l'adhérent lui-même
+// (EN_ATTENTE_SOCIETE → EN_ATTENTE_ASSUREUR → ACTIF, carte générée à ce
+// dernier moment). ---------------------------------------------------
+
+export async function validerBeneficiaireSociete(
+  beneficiaireId: string,
+): Promise<{ ok: true; statut: string } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/beneficiaires/${beneficiaireId}/valider-societe`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider();
+  const corps = await res.json();
+  return { ok: true, statut: corps.statut };
+}
+
+export async function validerBeneficiaireAssureur(
+  beneficiaireId: string,
+): Promise<{ ok: true; statut: string; numeroCarte: string | null } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/beneficiaires/${beneficiaireId}/valider-assureur`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider();
+  const corps = await res.json();
+  return { ok: true, statut: corps.statut, numeroCarte: corps.numeroCarte };
+}

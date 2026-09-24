@@ -127,9 +127,18 @@ export class MemberCarteService {
           : `Carte indisponible : l'adhérent titulaire est « ${adherent.statut} ».`,
       );
     }
+    if (!benef.numeroCarte) {
+      // Ne devrait jamais arriver (contrainte `beneficiaires_carte_coherente`,
+      // prisma/sql/055 : ACTIF implique numero_carte non nul) — garde explicite
+      // plutôt qu'une assertion `!`, cohérent avec le style du module.
+      throw new ConflictException(
+        "Ce bénéficiaire n'a pas encore de numéro de carte (double validation en cours).",
+      );
+    }
 
-    const infos = this.infosDepuisBeneficiaire(adherent, benef);
-    const qr = await qrEnPng(benef.numeroCarte);
+    const numeroCarte = benef.numeroCarte;
+    const infos = this.infosDepuisBeneficiaire(adherent, { ...benef, numeroCarte });
+    const qr = await qrEnPng(numeroCarte);
     const pdf = await this.construirePdf([{ infos, qr }]);
 
     const chemin = `${ctx.organisationId}/beneficiaires/${beneficiaireId}/carte-${Date.now()}.pdf`;
@@ -140,14 +149,14 @@ export class MemberCarteService {
       ctx.userId,
       'GENERATION_CARTE_BENEFICIAIRE',
       beneficiaireId,
-      { numeroCarte: benef.numeroCarte, adherentId, chemin },
+      { numeroCarte, adherentId, chemin },
     );
 
     return {
       url,
       expiresIn,
       chemin,
-      numeroCarte: benef.numeroCarte,
+      numeroCarte,
       qrCode: `data:image/png;base64,${qr.toString('base64')}`,
     };
   }
@@ -231,7 +240,9 @@ export class MemberCarteService {
 
   private infosDepuisBeneficiaire(
     adherent: AdherentComplet,
-    benef: AdherentComplet['beneficiaires'][number],
+    // `numeroCarte` déjà vérifié non nul par l'appelant (statut ACTIF implique
+    // numero_carte non nul, contrainte `beneficiaires_carte_coherente`).
+    benef: Omit<AdherentComplet['beneficiaires'][number], 'numeroCarte'> & { numeroCarte: string },
   ): InfosCarte {
     return {
       nomComplet: `${benef.prenom} ${benef.nom}`.trim(),

@@ -72,9 +72,10 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
       },
+      beneficiaire: { findMany: jest.fn().mockResolvedValue([]) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -476,5 +477,29 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
     await expect(
       service.obtenirFacture(USER, 'fac-1'),
     ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Couverture bénéficiaires (audit dashboard adhérent) : `listerMesFactures`
+  //  ne filtrait QUE `adherentId` — une facture ouverte pour un bénéficiaire
+  //  (adherentId = null) n'apparaissait jamais.
+  // ═══════════════════════════════════════════════════════════════════════
+  it('listerMesFactures inclut les factures de SES bénéficiaires (couverture bénéficiaires)', async () => {
+    identity.getMe.mockResolvedValue(profil('ADHERENT_TITULAIRE', { adherentId: ADH }));
+    prisma.beneficiaire.findMany.mockResolvedValue([{ id: 'ben-1' }]);
+
+    await service.listerMesFactures(USER);
+
+    expect(prisma.beneficiaire.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ adherentId: ADH }) }),
+    );
+    expect(prisma.factureDossier.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ adherentId: ADH }, { beneficiaireId: { in: ['ben-1'] } }],
+          deletedAt: null,
+        },
+      }),
+    );
   });
 });

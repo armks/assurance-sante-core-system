@@ -60,6 +60,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
         update: jest.fn(),
       },
       codeConsultation: { findUnique: jest.fn().mockResolvedValue(null) },
+      beneficiaire: { findMany: jest.fn().mockResolvedValue([]) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -149,6 +150,20 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
 
     const res = await service.listerMesCodesOrdonnance(USER);
     expect(res[0].code).toBe('AB23CD45');
+  });
+
+  it('inclut les codes d’ordonnance émis pour SES bénéficiaires (couverture bénéficiaires)', async () => {
+    identity.getMe.mockResolvedValue(adherent('adh-1'));
+    prisma.codeOrdonnance.findMany.mockResolvedValue([]);
+    prisma.beneficiaire.findMany.mockResolvedValue([{ id: 'ben-1' }]);
+
+    await service.listerMesCodesOrdonnance(USER);
+
+    expect(prisma.codeOrdonnance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ adherentId: 'adh-1' }, { beneficiaireId: { in: ['ben-1'] } }] },
+      }),
+    );
   });
 
   it('VALIDATION par la pharmacie : code inconnu → 404', async () => {

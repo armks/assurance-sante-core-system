@@ -57,7 +57,11 @@ describe('PreauthorizationService — Code de Consultation', () => {
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
         update: jest.fn(),
-        findMany: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      beneficiaire: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
@@ -117,6 +121,60 @@ describe('PreauthorizationService — Code de Consultation', () => {
     expect(prisma.codeConsultation.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ adherentId: ADH, statut: 'EMIS' }),
+      }),
+    );
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Couverture bénéficiaires (audit dashboard adhérent) : un code pour un
+  //  bénéficiaire doit avoir `adherentId = null` (jamais les deux à la fois),
+  //  et le bénéficiaire ciblé doit appartenir à l'appelant.
+  // ═══════════════════════════════════════════════════════════════════════
+  it('génère un code pour un bénéficiaire propre — adherentId reste null (mutuellement exclusifs)', async () => {
+    identity.getMe.mockResolvedValue(identiteAdherent());
+    prisma.beneficiaire.findFirst.mockResolvedValue({ id: 'ben-1', adherentId: ADH });
+    prisma.codeConsultation.create.mockImplementation(({ data }: any) => ({
+      id: 'code-1',
+      ...data,
+      canalEnvoi: ['APP', 'SMS'],
+      dateEmission: new Date(),
+      dateExpiration: DANS_48H,
+    }));
+
+    await service.genererCodeConsultation(USER, { ...dtoGen, beneficiaireId: 'ben-1' });
+
+    expect(prisma.beneficiaire.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: 'ben-1', adherentId: ADH }) }),
+    );
+    expect(prisma.codeConsultation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ adherentId: null, beneficiaireId: 'ben-1' }),
+      }),
+    );
+  });
+
+  it('refuse un code pour un bénéficiaire qui n’appartient pas à l’appelant (403, pas de fuite)', async () => {
+    identity.getMe.mockResolvedValue(identiteAdherent());
+    prisma.beneficiaire.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.genererCodeConsultation(USER, { ...dtoGen, beneficiaireId: 'ben-autre' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.codeConsultation.create).not.toHaveBeenCalled();
+  });
+
+  it('listerMesCodes inclut les codes émis pour SES bénéficiaires, pas seulement les siens', async () => {
+    identity.getMe.mockResolvedValue(identiteAdherent());
+    prisma.beneficiaire.findMany.mockResolvedValue([{ id: 'ben-1' }, { id: 'ben-2' }]);
+
+    await service.listerMesCodes(USER);
+
+    expect(prisma.beneficiaire.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ adherentId: ADH }) }),
+    );
+    expect(prisma.codeConsultation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ adherentId: ADH }, { beneficiaireId: { in: ['ben-1', 'ben-2'] } }] },
       }),
     );
   });

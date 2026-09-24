@@ -102,9 +102,13 @@ export class PreauthorizationService {
       );
     }
 
-    // Le patient : l'adhérent lui-même (ou un de ses bénéficiaires).
-    const adherentId = dto.adherentId ?? ctx.adherentId ?? undefined;
+    // Le patient : l'adhérent lui-même OU un de ses bénéficiaires (jamais les
+    // deux — `adherentId`/`beneficiaireId` mutuellement exclusifs sur
+    // `CodeConsultation`, comme sur `DossierSoins`/`FactureDossier`/etc.).
     const beneficiaireId = dto.beneficiaireId ?? undefined;
+    const adherentId = beneficiaireId
+      ? dto.adherentId
+      : (dto.adherentId ?? ctx.adherentId ?? undefined);
     if (!adherentId && !beneficiaireId) {
       throw new BadRequestException(
         "Aucun patient identifiable : votre compte n'est pas rattaché à un adhérent.",
@@ -114,6 +118,17 @@ export class PreauthorizationService {
       throw new ForbiddenException(
         'Vous ne pouvez demander un code que pour vous-même.',
       );
+    }
+    // Fuite inter-adhérent (audit couverture bénéficiaires) : un bénéficiaire
+    // n'appartenant pas à l'appelant ne doit jamais pouvoir être ciblé, même
+    // par ID direct.
+    if (beneficiaireId) {
+      const benef = await this.prisma.beneficiaire.findFirst({
+        where: { id: beneficiaireId, adherentId: ctx.adherentId ?? '__aucun__', deletedAt: null },
+      });
+      if (!benef) {
+        throw new ForbiddenException('Ce bénéficiaire ne vous appartient pas.');
+      }
     }
 
     const etablissement = await this.prisma.etablissementSante.findFirst({
@@ -221,7 +236,7 @@ export class PreauthorizationService {
       return [];
     }
     return this.prisma.codeConsultation.findMany({
-      where: { adherentId: ctx.adherentId },
+      where: await this.filtreMoiEtMesBeneficiaires(ctx.adherentId),
       orderBy: { dateEmission: 'desc' },
       take: 50,
     });
@@ -436,14 +451,15 @@ export class PreauthorizationService {
     };
   }
 
-  /** Codes d'ordonnance de l'adhérent connecté — AVEC la valeur du code (les siens). */
+  /** Codes d'ordonnance de l'adhérent connecté — AVEC la valeur du code (les siens
+   * et ceux émis pour ses bénéficiaires). */
   async listerMesCodesOrdonnance(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
     if (!ctx.adherentId) {
       return [];
     }
     const codes = await this.prisma.codeOrdonnance.findMany({
-      where: { adherentId: ctx.adherentId },
+      where: await this.filtreMoiEtMesBeneficiaires(ctx.adherentId),
       orderBy: { dateEmission: 'desc' },
       take: 50,
     });
@@ -1916,14 +1932,15 @@ export class PreauthorizationService {
     };
   }
 
-  /** Factures de l'adhérent connecté — AVEC le code + la synthèse chiffrée. */
+  /** Factures de l'adhérent connecté — AVEC le code + la synthèse chiffrée
+   * (les siennes et celles de ses bénéficiaires). */
   async listerMesFactures(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
     if (!ctx.adherentId) {
       return [];
     }
     const factures = await this.prisma.factureDossier.findMany({
-      where: { adherentId: ctx.adherentId, deletedAt: null },
+      where: { ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)), deletedAt: null },
       include: { dossier: { select: { numeroTraitement: true } } },
       orderBy: { createdAt: 'desc' },
       take: 50,
@@ -2882,6 +2899,28 @@ export class PreauthorizationService {
       etablissementId: profil.etablissementId,
       pharmacieId: profil.pharmacieId,
       roleChain: permissions?.roleChain ?? [],
+    };
+  }
+
+  /**
+   * `where` couvrant l'adhérent connecté ET ses bénéficiaires — audit
+   * couverture bénéficiaires (dashboard adhérent, prisma/sql/055) : les
+   * listes self-service (`listerMesCodes`, `listerMesCodesOrdonnance`,
+   * `listerMesFactures`) ne filtraient QUE `adherentId`, alors que ces
+   * dossiers ont `adherentId`/`beneficiaireId` mutuellement exclusifs — un
+   * acte pris pour un bénéficiaire (`adherentId = null`) n'apparaissait donc
+   * jamais. `Reclamation` a son propre équivalent (`ClaimsService`).
+   */
+  private async filtreMoiEtMesBeneficiaires(adherentId: string) {
+    const beneficiaires = await this.prisma.beneficiaire.findMany({
+      where: { adherentId, deletedAt: null },
+      select: { id: true },
+    });
+    return {
+      OR: [
+        { adherentId },
+        ...(beneficiaires.length ? [{ beneficiaireId: { in: beneficiaires.map((b) => b.id) } }] : []),
+      ],
     };
   }
 

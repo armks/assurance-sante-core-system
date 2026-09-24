@@ -5,11 +5,13 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MemberCarteService } from './carte.service';
 import {
   ChangerStatutDto,
   CreateAdherentDto,
@@ -17,14 +19,20 @@ import {
   UpdateAdherentDto,
   UpdateBeneficiaireDto,
 } from './dto/member.dto';
+import type { FichierTeleverse } from './import-adherents.service';
 import {
   ContexteAppelant,
   ENTITE_ADHERENT,
   ENTITE_SOCIETE_AFFILIEE,
+  MIME_TYPES_PHOTO_AUTORISES,
   ROLE_GESTION_MEMBRE_SOCIETE,
   ROLE_RECHERCHE_CARTE,
   ROLE_VALIDATION_ADHERENT,
   ROLES_GESTION_MEMBRE,
+  ROLES_VALIDATION_BENEFICIAIRE_ASSUREUR,
+  STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR,
+  STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE,
+  TAILLE_MAX_PHOTO_OCTETS,
 } from './member.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -46,9 +54,14 @@ type Db = PrismaService | Prisma.TransactionClient;
 export class AdherentService {
   private readonly logger = new Logger(AdherentService.name);
 
+  private readonly dureeUrlSigneePhoto = Number(
+    process.env.PHOTO_URL_TTL_SECONDS ?? 3600,
+  );
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly cartes: MemberCarteService,
   ) {}
 
   // --- Adhérents -----------------------------------------------------
@@ -520,6 +533,287 @@ export class AdherentService {
     });
   }
 
+  // --- Bénéficiaires proposés par l'ADHÉRENT lui-même (double validation) --
+
+  /**
+   * L'adhérent propose l'ajout d'un bénéficiaire — crée immédiatement une
+   * vraie ligne `Beneficiaire` (pas de staging JSON, contrairement aux
+   * propositions société) mais SANS `numeroCarte` (colonne explicitement
+   * mise à NULL, en dehors du défaut de séquence) et au statut
+   * EN_ATTENTE_SOCIETE. Aucune carte, aucun droit ouvert tant que les deux
+   * validations n'ont pas eu lieu (`STATUT_MEMBRE_ELIGIBLE` exclut ce statut).
+   */
+  async proposerMonBeneficiaire(
+    user: AuthenticatedUser,
+    dto: CreateBeneficiaireDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertEntiteAdherent(ctx);
+
+    const id = await this.prisma.$transaction(async (tx) => {
+      const benef = await tx.beneficiaire.create({
+        data: {
+          adherentId: ctx.adherentId!,
+          lienParente: dto.lienParente,
+          nom: dto.nom,
+          prenom: dto.prenom,
+          dateNaissance: new Date(dto.dateNaissance),
+          sexe: dto.sexe,
+          numeroCarte: null,
+          statut: STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'PROPOSITION_BENEFICIAIRE_ADHERENT',
+        benef.id,
+        { adherentId: ctx.adherentId, lienParente: dto.lienParente },
+        'beneficiaires',
+      );
+      return benef.id;
+    });
+
+    return this.chargerBeneficiaire(ctx, ctx.adherentId!, id);
+  }
+
+  /**
+   * Modifie une proposition tant qu'elle reste éditable — refuse
+   * explicitement (409) dès que `numeroCarte` est renseigné : au-delà, ses
+   * informations sont IMMUABLES pour l'adhérent (seul un rôle ASSUREUR
+   * conserve `modifierBeneficiaire`). Autorisé pendant EN_ATTENTE_SOCIETE ET
+   * EN_ATTENTE_ASSUREUR — c'est bien la carte, pas la validation société, qui
+   * verrouille (règle explicite du prompt).
+   */
+  async modifierMonBeneficiaire(
+    user: AuthenticatedUser,
+    beneficiaireId: string,
+    dto: UpdateBeneficiaireDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertEntiteAdherent(ctx);
+    const actuel = await this.chargerBeneficiaire(ctx, ctx.adherentId!, beneficiaireId);
+    if (actuel.numeroCarte !== null) {
+      throw new ConflictException(
+        'Ce bénéficiaire a déjà sa carte de membre : ses informations ne sont plus modifiables. Contactez votre assureur pour toute correction.',
+      );
+    }
+
+    const data: Prisma.BeneficiaireUpdateInput = {};
+    if (dto.lienParente !== undefined) data.lienParente = dto.lienParente;
+    if (dto.nom !== undefined) data.nom = dto.nom;
+    if (dto.prenom !== undefined) data.prenom = dto.prenom;
+    if (dto.dateNaissance !== undefined) {
+      data.dateNaissance = new Date(dto.dateNaissance);
+    }
+    if (dto.sexe !== undefined) data.sexe = dto.sexe;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.beneficiaire.update({ where: { id: beneficiaireId }, data });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'MODIFICATION_BENEFICIAIRE_ADHERENT',
+        beneficiaireId,
+        { champs: Object.keys(data) },
+        'beneficiaires',
+      );
+    });
+
+    return this.chargerBeneficiaire(ctx, ctx.adherentId!, beneficiaireId);
+  }
+
+  /**
+   * 1re validation — réservée à SOCIETE_ADMINISTRATION, pour un bénéficiaire
+   * proposé par un adhérent de SA PROPRE société. EN_ATTENTE_SOCIETE →
+   * EN_ATTENTE_ASSUREUR ; ne génère toujours pas de carte.
+   */
+  async validerBeneficiaireSociete(user: AuthenticatedUser, beneficiaireId: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_GESTION_MEMBRE_SOCIETE)) {
+      throw new ForbiddenException(
+        'La validation « société » d’un bénéficiaire est réservée à SOCIETE_ADMINISTRATION.',
+      );
+    }
+    const benef = await this.prisma.beneficiaire.findFirst({
+      where: { id: beneficiaireId, deletedAt: null },
+      include: { adherent: { select: { organisationId: true, souscripteurId: true } } },
+    });
+    if (
+      !benef ||
+      benef.adherent.organisationId !== ctx.organisationId ||
+      benef.adherent.souscripteurId !== ctx.societeId
+    ) {
+      throw new NotFoundException('Bénéficiaire introuvable.');
+    }
+    if (benef.statut !== STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE) {
+      throw new ConflictException(
+        `Ce bénéficiaire n'est pas en attente de validation société (statut actuel : ${benef.statut}).`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.beneficiaire.update({
+        where: { id: beneficiaireId },
+        data: { statut: STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'VALIDATION_SOCIETE_BENEFICIAIRE',
+        beneficiaireId,
+        { adherentId: benef.adherentId },
+        'beneficiaires',
+      );
+    });
+
+    return this.chargerBeneficiaire(ctx, benef.adherentId, beneficiaireId);
+  }
+
+  /**
+   * 2e et dernière validation — réservée à ASSUREUR_INFORMATIQUE/EXPLOITATION.
+   * EN_ATTENTE_ASSUREUR → ACTIF : SEUL moment où `numeroCarte` est attribué
+   * (attribution manuelle de la même séquence que le défaut de colonne,
+   * puisqu'un UPDATE ne déclenche jamais un `default` de création) — puis la
+   * carte est générée automatiquement (réutilise `MemberCarteService`,
+   * inchangé). Un échec de génération de carte ne bloque ni la validation ni
+   * l'attribution du numéro (même tolérance que `validerImportAdherents`).
+   */
+  async validerBeneficiaireAssureur(user: AuthenticatedUser, beneficiaireId: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((code) =>
+        (ROLES_VALIDATION_BENEFICIAIRE_ASSUREUR as readonly string[]).includes(code),
+      )
+    ) {
+      throw new ForbiddenException(
+        'La validation « assureur » d’un bénéficiaire est réservée à ASSUREUR_INFORMATIQUE et ASSUREUR_EXPLOITATION.',
+      );
+    }
+    const benef = await this.prisma.beneficiaire.findFirst({
+      where: { id: beneficiaireId, deletedAt: null },
+      include: { adherent: { select: { id: true, organisationId: true } } },
+    });
+    if (!benef || benef.adherent.organisationId !== ctx.organisationId) {
+      throw new NotFoundException('Bénéficiaire introuvable.');
+    }
+    if (benef.statut !== STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR) {
+      throw new ConflictException(
+        `Ce bénéficiaire n'est pas en attente de validation assureur (statut actuel : ${benef.statut}).`,
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const [ligne] = await tx.$queryRaw<{ numero_carte: string }[]>`
+        update beneficiaires
+        set numero_carte = 'CM-' || lpad(nextval('cartes_membre_numero_seq')::text, 10, '0'),
+            statut = 'ACTIF'
+        where id = ${beneficiaireId}::uuid and numero_carte is null
+        returning numero_carte`;
+      if (!ligne) {
+        throw new ConflictException('Ce bénéficiaire a déjà une carte — validation déjà effectuée.');
+      }
+      await this.audit(
+        tx,
+        ctx.userId,
+        'VALIDATION_ASSUREUR_BENEFICIAIRE',
+        beneficiaireId,
+        { adherentId: benef.adherentId, numeroCarte: ligne.numero_carte },
+        'beneficiaires',
+      );
+    });
+
+    let echecCarte: string | null = null;
+    try {
+      await this.cartes.genererCarteBeneficiaire(user, benef.adherent.id, beneficiaireId);
+    } catch (error) {
+      echecCarte = error instanceof Error ? error.message : 'erreur inconnue';
+      this.logger.error(
+        `Génération de carte échouée pour le bénéficiaire ${beneficiaireId} (validation assureur) : ${echecCarte}`,
+      );
+    }
+
+    return { ...(await this.chargerBeneficiaire(ctx, benef.adherent.id, beneficiaireId)), echecCarte };
+  }
+
+  // --- Photo de profil (adhérent + bénéficiaires, donnée non structurante) --
+
+  /** L'adhérent modifie SA PROPRE photo — jamais de validation requise. */
+  async televerserPhotoAdherent(
+    user: AuthenticatedUser,
+    adherentId: string,
+    fichier: FichierTeleverse,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertEntiteAdherent(ctx);
+    if (adherentId !== ctx.adherentId) {
+      throw new ForbiddenException('Vous ne pouvez modifier que votre propre photo.');
+    }
+    this.validerImagePhoto(fichier);
+
+    const chemin = `${ctx.organisationId}/adherents/${adherentId}/photo.${this.extensionPhoto(fichier.mimetype)}`;
+    await this.televerserPhoto(chemin, fichier);
+    await this.prisma.adherent.update({ where: { id: adherentId }, data: { photoUrl: chemin } });
+    await this.audit(this.prisma, ctx.userId, 'MODIFICATION_PHOTO_ADHERENT', adherentId, { chemin }, 'adherents');
+
+    return { url: await this.signerPhoto(chemin), expiresIn: this.dureeUrlSigneePhoto };
+  }
+
+  /** L'adhérent modifie la photo d'un de SES bénéficiaires — jamais de validation. */
+  async televerserPhotoBeneficiaire(
+    user: AuthenticatedUser,
+    adherentId: string,
+    beneficiaireId: string,
+    fichier: FichierTeleverse,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertEntiteAdherent(ctx);
+    if (adherentId !== ctx.adherentId) {
+      throw new ForbiddenException("Vous ne pouvez modifier que la photo de vos propres bénéficiaires.");
+    }
+    await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    this.validerImagePhoto(fichier);
+
+    const chemin = `${ctx.organisationId}/beneficiaires/${beneficiaireId}/photo.${this.extensionPhoto(fichier.mimetype)}`;
+    await this.televerserPhoto(chemin, fichier);
+    await this.prisma.beneficiaire.update({ where: { id: beneficiaireId }, data: { photoUrl: chemin } });
+    await this.audit(
+      this.prisma,
+      ctx.userId,
+      'MODIFICATION_PHOTO_BENEFICIAIRE',
+      beneficiaireId,
+      { adherentId, chemin },
+      'beneficiaires',
+    );
+
+    return { url: await this.signerPhoto(chemin), expiresIn: this.dureeUrlSigneePhoto };
+  }
+
+  /** URL signée courte durée de la photo de l'adhérent (lecture déjà scopée
+   * par `chargerAdherent` — même périmètre que la consultation du dossier). */
+  async obtenirPhotoAdherent(user: AuthenticatedUser, adherentId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const adherent = await this.chargerAdherent(ctx, adherentId);
+    if (!adherent.photoUrl) {
+      throw new NotFoundException('Aucune photo pour cet adhérent.');
+    }
+    return { url: await this.signerPhoto(adherent.photoUrl), expiresIn: this.dureeUrlSigneePhoto };
+  }
+
+  async obtenirPhotoBeneficiaire(
+    user: AuthenticatedUser,
+    adherentId: string,
+    beneficiaireId: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    await this.chargerAdherent(ctx, adherentId);
+    const benef = await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    if (!benef.photoUrl) {
+      throw new NotFoundException('Aucune photo pour ce bénéficiaire.');
+    }
+    return { url: await this.signerPhoto(benef.photoUrl), expiresIn: this.dureeUrlSigneePhoto };
+  }
+
   // --- Helpers ------------------------------------------------------
 
   private async contexteAppelant(
@@ -568,6 +862,91 @@ export class AdherentService {
     throw new ForbiddenException(
       "La gestion du fichier des membres est réservée au personnel ASSUREUR habilité, ou à SOCIETE_ADMINISTRATION pour ses propres adhérents.",
     );
+  }
+
+  /** Réservé aux comptes ADHERENT rattachés (self-service uniquement — ni
+   * ASSUREUR, ni SOCIETE_AFFILIEE, qui ne passent jamais par ces méthodes). */
+  private assertEntiteAdherent(ctx: ContexteAppelant): void {
+    if (ctx.entite !== ENTITE_ADHERENT || !ctx.adherentId) {
+      throw new ForbiddenException(
+        'Cette action est réservée à un compte adhérent rattaché à son propre dossier.',
+      );
+    }
+  }
+
+  private validerImagePhoto(fichier: FichierTeleverse): void {
+    if (!MIME_TYPES_PHOTO_AUTORISES.includes(fichier.mimetype)) {
+      throw new BadRequestException('Formats de photo acceptés : JPEG, PNG, WEBP.');
+    }
+    if (fichier.size > TAILLE_MAX_PHOTO_OCTETS) {
+      throw new BadRequestException('Photo trop volumineuse (max 5 Mo).');
+    }
+  }
+
+  private extensionPhoto(mimetype: string): string {
+    if (mimetype === 'image/png') return 'png';
+    if (mimetype === 'image/webp') return 'webp';
+    return 'jpg';
+  }
+
+  private get baseStorage(): string {
+    return `${(process.env.SUPABASE_URL ?? '').replace(/\/$/, '')}/storage/v1`;
+  }
+
+  private get serviceKey(): string {
+    return process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+  }
+
+  /** Bucket privé `photos` (prisma/sql/055) — même recette que `cartes`
+   * (`MemberCarteService.televerserEtSigner`) : écriture/signature via
+   * `service_role` uniquement, jamais d'accès direct hors NestJS. */
+  private async televerserPhoto(chemin: string, fichier: FichierTeleverse): Promise<void> {
+    if (!process.env.SUPABASE_URL || !this.serviceKey) {
+      throw new ServiceUnavailableException(
+        'Stockage des photos indisponible : SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY absents.',
+      );
+    }
+    const up = await fetch(`${this.baseStorage}/object/photos/${chemin}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.serviceKey}`,
+        apikey: this.serviceKey,
+        'Content-Type': fichier.mimetype,
+        'x-upsert': 'true',
+      },
+      body: fichier.buffer as unknown as BodyInit,
+    });
+    if (!up.ok) {
+      throw new ServiceUnavailableException(
+        `Téléversement de la photo refusé (${up.status} : ${(await up.text()).slice(0, 200)}).`,
+      );
+    }
+  }
+
+  private async signerPhoto(chemin: string): Promise<string> {
+    if (!process.env.SUPABASE_URL || !this.serviceKey) {
+      throw new ServiceUnavailableException(
+        'Stockage des photos indisponible : SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY absents.',
+      );
+    }
+    const sign = await fetch(`${this.baseStorage}/object/sign/photos/${chemin}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.serviceKey}`,
+        apikey: this.serviceKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ expiresIn: this.dureeUrlSigneePhoto }),
+    });
+    if (!sign.ok) {
+      throw new ServiceUnavailableException(`Signature de l'URL de photo refusée (${sign.status}).`);
+    }
+    const corps = (await sign.json()) as { signedURL?: string; signedUrl?: string };
+    const rel = corps.signedURL ?? corps.signedUrl;
+    if (!rel) {
+      throw new ServiceUnavailableException("Réponse de signature inattendue (pas d'URL).");
+    }
+    return `${this.baseStorage}${rel.startsWith('/') ? '' : '/'}${rel}`;
   }
 
   private async assertPoliceDuSouscripteur(

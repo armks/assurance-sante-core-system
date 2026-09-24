@@ -56,3 +56,45 @@ export async function supprimerItemNational(
   revalidatePath(CIBLE);
   return { ok: true };
 }
+
+// --- Import en masse par Excel — réservé EXCLUSIVEMENT SUPERADMIN_PRINCIPAL,
+// import ET validation (pas de double validation ici). ---------------------
+
+export interface ImportCatalogueResume {
+  id: string;
+  type: 'ACTES' | 'MEDICAMENTS';
+  fichierNom: string;
+  statut: 'EN_ATTENTE_VALIDATION' | 'VALIDE' | 'REJETE';
+  nbLignesTotal: number;
+  nbLignesValides: number;
+  nbLignesErreur: number;
+  lignesValides: Record<string, unknown>[];
+  erreursDetail: { ligne: number; donnees: Record<string, string>; erreurs: string[] }[];
+  createdAt: string;
+  dateValidation: string | null;
+}
+
+export async function importerCatalogueExcel(
+  type: 'actes' | 'medicaments',
+  fd: FormData,
+): Promise<{ ok: true; import: ImportCatalogueResume } | { ok: false; error: string; erreurs: string[] }> {
+  const res = await apiFetch(`/api/v1/superadmin/catalogue-national/${type}/import`, {
+    method: 'POST',
+    body: fd,
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(CIBLE);
+  return { ok: true, import: await res.json() };
+}
+
+export async function validerImportCatalogue(
+  importId: string,
+): Promise<{ ok: true; nbCrees: number; nbMisAJour: number } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/superadmin/catalogue-national/imports/${importId}/valider`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  const corps = await res.json();
+  return { ok: true, nbCrees: corps.nbCrees, nbMisAJour: corps.nbMisAJour };
+}

@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import type { ImportCatalogueResume } from '@/app/superadmin/catalogue-national/actions';
 import { PageTitre } from '@/components/page-titre';
 import {
   CatalogueNationalEcran,
@@ -13,12 +14,14 @@ export const metadata: Metadata = {
 };
 
 export default async function CatalogueNational() {
-  const [resActes, resMed] = await Promise.all([
+  const [resActes, resMed, resImports] = await Promise.all([
     apiFetch('/api/v1/superadmin/catalogue-national/actes'),
     apiFetch('/api/v1/superadmin/catalogue-national/medicaments'),
+    apiFetch('/api/v1/superadmin/catalogue-national/imports'),
   ]);
   const actes: ActeNational[] = resActes.ok ? await resActes.json() : [];
   const medicaments: MedicamentNational[] = resMed.ok ? await resMed.json() : [];
+  const imports: ImportCatalogueResume[] = resImports.ok ? await resImports.json() : [];
   const erreur = resActes.ok ? null : await messageErreur(resActes);
 
   return (
@@ -30,7 +33,7 @@ export default async function CatalogueNational() {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <CatalogueNationalEcran actes={actes} medicaments={medicaments} />
+        <CatalogueNationalEcran actes={actes} medicaments={medicaments} imports={imports} />
       )}
     </div>
   );

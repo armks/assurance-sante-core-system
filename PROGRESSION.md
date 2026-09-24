@@ -5589,3 +5589,71 @@ composant partagé) : bouton « Payer » toujours présent (non-régression).
 facture pharmacie manquant, rupture Decimal) et les 4 décisions de fermeture/clarification
 (paiements groupés, bouton Payer, double validation, coupure du 1er du mois) issus de l'audit
 du 2026-09-24 sont désormais tous traités, testés et documentés.
+
+## 2026-09-24 (suite 4) — Import en masse par Excel du catalogue national (actes/médicaments), réservé SUPERADMIN_PRINCIPAL
+
+Même pattern que `importerAdherentsExcel` (module `member/`), transposé au catalogue national
+(`referentiel_national_actes`/`referentiel_national_medicaments`) — cross-tenant par nature
+(pas d'`organisation_id`), réservé EXCLUSIVEMENT à SUPERADMIN_PRINCIPAL de bout en bout.
+
+### 1. Nouvelle table `imports_catalogue_national` (prisma/sql/057)
+Mêmes colonnes que `imports_adherents` (id, type ACTES/MEDICAMENTS, fichier_nom, statut EN_
+ATTENTE_VALIDATION/VALIDE/REJETE, nb_lignes_total/valides/erreur, lignes_valides/erreurs_detail
+jsonb, importe_par/valide_par FK profils, created_at) — mais RLS `for all` réservée
+EXCLUSIVEMENT SUPERADMIN_PRINCIPAL (même politique que `parametres_plateforme` et
+`referentiel_national_*`, prisma/sql/017), pas de rôles multiples comme côté adhérents.
+
+### 2. `CatalogueImportService` (nouveau fichier, module `superadmin/`)
+`importerCatalogueExcel(type, fichier)` parse le .xlsx (colonnes `code, libelle, categorie`
+pour les actes ; `denomination_commune, nom_commercial, classe_therapeutique,
+prix_reference_xof, medicament_essentiel` pour les médicaments) — AUCUNE entrée créée/modifiée
+à ce stade. Un code (actes) ou une dénomination commune (médicaments, comparaison insensible à
+la casse, cohérent avec l'index `lower(denomination_commune)` déjà en place) déjà présent dans
+le catalogue national est signalé `estMiseAJour: true` avec l'id existant — PAS une erreur
+bloquante, contrairement à un doublon DANS le fichier lui-même (erreur pour toutes les lignes
+concernées, même règle que les emails en double de l'import adhérents).
+
+### 3. `validerImportCatalogue(importId)` — pas de double validation
+Réservé au même rôle que l'import (SUPERADMIN_PRINCIPAL) : contrairement aux adhérents, aucune
+seconde validation par un rôle distinct — le Super Admin est déjà la plus haute autorité sur
+cette donnée. Chaque ligne `estMiseAJour: false` crée une entrée au statut **PROPOSE** (jamais
+HOMOLOGUE directement). Chaque ligne `estMiseAJour: true` met à jour SEULEMENT les champs
+importés, sans jamais toucher `statut`/`statutHomologation`, `homologuePar`, `dateHomologation`.
+
+**Point à noter, vérifié en code avant d'implémenter** : `creerActeNational`/
+`creerMedicamentNational` (création UNITAIRE déjà existante, PROMPT 23) défaut au contraire à
+`HOMOLOGUE` directement pour SUPERADMIN_PRINCIPAL (`dto.statut ?? 'HOMOLOGUE'`) — la règle
+« le Super Admin ne peut pas homologuer » invoquée pour ce prompt s'applique en réalité à
+l'import d'une organisation VERS SON PROPRE référentiel (`ASSUREUR_INFORMATIQUE` → PROPOSE,
+seul son ASSUREUR_MEDECIN_CONSEIL/PHARMACIEN_CONSEIL homologue ensuite), pas à la maintenance
+du catalogue national lui-même. Implémenté tel qu'explicitement demandé (PROPOSE pour tout
+import en masse, jamais HOMOLOGUE) — asymétrie VOLONTAIRE avec la création unitaire assumée
+comme telle : une donnée importée en masse depuis un fichier externe mérite une vérification
+supplémentaire qu'une saisie unitaire délibérée n'exige pas forcément.
+
+### 4. Écran `/superadmin/catalogue-national`
+Nouveau composant `ImportsCataloguePanel` (mêmes conventions que `ImportsAdherentsPanel`) —
+un panneau par onglet (actes/médicaments) avec bouton « Importer depuis Excel », historique des
+imports, détail dépliable distinguant explicitement « Nouvelles entrées » et « Doublons
+détectés — mise à jour », et lignes en erreur. Aucune étape de prévisualisation séparée avant
+la création de l'import : l'aperçu se fait en dépliant l'import fraîchement créé (encore
+EN_ATTENTE_VALIDATION) avant de cliquer sur « Valider l'import » — même UX que l'import
+adhérents, déjà éprouvée.
+
+### Tests
+Backend : 24 nouveaux tests `catalogue-import.service.spec.ts` (RBAC, parsing actes/médicaments
+— nouvelle entrée / doublon en base / doublon dans le fichier / colonnes manquantes / prix
+invalide, validation création vs mise à jour, statut PROPOSE jamais HOMOLOGUE, log_audit jamais
+avalé). Suite complète : 702 tests backend (678 + 24), 21 Java inchangés, `tsc --noEmit` propre
+API et Web.
+
+Test HTTP réel (21/21 vérifications, script Node éphémère avec un acte et un médicament
+HOMOLOGUE pré-existants pour tester la détection de doublon, tout supprimé après coup) : rôle
+ASSUREUR_INFORMATIQUE refusé (403) sur l'import ; import d'un fichier actes avec une entrée
+nouvelle + une mise à jour d'un code existant, détection correcte des deux (`estMiseAJour`) ;
+validation crée la nouvelle entrée au statut PROPOSE (jamais HOMOLOGUE) et met à jour le
+libellé/catégorie de l'entrée existante SANS toucher son statut HOMOLOGUE ; même vérification
+pour les médicaments (prix exact au centime, 750.50) ; re-validation d'un import déjà VALIDE
+→ 409. Page `/superadmin/catalogue-national` réellement rendue (session Next.js authentique
+via cookies `@supabase/ssr`) avec un import EN_ATTENTE_VALIDATION en base : panneau d'import,
+nom de fichier et statut bien affichés, aucune erreur de rendu.

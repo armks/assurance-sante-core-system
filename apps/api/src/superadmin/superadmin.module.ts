@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
 import { InvitationsModule } from '../invitations/invitations.module';
+import { CatalogueImportService } from './catalogue-import.service';
 import { SuperadminActionsService } from './superadmin-actions.service';
 import { SuperadminConfigController } from './superadmin-config.controller';
 import { SuperadminConfigService } from './superadmin-config.service';
@@ -14,7 +15,7 @@ import { SuperadminController } from './superadmin.controller';
 @Module({
   imports: [IdentityModule, InvitationsModule],
   controllers: [SuperadminController, SuperadminConfigController],
-  providers: [SuperadminActionsService, SuperadminConfigService],
-  exports: [SuperadminActionsService, SuperadminConfigService],
+  providers: [SuperadminActionsService, SuperadminConfigService, CatalogueImportService],
+  exports: [SuperadminActionsService, SuperadminConfigService, CatalogueImportService],
 })
 export class SuperadminModule {}

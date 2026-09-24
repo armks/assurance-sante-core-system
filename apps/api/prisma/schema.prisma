@@ -167,6 +167,8 @@ model Profil {
   adherentsValides Adherent[] @relation("AdherentValidePar")
   importsAdherentsImportes ImportAdherents[] @relation("ImportAdherentsImportePar")
   importsAdherentsValides  ImportAdherents[] @relation("ImportAdherentsValidePar")
+  importsCatalogueNationalImportes ImportCatalogueNational[] @relation("ImportCatalogueNationalImportePar")
+  importsCatalogueNationalValides  ImportCatalogueNational[] @relation("ImportCatalogueNationalValidePar")
 
   @@map("profils")
 }
@@ -1788,6 +1790,41 @@ model ReferentielNationalMedicament {
 
   @@index([statutHomologation])
   @@map("referentiel_national_medicaments")
+}
+
+/// imports_catalogue_national — import en masse par Excel du catalogue national
+/// (referentiel_national_actes/medicaments), réservé EXCLUSIVEMENT à
+/// SUPERADMIN_PRINCIPAL. Pas d'organisation_id (cross-tenant, comme les tables
+/// ci-dessus). Même pattern que ImportAdherents (prisma/sql/053) : import et
+/// validation séparés, mais PAS de double validation ici — un seul et même
+/// rôle (SUPERADMIN_PRINCIPAL) importe ET valide. prisma/sql/057.
+model ImportCatalogueNational {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type            String // ACTES | MEDICAMENTS
+  fichierNom      String    @map("fichier_nom")
+  statut          String    @default("EN_ATTENTE_VALIDATION") // EN_ATTENTE_VALIDATION | VALIDE | REJETE
+  nbLignesTotal   Int       @map("nb_lignes_total")
+  nbLignesValides Int       @map("nb_lignes_valides")
+  nbLignesErreur  Int       @map("nb_lignes_erreur")
+  /// Lignes déjà validées — `{code/libelle/categorie, estMiseAJour, idExistant}`
+  /// (ACTES) ou `{denominationCommune, nomCommercial, classeTherapeutique,
+  /// prixReferenceXof, medicamentEssentiel, estMiseAJour, idExistant}`
+  /// (MEDICAMENTS). `estMiseAJour` distingue une mise à jour d'un doublon déjà
+  /// existant (jamais une erreur bloquante) d'une nouvelle entrée.
+  lignesValides   Json      @map("lignes_valides")
+  /// Array JSON {ligne, donnees, erreurs[]} — une entrée par ligne rejetée.
+  erreursDetail   Json      @map("erreurs_detail")
+  importeParId    String    @map("importe_par") @db.Uuid
+  valideParId     String?   @map("valide_par") @db.Uuid
+  dateValidation  DateTime? @map("date_validation") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  importePar Profil  @relation("ImportCatalogueNationalImportePar", fields: [importeParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  validePar  Profil? @relation("ImportCatalogueNationalValidePar", fields: [valideParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([type])
+  @@index([statut])
+  @@map("imports_catalogue_national")
 }
 
 /// reclamations — une réclamation par acte de dossier (unique sur acte_dossier_id).

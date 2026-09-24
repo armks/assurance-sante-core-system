@@ -8,11 +8,15 @@ import {
   Post,
   Put,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
+import { CatalogueImportService, type FichierTeleverse } from './catalogue-import.service';
 import {
   CreerActeNationalDto,
   CreerMedicamentNationalDto,
@@ -28,7 +32,10 @@ import { SuperadminConfigService } from './superadmin-config.service';
 @Controller('superadmin')
 @UseGuards(SupabaseAuthGuard)
 export class SuperadminConfigController {
-  constructor(private readonly config: SuperadminConfigService) {}
+  constructor(
+    private readonly config: SuperadminConfigService,
+    private readonly catalogueImport: CatalogueImportService,
+  ) {}
 
   // --- Paramètres plateforme ---
   @Get('config/parametres')
@@ -107,5 +114,40 @@ export class SuperadminConfigController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.config.supprimerMedicamentNational(user, id);
+  }
+
+  // --- Catalogue national : import en masse par Excel (réservé
+  // EXCLUSIVEMENT SUPERADMIN_PRINCIPAL — import ET validation, pas de double
+  // validation ici contrairement aux adhérents) ---
+
+  @Post('catalogue-national/actes/import')
+  @UseInterceptors(FileInterceptor('fichier'))
+  importerActesExcel(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() fichier: FichierTeleverse,
+  ) {
+    return this.catalogueImport.importerCatalogueExcel(user, 'ACTES', fichier);
+  }
+
+  @Post('catalogue-national/medicaments/import')
+  @UseInterceptors(FileInterceptor('fichier'))
+  importerMedicamentsExcel(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() fichier: FichierTeleverse,
+  ) {
+    return this.catalogueImport.importerCatalogueExcel(user, 'MEDICAMENTS', fichier);
+  }
+
+  @Get('catalogue-national/imports')
+  listerImportsCatalogue(@CurrentUser() user: AuthenticatedUser) {
+    return this.catalogueImport.listerImportsCatalogue(user);
+  }
+
+  @Post('catalogue-national/imports/:id/valider')
+  validerImportCatalogue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.catalogueImport.validerImportCatalogue(user, id);
   }
 }

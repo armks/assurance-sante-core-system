@@ -7,6 +7,7 @@ import {
   creerActeNational,
   creerMedicamentNational,
   supprimerItemNational,
+  type ImportCatalogueResume,
 } from '@/app/superadmin/catalogue-national/actions';
 import {
   ChampSelect,
@@ -20,6 +21,7 @@ import {
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
 import { Stethoscope, Pill } from 'lucide-react';
 
 export interface ActeNational {
@@ -43,9 +45,11 @@ export interface MedicamentNational {
 export function CatalogueNationalEcran({
   actes,
   medicaments,
+  imports,
 }: {
   actes: ActeNational[];
   medicaments: MedicamentNational[];
+  imports: ImportCatalogueResume[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -158,6 +162,8 @@ export function CatalogueNationalEcran({
         </CardContent>
       </Card>
 
+      <ImportsCataloguePanel type="actes" imports={imports} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Médicaments</CardTitle>
@@ -227,6 +233,8 @@ export function CatalogueNationalEcran({
           />
         </CardContent>
       </Card>
+
+      <ImportsCataloguePanel type="medicaments" imports={imports} />
     </div>
   );
 }

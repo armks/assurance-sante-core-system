@@ -337,6 +337,181 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     expect(prisma.dispensationPharmacie.update).not.toHaveBeenCalled();
   });
 
+  describe('listerMesDispensations — côté ADHÉRENT', () => {
+    it('aucun adherentId sur le profil → liste vide, aucune requête', async () => {
+      identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+      const res = await service.listerMesDispensations(USER);
+      expect(res).toEqual([]);
+      expect(prisma.dispensationPharmacie.findMany).not.toHaveBeenCalled();
+    });
+
+    it('scope strictement sur ctx.adherentId (adhérent + ses bénéficiaires)', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findMany.mockResolvedValue([]);
+      await service.listerMesDispensations(USER);
+      expect(prisma.dispensationPharmacie.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            ordonnance: {
+              dossier: {
+                OR: [{ adherentId: 'adh-1' }, { beneficiaire: { adherentId: 'adh-1' } }],
+              },
+            },
+          },
+        }),
+      );
+    });
+
+    it('code visible UNIQUEMENT si EN_ATTENTE_VALIDATION_PATIENT, masqué sinon', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findMany.mockResolvedValue([
+        {
+          id: 'disp-1',
+          pharmacie: { nom: 'Pharmacie du Plateau' },
+          statut: 'EN_ATTENTE_VALIDATION_PATIENT',
+          montantTotal: dec(5000),
+          codeConfirmation: 'ABC12345',
+          datePreparation: new Date('2026-09-01'),
+          lignes: [
+            {
+              montantAssurance: dec(4000),
+              montantPatient: dec(1000),
+              ligneOrdonnance: { denominationMedicament: 'Paracétamol' },
+            },
+          ],
+        },
+        {
+          id: 'disp-2',
+          pharmacie: { nom: 'Pharmacie du Plateau' },
+          statut: 'VALIDEE',
+          montantTotal: dec(3000),
+          codeConfirmation: 'XYZ98765',
+          datePreparation: new Date('2026-09-02'),
+          lignes: [
+            {
+              montantAssurance: dec(2400),
+              montantPatient: dec(600),
+              ligneOrdonnance: { denominationMedicament: 'Amoxicilline' },
+            },
+          ],
+        },
+      ]);
+
+      const res = await service.listerMesDispensations(USER);
+
+      expect(res[0]).toMatchObject({ id: 'disp-1', code: 'ABC12345', statut: 'EN_ATTENTE_VALIDATION_PATIENT' });
+      expect(res[1]).toMatchObject({ id: 'disp-2', code: undefined, statut: 'VALIDEE' });
+    });
+
+    it('calcule montantAssurance et montantPatient par somme des lignes (Decimal)', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findMany.mockResolvedValue([
+        {
+          id: 'disp-1',
+          pharmacie: { nom: 'Pharmacie du Plateau' },
+          statut: 'EN_ATTENTE_VALIDATION_PATIENT',
+          montantTotal: dec(7500),
+          codeConfirmation: 'ABC12345',
+          datePreparation: new Date('2026-09-01'),
+          lignes: [
+            { montantAssurance: dec(4000), montantPatient: dec(1000), ligneOrdonnance: { denominationMedicament: 'Paracétamol' } },
+            { montantAssurance: dec(2000), montantPatient: dec(500), ligneOrdonnance: { denominationMedicament: 'Ibuprofène' } },
+          ],
+        },
+      ]);
+
+      const res = await service.listerMesDispensations(USER);
+
+      expect(res[0].montantAssurance).toBe('6000.00');
+      expect(res[0].montantPatient).toBe('1500.00');
+      expect(res[0].montantTotal).toBe('7500.00');
+      expect(res[0].medicaments).toEqual(['Paracétamol', 'Ibuprofène']);
+    });
+
+    it('remonte toutes les dispensations, toutes pharmacies confondues (multi-cycle)', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findMany.mockResolvedValue([
+        {
+          id: 'disp-1', pharmacie: { nom: 'Pharmacie A' }, statut: 'EN_ATTENTE_VALIDATION_PATIENT',
+          montantTotal: dec(1000), codeConfirmation: 'AAA11111', datePreparation: new Date('2026-09-01'),
+          lignes: [{ montantAssurance: dec(800), montantPatient: dec(200), ligneOrdonnance: { denominationMedicament: 'Med A' } }],
+        },
+        {
+          id: 'disp-2', pharmacie: { nom: 'Pharmacie B' }, statut: 'EN_ATTENTE_VALIDATION_PATIENT',
+          montantTotal: dec(2000), codeConfirmation: 'BBB22222', datePreparation: new Date('2026-09-02'),
+          lignes: [{ montantAssurance: dec(1600), montantPatient: dec(400), ligneOrdonnance: { denominationMedicament: 'Med B' } }],
+        },
+      ]);
+
+      const res = await service.listerMesDispensations(USER);
+
+      expect(res).toHaveLength(2);
+      expect(res.map((r: any) => r.pharmacie)).toEqual(['Pharmacie A', 'Pharmacie B']);
+      expect(res.every((r: any) => !!r.code)).toBe(true);
+    });
+  });
+
+  describe('validerCodeDispensation — côté ADHÉRENT', () => {
+    it('rôle non adhérent → 403', async () => {
+      identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+      await expect(
+        service.validerCodeDispensation(USER, { code: 'ABC12345' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('code invalide/inexistant → 404', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findUnique.mockResolvedValue(null);
+      await expect(
+        service.validerCodeDispensation(USER, { code: 'BADCODE1' }),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('dispensation d’un autre adhérent → 403', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findUnique.mockResolvedValue({
+        id: 'disp-1',
+        statut: 'EN_ATTENTE_VALIDATION_PATIENT',
+        ordonnance: { dossier: { adherentId: 'adh-AUTRE', beneficiaire: null } },
+      });
+      await expect(
+        service.validerCodeDispensation(USER, { code: 'ABC12345' }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('déjà validée → 409', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findUnique.mockResolvedValue({
+        id: 'disp-1',
+        statut: 'VALIDEE',
+        ordonnance: { dossier: { adherentId: 'adh-1', beneficiaire: null } },
+      });
+      await expect(
+        service.validerCodeDispensation(USER, { code: 'ABC12345' }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('valide avec succès → statut VALIDEE', async () => {
+      identity.getMe.mockResolvedValue(adherent('adh-1'));
+      prisma.dispensationPharmacie.findUnique.mockResolvedValue({
+        id: 'disp-1',
+        statut: 'EN_ATTENTE_VALIDATION_PATIENT',
+        ordonnance: { dossier: { adherentId: 'adh-1', beneficiaire: null } },
+      });
+      prisma.dispensationPharmacie.update.mockResolvedValue({ id: 'disp-1', statut: 'VALIDEE' });
+
+      const res = await service.validerCodeDispensation(USER, { code: 'ABC12345' });
+
+      expect(prisma.dispensationPharmacie.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'disp-1' },
+          data: expect.objectContaining({ statut: 'VALIDEE' }),
+        }),
+      );
+      expect(res).toEqual({ dispensationId: 'disp-1', statut: 'VALIDEE' });
+    });
+  });
+
   // ═══════════════════════════════════════════════════════════════════
   //  Le patient ne paie QUE montant_patient — une dispensation payée génère
   //  automatiquement une réclamation (montant_assurance) vers l'adjudication,

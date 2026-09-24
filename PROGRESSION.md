@@ -5657,3 +5657,60 @@ pour les médicaments (prix exact au centime, 750.50) ; re-validation d'un impor
 → 409. Page `/superadmin/catalogue-national` réellement rendue (session Next.js authentique
 via cookies `@supabase/ssr`) avec un import EN_ATTENTE_VALIDATION en base : panneau d'import,
 nom de fichier et statut bien affichés, aucune erreur de rendu.
+
+## 2026-09-24 (suite 5) — Audit des codes patient + écran /dashboard-adherent/dispensations (gap confirmé corrigé)
+
+Audit diagnostique complet de tous les mécanismes de code générés pour le patient (Code de
+Consultation, Code d'Ordonnance, Code de Facturation établissement avec cycles multiples,
+Code de confirmation de dispensation pharmacie avec cycles multiples, Ticket de Soins) :
+seul le code de dispensation pharmacie avait un backend complet (`listerMesDispensations`,
+`pharmacy.service.ts`) mais aucun écran `/dashboard-adherent` ne l'affichait — 100% backend,
+0% frontend. Ce prompt corrige exactement ce gap, sans toucher aux autres points relevés
+par l'audit (incohérences bénéficiaires sur `chargerCodeAdherent`/`obtenirFacture`, accès
+`individuel/` non branché) qui restent des décisions à trancher séparément.
+
+### 1. Nouvel écran `/dashboard-adherent/dispensations`
+`app/dashboard-adherent/dispensations/page.tsx` + `components/dashboard/adherent/
+dispensations-ecran.tsx`, même squelette que `ordonnances-ecran.tsx`/`factures-ecran.tsx` :
+`DataTable` de TOUTES les dispensations de l'adhérent (et ses bénéficiaires), toutes
+pharmacies et tous cycles confondus — `listerMesDispensations` ne filtre déjà par aucun
+`ordonnanceId`, donc plusieurs dispensations actives simultanément (délivrance partielle
+répartie sur plusieurs pharmacies) apparaissent toutes, pas seulement la première/dernière.
+Colonnes : pharmacie, médicaments, date de préparation, part assurance, part patient (voir
+point 2), statut (colonne séparée, `StatutBadge`), code de confirmation — masqué (tiret) dès
+que le statut n'est plus `EN_ATTENTE_VALIDATION_PATIENT` (masquage déjà fait côté backend,
+`code` vaut `undefined` dans la réponse — le frontend ne fait qu'afficher ce qui est fourni).
+Bouton « Valider le code » par ligne quand le code est visible — mirroir exact de
+`factures-ecran.tsx` (`validerFacturation`), cohérent avec le fait que `validerCodeDispensation`
+est, comme la facturation, une validation en libre-service par l'ADHÉRENT lui-même (pas une
+validation par un rôle staff, contrairement au code de consultation/ordonnance).
+
+### 2. Backend : ajout de `montantAssurance` à `listerMesDispensations`
+La demande précise « montant part assurance/part patient visible » nécessitait un champ que
+le backend ne renvoyait pas encore (seul `montantPatient` était sommé depuis les lignes).
+Ajout de la même sommation `Decimal` pour `montantAssurance` (`pharmacy.service.ts`), sur le
+modèle déjà utilisé par `obtenirDispensation` (côté pharmacien) — jamais de soustraction
+`montantTotal - montantPatient` côté navigateur (règle du projet : `decimal.js` côté API,
+jamais côté UI).
+
+### 3. Navigation
+Entrée « Dispensations » ajoutée à `dashboard-nav.ts` sous `[ADHERENT]`, entre Ordonnances et
+Factures. PAS ajoutée à `individuel/` (nav limitée à la seule Vue d'ensemble sur décision
+explicite antérieure, non revisitée par ce prompt — cf. audit, à trancher séparément).
+
+### 4. Tests
+Backend : 10 nouveaux tests (`listerMesDispensations` — scope adhérent, masquage du code par
+statut, calcul `montantAssurance`/`montantPatient`, multi-cycle toutes pharmacies confondues ;
+`validerCodeDispensation` — rôle, code invalide, dispensation d'un tiers, déjà validée,
+succès), module jusque-là entièrement non testé. Suite complète : 712 tests backend (702 +
+10), 21 Java inchangés, `tsc --noEmit` propre API et Web.
+
+Test EN NAVIGATEUR RÉEL (14/14 vérifications, script Node éphémère avec chaîne complète
+Organisation → Souscripteur → Produit PUBLIE → Police → Adhérent → Établissement → Dossier →
+Consultation → Ordonnance → 2 lignes → 2 pharmacies → 2 dispensations, session Next.js
+authentique via cookies `@supabase/ssr`, tout supprimé après coup) : la page rendue affiche
+bien le code de la dispensation `EN_ATTENTE_VALIDATION_PATIENT`, les DEUX pharmacies et leurs
+statuts respectifs (une seconde dispensation déjà `VALIDEE` n'affiche pas son code), les
+montants part assurance (4000) et part patient (1000) ; après un appel réel à `POST
+pharmacy/dispensations/valider-code` (ce que fait le bouton), la page re-rendue ne montre
+plus le code ni le statut « en attente » — confirmé indépendamment en base (`statut: VALIDEE`).

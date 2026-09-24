@@ -517,11 +517,16 @@ export class PharmacyService {
         (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
         new Decimal(0),
       );
+      const montantAssurance = d.lignes.reduce(
+        (acc, l) => acc.add(new Decimal(l.montantAssurance.toString())),
+        new Decimal(0),
+      );
       return {
         id: d.id,
         pharmacie: d.pharmacie.nom,
         statut: d.statut,
         montantTotal: d.montantTotal.toFixed(2),
+        montantAssurance: montantAssurance.toFixed(2),
         montantPatient: montantPatient.toFixed(2),
         code: d.statut === 'EN_ATTENTE_VALIDATION_PATIENT' ? d.codeConfirmation : undefined,
         medicaments: d.lignes.map((l) => l.ligneOrdonnance.denominationMedicament),

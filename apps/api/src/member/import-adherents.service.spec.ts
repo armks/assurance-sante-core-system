@@ -9,6 +9,7 @@ import ExcelJS from 'exceljs';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdherentService } from './adherent.service';
 import { MemberCarteService } from './carte.service';
 import { ImportAdherentsService } from './import-adherents.service';
 
@@ -50,11 +51,21 @@ function fichier(buffer: Buffer, nom = 'adherents.xlsx') {
   };
 }
 
+async function fabriquerClasseurSortants(lignes: (string | undefined)[][]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const feuille = workbook.addWorksheet('Sortants');
+  feuille.addRow(['identifiant', 'motif', 'statut cible']);
+  for (const ligne of lignes) feuille.addRow(ligne);
+  const buffer = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
 describe('ImportAdherentsService', () => {
   let service: ImportAdherentsService;
   let prisma: any;
   let identity: { getMe: jest.Mock };
   let cartes: { genererCarteAdherent: jest.Mock; genererCarteBeneficiaire: jest.Mock };
+  let adherents: { proposerSortants: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -80,6 +91,7 @@ describe('ImportAdherentsService', () => {
       genererCarteAdherent: jest.fn().mockResolvedValue({ url: 'https://signed' }),
       genererCarteBeneficiaire: jest.fn().mockResolvedValue({ url: 'https://signed' }),
     };
+    adherents = { proposerSortants: jest.fn() };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -87,6 +99,7 @@ describe('ImportAdherentsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
         { provide: MemberCarteService, useValue: cartes },
+        { provide: AdherentService, useValue: adherents },
       ],
     }).compile();
 
@@ -570,6 +583,176 @@ describe('ImportAdherentsService', () => {
       expect(cartes.genererCarteBeneficiaire).toHaveBeenCalledWith(USER, 'adh-1', 'ben-1');
       expect(res.nbAdherentsCrees).toBe(0);
       expect(res.nbBeneficiairesCrees).toBe(1);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Mouvements de personnel — ENTRANTS à effet différé (prisma/sql/056).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('importerEntrantsExcel', () => {
+    it('refuse un rôle sans rapport (SOCIETE_COMPTABLE)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_COMPTABLE'], 'sous-1'));
+      const buf = await fabriquerClasseur([['Yao', 'Awa', '0700000001', 'awa@test.ci', '1990-05-14']]);
+      await expect(
+        service.importerEntrantsExcel(USER, 'sous-1', fichier(buf)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('crée le brouillon avec moisEffet par défaut (mois calendaire suivant)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue(null);
+      prisma.importAdherents.create.mockResolvedValue({ id: 'imp-1', lignesValides: [], erreursDetail: [] });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
+      const buf = await fabriquerClasseur([['Yao', 'Awa', '0700000001', 'awa@test.ci', '1990-05-14']]);
+
+      await service.importerEntrantsExcel(USER, 'sous-1', fichier(buf));
+
+      const maintenant = new Date();
+      const moisSuivantAttendu = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() + 1, 1));
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            moisEffet: moisSuivantAttendu,
+            nbLignesValides: 1,
+            nbLignesErreur: 0,
+          }),
+        }),
+      );
+    });
+
+    it('respecte un moisEffet explicite (normalisé au 1er du mois)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue(null);
+      prisma.importAdherents.create.mockResolvedValue({ id: 'imp-1', lignesValides: [], erreursDetail: [] });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
+      const buf = await fabriquerClasseur([['Yao', 'Awa', '0700000001', 'awa@test.ci', '1990-05-14']]);
+
+      await service.importerEntrantsExcel(USER, 'sous-1', fichier(buf), '2026-12-15');
+
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ moisEffet: new Date(Date.UTC(2026, 11, 1)) }) }),
+      );
+    });
+
+    it('ne ré-ajoute pas un email déjà présent dans le brouillon en cours', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      prisma.importAdherents.findFirst.mockResolvedValue({
+        id: 'imp-1',
+        lignesValides: [{ type: 'ADHERENT', nom: 'Yao', prenom: 'Awa', telephone: '0700000001', email: 'awa@test.ci', dateNaissance: '1990-05-14' }],
+        erreursDetail: [],
+      });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
+      const buf = await fabriquerClasseur([['Yao', 'Awa', '0700000001', 'awa@test.ci', '1990-05-14']]);
+
+      await service.importerEntrantsExcel(USER, 'sous-1', fichier(buf));
+
+      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ nbLignesValides: 1, nbLignesErreur: 1 }) }),
+      );
+    });
+  });
+
+  describe('importerSortantsExcel', () => {
+    it('refuse un rôle autre que SOCIETE_ADMINISTRATION (ex. SOCIETE_ASSUREE)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
+      const buf = await fabriquerClasseurSortants([['ADH-2026-000001', 'Départ', 'RADIE']]);
+      await expect(
+        service.importerSortantsExcel(USER, 'sous-1', fichier(buf)),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('colonnes manquantes → 400', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      const workbook = new ExcelJS.Workbook();
+      const feuille = workbook.addWorksheet('Sortants');
+      feuille.addRow(['identifiant']);
+      feuille.addRow(['ADH-2026-000001']);
+      const buf = Buffer.from(await workbook.xlsx.writeBuffer());
+      await expect(
+        service.importerSortantsExcel(USER, 'sous-1', fichier(buf)),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('identifiant introuvable → listé en erreur, aucune proposition', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      prisma.adherent.findFirst.mockResolvedValue(null);
+      const buf = await fabriquerClasseurSortants([['ADH-INCONNU', 'Départ', 'RADIE']]);
+
+      const res = await service.importerSortantsExcel(USER, 'sous-1', fichier(buf));
+
+      expect(res.nbProposes).toBe(0);
+      expect(res.erreursDetail).toHaveLength(1);
+      expect(res.erreursDetail[0].erreurs[0]).toMatch(/introuvable/);
+      expect(adherents.proposerSortants).not.toHaveBeenCalled();
+    });
+
+    it('ligne valide (sans statut cible → défaut RADIE) → délègue à proposerSortants', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-1', statut: 'ACTIF' });
+      adherents.proposerSortants.mockResolvedValue({ propositions: [{ adherentId: 'adh-1', statut: 'PROPOSE_SORTANT' }] });
+      const buf = await fabriquerClasseurSortants([['ADH-2026-000001', 'Départ de l’entreprise', undefined]]);
+
+      const res = await service.importerSortantsExcel(USER, 'sous-1', fichier(buf));
+
+      expect(adherents.proposerSortants).toHaveBeenCalledWith(USER, {
+        souscripteurId: 'sous-1',
+        sortants: [{ adherentId: 'adh-1', statutCible: 'RADIE', motif: 'Départ de l’entreprise' }],
+      });
+      expect(res.nbProposes).toBe(1);
+    });
+
+    it('adhérent déjà non-ACTIF → erreur, pas de proposition', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
+      prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-1', statut: 'SUSPENDU' });
+      const buf = await fabriquerClasseurSortants([['ADH-2026-000001', 'Départ', 'RADIE']]);
+
+      const res = await service.importerSortantsExcel(USER, 'sous-1', fichier(buf));
+
+      expect(res.nbProposes).toBe(0);
+      expect(res.erreursDetail[0].erreurs[0]).toMatch(/SUSPENDU/);
+    });
+  });
+
+  describe('validerImportAdherents — moisEffet (mouvements de personnel à effet différé)', () => {
+    const LIGNE_ADHERENT = { type: 'ADHERENT', nom: 'Yao', prenom: 'Awa', telephone: '0700000001', email: 'awa-moiseffet@test.ci', dateNaissance: '1990-05-14' };
+
+    it('sans moisEffet : dateValidation non renseignée (comportement historique)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.importAdherents.findFirst.mockResolvedValue({
+        id: 'imp-1', organisationId: 'org-1', souscripteurId: 'sous-1', statut: 'EN_ATTENTE_VALIDATION',
+        lignesValides: [LIGNE_ADHERENT], moisEffet: null,
+      });
+      prisma.police.findFirst.mockResolvedValue({ id: 'pol-1' });
+      prisma.adherent.create.mockResolvedValue({ id: 'adh-1', numeroAdherent: 'ADH-2026-000099' });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1', statut: 'VALIDE' });
+
+      await service.validerImportAdherents(USER, 'imp-1');
+
+      expect(prisma.adherent.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.not.objectContaining({ dateValidation: expect.anything() }) }),
+      );
+    });
+
+    it('avec moisEffet : dateValidation = veille du 1er du mois d’effet, valideParId renseigné', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.importAdherents.findFirst.mockResolvedValue({
+        id: 'imp-1', organisationId: 'org-1', souscripteurId: 'sous-1', statut: 'EN_ATTENTE_VALIDATION',
+        lignesValides: [LIGNE_ADHERENT], moisEffet: new Date(Date.UTC(2026, 10, 1)), // 1er novembre 2026
+      });
+      prisma.police.findFirst.mockResolvedValue({ id: 'pol-1' });
+      prisma.adherent.create.mockResolvedValue({ id: 'adh-1', numeroAdherent: 'ADH-2026-000099' });
+      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1', statut: 'VALIDE' });
+
+      await service.validerImportAdherents(USER, 'imp-1');
+
+      expect(prisma.adherent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            dateValidation: new Date(Date.UTC(2026, 9, 31)), // veille du 1er novembre = 31 octobre
+            valideParId: 'u1',
+          }),
+        }),
+      );
     });
   });
 });

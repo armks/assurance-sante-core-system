@@ -27,7 +27,15 @@ async function traiter(res: Response): Promise<ResultatProposition> {
 
 export async function proposerAdherent(
   souscripteurId: string,
-  input: { nom: string; prenom: string; telephone: string; email: string; dateNaissance: string },
+  input: {
+    nom: string;
+    prenom: string;
+    telephone: string;
+    email: string;
+    dateNaissance: string;
+    /** Mouvement de personnel à effet différé — s'applique à tout le lot. */
+    moisEffet?: string;
+  },
 ): Promise<ResultatProposition> {
   const res = await apiFetch(`/api/v1/member/souscripteurs/${souscripteurId}/propositions/adherent`, {
     method: 'POST',

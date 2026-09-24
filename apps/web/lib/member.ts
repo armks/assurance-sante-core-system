@@ -5,10 +5,15 @@
 
 export const STATUTS_MEMBRE = ['ACTIF', 'SUSPENDU', 'RADIE'] as const;
 
+/** PROPOSE_SORTANT ajouté (mouvements de personnel) : un adhérent proposé en
+ * sortie par SOCIETE_ADMINISTRATION, effectif (SUSPENDU/RADIE) seulement
+ * après validation assureur — jamais un statut « final » choisissable via
+ * `changerStatutAdherent` (c'est `validerSortants` qui le fait). */
 export const LIBELLE_STATUT_MEMBRE: Record<string, string> = {
   ACTIF: 'Actif',
   SUSPENDU: 'Suspendu',
   RADIE: 'Radié',
+  PROPOSE_SORTANT: 'Sortie proposée',
 };
 
 export const TON_STATUT_MEMBRE: Record<
@@ -18,6 +23,7 @@ export const TON_STATUT_MEMBRE: Record<
   ACTIF: 'succes',
   SUSPENDU: 'attention',
   RADIE: 'danger',
+  PROPOSE_SORTANT: 'attention',
 };
 
 export const SEXES = [
@@ -114,4 +120,23 @@ export function peutValiderBeneficiaireSociete(roleChain: string[] | undefined):
 export function peutValiderBeneficiaireAssureur(roleChain: string[] | undefined): boolean {
   const rc = roleChain ?? [];
   return rc.includes('ASSUREUR_INFORMATIQUE') || rc.includes('ASSUREUR_EXPLOITATION');
+}
+
+/**
+ * Mouvements de personnel — SORTANTS : proposition réservée EXCLUSIVEMENT à
+ * SOCIETE_ADMINISTRATION (pas SOCIETE_ASSUREE, contrairement aux
+ * propositions d'AJOUT). Validation réutilise les mêmes rôles que la
+ * validation d'un import (`ASSUREUR_INFORMATIQUE`/`ASSUREUR_EXPLOITATION`).
+ */
+export const STATUTS_SORTANT_CIBLE = [
+  { valeur: 'SUSPENDU', libelle: 'Suspendre' },
+  { valeur: 'RADIE', libelle: 'Radier' },
+];
+
+export function peutProposerSortants(roleChain: string[] | undefined): boolean {
+  return (roleChain ?? []).includes('SOCIETE_ADMINISTRATION');
+}
+
+export function peutValiderSortants(roleChain: string[] | undefined): boolean {
+  return peutValiderImportAdherents(roleChain);
 }

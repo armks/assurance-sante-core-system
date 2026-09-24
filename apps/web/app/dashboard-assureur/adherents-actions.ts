@@ -216,3 +216,19 @@ export async function validerBeneficiaireAssureur(
   const corps = await res.json();
   return { ok: true, statut: corps.statut, numeroCarte: corps.numeroCarte };
 }
+
+// --- Mouvements de personnel — sortants (proposés par SOCIETE_ADMINISTRATION,
+// validation réservée ici à ASSUREUR_INFORMATIQUE/EXPLOITATION). Effet
+// immédiat une fois validé. ------------------------------------------
+
+export async function validerSortants(
+  adherentIds: string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch('/api/v1/member/sortants/valider', {
+    method: 'POST',
+    body: JSON.stringify({ adherentIds }),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider();
+  return { ok: true };
+}

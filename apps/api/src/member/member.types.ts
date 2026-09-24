@@ -105,6 +105,22 @@ export const TAILLE_MAX_PHOTO_OCTETS = 5 * 1024 * 1024;
 export const MIME_TYPES_PHOTO_AUTORISES = ['image/jpeg', 'image/png', 'image/webp'];
 
 /**
+ * Mouvements de personnel — SORTANTS (prisma/sql/056). Proposition réservée
+ * EXCLUSIVEMENT à SOCIETE_ADMINISTRATION (pas SOCIETE_ASSUREE, contrairement
+ * aux propositions d'AJOUT ci-dessus — un mouvement de sortie est un risque
+ * plus élevé qu'une simple proposition d'ajout). `statut` de l'adhérent passe
+ * IMMÉDIATEMENT à `PROPOSE_SORTANT` (visible sans délai), effectif
+ * (SUSPENDU/RADIE, `statutSortantCible`) seulement après validation par
+ * `ROLES_VALIDATION_IMPORT_ADHERENTS` (réutilisé tel quel — même rôles que la
+ * validation d'un import). Effet IMMÉDIAT une fois validé — aucun report au
+ * mois suivant (à la différence des entrants, cf. plus bas) : le prompt ne le
+ * demande que pour les entrants.
+ */
+export const ROLE_PROPOSITION_SORTANT_SOCIETE = 'SOCIETE_ADMINISTRATION';
+export const STATUT_ADHERENT_PROPOSE_SORTANT = 'PROPOSE_SORTANT';
+export const STATUTS_SORTANT_CIBLE = ['SUSPENDU', 'RADIE'] as const;
+
+/**
  * Identification par numéro de carte à l'accueil du centre médical — ADDITIF
  * au code de consultation, ne le remplace pas. Purement informatif (statut
  * ACTIF/SUSPENDU/RADIE) : n'ouvre aucun dossier, ne crée rien. Réservé à

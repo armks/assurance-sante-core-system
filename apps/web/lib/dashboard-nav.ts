@@ -1,4 +1,5 @@
 import {
+  ArrowLeftRight,
   Building2,
   ClipboardList,
   CreditCard,
@@ -145,6 +146,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       icon: Users,
     },
     {
+      label: 'Entrants / sortants',
+      href: `${SOCIETE_ADMINISTRATION}/mouvements`,
+      icon: ArrowLeftRight,
+    },
+    {
       label: 'Réclamations',
       href: `${SOCIETE_ADMINISTRATION}/reclamations`,
       icon: Scale,
@@ -162,6 +168,11 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       label: 'Adhérents',
       href: `${SOCIETE_ADMINISTRATION}/adherents`,
       icon: Users,
+    },
+    {
+      label: 'Entrants / sortants',
+      href: `${SOCIETE_ADMINISTRATION}/mouvements`,
+      icon: ArrowLeftRight,
     },
     {
       label: 'Réclamations',

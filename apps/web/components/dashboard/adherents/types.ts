@@ -33,6 +33,9 @@ export interface AdherentListe {
   /** Chemin de stockage (bucket privé `photos`) — jamais affiché directement,
    * résolu via `obtenirPhotoAdherent`/`obtenirPhotoBeneficiaire`. */
   photoUrl?: string | null;
+  /** Renseigné uniquement pendant `statut = 'PROPOSE_SORTANT'`. */
+  statutSortantCible?: string | null;
+  motifSortie?: string | null;
 }
 
 /** Adhérent PRINCIPAL — issu d'un import Excel OU d'une proposition société. */
@@ -86,6 +89,10 @@ export interface ImportAdherentsResume {
   validePar: { role: string } | null;
   createdAt: string;
   dateValidation: string | null;
+  /** Mouvements de personnel à effet différé : mois (1er du mois) auquel les
+   * ADHERENT de ce lot deviennent éligibles à la facturation. `null` hors de
+   * ce contexte (comportement historique). */
+  moisEffet?: string | null;
 }
 
 export interface Beneficiaire {

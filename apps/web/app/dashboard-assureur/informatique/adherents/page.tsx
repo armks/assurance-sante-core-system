@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { AdherentsListe } from '@/components/dashboard/adherents/adherents-liste';
 import { ImportsAdherentsPanel } from '@/components/dashboard/adherents/imports-adherents-panel';
+import { SortantsEnAttentePanel } from '@/components/dashboard/adherents/sortants-en-attente-panel';
 import type {
   AdherentListe,
   ImportAdherentsResume,
@@ -16,6 +17,7 @@ import {
   peutGererMembres,
   peutImporterAdherents,
   peutValiderImportAdherents,
+  peutValiderSortants,
 } from '@/lib/member';
 
 export const metadata: Metadata = { title: 'Adhérents — Assurance Informatique' };
@@ -65,6 +67,9 @@ export default async function AdherentsPage() {
               peutImporter={peutImporterAdherents(roleChain)}
               peutValider={peutValiderImportAdherents(roleChain)}
             />
+          )}
+          {peutValiderSortants(roleChain) && (
+            <SortantsEnAttentePanel sortants={adherents.filter((a) => a.statut === 'PROPOSE_SORTANT')} />
           )}
         </>
       )}

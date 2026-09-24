@@ -12,13 +12,16 @@ import ExcelJS from 'exceljs';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdherentService } from './adherent.service';
 import { MemberCarteService } from './carte.service';
 import { ProposerAdherentDto, ProposerBeneficiaireDto } from './dto/member.dto';
 import {
   ContexteAppelant,
+  ROLE_PROPOSITION_SORTANT_SOCIETE,
   ROLES_IMPORT_ADHERENTS,
   ROLES_PROPOSITION_ADHERENTS_SOCIETE,
   ROLES_VALIDATION_IMPORT_ADHERENTS,
+  STATUTS_SORTANT_CIBLE,
 } from './member.types';
 
 /** Forme minimale d'un fichier téléversé (multer, mémoire) — même convention
@@ -57,7 +60,7 @@ interface LigneBeneficiaireProposee {
 
 type LigneValide = LigneAdherentProposee | LigneBeneficiaireProposee;
 
-interface LigneErreur {
+export interface LigneErreur {
   ligne: number;
   donnees: Record<string, string>;
   erreurs: string[];
@@ -119,6 +122,7 @@ export class ImportAdherentsService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly cartes: MemberCarteService,
+    private readonly adherents: AdherentService,
   ) {}
 
   private async contexteAppelant(user: AuthenticatedUser): Promise<ContexteAppelant> {
@@ -230,6 +234,120 @@ export class ImportAdherentsService {
     });
 
     return importCree;
+  }
+
+  /**
+   * Mouvements de personnel — ENTRANTS à effet différé (prisma/sql/056) :
+   * variante Excel de `proposerAdherent`, réservée aux mêmes rôles société
+   * (`ROLES_PROPOSITION_ADHERENTS_SOCIETE`). Réutilise TEL QUEL le parsing de
+   * `importerAdherentsExcel`/`parserEtValider` (mêmes colonnes, mêmes règles
+   * de doublon) mais APPEND au brouillon de la société au lieu de créer un
+   * import distinct — tolérant aux erreurs par ligne, comme l'import Excel
+   * d'origine. `moisEffet` (sinon calculé au mois calendaire suivant) est
+   * posé sur le brouillon ENTIER : `validerImportAdherents` (déjà construit,
+   * inchangé dans son contrat) stampera `dateValidation` en conséquence pour
+   * CHAQUE adhérent créé à partir de ce lot.
+   */
+  async importerEntrantsExcel(
+    user: AuthenticatedUser,
+    souscripteurId: string,
+    fichier: FichierTeleverse,
+    moisEffetStr?: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertProposition(ctx, souscripteurId);
+
+    if (!MIME_TYPES_AUTORISES.includes(fichier.mimetype) && !fichier.originalname.toLowerCase().endsWith('.xlsx')) {
+      throw new BadRequestException('Seul un fichier .xlsx est accepté.');
+    }
+    if (fichier.size > TAILLE_MAX_FICHIER_OCTETS) {
+      throw new BadRequestException('Fichier trop volumineux (max 5 Mo).');
+    }
+
+    const { lignesValides, erreursDetail } = await this.parserEtValider(ctx, fichier);
+    if (lignesValides.length === 0 && erreursDetail.length === 0) {
+      throw new BadRequestException(
+        "Fichier vide ou colonnes non reconnues (attendues : nom, prénom, téléphone, email, date de naissance).",
+      );
+    }
+
+    const brouillon = await this.brouillonSociete(ctx, souscripteurId);
+    const lignesActuelles = (brouillon.lignesValides as unknown as LigneValide[]) ?? [];
+    const emailsDejaProposes = new Set(
+      lignesActuelles.filter((l): l is LigneAdherentProposee => l.type === 'ADHERENT').map((l) => l.email),
+    );
+
+    const aAjouter = lignesValides.filter((l) => !emailsDejaProposes.has(l.email));
+    const doublonsBrouillon: LigneErreur[] = lignesValides
+      .filter((l) => emailsDejaProposes.has(l.email))
+      .map((l) => ({
+        ligne: 0,
+        donnees: { nom: l.nom, prenom: l.prenom, email: l.email },
+        erreurs: [`déjà proposé dans votre liste en cours (${l.email})`],
+      }));
+
+    const lignesMaj = [...lignesActuelles, ...aAjouter];
+    const erreursActuelles = (brouillon.erreursDetail as unknown as LigneErreur[]) ?? [];
+    const erreursMaj = [...erreursActuelles, ...erreursDetail, ...doublonsBrouillon];
+    const moisEffet = this.resoudreMoisEffet(moisEffetStr);
+
+    const imp = await this.prisma.importAdherents.update({
+      where: { id: brouillon.id },
+      data: {
+        lignesValides: lignesMaj as unknown as object,
+        erreursDetail: erreursMaj as unknown as object,
+        nbLignesTotal: lignesMaj.length + erreursMaj.length,
+        nbLignesValides: lignesMaj.length,
+        nbLignesErreur: erreursMaj.length,
+        moisEffet,
+      },
+    });
+    await this.audit(this.prisma, ctx.userId, 'IMPORT_ENTRANTS_EXCEL', imp.id, {
+      souscripteurId,
+      nbAjoutes: aAjouter.length,
+      nbErreurs: erreursDetail.length + doublonsBrouillon.length,
+      moisEffet: moisEffet.toISOString().slice(0, 10),
+    });
+    return imp;
+  }
+
+  /**
+   * Mouvements de personnel — SORTANTS via Excel (prisma/sql/056), colonnes
+   * adaptées (identifiant adhérent + motif — jamais nom/prénom/téléphone/
+   * email/date de naissance, sans rapport ici). Réservé EXCLUSIVEMENT à
+   * SOCIETE_ADMINISTRATION (comme `proposerSortants`, jamais SOCIETE_ASSUREE
+   * — un mouvement de sortie est plus sensible qu'une simple proposition
+   * d'ajout). Chaque ligne valide est appliquée via `AdherentService.
+   * proposerSortants` (même effet immédiat, statut PROPOSE_SORTANT) — une
+   * ligne invalide (identifiant introuvable, adhérent déjà non-ACTIF, doublon
+   * dans le fichier) est listée en erreur sans bloquer les autres.
+   */
+  async importerSortantsExcel(user: AuthenticatedUser, souscripteurId: string, fichier: FichierTeleverse) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.includes(ROLE_PROPOSITION_SORTANT_SOCIETE) || ctx.societeId !== souscripteurId) {
+      throw new ForbiddenException(
+        "L'import de sortants est réservé à SOCIETE_ADMINISTRATION, pour sa propre société.",
+      );
+    }
+
+    if (!MIME_TYPES_AUTORISES.includes(fichier.mimetype) && !fichier.originalname.toLowerCase().endsWith('.xlsx')) {
+      throw new BadRequestException('Seul un fichier .xlsx est accepté.');
+    }
+    if (fichier.size > TAILLE_MAX_FICHIER_OCTETS) {
+      throw new BadRequestException('Fichier trop volumineux (max 5 Mo).');
+    }
+
+    const { sortants, erreursDetail } = await this.parserEtValiderSortants(ctx, souscripteurId, fichier);
+    if (sortants.length === 0 && erreursDetail.length === 0) {
+      throw new BadRequestException('Fichier vide ou colonnes non reconnues (attendues : identifiant, motif).');
+    }
+
+    const propositions =
+      sortants.length > 0
+        ? (await this.adherents.proposerSortants(user, { souscripteurId, sortants })).propositions
+        : [];
+
+    return { nbProposes: propositions.length, propositions, erreursDetail };
   }
 
   /**
@@ -360,7 +478,16 @@ export class ImportAdherentsService {
 
     const imp = await this.prisma.importAdherents.update({
       where: { id: brouillon.id },
-      data: { lignesValides: lignesMaj as unknown as object, nbLignesTotal: lignesMaj.length, nbLignesValides: lignesMaj.length },
+      data: {
+        lignesValides: lignesMaj as unknown as object,
+        nbLignesTotal: lignesMaj.length,
+        nbLignesValides: lignesMaj.length,
+        // Mouvement de personnel à effet différé (prisma/sql/056) — s'applique
+        // à TOUT le lot, pas seulement cette ligne (dernier appel gagne).
+        // Omis = comportement historique inchangé (coupure gouvernée par
+        // `validerAdherent`, séparément).
+        ...(dto.moisEffet ? { moisEffet: this.resoudreMoisEffet(dto.moisEffet) } : {}),
+      },
     });
     await this.audit(this.prisma, ctx.userId, 'PROPOSITION_ADHERENT', imp.id, { nom: dto.nom, prenom: dto.prenom });
     return imp;
@@ -592,6 +719,19 @@ export class ImportAdherentsService {
       throw new ConflictException('Aucune police ACTIVE pour ce souscripteur — validation impossible.');
     }
 
+    // Mouvements de personnel à effet différé (prisma/sql/056) : quand ce lot
+    // porte un `moisEffet` explicite, chaque ADHERENT créé ici devient
+    // directement éligible à la facturation à partir de ce mois précis — en
+    // stampant `dateValidation` à la veille du 1er de `moisEffet` (jamais
+    // `now()`), le mois promis à la proposition est garanti quelle que soit
+    // la date effective de CETTE validation. Sans `moisEffet` (tout import/
+    // proposition antérieur à ce prompt) : comportement historique inchangé,
+    // `dateValidation` reste `null` — la coupure de facturation est gouvernée
+    // séparément par `AdherentService.validerAdherent`.
+    const dateValidationDifferee = imp.moisEffet
+      ? new Date(Date.UTC(imp.moisEffet.getUTCFullYear(), imp.moisEffet.getUTCMonth(), 0))
+      : null;
+
     const adherentIds: string[] = [];
     const beneficiaires: { adherentId: string; beneficiaireId: string }[] = [];
     for (const ligne of lignes) {
@@ -628,6 +768,9 @@ export class ImportAdherentsService {
             dateNaissance: new Date(ligne.dateNaissance),
             email: ligne.email,
             telephone: ligne.telephone,
+            ...(dateValidationDifferee
+              ? { dateValidation: dateValidationDifferee, valideParId: ctx.userId }
+              : {}),
           },
         });
         await this.audit(tx, ctx.userId, 'CREATION_ADHERENT_IMPORT', a.id, {
@@ -693,7 +836,7 @@ export class ImportAdherentsService {
   private async parserEtValider(
     ctx: ContexteAppelant,
     fichier: FichierTeleverse,
-  ): Promise<{ lignesValides: LigneValide[]; erreursDetail: LigneErreur[] }> {
+  ): Promise<{ lignesValides: LigneAdherentProposee[]; erreursDetail: LigneErreur[] }> {
     const workbook = new ExcelJS.Workbook();
     try {
       await workbook.xlsx.load(fichier.buffer as unknown as ExcelJS.Buffer);
@@ -785,7 +928,7 @@ export class ImportAdherentsService {
       : [];
     const emailsExistants = new Set(existants.map((a) => a.email!));
 
-    const lignesValides: LigneValide[] = [];
+    const lignesValides: LigneAdherentProposee[] = [];
     const erreursDetail: LigneErreur[] = [];
     for (const c of candidats) {
       const erreursFinales = [...c.erreurs];
@@ -803,6 +946,123 @@ export class ImportAdherentsService {
     }
 
     return { lignesValides, erreursDetail };
+  }
+
+  /** Colonnes du fichier sortants (identifiant + motif + statut cible
+   * optionnel, défaut RADIE) — résout l'identifiant (numéro d'adhérent ou
+   * email) en un `adherentId` réel de CETTE société, ACTIF. Tolérant aux
+   * erreurs par ligne, comme `parserEtValider`. */
+  private async parserEtValiderSortants(
+    ctx: ContexteAppelant,
+    souscripteurId: string,
+    fichier: FichierTeleverse,
+  ): Promise<{ sortants: { adherentId: string; statutCible: string; motif: string }[]; erreursDetail: LigneErreur[] }> {
+    const workbook = new ExcelJS.Workbook();
+    try {
+      await workbook.xlsx.load(fichier.buffer as unknown as ExcelJS.Buffer);
+    } catch {
+      throw new BadRequestException('Fichier .xlsx illisible ou corrompu.');
+    }
+    const feuille = workbook.worksheets[0];
+    if (!feuille || feuille.rowCount < 2) {
+      return { sortants: [], erreursDetail: [] };
+    }
+
+    type ColonneSortant = 'identifiant' | 'motif' | 'statutCible';
+    const ALIAS_SORTANT: Record<string, ColonneSortant> = {
+      identifiant: 'identifiant',
+      numeroadherent: 'identifiant',
+      matricule: 'identifiant',
+      email: 'identifiant',
+      motif: 'motif',
+      motifsortie: 'motif',
+      statutcible: 'statutCible',
+      statut: 'statutCible',
+      typesortie: 'statutCible',
+    };
+
+    const ligneEntete = feuille.getRow(1);
+    const colonnes = new Map<ColonneSortant, number>();
+    ligneEntete.eachCell((cell, colNumber) => {
+      const cle = ALIAS_SORTANT[normaliserEntete(String(cell.value ?? ''))];
+      if (cle) colonnes.set(cle, colNumber);
+    });
+    const manquantes = (['identifiant', 'motif'] as const).filter((c) => !colonnes.has(c));
+    if (manquantes.length > 0) {
+      throw new BadRequestException(`Colonnes manquantes dans le fichier : ${manquantes.join(', ')}.`);
+    }
+
+    const brut = (n: number, col: ColonneSortant) => {
+      const idx = colonnes.get(col);
+      if (!idx) return '';
+      const valeur = feuille.getRow(n).getCell(idx).value;
+      if (valeur === null || valeur === undefined) return '';
+      if (typeof valeur === 'object' && 'text' in (valeur as any)) return String((valeur as any).text ?? '');
+      return String(valeur).trim();
+    };
+
+    const sortants: { adherentId: string; statutCible: string; motif: string }[] = [];
+    const erreursDetail: LigneErreur[] = [];
+    const adherentIdsVus = new Set<string>();
+
+    for (let n = 2; n <= feuille.rowCount; n++) {
+      const row = feuille.getRow(n);
+      if (row.cellCount === 0) continue;
+      const identifiant = brut(n, 'identifiant');
+      const motif = brut(n, 'motif');
+      const statutCibleBrut = colonnes.has('statutCible') ? brut(n, 'statutCible').toUpperCase() : '';
+      if (!identifiant && !motif) continue; // ligne vide, ignorée silencieusement
+
+      const donnees = { identifiant, motif, statutCible: statutCibleBrut };
+      const erreurs: string[] = [];
+      if (!identifiant) erreurs.push('identifiant manquant');
+      if (!motif) erreurs.push('motif manquant');
+
+      let statutCible: string | null = 'RADIE';
+      if (statutCibleBrut) {
+        statutCible = (STATUTS_SORTANT_CIBLE as readonly string[]).includes(statutCibleBrut) ? statutCibleBrut : null;
+        if (!statutCible) erreurs.push(`statut cible invalide (${statutCibleBrut}) — attendu SUSPENDU ou RADIE`);
+      }
+
+      let adherentId: string | null = null;
+      if (identifiant && erreurs.length === 0) {
+        const adherent = await this.prisma.adherent.findFirst({
+          where: {
+            souscripteurId,
+            organisationId: ctx.organisationId,
+            deletedAt: null,
+            OR: [{ numeroAdherent: identifiant }, { email: identifiant.toLowerCase() }],
+          },
+        });
+        if (!adherent) erreurs.push(`adhérent introuvable pour cette société (${identifiant})`);
+        else if (adherent.statut !== 'ACTIF') erreurs.push(`adhérent déjà « ${adherent.statut} »`);
+        else if (adherentIdsVus.has(adherent.id)) erreurs.push('adhérent déjà présent plus haut dans le fichier');
+        else adherentId = adherent.id;
+      }
+
+      if (erreurs.length === 0 && adherentId && statutCible) {
+        adherentIdsVus.add(adherentId);
+        sortants.push({ adherentId, statutCible, motif });
+      } else {
+        erreursDetail.push({ ligne: n, donnees, erreurs });
+      }
+    }
+
+    return { sortants, erreursDetail };
+  }
+
+  /** 1er du mois indiqué (ou du mois calendaire suivant si omis) — toujours
+   * normalisé au 1er, pour un calcul de coupure de facturation sans ambiguïté. */
+  private resoudreMoisEffet(moisEffetStr?: string): Date {
+    if (moisEffetStr) {
+      const d = new Date(moisEffetStr);
+      if (Number.isNaN(d.getTime())) {
+        throw new BadRequestException('moisEffet invalide (date attendue).');
+      }
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    }
+    const maintenant = new Date();
+    return new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth() + 1, 1));
   }
 
   private parserDate(valeur: unknown): Date | null {

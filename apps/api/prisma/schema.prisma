@@ -220,7 +220,18 @@ model Adherent {
   /// ne collecte pas ce champ (colonnes nom/prénom/téléphone/email/date de
   /// naissance uniquement) — reste requis pour la création manuelle (`CreateAdherentDto`).
   sexe                String? // M | F
-  statut              String    @default("ACTIF") // ACTIF | SUSPENDU | RADIE
+  /// PROPOSE_SORTANT ajouté (prisma/sql/056) : mouvement de sortie proposé par
+  /// SOCIETE_ADMINISTRATION (`proposerSortants`), effectif (SUSPENDU/RADIE,
+  /// `statutSortantCible`) seulement après validation ASSUREUR_EXPLOITATION/
+  /// INFORMATIQUE (`validerSortants`) — immédiat, aucun report au mois suivant
+  /// (seuls les entrants le sont, cf. `ImportAdherents.moisEffet`).
+  statut              String    @default("ACTIF")
+  /// Renseigné uniquement pendant `statut = 'PROPOSE_SORTANT'` (contrainte
+  /// `adherents_sortant_coherent`) — SUSPENDU ou RADIE, choisi à la proposition.
+  statutSortantCible  String?   @map("statut_sortant_cible")
+  /// Motif de sortie — saisi à la proposition, conservé après validation
+  /// comme trace historique (jamais réinitialisé).
+  motifSortie         String?   @map("motif_sortie")
   numeroCarte         String    @unique @default(dbgenerated("('CM-'::text || lpad((nextval('cartes_membre_numero_seq'::regclass))::text, 10, '0'::text))")) @map("numero_carte")
   /// Chemin de stockage (bucket privé `photos`, prisma/sql/055) — jamais une
   /// URL signée (éphémère) : résolue à la demande via `obtenirPhotoAdherent`.
@@ -302,6 +313,15 @@ model ImportAdherents {
   importeParId    String    @map("importe_par") @db.Uuid
   valideParId     String?   @map("valide_par") @db.Uuid
   dateValidation  DateTime? @map("date_validation") @db.Timestamptz(6)
+  /// Mouvements de personnel à effet différé (prisma/sql/056) : mois auquel
+  /// les ADHERENT de ce lot doivent devenir éligibles à la facturation (1er du
+  /// mois). Quand renseigné, `validerImportAdherents` stampe directement
+  /// `Adherent.dateValidation` à la veille de ce mois (jamais `now()`) —
+  /// garantit le mois d'effet promis à la proposition, même si la validation
+  /// assureur est tardive. `null` pour tout import/proposition sans effet
+  /// différé (comportement historique inchangé : la coupure de facturation
+  /// reste gouvernée par `AdherentService.validerAdherent`, appelé séparément).
+  moisEffet       DateTime? @map("mois_effet") @db.Date
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)

@@ -1,4 +1,6 @@
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsDateString,
   IsIn,
   IsNotEmpty,
@@ -6,12 +8,15 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   LIENS_PARENTE,
   MODES_PAIEMENT,
   SEXES,
   STATUTS_MEMBRE,
+  STATUTS_SORTANT_CIBLE,
 } from '../member.types';
 
 export class CreateAdherentDto {
@@ -88,6 +93,12 @@ export class ProposerAdherentDto {
   @IsString() @IsNotEmpty() @MaxLength(20) telephone!: string;
   @IsString() @IsNotEmpty() @MaxLength(200) email!: string;
   @IsDateString() dateNaissance!: string;
+
+  /** Mouvement de personnel à effet différé (prisma/sql/056) — mois auquel
+   * CE LOT (le brouillon entier, pas seulement cette ligne) devient éligible
+   * à la facturation. Omis = comportement historique inchangé (coupure
+   * gouvernée séparément par `validerAdherent`). */
+  @IsOptional() @IsDateString() moisEffet?: string;
 }
 
 /** Proposition d'ajout d'un bénéficiaire par une société cliente, rattaché à
@@ -99,4 +110,29 @@ export class ProposerBeneficiaireDto {
   @IsString() @IsNotEmpty() @MaxLength(120) prenom!: string;
   @IsDateString() dateNaissance!: string;
   @IsIn(SEXES) sexe!: string;
+}
+
+// --- Mouvements de personnel — SORTANTS (prisma/sql/056) ------------------
+
+class SortantDto {
+  @IsUUID() adherentId!: string;
+  @IsIn(STATUTS_SORTANT_CIBLE) statutCible!: string;
+  @IsString() @IsNotEmpty() @MaxLength(400) motif!: string;
+}
+
+export class ProposerSortantsDto {
+  @IsUUID() souscripteurId!: string;
+
+  @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => SortantDto)
+  sortants!: SortantDto[];
+}
+
+export class ValiderSortantsDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID(undefined, { each: true })
+  adherentIds!: string[];
 }

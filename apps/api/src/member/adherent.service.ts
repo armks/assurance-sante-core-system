@@ -16,8 +16,10 @@ import {
   ChangerStatutDto,
   CreateAdherentDto,
   CreateBeneficiaireDto,
+  ProposerSortantsDto,
   UpdateAdherentDto,
   UpdateBeneficiaireDto,
+  ValiderSortantsDto,
 } from './dto/member.dto';
 import type { FichierTeleverse } from './import-adherents.service';
 import {
@@ -26,10 +28,13 @@ import {
   ENTITE_SOCIETE_AFFILIEE,
   MIME_TYPES_PHOTO_AUTORISES,
   ROLE_GESTION_MEMBRE_SOCIETE,
+  ROLE_PROPOSITION_SORTANT_SOCIETE,
   ROLE_RECHERCHE_CARTE,
   ROLE_VALIDATION_ADHERENT,
   ROLES_GESTION_MEMBRE,
   ROLES_VALIDATION_BENEFICIAIRE_ASSUREUR,
+  ROLES_VALIDATION_IMPORT_ADHERENTS,
+  STATUT_ADHERENT_PROPOSE_SORTANT,
   STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR,
   STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE,
   TAILLE_MAX_PHOTO_OCTETS,
@@ -383,6 +388,114 @@ export class AdherentService {
         'adherents',
       );
     });
+  }
+
+  // --- Mouvements de personnel — SORTANTS (prisma/sql/056) -----------
+
+  /**
+   * SOCIETE_ADMINISTRATION coche des adhérents ACTIFS de SA PROPRE société à
+   * suspendre/révoquer — statut → `PROPOSE_SORTANT` IMMÉDIATEMENT (visible
+   * sans délai dans le fichier des membres), effectif (statutCible) seulement
+   * après `validerSortants`. Contrairement aux entrants, aucun report au mois
+   * suivant n'est demandé pour les sortants — l'effet, une fois validé, est
+   * immédiat.
+   */
+  async proposerSortants(user: AuthenticatedUser, dto: ProposerSortantsDto) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.includes(ROLE_PROPOSITION_SORTANT_SOCIETE) ||
+      ctx.societeId !== dto.souscripteurId
+    ) {
+      throw new ForbiddenException(
+        'La proposition de sortants est réservée à SOCIETE_ADMINISTRATION, pour sa propre société.',
+      );
+    }
+
+    const resultats: { adherentId: string; statut: string }[] = [];
+    for (const s of dto.sortants) {
+      const adherent = await this.prisma.adherent.findFirst({
+        where: { id: s.adherentId, souscripteurId: dto.souscripteurId, organisationId: ctx.organisationId, deletedAt: null },
+      });
+      if (!adherent) {
+        throw new NotFoundException(`Adhérent ${s.adherentId} introuvable pour ce souscripteur.`);
+      }
+      if (adherent.statut !== 'ACTIF') {
+        throw new ConflictException(
+          `${adherent.nom} ${adherent.prenom} est déjà « ${adherent.statut} » — impossible de proposer sa sortie.`,
+        );
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.adherent.update({
+          where: { id: s.adherentId },
+          data: {
+            statut: STATUT_ADHERENT_PROPOSE_SORTANT,
+            statutSortantCible: s.statutCible,
+            motifSortie: s.motif,
+          },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'PROPOSITION_SORTANT',
+          s.adherentId,
+          { statutCible: s.statutCible, motif: s.motif },
+          'adherents',
+        );
+      });
+      resultats.push({ adherentId: s.adherentId, statut: STATUT_ADHERENT_PROPOSE_SORTANT });
+    }
+    return { propositions: resultats };
+  }
+
+  /**
+   * Réservé ASSUREUR_INFORMATIQUE/EXPLOITATION (`ROLES_VALIDATION_IMPORT_ADHERENTS`,
+   * réutilisé tel quel) — rend effectif le mouvement de sortie : `PROPOSE_SORTANT`
+   * → `statutSortantCible` (SUSPENDU ou RADIE), immédiatement.
+   */
+  async validerSortants(user: AuthenticatedUser, dto: ValiderSortantsDto) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((code) =>
+        (ROLES_VALIDATION_IMPORT_ADHERENTS as readonly string[]).includes(code),
+      )
+    ) {
+      throw new ForbiddenException(
+        'La validation des sortants est réservée à ASSUREUR_INFORMATIQUE et ASSUREUR_EXPLOITATION.',
+      );
+    }
+
+    const resultats: { adherentId: string; statut: string }[] = [];
+    for (const adherentId of dto.adherentIds) {
+      const adherent = await this.prisma.adherent.findFirst({
+        where: { id: adherentId, organisationId: ctx.organisationId, deletedAt: null },
+      });
+      if (!adherent) {
+        throw new NotFoundException(`Adhérent ${adherentId} introuvable.`);
+      }
+      if (adherent.statut !== STATUT_ADHERENT_PROPOSE_SORTANT || !adherent.statutSortantCible) {
+        throw new ConflictException(
+          `${adherent.nom} ${adherent.prenom} n'est pas en attente de validation de sortie (statut actuel : ${adherent.statut}).`,
+        );
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.adherent.update({
+          where: { id: adherentId },
+          data: { statut: adherent.statutSortantCible! },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'VALIDATION_SORTANT',
+          adherentId,
+          { statut: adherent.statutSortantCible, motif: adherent.motifSortie },
+          'adherents',
+        );
+      });
+      resultats.push({ adherentId, statut: adherent.statutSortantCible });
+    }
+    return { validations: resultats };
   }
 
   // --- Bénéficiaires -------------------------------------------------

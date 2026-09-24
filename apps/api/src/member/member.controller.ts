@@ -25,8 +25,10 @@ import {
   CreateBeneficiaireDto,
   ProposerAdherentDto,
   ProposerBeneficiaireDto,
+  ProposerSortantsDto,
   UpdateAdherentDto,
   UpdateBeneficiaireDto,
+  ValiderSortantsDto,
 } from './dto/member.dto';
 import { ImportAdherentsService, type FichierTeleverse } from './import-adherents.service';
 
@@ -374,5 +376,50 @@ export class MemberController {
     @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
   ) {
     return this.adherents.obtenirPhotoBeneficiaire(user, id, beneficiaireId);
+  }
+
+  // --- Mouvements de personnel — sortants (réservé SOCIETE_ADMINISTRATION
+  // pour la proposition, ASSUREUR_INFORMATIQUE/EXPLOITATION pour la
+  // validation) et entrants à effet différé (imports-entrants ci-dessous).
+  // Chemin top-level `sortants/...` (jamais `adherents/sortants/...`) : ce
+  // dernier serait masqué par le pattern générique `adherents/:id/valider`
+  // déjà enregistré plus haut (Express/Nest matchent dans l'ordre
+  // d'enregistrement — `:id` capturerait littéralement "sortants"). ---------
+
+  @Post('sortants/proposer')
+  proposerSortants(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ProposerSortantsDto,
+  ) {
+    return this.adherents.proposerSortants(user, dto);
+  }
+
+  @Post('sortants/valider')
+  validerSortants(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ValiderSortantsDto,
+  ) {
+    return this.adherents.validerSortants(user, dto);
+  }
+
+  @Post('souscripteurs/:souscripteurId/imports-sortants')
+  @UseInterceptors(FileInterceptor('fichier'))
+  importerSortantsExcel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+    @UploadedFile() fichier: FichierTeleverse,
+  ) {
+    return this.imports.importerSortantsExcel(user, souscripteurId, fichier);
+  }
+
+  @Post('souscripteurs/:souscripteurId/imports-entrants')
+  @UseInterceptors(FileInterceptor('fichier'))
+  importerEntrantsExcel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('souscripteurId', ParseUUIDPipe) souscripteurId: string,
+    @UploadedFile() fichier: FichierTeleverse,
+    @Body('moisEffet') moisEffet?: string,
+  ) {
+    return this.imports.importerEntrantsExcel(user, souscripteurId, fichier, moisEffet);
   }
 }

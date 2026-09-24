@@ -707,4 +707,124 @@ describe('AdherentService — fichier des membres', () => {
       expect(res.url).toContain('/object/sign/photos/y');
     });
   });
+
+  // ═══════════════════════════════════════════════════════════════════════
+  //  Mouvements de personnel — SORTANTS (prisma/sql/056) : proposition
+  //  immédiate (statut PROPOSE_SORTANT), effective seulement après validation
+  //  ASSUREUR_INFORMATIQUE/EXPLOITATION — aucun report au mois suivant ici
+  //  (à la différence des entrants, cf. import-adherents.service.spec.ts).
+  // ═══════════════════════════════════════════════════════════════════════
+  describe('proposerSortants', () => {
+    const DTO = {
+      souscripteurId: 'sous-1',
+      sortants: [{ adherentId: 'adh-1', statutCible: 'RADIE', motif: 'Départ de l’entreprise' }],
+    };
+
+    it('refuse un rôle autre que SOCIETE_ADMINISTRATION (ex. SOCIETE_ASSUREE)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], { societeId: 'sous-1' }));
+      await expect(service.proposerSortants(USER, DTO)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
+    });
+
+    it('refuse une AUTRE société que la sienne', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-AUTRE' }));
+      await expect(service.proposerSortants(USER, DTO)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('404 si un adherentId n’appartient pas à ce souscripteur', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      prisma.adherent.findFirst.mockResolvedValue(null);
+      await expect(service.proposerSortants(USER, DTO)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('409 si l’adhérent n’est pas ACTIF', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, statut: 'SUSPENDU' });
+      await expect(service.proposerSortants(USER, DTO)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
+    });
+
+    it('statut → PROPOSE_SORTANT, statutSortantCible et motif enregistrés', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, statut: 'ACTIF' });
+      prisma.adherent.update.mockResolvedValue({});
+
+      const res = await service.proposerSortants(USER, DTO);
+
+      expect(prisma.adherent.update).toHaveBeenCalledWith({
+        where: { id: 'adh-1' },
+        data: { statut: 'PROPOSE_SORTANT', statutSortantCible: 'RADIE', motifSortie: 'Départ de l’entreprise' },
+      });
+      expect(res.propositions).toEqual([{ adherentId: 'adh-1', statut: 'PROPOSE_SORTANT' }]);
+    });
+
+    it('applique plusieurs sortants du même lot', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, statut: 'ACTIF' });
+      prisma.adherent.update.mockResolvedValue({});
+
+      const res = await service.proposerSortants(USER, {
+        souscripteurId: 'sous-1',
+        sortants: [
+          { adherentId: 'adh-1', statutCible: 'RADIE', motif: 'Départ' },
+          { adherentId: 'adh-2', statutCible: 'SUSPENDU', motif: 'Congé longue durée' },
+        ],
+      });
+      expect(res.propositions).toHaveLength(2);
+      expect(prisma.adherent.update).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('validerSortants', () => {
+    const DTO = { adherentIds: ['adh-1'] };
+
+    it('refuse un rôle non habilité (SOCIETE_ADMINISTRATION lui-même)', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      await expect(service.validerSortants(USER, DTO)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('refuse ASSUREUR_COMPTABLE (importeur, jamais validateur)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_COMPTABLE']));
+      await expect(service.validerSortants(USER, DTO)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('404 si l’adhérent est introuvable', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.adherent.findFirst.mockResolvedValue(null);
+      await expect(service.validerSortants(USER, DTO)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('409 si l’adhérent n’est pas PROPOSE_SORTANT', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, statut: 'ACTIF', statutSortantCible: null });
+      await expect(service.validerSortants(USER, DTO)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('PROPOSE_SORTANT → statutSortantCible (RADIE), immédiatement', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT_CREE, statut: 'PROPOSE_SORTANT', statutSortantCible: 'RADIE', motifSortie: 'Départ',
+      });
+      prisma.adherent.update.mockResolvedValue({});
+
+      const res = await service.validerSortants(USER, DTO);
+
+      expect(prisma.adherent.update).toHaveBeenCalledWith({
+        where: { id: 'adh-1' },
+        data: { statut: 'RADIE' },
+      });
+      expect(res.validations).toEqual([{ adherentId: 'adh-1', statut: 'RADIE' }]);
+    });
+
+    it('PROPOSE_SORTANT → statutSortantCible (SUSPENDU)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT_CREE, statut: 'PROPOSE_SORTANT', statutSortantCible: 'SUSPENDU', motifSortie: 'Congé',
+      });
+      prisma.adherent.update.mockResolvedValue({});
+
+      const res = await service.validerSortants(USER, { adherentIds: ['adh-1'] });
+      expect(res.validations).toEqual([{ adherentId: 'adh-1', statut: 'SUSPENDU' }]);
+    });
+  });
 });

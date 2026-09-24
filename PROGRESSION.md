@@ -5382,3 +5382,72 @@ un bénéficiaire déjà ACTIF → 409 ; upload photo adhérent + bénéficiaire
 correct en base, URL signée renvoyée par upload et par lecture). Toutes les données de test
 éphémères supprimées, résidu nul vérifié indépendamment (organisation, profils, comptes
 Supabase Auth).
+
+## 2026-09-24 (suite) — Mouvements de personnel (sortants/entrants) par la société cliente — FIN DE L'ÉTAPE « gestion collaborative société cliente »
+
+Dernier volet de la filière société cliente ouverte au prompt du 2026-09-23 (import Excel,
+puis propositions collaboratives, puis photo/double validation bénéficiaire) : la société
+gère elle-même ses mouvements de personnel, avec la même discipline de coupure que la
+facturation mensuelle déjà construite (prisma/sql/052).
+
+### 1. Sortants (prisma/sql/056) — effet IMMÉDIAT une fois validé
+Nouveau statut intermédiaire `PROPOSE_SORTANT` sur `Adherent` (+ `statutSortantCible`
+SUSPENDU/RADIE et `motifSortie`, contrainte de cohérence `adherents_sortant_coherent`).
+`proposerSortants` (`POST /member/sortants/proposer`, réservé EXCLUSIVEMENT
+SOCIETE_ADMINISTRATION — pas SOCIETE_ASSUREE, contrairement aux propositions d'ajout,
+jugé plus sensible) bascule le statut de l'adhérent IMMÉDIATEMENT (visible sans délai) ;
+`validerSortants` (`POST /member/sortants/valider`, réutilise tel quel
+`ROLES_VALIDATION_IMPORT_ADHERENTS`) applique la cible choisie, effective à l'instant même
+— **à la différence des entrants ci-dessous, aucun report au mois suivant n'est demandé
+pour une sortie** (décision actée : seul le prompt le demande explicitement pour les
+entrants). Réutilise aussi l'import Excel (colonnes adaptées : identifiant adhérent + motif
++ statut cible optionnel, défaut RADIE) via `importerSortantsExcel`, qui délègue directement
+à `proposerSortants` après résolution de chaque identifiant (numéro d'adhérent ou email) —
+tolérant aux erreurs par ligne, comme l'import d'origine.
+
+### 2. Entrants — effet DIFFÉRÉ au mois suivant (prisma/sql/056, `ImportAdherents.moisEffet`)
+`ImportAdherents` gagne un `moisEffet` (1er du mois) explicite, posé sur le brouillon entier
+via `proposerAdherent` (manuel, champ optionnel — comportement historique inchangé si omis,
+additif pur envers la fonctionnalité « suite 5 » déjà tenue) ou `importerEntrantsExcel`
+(nouveau, réutilise `parserEtValider`/le parsing Excel du Prompt A tel quel mais APPEND au
+brouillon société au lieu de créer un import distinct — `moisEffet` toujours posé, calculé
+au mois calendaire suivant si omis). `validerImportAdherents` (déjà construit, contrat
+inchangé pour tout lot sans `moisEffet`) stampe alors directement `Adherent.dateValidation`
+à la VEILLE du 1er de `moisEffet` — jamais `now()` — pour CHAQUE adhérent créé du lot : le
+mois promis à la proposition est ainsi garanti même si la validation assureur est tardive
+(calcul vérifié robuste à un décalage arbitraire entre proposition et validation).
+
+### 3. Écran société « Entrants / sortants » (`/dashboard-societe/administration/mouvements`)
+Deux flux distincts avec statuts visibles jusqu'à validation : bloc Sortants (liste des
+adhérents ACTIFS avec action « Proposer la sortie » par ligne + import Excel, section
+« En attente de validation assureur » pour les PROPOSE_SORTANT) et bloc Entrants (formulaire
+manuel avec champ « Mois d'effet » + import Excel, liste des lots avec leur mois d'effet et
+statut). Le calcul du mois par défaut (mois suivant) est fait CÔTÉ FRONTEND pour la saisie
+manuelle (l'API `proposerAdherent` reste neutre par défaut, pour ne pas changer le
+comportement des propositions générales hors mouvements de personnel) — l'import Excel,
+lui, défère toujours côté API puisque dédié à cette fonctionnalité. Un panneau symétrique
+« Sortants en attente de validation » a été ajouté à l'écran ASSUREUR_INFORMATIQUE existant
+pour rendre la validation atteignable en interface, pas seulement via l'API.
+
+### Tests
+Backend : 12 nouveaux tests `adherent.service.spec.ts` (proposerSortants/validerSortants),
+11 nouveaux `import-adherents.service.spec.ts` (importerEntrantsExcel/importerSortantsExcel,
+moisEffet différé sur validerImportAdherents) — suite complète API 655/655, `npx tsc --noEmit`
+propre API et Web. Bug de routage trouvé et corrigé pendant le test réel : `POST
+/member/adherents/sortants/valider` était masqué par le pattern déjà enregistré
+`adherents/:id/valider` (Express/Nest matchent dans l'ordre d'enregistrement, `:id`
+capturait littéralement « sortants ») — déplacé sur un chemin top-level `sortants/valider`
+sans ambiguïté. Test HTTP réel (20/20 vérifications) : SOCIETE_ADMINISTRATION propose une
+sortie → PROPOSE_SORTANT immédiat en base ; ASSUREUR_COMPTABLE refusé (403) ; ASSUREUR_
+INFORMATIQUE valide → statut cible effectif IMMÉDIATEMENT ; SOCIETE_ADMINISTRATION propose
+un entrant avec mois d'effet explicite (mois suivant), soumet, ASSUREUR_INFORMATIQUE valide
+→ adhérent créé ACTIF avec `dateValidation` déjà renseignée ; vérifié sur l'endpoint réel de
+facturation (`GET .../adherents-facturation`) que ce nouvel entrant N'apparaît PAS dans la
+liste du mois courant mais apparaît bien dans celle du mois suivant — la coupure de
+facturation déjà construite au 2026-09-23 traite donc correctement l'effet différé. Toutes
+les données de test éphémères supprimées, résidu nul vérifié indépendamment.
+
+**Fin de l'étape « gestion collaborative société cliente »** : import Excel (entrants),
+propositions manuelles (adhérents/bénéficiaires), photo de profil, double validation d'un
+bénéficiaire ajouté par l'adhérent, et mouvements de personnel (sortants/entrants à effet
+différé) sont désormais tous construits, testés unitairement et vérifiés en HTTP réel.

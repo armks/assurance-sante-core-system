@@ -19,6 +19,7 @@ import {
   SoumettreFactureMensuelleDto,
   SubstituerMedicamentDto,
   ValiderCodeDispensationDto,
+  ValiderFactureMensuelleDto,
 } from './dto/pharmacy.dto';
 import { PharmacyService } from './pharmacy.service';
 
@@ -162,13 +163,14 @@ export class PharmacyController {
     return this.pharmacy.obtenirFactureMensuelle(user, id);
   }
 
-  /** Côté ASSUREUR_PHARMACIEN_CONSEIL exclusivement : double vérification anti-litige puis validation. */
+  /** Côté ASSUREUR_PHARMACIEN_CONSEIL exclusivement : double vérification anti-litige puis validation (VALIDEE/A_CORRIGER). */
   @Post('factures-mensuelles/:id/valider')
   validerFactureMensuelle(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ValiderFactureMensuelleDto,
   ) {
-    return this.pharmacy.validerFactureMensuelle(user, id);
+    return this.pharmacy.validerFactureMensuelle(user, id, dto);
   }
 
   /** Côté ASSUREUR_COMPTABLE exclusivement : retire une ligne encore en litige. */

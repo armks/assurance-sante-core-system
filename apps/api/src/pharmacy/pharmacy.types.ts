@@ -77,6 +77,16 @@ export type StatutFactureMensuelle = (typeof STATUTS_FACTURE_MENSUELLE)[number];
 
 export const ROLE_COMPTABLE_FACTURE_MENSUELLE = 'ASSUREUR_COMPTABLE';
 
+/**
+ * Décision de ASSUREUR_PHARMACIEN_CONSEIL sur une facture mensuelle SOUMISE —
+ * même contrat que `DECISIONS_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT`
+ * (module preauthorization/) : VALIDEE fait progresser le statut, A_CORRIGER
+ * libère les lignes et repasse la facture en EN_PREPARATION.
+ */
+export const DECISIONS_VALIDATION_FACTURE_MENSUELLE_PHARMACIE = ['VALIDEE', 'A_CORRIGER'] as const;
+export type DecisionValidationFactureMensuellePharmacie =
+  (typeof DECISIONS_VALIDATION_FACTURE_MENSUELLE_PHARMACIE)[number];
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;

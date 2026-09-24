@@ -384,6 +384,23 @@ describe('PaymentService', () => {
       );
       expect(res.soldeActuel).toBe('100000.00');
     });
+
+    it('montant à virgule (150000.75) : passé à Prisma via Decimal, exact au centime (PROMPT 4)', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.create.mockResolvedValue({
+        id: 'cf-2',
+        type: 'BANCAIRE',
+        nom: 'Compte principal',
+        soldeActuel: dec(150000.75),
+      });
+
+      const res = await service.creerCompteFinancier(USER, { ...dto, fondsInitial: 150000.75 });
+
+      expect(prisma.compteFinancier.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ soldeActuel: '150000.75' }) }),
+      );
+      expect(res.soldeActuel).toBe('150000.75');
+    });
   });
 
   describe('approvisionnerCompte', () => {
@@ -515,6 +532,27 @@ describe('PaymentService', () => {
         }),
       );
     });
+
+    it('montant à virgule (1500.50) : le même Decimal alimente increment, mouvement ET audit (PROMPT 4)', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst.mockResolvedValueOnce({ id: 'cf-1', soldeActuel: dec(10000) });
+      prisma.compteFinancier.update.mockResolvedValue({ id: 'cf-1', soldeActuel: dec(11500.5) });
+
+      const res = await service.approvisionnerCompte(USER, 'cf-1', {
+        montant: 1500.5,
+        source: 'EXTERNE',
+        piecesJustificatives: ['virement.pdf'],
+      });
+
+      expect(prisma.compteFinancier.update).toHaveBeenCalledWith({
+        where: { id: 'cf-1' },
+        data: { soldeActuel: { increment: '1500.50' } },
+      });
+      expect(prisma.mouvementFinancier.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ montant: '1500.50' }) }),
+      );
+      expect(res.soldeActuel).toBe('11500.50');
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -635,6 +673,19 @@ describe('PaymentService', () => {
       expect(res.montant).toBe('3000.00');
     });
 
+    it('log_audit() échoue → la méthode rejette (PROMPT 4 : jamais avalé, la transaction Prisma se défait avec elle)', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst
+        .mockResolvedValueOnce({ id: SRC, nom: 'Compte A', soldeActuel: dec(10000) })
+        .mockResolvedValueOnce({ id: DST, nom: 'Compte B', soldeActuel: dec(2000) });
+      prisma.mouvementFinancier.create.mockResolvedValue({ id: 'mf-1', type: 'TRANSFERT', montant: dec(3000) });
+      prisma.$executeRaw.mockRejectedValueOnce(new Error('log_audit indisponible'));
+
+      await expect(
+        service.transfererEntreComptes(USER, SRC, DST, '3000', 'Virement mensuel', null),
+      ).rejects.toThrow('log_audit indisponible');
+    });
+
     it('description omise → auto-générée', async () => {
       identity.getMe.mockResolvedValue(comptable());
       prisma.compteFinancier.findFirst
@@ -720,6 +771,17 @@ describe('PaymentService', () => {
         service.enregistrerDepense(USER, CPT, '1000', 'Achat fournitures', null),
       ).rejects.toBeInstanceOf(ConflictException);
       expect(prisma.compteFinancier.update).not.toHaveBeenCalled();
+    });
+
+    it('log_audit() échoue → la méthode rejette (PROMPT 4 : jamais avalé)', async () => {
+      identity.getMe.mockResolvedValue(comptable());
+      prisma.compteFinancier.findFirst.mockResolvedValue({ id: CPT, nom: 'Caisse', soldeActuel: dec(10000) });
+      prisma.mouvementFinancier.create.mockResolvedValue({ id: 'mf-2', type: 'DEPENSE', montant: dec(1500) });
+      prisma.$executeRaw.mockRejectedValueOnce(new Error('log_audit indisponible'));
+
+      await expect(
+        service.enregistrerDepense(USER, CPT, '1500', 'Fournitures de bureau', null),
+      ).rejects.toThrow('log_audit indisponible');
     });
 
     it('dépense enregistrée : débite le compte, trace le mouvement DEPENSE', async () => {
@@ -981,6 +1043,22 @@ describe('PaymentService', () => {
         expect(res.montantTotal).toBe('120000.00');
         expect(res.montantPaye).toBe('120000.00');
         expect(res.montantRestant).toBe('0.00');
+      });
+
+      it('log_audit() échoue → la méthode rejette (PROMPT 4 : jamais avalé, aucun paiement ne doit survivre à un audit manqué)', async () => {
+        identity.getMe.mockResolvedValue(comptable());
+        prisma.factureMensuelleEtablissement.findFirst.mockResolvedValue({
+          id: 'fe-1', statut: 'PROGRAMMEE_PAIEMENT', montantTotal: dec(120000), montantPaye: dec(0),
+          etablissement: { nom: 'FARAH' },
+        });
+        prisma.factureMensuelleEtablissement.update.mockResolvedValue({
+          id: 'fe-1', statut: 'PAYEE', montantTotal: dec(120000), montantPaye: dec(120000),
+        });
+        prisma.$executeRaw.mockRejectedValueOnce(new Error('log_audit indisponible'));
+
+        await expect(
+          service.payerFacture(USER, { factureMensuelleId: 'fe-1', compteId: 'cf-1' }),
+        ).rejects.toThrow('log_audit indisponible');
       });
 
       it('paiement partiel : montant < restant dû → PARTIELLEMENT_REGLEE, restant recalculé', async () => {

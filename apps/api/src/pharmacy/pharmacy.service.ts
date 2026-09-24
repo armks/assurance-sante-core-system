@@ -24,6 +24,7 @@ import {
   SoumettreFactureMensuelleDto,
   SubstituerMedicamentDto,
   ValiderCodeDispensationDto,
+  ValiderFactureMensuelleDto,
 } from './dto/pharmacy.dto';
 import {
   ALPHABET_CODE,
@@ -1010,7 +1011,11 @@ export class PharmacyService {
    * revérifie leur statut de litige à l'instant présent (une contestation a
    * pu être ouverte APRÈS la soumission, AVANT la validation).
    */
-  async validerFactureMensuelle(user: AuthenticatedUser, factureMensuelleId: string) {
+  async validerFactureMensuelle(
+    user: AuthenticatedUser,
+    factureMensuelleId: string,
+    dto: ValiderFactureMensuelleDto,
+  ) {
     const ctx = await this.contexteAppelant(user);
     if (!ctx.roleChain.includes(ROLE_PHARMACIEN_CONSEIL)) {
       throw new ForbiddenException('Réservé exclusivement à ASSUREUR_PHARMACIEN_CONSEIL.');
@@ -1035,6 +1040,29 @@ export class PharmacyService {
         message: `Validation impossible : ${enLitige.size} ligne(s) déjà incluse(s) sont désormais en litige (contestation ouverte après la soumission) — à régler avant de revalider.`,
         ligneOrdonnanceIdsEnLitige: [...enLitige],
       });
+    }
+
+    if (dto.decision === 'A_CORRIGER') {
+      const maj = await this.prisma.$transaction(async (tx) => {
+        await tx.ligneDispensation.updateMany({
+          where: { factureMensuelleId: facture.id },
+          data: { factureMensuelleId: null },
+        });
+        const f = await tx.factureMensuellePharmacie.update({
+          where: { id: facture.id },
+          data: { statut: 'EN_PREPARATION', dateSoumission: null },
+        });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'FACTURE_MENSUELLE_PHARMACIE_A_CORRIGER',
+          'factures_mensuelles_pharmacie',
+          f.id,
+          { nbLignesLiberees: facture.lignes.length },
+        );
+        return f;
+      });
+      return { ...maj, montantTotal: maj.montantTotal.toFixed(2) };
     }
 
     const maj = await this.prisma.$transaction(async (tx) => {

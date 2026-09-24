@@ -38,10 +38,10 @@ export function PharmacienConseilFacturesMensuellesEcran({
   const [message, setMessage] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  async function valider(id: string) {
-    const r = await validerFactureMensuelle(id);
+  async function valider(id: string, decision: 'VALIDEE' | 'A_CORRIGER') {
+    const r = await validerFactureMensuelle(id, decision);
     if (r.ok) {
-      setMessage(r.message ?? 'Validée.');
+      setMessage(r.message ?? 'Fait.');
       router.refresh();
     } else {
       setMessage(`Erreur : ${r.error}`);
@@ -98,8 +98,11 @@ export function PharmacienConseilFacturesMensuellesEcran({
                 <Button size="xs" variant="ghost" onClick={() => setDetailId(f.id === detailId ? null : f.id)}>
                   {f.id === detailId ? 'Masquer' : 'Détail'}
                 </Button>
-                <Button size="xs" onClick={() => valider(f.id)}>
+                <Button size="xs" onClick={() => valider(f.id, 'VALIDEE')}>
                   Valider
+                </Button>
+                <Button size="xs" variant="outline" onClick={() => valider(f.id, 'A_CORRIGER')}>
+                  À corriger
                 </Button>
               </div>
             )}

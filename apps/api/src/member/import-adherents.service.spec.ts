@@ -125,6 +125,18 @@ describe('ImportAdherentsService', () => {
       expect(res.id).toBe('imp-1');
     });
 
+    it('log_audit() échoue → la méthode rejette (PROMPT 4 : jamais avalé, la transaction Prisma se défait avec elle)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_COMPTABLE']));
+      prisma.souscripteur.findFirst.mockResolvedValue({ id: 'sous-1' });
+      prisma.importAdherents.create.mockResolvedValue({ id: 'imp-1', statut: 'EN_ATTENTE_VALIDATION' });
+      prisma.$executeRaw.mockRejectedValueOnce(new Error('log_audit indisponible'));
+      const buf = await fabriquerClasseur([['Yao', 'Awa', '0700000001', 'awa@test.ci', '1990-05-14']]);
+
+      await expect(
+        service.importerAdherentsExcel(USER, 'sous-1', fichier(buf)),
+      ).rejects.toThrow('log_audit indisponible');
+    });
+
     it('souscripteur introuvable → 404', async () => {
       identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
       prisma.souscripteur.findFirst.mockResolvedValue(null);

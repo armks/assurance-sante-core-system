@@ -15,7 +15,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { STATUTS_DISPENSATION } from '../pharmacy.types';
+import { DECISIONS_VALIDATION_FACTURE_MENSUELLE_PHARMACIE, STATUTS_DISPENSATION } from '../pharmacy.types';
 
 export class RechercherParCarteQueryDto {
   @IsString()
@@ -91,4 +91,9 @@ export class SoumettreFactureMensuelleDto {
     message: "periode doit être le premier jour d'un mois, au format YYYY-MM-01.",
   })
   periode!: string;
+}
+
+export class ValiderFactureMensuelleDto {
+  @IsIn(DECISIONS_VALIDATION_FACTURE_MENSUELLE_PHARMACIE)
+  decision!: (typeof DECISIONS_VALIDATION_FACTURE_MENSUELLE_PHARMACIE)[number];
 }

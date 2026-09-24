@@ -5451,3 +5451,70 @@ les données de test éphémères supprimées, résidu nul vérifié indépendam
 propositions manuelles (adhérents/bénéficiaires), photo de profil, double validation d'un
 bénéficiaire ajouté par l'adhérent, et mouvements de personnel (sortants/entrants à effet
 différé) sont désormais tous construits, testés unitairement et vérifiés en HTTP réel.
+
+## 2026-09-24 (suite 2) — Audit d'incohérences puis correction des 3 problèmes confirmés (log_audit avalé, rejet facture pharmacie manquant, rupture Decimal)
+
+Audit diagnostic complet (5 catégories : terminologie/modèle, RBAC/sécurité, règles métier
+transverses, financier, PROGRESSION.md vs réalité) mené sur l'ensemble des fonctionnalités
+métier ajoutées récemment (établissement, pharmacie, exploitation, médecin conseil,
+pharmacien conseil, comptable assurance, société cliente, adhérent) — aucune correction
+pendant l'audit, diagnostic seul. 3 problèmes confirmés ont été corrigés dans ce prompt,
+chacun testé séparément en HTTP réel avant tout commit ; les autres points de l'audit
+(3 règles « 14 jours », duplication de la règle du 1er du mois, bouton « Payer » visible à
+l'adjoint, `paiements_groupes`) restent des décisions à trancher plus tard, volontairement
+non touchés.
+
+### 1. CRITIQUE — log_audit() avalé dans 3 fichiers (rupture de la règle du PROMPT 4)
+`payment.service.ts`, `contestation.service.ts` et `member/import-adherents.service.ts`
+journalisaient l'échec de `log_audit()` via `this.logger.error()` puis continuaient
+normalement — contrairement aux 15 autres fichiers du projet déjà conformes, qui
+re-lancent l'erreur pour faire échouer la transaction Prisma englobante. Un `throw error;`
+ajouté après le log dans les 3 `audit()` privés (aucun autre changement) suffit : chaque
+appel à `this.audit(tx, …)` se fait déjà à l'intérieur d'un `$transaction(async (tx) => …)`,
+donc l'exception fait maintenant échouer tout le bloc, y compris dans `transfererEntreComptes`,
+`enregistrerDepense` et `payerFacture`.
+
+### 2. Rejet de facture mensuelle pharmacie, manquant (miroir établissement incomplet)
+`validerFactureMensuelle` (pharmacy.service.ts) n'acceptait aucune décision et ne pouvait
+donc jamais renvoyer une facture en correction — contrairement à
+`verifierFactureMensuelleEtablissement` (preauthorization.service.ts) qui gère déjà
+VALIDEE/A_CORRIGER. Ajout du vrai miroir fonctionnel : `DECISIONS_VALIDATION_FACTURE_
+MENSUELLE_PHARMACIE` (pharmacy.types.ts), `ValiderFactureMensuelleDto` (dto/pharmacy.dto.ts),
+branche `A_CORRIGER` dans `validerFactureMensuelle` qui libère les `LigneDispensation`
+stampées (`factureMensuelleId` → null) et repasse la facture en `EN_PREPARATION`
+(`dateSoumission` → null), exactement comme côté établissement. Route `POST
+pharmacy/factures-mensuelles/:id/valider` étendue pour accepter `{ decision }` ; écran
+« Factures mensuelles » du pharmacien conseil doté d'un bouton « À corriger » à côté de
+« Valider », même pattern que l'écran établissement équivalent.
+
+### 3. Rupture Decimal dans creerCompteFinancier / approvisionnerCompte
+Les deux méthodes persistaient directement depuis le `number` natif du DTO
+(`dto.fondsInitial.toFixed(2)` / `dto.montant.toFixed(2)`) au lieu de passer par
+`decimal.js`, alors que le reste du module (`parserMontant`, `transfererEntreComptes`,
+`enregistrerDepense`) applique cette discipline partout. `creerCompteFinancier` construit
+désormais `new Decimal(dto.fondsInitial)` une seule fois et le réutilise pour l'écriture ET
+le détail d'audit ; `approvisionnerCompte` hisse la construction du `Decimal(dto.montant)`
+(déjà présente pour la vérification de solde de la branche `AUTRE_COMPTE`) en tête de
+méthode et réutilise cette même instance pour le contrôle de solde, l'incrément/décrément,
+le `MouvementFinancier` créé et l'audit — plus aucun recalcul ni écriture native parallèle.
+
+### Tests
+Backend : 8 nouveaux tests (3 « log_audit échoue → rejette » dans `payment.service.spec.ts`,
+1 dans `contestation.service.spec.ts`, 1 dans `import-adherents.service.spec.ts` ; 1 test
+`A_CORRIGER` dans `pharmacy.service.spec.ts` ; 2 tests montant à virgule dans
+`payment.service.spec.ts`) — suite complète API 663/663, Java adjudication 21/21 inchangés,
+`npx tsc --noEmit` propre.
+
+Test HTTP réel (19/19 vérifications, script Node éphémère + organisation/comptes/pharmacie
+de test, tout supprimé après coup) : (1) un transfert réel entre deux comptes financiers
+pendant que `log_audit()` est temporairement redéfinie en base pour lever une exception
+(signature exacte préservée, définition originale sauvegardée via `pg_get_functiondef` puis
+restaurée immédiatement après le test, y compris en cas d'échec du script) échoue bien
+intégralement — solde source et destination inchangés au centime près, aucun
+`MouvementFinancier` créé — puis un transfert identique une fois `log_audit()` restaurée
+réussit normalement (débit confirmé), preuve que la restauration n'a rien cassé ; (2) une
+facture mensuelle pharmacie SOUMISE rejetée via `{decision:'A_CORRIGER'}` repasse bien à
+`EN_PREPARATION` avec `dateSoumission` à `null` (vérifié indépendamment en base), et le
+chemin `VALIDEE` continue de fonctionner normalement (non-régression) ; (3) un compte
+financier créé avec `fondsInitial: 150000.75` puis approvisionné de `1500.50` conserve un
+solde exact à `151501.25` au centime près, à la fois dans la réponse HTTP et en base.

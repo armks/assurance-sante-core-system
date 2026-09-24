@@ -1009,14 +1009,18 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     describe('validerFactureMensuelle', () => {
       it('rôle non autorisé (comptable) → 403', async () => {
         identity.getMe.mockResolvedValue(comptableAssureur());
-        await expect(service.validerFactureMensuelle(USER, 'fact-1')).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(
+          service.validerFactureMensuelle(USER, 'fact-1', { decision: 'VALIDEE' }),
+        ).rejects.toBeInstanceOf(ForbiddenException);
         expect(prisma.factureMensuellePharmacie.findFirst).not.toHaveBeenCalled();
       });
 
       it('facture introuvable → 404', async () => {
         identity.getMe.mockResolvedValue(pharmacienConseil());
         prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(null);
-        await expect(service.validerFactureMensuelle(USER, 'fact-x')).rejects.toBeInstanceOf(NotFoundException);
+        await expect(
+          service.validerFactureMensuelle(USER, 'fact-x', { decision: 'VALIDEE' }),
+        ).rejects.toBeInstanceOf(NotFoundException);
       });
 
       it("facture pas SOUMISE (déjà validée) → 409", async () => {
@@ -1026,7 +1030,9 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
           statut: 'VALIDEE_PHARMACIEN_CONSEIL',
           lignes: [],
         });
-        await expect(service.validerFactureMensuelle(USER, 'fact-1')).rejects.toBeInstanceOf(ConflictException);
+        await expect(
+          service.validerFactureMensuelle(USER, 'fact-1', { decision: 'VALIDEE' }),
+        ).rejects.toBeInstanceOf(ConflictException);
       });
 
       it("double sécurité : une ligne devenue en litige APRÈS soumission bloque la validation (409)", async () => {
@@ -1038,7 +1044,9 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         });
         prisma.contestationPrescription.findMany.mockResolvedValue([{ ligneOrdonnanceId: 'lo-2' }]);
 
-        await expect(service.validerFactureMensuelle(USER, 'fact-1')).rejects.toBeInstanceOf(ConflictException);
+        await expect(
+          service.validerFactureMensuelle(USER, 'fact-1', { decision: 'VALIDEE' }),
+        ).rejects.toBeInstanceOf(ConflictException);
         expect(prisma.factureMensuellePharmacie.update).not.toHaveBeenCalled();
       });
 
@@ -1056,7 +1064,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
           montantTotal: dec(6000),
         });
 
-        const res = await service.validerFactureMensuelle(USER, 'fact-1');
+        const res = await service.validerFactureMensuelle(USER, 'fact-1', { decision: 'VALIDEE' });
 
         expect(prisma.factureMensuellePharmacie.update).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -1064,6 +1072,34 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
           }),
         );
         expect(res.statut).toBe('VALIDEE_PHARMACIEN_CONSEIL');
+      });
+
+      it('A_CORRIGER libère les lignes stampées et remet la facture à EN_PREPARATION (miroir établissement)', async () => {
+        identity.getMe.mockResolvedValue(pharmacienConseil());
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue({
+          id: 'fact-1',
+          statut: 'SOUMISE',
+          lignes: [{ ligneOrdonnanceId: 'lo-1' }, { ligneOrdonnanceId: 'lo-2' }],
+        });
+        prisma.contestationPrescription.findMany.mockResolvedValue([]);
+        prisma.factureMensuellePharmacie.update.mockResolvedValue({
+          id: 'fact-1',
+          statut: 'EN_PREPARATION',
+          montantTotal: dec(6000),
+        });
+
+        const res = await service.validerFactureMensuelle(USER, 'fact-1', { decision: 'A_CORRIGER' });
+
+        expect(prisma.ligneDispensation.updateMany).toHaveBeenCalledWith({
+          where: { factureMensuelleId: 'fact-1' },
+          data: { factureMensuelleId: null },
+        });
+        expect(prisma.factureMensuellePharmacie.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ statut: 'EN_PREPARATION', dateSoumission: null }),
+          }),
+        );
+        expect(res.statut).toBe('EN_PREPARATION');
       });
     });
 

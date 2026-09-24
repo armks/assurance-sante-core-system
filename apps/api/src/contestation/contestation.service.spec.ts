@@ -215,6 +215,21 @@ describe('ContestationService', () => {
       expect(res).toMatchObject({ id: 'contest-1' });
     });
 
+    it('log_audit() échoue → la méthode rejette (PROMPT 4 : jamais avalé, la transaction Prisma se défait avec elle)', async () => {
+      identity.getMe.mockResolvedValue(pharmacienConseil());
+      prisma.ligneOrdonnance.findFirst.mockResolvedValue(ligneServie());
+      prisma.contestationPrescription.findFirst.mockResolvedValue(null);
+      prisma.contestationPrescription.create.mockResolvedValue({ id: 'contest-1', statut: 'OUVERT' });
+      prisma.$executeRaw.mockRejectedValueOnce(new Error('log_audit indisponible'));
+
+      await expect(
+        service.ouvrirContestation(USER, {
+          ligneOrdonnanceId: 'ligne-1',
+          motif: 'Quantité facturée supérieure à la quantité prescrite.',
+        }),
+      ).rejects.toThrow('log_audit indisponible');
+    });
+
     it('ligne pas encore délivrée (pharmacieServanteId null) → 400', async () => {
       identity.getMe.mockResolvedValue(pharmacienConseil());
       prisma.ligneOrdonnance.findFirst.mockResolvedValue(ligneServie({ pharmacieServanteId: null }));

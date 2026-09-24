@@ -1136,6 +1136,7 @@ export class ImportAdherentsService {
           error instanceof Error ? error.message : 'erreur inconnue'
         }`,
       );
+      throw error;
     }
   }
 }

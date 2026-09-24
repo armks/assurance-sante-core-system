@@ -763,6 +763,8 @@ export class PaymentService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestionComptesFinanciers(ctx);
 
+    const fondsInitial = new Decimal(dto.fondsInitial);
+
     const compte = await this.prisma.$transaction(async (tx) => {
       const c = await tx.compteFinancier.create({
         data: {
@@ -771,7 +773,7 @@ export class PaymentService {
           nom: dto.nom,
           banqueNom: dto.banqueNom ?? null,
           numeroCompte: dto.numeroCompte ?? null,
-          soldeActuel: dto.fondsInitial.toFixed(2),
+          soldeActuel: fondsInitial.toFixed(2),
           creeParId: ctx.userId,
         },
       });
@@ -780,7 +782,7 @@ export class PaymentService {
         ctx.userId,
         'CREATION_COMPTE_FINANCIER',
         c.id,
-        { type: dto.type, nom: dto.nom, fondsInitial: dto.fondsInitial.toFixed(2) },
+        { type: dto.type, nom: dto.nom, fondsInitial: fondsInitial.toFixed(2) },
         'comptes_financiers',
       );
       return c;
@@ -806,6 +808,8 @@ export class PaymentService {
       throw new NotFoundException('Compte financier introuvable.');
     }
 
+    const montant = new Decimal(dto.montant);
+
     let compteSource: { id: string; soldeActuel: Prisma.Decimal } | null = null;
     if (dto.source === 'AUTRE_COMPTE') {
       if (!dto.compteSourceId) {
@@ -823,7 +827,6 @@ export class PaymentService {
       if (!compteSource) {
         throw new NotFoundException('Compte source introuvable.');
       }
-      const montant = new Decimal(dto.montant);
       if (new Decimal(compteSource.soldeActuel.toString()).lt(montant)) {
         throw new ConflictException(
           `Solde insuffisant sur le compte source (${new Decimal(compteSource.soldeActuel.toString()).toFixed(2)} F) pour débiter ${montant.toFixed(2)} F.`,
@@ -834,12 +837,12 @@ export class PaymentService {
     const maj = await this.prisma.$transaction(async (tx) => {
       const c = await tx.compteFinancier.update({
         where: { id: compteId },
-        data: { soldeActuel: { increment: dto.montant.toFixed(2) } },
+        data: { soldeActuel: { increment: montant.toFixed(2) } },
       });
       if (compteSource) {
         await tx.compteFinancier.update({
           where: { id: compteSource.id },
-          data: { soldeActuel: { decrement: dto.montant.toFixed(2) } },
+          data: { soldeActuel: { decrement: montant.toFixed(2) } },
         });
       }
       await tx.mouvementFinancier.create({
@@ -848,7 +851,7 @@ export class PaymentService {
           compteSourceId: compteSource?.id ?? null,
           compteDestinationId: compteId,
           type: 'APPROVISIONNEMENT',
-          montant: dto.montant.toFixed(2),
+          montant: montant.toFixed(2),
           description:
             dto.source === 'AUTRE_COMPTE'
               ? `Approvisionnement depuis le compte « ${compteSource?.id ?? '—'} ».`
@@ -863,7 +866,7 @@ export class PaymentService {
         'APPROVISIONNEMENT_COMPTE_FINANCIER',
         c.id,
         {
-          montant: dto.montant.toFixed(2),
+          montant: montant.toFixed(2),
           source: dto.source,
           compteSourceId: compteSource?.id ?? null,
           piecesJustificatives: dto.piecesJustificatives ?? [],
@@ -1192,6 +1195,7 @@ export class PaymentService {
           error instanceof Error ? error.message : 'erreur inconnue'
         }`,
       );
+      throw error;
     }
   }
 }

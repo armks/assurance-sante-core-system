@@ -648,18 +648,46 @@ describe('AdherentService — fichier des membres', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
-    it('televerserPhotoAdherent : téléverse et met à jour photoUrl (sans aucune validation)', async () => {
+    it('televerserPhotoAdherent : téléverse dans le dossier famille, nommé {NOM}-{2 lettres société}-{numeroCarte}', async () => {
       identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
       global.fetch = okFetch() as any;
 
+      // Mock par défaut (beforeEach) : nom 'Konan', numeroCarte 'CM-0000000042',
+      // souscripteur 'ACME' → dossier attendu KONAN-AC-CM0000000042 (le tiret
+      // du numéro de carte disparaît, cf. exemple DIALLO-AC-CM0000000007).
       const res = await service.televerserPhotoAdherent(USER, 'adh-1', {
         buffer: Buffer.from('img'), originalname: 'p.jpg', mimetype: 'image/jpeg', size: 100,
       });
 
       expect(prisma.adherent.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'adh-1' }, data: { photoUrl: 'org-1/adherents/adh-1/photo.jpg' } }),
+        expect.objectContaining({
+          where: { id: 'adh-1' },
+          data: { photoUrl: 'org-1/familles/KONAN-AC-CM0000000042/KONAN-AC-CM0000000042.jpg' },
+        }),
       );
       expect(res.url).toContain('/object/sign/photos/x');
+    });
+
+    it('televerserPhotoAdherent : normalise accents/espaces/ponctuation du nom (jamais un chemin dangereux)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT_CREE,
+        nom: "N'Guessan Éric",
+        numeroCarte: 'CM-0000000099',
+        beneficiaires: [],
+        souscripteur: { id: 'sous-1', nom: 'Assurance Côte-Ivoire', type: 'ENTREPRISE' },
+      });
+      global.fetch = okFetch() as any;
+
+      await service.televerserPhotoAdherent(USER, 'adh-1', {
+        buffer: Buffer.from('img'), originalname: 'p.jpg', mimetype: 'image/jpeg', size: 100,
+      });
+
+      expect(prisma.adherent.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { photoUrl: 'org-1/familles/NGUESSAN_ERIC-AS-CM0000000099/NGUESSAN_ERIC-AS-CM0000000099.jpg' },
+        }),
+      );
     });
 
     it('televerserPhotoBeneficiaire : refuse si le bénéficiaire n’appartient pas à l’appelant', async () => {
@@ -672,18 +700,72 @@ describe('AdherentService — fichier des membres', () => {
       ).rejects.toBeInstanceOf(NotFoundException);
     });
 
-    it('televerserPhotoBeneficiaire : téléverse la photo d’un bénéficiaire propre', async () => {
+    it('televerserPhotoBeneficiaire : téléverse DANS LE MÊME dossier famille que l’adhérent, nommé avec SES propres nom/numéro', async () => {
       identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
-      prisma.beneficiaire.findFirst.mockResolvedValue({ id: 'ben-1', adherentId: 'adh-1' });
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', nom: 'Konan', numeroCarte: 'CM-0000000043',
+      });
       global.fetch = okFetch() as any;
 
       await service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-1', {
         buffer: Buffer.from('img'), originalname: 'p.png', mimetype: 'image/png', size: 100,
       });
 
+      // Même dossier famille (KONAN-AC-CM0000000042, dérivé de l'ADHÉRENT) mais
+      // un fichier au nom du BÉNÉFICIAIRE (son propre numéro de carte, ici
+      // volontairement différent : CM0000000043 ≠ celui de l'adhérent).
       expect(prisma.beneficiaire.update).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { id: 'ben-1' }, data: { photoUrl: 'org-1/beneficiaires/ben-1/photo.png' } }),
+        expect.objectContaining({
+          where: { id: 'ben-1' },
+          data: { photoUrl: 'org-1/familles/KONAN-AC-CM0000000042/KONAN-AC-CM0000000043.png' },
+        }),
       );
+    });
+
+    it('televerserPhotoBeneficiaire : numeroCarte pas encore attribué (double validation en cours) → repli sur son id, jamais bloqué', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-en-attente', adherentId: 'adh-1', nom: 'Konan', numeroCarte: null,
+      });
+      global.fetch = okFetch() as any;
+
+      await service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-en-attente', {
+        buffer: Buffer.from('img'), originalname: 'p.png', mimetype: 'image/png', size: 100,
+      });
+
+      // L'id de repli est normalisé comme tout le reste (majuscules, tirets
+      // retirés) — cohérent avec le traitement d'un numeroCarte réel.
+      expect(prisma.beneficiaire.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { photoUrl: 'org-1/familles/KONAN-AC-CM0000000042/KONAN-AC-BENENATTENTE.png' },
+        }),
+      );
+    });
+
+    it('sans collision possible par construction : adhérent et bénéficiaire ayant le même NOM restent distincts (numeroCarte, déjà unique en base, diffère forcément)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
+      // Même nom de famille que l'adhérent (Konan) ET même société — seul le
+      // numeroCarte distingue les deux fichiers, exactement le scénario du
+      // point 5 de la demande.
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', nom: 'Konan', numeroCarte: 'CM-0000000050',
+      });
+      global.fetch = okFetch() as any;
+
+      await service.televerserPhotoAdherent(USER, 'adh-1', {
+        buffer: Buffer.from('img'), originalname: 'p.jpg', mimetype: 'image/jpeg', size: 100,
+      });
+      const cheminAdherent = (prisma.adherent.update as jest.Mock).mock.calls[0][0].data.photoUrl;
+
+      global.fetch = okFetch() as any;
+      await service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-1', {
+        buffer: Buffer.from('img'), originalname: 'p.jpg', mimetype: 'image/jpeg', size: 100,
+      });
+      const cheminBeneficiaire = (prisma.beneficiaire.update as jest.Mock).mock.calls[0][0].data.photoUrl;
+
+      expect(cheminAdherent).not.toBe(cheminBeneficiaire);
+      expect(cheminAdherent).toBe('org-1/familles/KONAN-AC-CM0000000042/KONAN-AC-CM0000000042.jpg');
+      expect(cheminBeneficiaire).toBe('org-1/familles/KONAN-AC-CM0000000042/KONAN-AC-CM0000000050.jpg');
     });
 
     it('obtenirPhotoAdherent : 404 si aucune photo', async () => {

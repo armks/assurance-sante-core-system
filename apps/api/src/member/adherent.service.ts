@@ -864,7 +864,13 @@ export class AdherentService {
     }
     this.validerImagePhoto(fichier);
 
-    const chemin = `${ctx.organisationId}/adherents/${adherentId}/photo.${this.extensionPhoto(fichier.mimetype)}`;
+    const adherent = await this.chargerAdherent(ctx, adherentId);
+    const dossierFamille = this.identifiantFamille(
+      adherent.nom,
+      adherent.souscripteur.nom,
+      adherent.numeroCarte,
+    );
+    const chemin = `${ctx.organisationId}/familles/${dossierFamille}/${dossierFamille}.${this.extensionPhoto(fichier.mimetype)}`;
     await this.televerserPhoto(chemin, fichier);
     await this.prisma.adherent.update({ where: { id: adherentId }, data: { photoUrl: chemin } });
     await this.audit(this.prisma, ctx.userId, 'MODIFICATION_PHOTO_ADHERENT', adherentId, { chemin }, 'adherents');
@@ -884,10 +890,27 @@ export class AdherentService {
     if (adherentId !== ctx.adherentId) {
       throw new ForbiddenException("Vous ne pouvez modifier que la photo de vos propres bénéficiaires.");
     }
-    await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    const adherent = await this.chargerAdherent(ctx, adherentId);
+    const benef = await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
     this.validerImagePhoto(fichier);
 
-    const chemin = `${ctx.organisationId}/beneficiaires/${beneficiaireId}/photo.${this.extensionPhoto(fichier.mimetype)}`;
+    // Dossier famille TOUJOURS dérivé de l'adhérent titulaire (jamais du
+    // bénéficiaire) — un seul dossier regroupe toute la famille. `numeroCarte`
+    // du bénéficiaire est nullable tant que la double validation (prisma/sql/055)
+    // n'est pas terminée ; repli sur son `id` (toujours unique) pour ne jamais
+    // bloquer l'upload de la photo, donnée non structurante comme le reste de
+    // ce mécanisme.
+    const dossierFamille = this.identifiantFamille(
+      adherent.nom,
+      adherent.souscripteur.nom,
+      adherent.numeroCarte,
+    );
+    const nomFichier = this.identifiantFamille(
+      benef.nom,
+      adherent.souscripteur.nom,
+      benef.numeroCarte ?? benef.id,
+    );
+    const chemin = `${ctx.organisationId}/familles/${dossierFamille}/${nomFichier}.${this.extensionPhoto(fichier.mimetype)}`;
     await this.televerserPhoto(chemin, fichier);
     await this.prisma.beneficiaire.update({ where: { id: beneficiaireId }, data: { photoUrl: chemin } });
     await this.audit(
@@ -1000,6 +1023,46 @@ export class AdherentService {
     if (mimetype === 'image/png') return 'png';
     if (mimetype === 'image/webp') return 'webp';
     return 'jpg';
+  }
+
+  /** Normalise un segment pour un nom de fichier/dossier sûr : accents
+   * retirés, majuscules, espaces remplacés par `_`, toute autre ponctuation
+   * (tiret d'un numéro de carte généré `CM-0000000042`, apostrophe d'un nom
+   * composé…) retirée sans substitution — c'est ce que montre l'exemple
+   * DIALLO-AC-CM0000000007 : le `-` du numéro de carte disparaît, il ne
+   * devient pas un `_` supplémentaire à côté des séparateurs de segments. */
+  private segmentPourFichier(valeur: string): string {
+    return valeur
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toUpperCase()
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Z0-9_]/g, '');
+  }
+
+  /** 2 premières lettres (A-Z uniquement, accents/espaces/chiffres ignorés)
+   * du nom du souscripteur — jamais vide (repli `XX` si aucune lettre). */
+  private deuxLettresSociete(nomSouscripteur: string): string {
+    const lettres = nomSouscripteur
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toUpperCase()
+      .replace(/[^A-Z]/g, '');
+    return lettres.slice(0, 2) || 'XX';
+  }
+
+  /**
+   * "Dossier famille" (v. `televerserPhotoAdherent`/`televerserPhotoBeneficiaire`) :
+   * {NOM}-{2 lettres société}-{numero_carte}, normalisé pour être un chemin de
+   * fichier Supabase Storage sûr. Utilisée à l'identique pour nommer le
+   * dossier famille (à partir de l'ADHÉRENT titulaire) et chaque fichier
+   * photo qu'il contient (à partir de la personne concernée — adhérent OU
+   * l'un de ses bénéficiaires, jamais un dossier séparé par bénéficiaire).
+   * Exemple : DIALLO-AC-CM0000000007.
+   */
+  private identifiantFamille(nom: string, nomSouscripteur: string, numeroCarte: string): string {
+    return `${this.segmentPourFichier(nom)}-${this.deuxLettresSociete(nomSouscripteur)}-${this.segmentPourFichier(numeroCarte)}`;
   }
 
   private get baseStorage(): string {

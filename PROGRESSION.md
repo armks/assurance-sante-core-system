@@ -5792,3 +5792,56 @@ sidebar (et toujours pas « Mes bénéficiaires »/« Réclamations ») ; les 5 
 sidebar individuel affichée, sans redirection ni 403 ; preuve fonctionnelle au-delà du simple
 rendu de page — un vrai code de consultation généré par ce compte `SOUSCRIPTEUR_INDIVIDUEL`
 est créé en base avec le bon `adherentId`. Données et compte éphémères supprimés.
+
+## 2026-09-29 — Dossier famille : nommage et rangement des photos adhérent/bénéficiaires
+
+Les photos adhérent/bénéficiaires (prisma/sql/055) étaient stockées sous
+`{organisationId}/adherents/{id}/photo.ext` et `{organisationId}/beneficiaires/{id}/photo.ext`
+— un dossier Storage par personne, nom de fichier générique. Remplacé par un « dossier
+famille » unique par adhérent titulaire, nommé `{NOM}-{2 lettres société}-{numero_carte}`,
+regroupant sa propre photo ET celles de tous ses bénéficiaires.
+
+### Convention (nouvelles méthodes privées, `member/adherent.service.ts`)
+`identifiantFamille(nom, nomSouscripteur, numeroCarte)` — réutilisée à l'identique pour
+nommer le dossier (à partir de l'ADHÉRENT titulaire) et chaque fichier qu'il contient (à
+partir de la personne concernée) :
+- `segmentPourFichier` : accents retirés, majuscules, espaces → `_`, toute autre
+  ponctuation retirée SANS substitution — point vérifié explicitement sur l'exemple fourni
+  (`DIALLO-AC-CM0000000007`) : le tiret d'un `numero_carte` généré (`CM-0000000042`)
+  disparaît, il ne devient pas un `_` en plus des séparateurs de segments.
+- `deuxLettresSociete` : 2 premières lettres A-Z du nom du souscripteur (accents/espaces/
+  chiffres ignorés), repli `XX` si le nom n'a aucune lettre (garde-fou, jamais un segment vide).
+- Nouveau chemin : `{organisationId}/familles/{DOSSIER}/{DOSSIER}.ext` pour la photo de
+  l'adhérent lui-même, `{organisationId}/familles/{DOSSIER}/{NOM_BENEF}-{2 lettres}-
+  {numeroCarteBenef}.ext` pour un bénéficiaire — `DOSSIER` toujours dérivé de l'ADHÉRENT
+  TITULAIRE dans les deux cas, jamais du bénéficiaire, pour qu'un seul dossier regroupe
+  toute la famille.
+- `Beneficiaire.numeroCarte` est nullable tant que la double validation (prisma/sql/055)
+  n'est pas terminée — repli sur `beneficiaire.id` (normalisé comme le reste) dans ce cas,
+  pour ne jamais bloquer l'upload de la photo (donnée non structurante, comportement déjà
+  établi). Aucune migration des photos déjà stockées sous l'ancien schéma — restent lisibles
+  telles quelles (`signerPhoto` signe n'importe quel chemin déjà en base), seuls les
+  nouveaux uploads utilisent la nouvelle convention.
+- Collision : par construction impossible — `numero_carte` est déjà `@unique` en base pour
+  `Adherent` et `Beneficiaire`, donc deux fichiers du même dossier famille ne peuvent jamais
+  porter le même nom même à nom de famille identique (vérifié explicitement par un test dédié).
+- Endpoints inchangés (`POST member/adherents/:id/photo`,
+  `POST member/adherents/:id/beneficiaires/:beneficiaireId/photo`) — seule la construction
+  du chemin de stockage change, aucun autre aspect du mécanisme d'upload touché.
+
+### Tests
+Backend : `adherent.service.spec.ts` — 2 tests existants réécrits pour la nouvelle
+convention (dossier famille au lieu de l'ancien schéma par personne), 4 nouveaux (accents/
+espaces/ponctuation normalisés sans casser le format, bénéficiaire dans le même dossier que
+l'adhérent avec son propre numéro, repli sur l'id quand `numeroCarte` est encore `null`,
+non-collision explicite entre deux fichiers du même dossier). Suite complète : 721 tests
+backend (718 + 3 nets), `tsc --noEmit` propre.
+
+Test HTTP réel (12/12 vérifications, script Node éphémère — organisation, souscripteur
+« Access Bank », adhérent Diallo + 2 bénéficiaires, tout supprimé après coup y compris les
+objets Storage) : upload réel des 3 photos (adhérent, 2 bénéficiaires) via les endpoints
+existants ; `photoUrl` en base vérifié pour chacun ; les 3 chemins pointent vers EXACTEMENT
+le même dossier (`{org}/familles/DIALLO-AC-CM0000000100`) avec 3 noms de fichiers distincts
+(`DIALLO-AC-CM0000000100.jpg`, `DIALLO-AC-CM0000000101.jpg`, `TRAORE-AC-CM0000000102.jpg`) ;
+listing RÉEL du bucket Supabase Storage (pas seulement la colonne `photoUrl`) confirmant que
+les 3 fichiers existent bien physiquement à cet endroit.

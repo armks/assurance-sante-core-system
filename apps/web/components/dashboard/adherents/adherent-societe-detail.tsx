@@ -7,6 +7,7 @@ import { PageTitre } from '@/components/page-titre';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
 import {
   LIBELLE_STATUT_MEMBRE,
   TON_STATUT_MEMBRE,
@@ -35,6 +36,9 @@ export async function AdherentSocieteDetail({
   const res = await apiFetch(`/api/v1/member/adherents/${id}`);
   if (res.status === 404) notFound();
   const adherent = (await res.json()) as AdherentDetailType;
+  // Lecture seule côté société : médaillons, pas d'upload (réservé à
+  // l'adhérent et au personnel INFORMATIQUE/EXPLOITATION).
+  const photos = await chargerPhotosFamille(adherent);
 
   return (
     <div className="space-y-6">
@@ -57,9 +61,11 @@ export async function AdherentSocieteDetail({
       />
 
       <AdherentDetail
-        adherent={adherent}
+        adherent={sansCheminsPhoto(adherent)}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
         peutValiderBeneficiaireSociete={peutValiderBeneficiaireSociete(etat.identity.permissions.roleChain)}
+        photoAdherentUrl={photos.adherent}
+        photosParBeneficiaire={photos.beneficiaires}
       />
     </div>
   );

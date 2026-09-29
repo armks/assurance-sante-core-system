@@ -3,10 +3,6 @@ import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import {
-  obtenirPhotoAdherentPersonnel,
-  obtenirPhotoBeneficiairePersonnel,
-} from '@/app/dashboard-assureur/adherents-actions';
 import { AdherentDetail } from '@/components/dashboard/adherents/adherent-detail';
 import type { AdherentDetail as AdherentDetailType } from '@/components/dashboard/adherents/types';
 import { PageTitre } from '@/components/page-titre';
@@ -15,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { LIBELLE_STATUT_MEMBRE, TON_STATUT_MEMBRE } from '@/lib/member';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
 import {
   peutGererMembres,
   peutModifierPhotoMembre,
@@ -40,27 +37,11 @@ export default async function AdherentPage({
   if (res.status === 404) notFound();
   const adherent = (await res.json()) as AdherentDetailType;
 
-  // Photos : seulement pour les rôles habilités (INFORMATIQUE/EXPLOITATION —
-  // l'écran est partagé avec d'autres rôles ASSUREUR en lecture). URLs signées
-  // courte durée, résolues ici plutôt que côté client.
+  // Photos affichées à tout lecteur de la fiche (URLs signées courte durée) ;
+  // modifiables seulement par INFORMATIQUE/EXPLOITATION.
   const roleChain = etat.identity.permissions.roleChain;
   const peutModifierPhoto = peutModifierPhotoMembre(roleChain);
-  const [photoAdherent, photosBeneficiaires] = peutModifierPhoto
-    ? await Promise.all([
-        adherent.photoUrl ? obtenirPhotoAdherentPersonnel(adherent.id) : Promise.resolve(null),
-        Promise.all(
-          adherent.beneficiaires.map((b) =>
-            b.photoUrl ? obtenirPhotoBeneficiairePersonnel(adherent.id, b.id) : Promise.resolve(null),
-          ),
-        ),
-      ])
-    : [null, []];
-  const photosParBeneficiaire = Object.fromEntries(
-    adherent.beneficiaires.map((b, i) => {
-      const r = photosBeneficiaires[i];
-      return [b.id, r?.ok ? r.url : null];
-    }),
-  );
+  const photos = await chargerPhotosFamille(adherent);
 
   return (
     <div className="space-y-6">
@@ -83,14 +64,14 @@ export default async function AdherentPage({
       />
 
       <AdherentDetail
-        adherent={adherent}
+        adherent={sansCheminsPhoto(adherent)}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
         peutValider={peutValiderAdherent(etat.identity.permissions.roleChain)}
         peutValiderBeneficiaireSociete={peutValiderBeneficiaireSociete(etat.identity.permissions.roleChain)}
         peutValiderBeneficiaireAssureur={peutValiderBeneficiaireAssureur(etat.identity.permissions.roleChain)}
         peutModifierPhoto={peutModifierPhoto}
-        photoAdherentUrl={photoAdherent?.ok ? photoAdherent.url : null}
-        photosParBeneficiaire={photosParBeneficiaire}
+        photoAdherentUrl={photos.adherent}
+        photosParBeneficiaire={photos.beneficiaires}
       />
     </div>
   );

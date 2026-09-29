@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { obtenirPhotoAdherent, obtenirPhotoBeneficiaire } from '@/app/dashboard-adherent/beneficiaires-actions';
 import type { AdherentDetail, Beneficiaire } from '@/components/dashboard/adherents/types';
 import { BeneficiairesEcran } from '@/components/dashboard/adherent/beneficiaires-ecran';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
 
 export const metadata: Metadata = { title: 'Mes bénéficiaires — Adhérent' };
 
@@ -31,19 +31,9 @@ export default async function BeneficiairesPage() {
   const erreur = res.ok ? null : await messageErreur(res);
   const beneficiaires: Beneficiaire[] = adherent?.beneficiaires ?? [];
 
-  const [photoAdherent, photosBeneficiaires] = await Promise.all([
-    adherent?.photoUrl ? obtenirPhotoAdherent(adherentId) : Promise.resolve(null),
-    Promise.all(
-      beneficiaires.map((b) => (b.photoUrl ? obtenirPhotoBeneficiaire(adherentId, b.id) : Promise.resolve(null))),
-    ),
-  ]);
-
-  const photosParBeneficiaire = Object.fromEntries(
-    beneficiaires.map((b, i) => {
-      const r = photosBeneficiaires[i];
-      return [b.id, r?.ok ? r.url : null];
-    }),
-  );
+  const photos = adherent
+    ? await chargerPhotosFamille(adherent)
+    : { adherent: null, beneficiaires: {} };
 
   return (
     <div className="space-y-8">
@@ -56,9 +46,9 @@ export default async function BeneficiairesPage() {
       ) : (
         <BeneficiairesEcran
           adherentId={adherentId}
-          beneficiaires={beneficiaires}
-          photoAdherentUrl={photoAdherent?.ok ? photoAdherent.url : null}
-          photosParBeneficiaire={photosParBeneficiaire}
+          beneficiaires={sansCheminsPhoto({ beneficiaires }).beneficiaires ?? []}
+          photoAdherentUrl={photos.adherent}
+          photosParBeneficiaire={photos.beneficiaires}
         />
       )}
     </div>

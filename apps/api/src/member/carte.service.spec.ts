@@ -9,7 +9,44 @@ import jsQR from 'jsqr';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { MemberCarteService, qrEnPng } from './carte.service';
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
+import { MemberCarteService, formatPhotoPdf, qrEnPng } from './carte.service';
+
+/** Images réellement embarquées dans un PDF : dimensions de chaque XObject
+ * /Image, hors masques de transparence (/SMask d'un PNG avec alpha, qui ne sont
+ * pas des images distinctes). */
+async function imagesDuPdf(octets: Buffer): Promise<{ w: number; h: number }[]> {
+  const doc = await PDFDocument.load(octets);
+  const images: { ref: string; dict: PDFDict }[] = [];
+  const masques = new Set<string>();
+  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) {
+    const dict = obj instanceof PDFRawStream ? obj.dict : obj instanceof PDFDict ? obj : null;
+    if (dict?.get(PDFName.of('Subtype')) === PDFName.of('Image')) {
+      images.push({ ref: ref.toString(), dict });
+      const smask = dict.get(PDFName.of('SMask'));
+      if (smask) masques.add(smask.toString());
+    }
+  }
+  return images
+    .filter((i) => !masques.has(i.ref))
+    .map(({ dict }) => ({
+      w: (dict.get(PDFName.of('Width')) as PDFNumber).asNumber(),
+      h: (dict.get(PDFName.of('Height')) as PDFNumber).asNumber(),
+    }));
+}
+
+/** PNG réel de `w`×`h` (pngjs), pour distinguer la photo du QR (240×240). */
+function pngDe(w: number, h: number): Buffer {
+  const png = new PNG({ width: w, height: h });
+  png.data.fill(180);
+  return PNG.sync.write(png);
+}
+
+// JPEG 1×1 minimal valide (en-tête SOF lu par pdf-lib).
+const JPEG_1X1 = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=',
+  'base64',
+);
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -219,5 +256,113 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
       service.genererCarteAdherent(USER, 'adh-1'),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  // --- Photo en médaillon ---------------------------------------------
+
+  describe('photo en médaillon', () => {
+    const CHEMIN = 'org-1/familles/KONAN-AC-CM0000000099/KONAN-AC-CM0000000099.png';
+
+    /** fetch : photo servie par Storage (ou statut d'erreur), upload + signature OK. */
+    const avecPhoto = (reponse: { ok: boolean; status?: number; octets?: Buffer }) => {
+      fetchMock.mockImplementation(async (url: string) => {
+        const u = String(url);
+        if (u.includes('/object/authenticated/photos/')) {
+          return {
+            ok: reponse.ok,
+            status: reponse.status ?? 200,
+            arrayBuffer: async () => {
+              const b = reponse.octets ?? Buffer.alloc(0);
+              return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+            },
+          } as any;
+        }
+        if (u.includes('/object/sign/')) {
+          return { ok: true, json: async () => ({ signedURL: '/object/sign/cartes/x.pdf?token=t' }) } as any;
+        }
+        return { ok: true, text: async () => '' } as any;
+      });
+    };
+    const pdfTeleverse = (): Buffer =>
+      fetchMock.mock.calls.find((c) => String(c[0]).includes('/object/cartes/'))![1].body;
+
+    it('formatPhotoPdf : détecte PNG/JPEG par les octets, refuse WEBP et le reste', () => {
+      expect(formatPhotoPdf(pngDe(2, 2))).toBe('png');
+      expect(formatPhotoPdf(JPEG_1X1)).toBe('jpg');
+      expect(formatPhotoPdf(Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1'))).toBeNull();
+      expect(formatPhotoPdf(Buffer.from('pas une image'))).toBeNull();
+    });
+
+    it('adhérent AVEC photo PNG : téléchargée depuis le bucket privé et réellement embarquée dans le PDF', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT, photoUrl: CHEMIN });
+      avecPhoto({ ok: true, octets: pngDe(40, 60) });
+
+      await service.genererCarteAdherent(USER, 'adh-1');
+
+      const appelPhoto = fetchMock.mock.calls.find((c) => String(c[0]).includes('/object/authenticated/photos/'));
+      expect(String(appelPhoto![0])).toBe(`https://proj.supabase.co/storage/v1/object/authenticated/photos/${CHEMIN}`);
+      expect(appelPhoto![1].headers.Authorization).toBe('Bearer svc-key');
+      const images = await imagesDuPdf(pdfTeleverse());
+      expect(images).toEqual(expect.arrayContaining([{ w: 40, h: 60 }, { w: 240, h: 240 }]));
+      expect(images).toHaveLength(2);
+    });
+
+    it('bénéficiaire AVEC photo JPEG : embarquée aussi', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT,
+        beneficiaires: [{ ...ADHERENT.beneficiaires[0], photoUrl: 'org-1/familles/X/KONAN-AC-CM0000000100.jpg' }],
+      });
+      avecPhoto({ ok: true, octets: JPEG_1X1 });
+
+      await service.genererCarteBeneficiaire(USER, 'adh-1', 'ben-1');
+
+      expect(await imagesDuPdf(pdfTeleverse())).toEqual(expect.arrayContaining([{ w: 1, h: 1 }]));
+    });
+
+    it('SANS photo : carte générée normalement, QR seul, aucun appel au bucket photos', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT, photoUrl: null });
+
+      const res = await service.genererCarteAdherent(USER, 'adh-1');
+
+      expect(res.url).toContain('/object/sign/');
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/photos/'))).toBe(false);
+      expect(await imagesDuPdf(pdfTeleverse())).toEqual([{ w: 240, h: 240 }]);
+    });
+
+    it.each([
+      ['WEBP (non supporté par le PDF)', { ok: true, octets: Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1') }],
+      ['objet absent du bucket (404)', { ok: false, status: 404 }],
+      ['octets PNG corrompus', { ok: true, octets: Buffer.concat([pngDe(2, 2).subarray(0, 8), Buffer.from('garbage')]) }],
+    ])('photo inutilisable — %s : carte générée quand même, silhouette neutre, QR seul', async (_cas, reponse) => {
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT, photoUrl: CHEMIN });
+      avecPhoto(reponse);
+
+      const res = await service.genererCarteAdherent(USER, 'adh-1');
+
+      expect(res.url).toContain('/object/sign/');
+      expect(await imagesDuPdf(pdfTeleverse())).toEqual([{ w: 240, h: 240 }]);
+    });
+
+    it('lot souscripteur : photo de chaque adhérent qui en a une', async () => {
+      prisma.adherent.findMany.mockResolvedValue([
+        { ...ADHERENT, photoUrl: CHEMIN },
+        { ...ADHERENT, id: 'adh-2', numeroCarte: 'CM-0000000101', photoUrl: null },
+      ]);
+      avecPhoto({ ok: true, octets: pngDe(30, 30) });
+
+      await service.genererCartesSouscripteur(USER, 'sous-1');
+
+      const images = await imagesDuPdf(pdfTeleverse());
+      expect(images.filter((i) => i.w === 30)).toHaveLength(1);
+    });
+
+    it('nom très long : carte générée sans erreur (texte réduit/tronqué, jamais sous le médaillon)', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT,
+        prenom: 'Marie-Christelle Adjoua Akissi Aya',
+        nom: 'N’Guessan-Kouadio de la Rivière',
+      });
+      await expect(service.genererCarteAdherent(USER, 'adh-1')).resolves.toBeDefined();
+    });
   });
 });

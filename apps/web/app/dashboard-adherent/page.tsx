@@ -10,6 +10,7 @@ import {
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
 
 export const metadata: Metadata = { title: 'Vue d’ensemble — Adhérent' };
 
@@ -41,7 +42,10 @@ export default async function AdherentAccueil() {
     : [];
 
   const produitId = adherent?.police?.produit?.id;
-  const resProduit = produitId ? await apiFetch(`/api/v1/plan/produits/${produitId}`) : null;
+  const [resProduit, photos] = await Promise.all([
+    produitId ? apiFetch(`/api/v1/plan/produits/${produitId}`) : Promise.resolve(null),
+    adherent ? chargerPhotosFamille(adherent) : Promise.resolve({ adherent: null, beneficiaires: {} }),
+  ]);
   const produit: ProduitAvecGaranties | null =
     resProduit && resProduit.ok ? await resProduit.json() : null;
 
@@ -54,7 +58,13 @@ export default async function AdherentAccueil() {
       {erreur || !adherent ? (
         <p className="text-sm text-destructive">{erreur ?? 'Adhérent introuvable.'}</p>
       ) : (
-        <AdherentVueEnsemble adherent={adherent} produit={produit} reclamations={reclamations} />
+        <AdherentVueEnsemble
+          adherent={sansCheminsPhoto(adherent)}
+          produit={produit}
+          reclamations={reclamations}
+          photoAdherentUrl={photos.adherent}
+          photosParBeneficiaire={photos.beneficiaires}
+        />
       )}
     </div>
   );

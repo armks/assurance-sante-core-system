@@ -70,18 +70,3 @@ export async function televerserPhotoBeneficiaire(
   revalidatePath(CIBLE);
   return { ok: true, ...(await res.json()) };
 }
-
-export async function obtenirPhotoAdherent(adherentId: string): Promise<ResultatPhoto> {
-  const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/photo`);
-  if (!res.ok) return { ok: false, error: await messageErreur(res) };
-  return { ok: true, ...(await res.json()) };
-}
-
-export async function obtenirPhotoBeneficiaire(
-  adherentId: string,
-  beneficiaireId: string,
-): Promise<ResultatPhoto> {
-  const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/photo`);
-  if (!res.ok) return { ok: false, error: await messageErreur(res) };
-  return { ok: true, ...(await res.json()) };
-}

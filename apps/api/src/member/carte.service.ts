@@ -7,7 +7,20 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import {
+  PDFDocument,
+  type PDFFont,
+  type PDFPage,
+  StandardFonts,
+  appendBezierCurve,
+  clip,
+  closePath,
+  endPath,
+  moveTo,
+  popGraphicsState,
+  pushGraphicsState,
+  rgb,
+} from 'pdf-lib';
 import * as QRCode from 'qrcode';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
@@ -31,6 +44,21 @@ interface InfosCarte {
   dateValidite: string;
   numeroReference: string;
   organisation: string;
+}
+
+/**
+ * Format d'une photo d'après ses octets (jamais d'après l'extension du chemin).
+ * pdf-lib n'embarque que PNG et JPEG : tout le reste (WEBP, fichier corrompu…)
+ * renvoie `null` et la carte est générée avec la silhouette neutre.
+ */
+export function formatPhotoPdf(octets: Buffer): 'png' | 'jpg' | null {
+  if (octets.length >= 8 && octets.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+    return 'png';
+  }
+  if (octets.length >= 3 && octets[0] === 0xff && octets[1] === 0xd8 && octets[2] === 0xff) {
+    return 'jpg';
+  }
+  return null;
 }
 
 /**
@@ -88,7 +116,8 @@ export class MemberCarteService {
 
     const infos = this.infosDepuisAdherent(adherent);
     const qr = await qrEnPng(adherent.numeroCarte);
-    const pdf = await this.construirePdf([{ infos, qr }]);
+    const photo = await this.chargerPhoto(adherent.photoUrl);
+    const pdf = await this.construirePdf([{ infos, qr, photo }]);
 
     const chemin = `${ctx.organisationId}/adherents/${adherentId}/carte-${Date.now()}.pdf`;
     const { url, expiresIn } = await this.televerserEtSigner(chemin, pdf);
@@ -139,7 +168,8 @@ export class MemberCarteService {
     const numeroCarte = benef.numeroCarte;
     const infos = this.infosDepuisBeneficiaire(adherent, { ...benef, numeroCarte });
     const qr = await qrEnPng(numeroCarte);
-    const pdf = await this.construirePdf([{ infos, qr }]);
+    const photo = await this.chargerPhoto(benef.photoUrl);
+    const pdf = await this.construirePdf([{ infos, qr, photo }]);
 
     const chemin = `${ctx.organisationId}/beneficiaires/${beneficiaireId}/carte-${Date.now()}.pdf`;
     const { url, expiresIn } = await this.televerserEtSigner(chemin, pdf);
@@ -206,6 +236,7 @@ export class MemberCarteService {
       cartes.push({
         infos: this.infosDepuisAdherent(adherent),
         qr: await qrEnPng(adherent.numeroCarte),
+        photo: await this.chargerPhoto(adherent.photoUrl),
       });
     }
     const pdf = await this.construirePdf(cartes);
@@ -268,7 +299,7 @@ export class MemberCarteService {
   // --- PDF --------------------------------------------------------
 
   private async construirePdf(
-    cartes: { infos: InfosCarte; qr: Buffer }[],
+    cartes: { infos: InfosCarte; qr: Buffer; photo: Buffer | null }[],
   ): Promise<Buffer> {
     const doc = await PDFDocument.create();
     doc.setTitle('Carte(s) de membre');
@@ -282,7 +313,16 @@ export class MemberCarteService {
     const gris = rgb(0.42, 0.42, 0.48);
     const bleu = rgb(0.13, 0.29, 0.53);
 
-    for (const { infos, qr } of cartes) {
+    // Médaillon photo : en haut à droite, entre le bandeau (H - 36) et le QR
+    // (sommet à 16 + 96 = 112). Le texte de gauche est borné pour ne jamais
+    // passer dessous, même avec un nom très long.
+    const rayon = 26;
+    const cx = L - 14 - rayon;
+    const cy = H - 36 - 8 - rayon;
+    const largeurTexte = cx - rayon - 10 - 14;
+    const largeurValeurs = L - 96 - 14 - 10 - 14;
+
+    for (const { infos, qr, photo } of cartes) {
       const page = doc.addPage([L, H]);
       page.drawRectangle({ x: 0, y: 0, width: L, height: H, color: rgb(0.98, 0.98, 1) });
       page.drawRectangle({ x: 0, y: H - 36, width: L, height: 36, color: bleu });
@@ -301,19 +341,23 @@ export class MemberCarteService {
         color: rgb(0.82, 0.88, 1),
       });
 
+      await this.dessinerMedaillon(doc, page, photo, cx, cy, rayon);
+
       let y = H - 58;
-      page.drawText(this.ascii(infos.nomComplet), {
+      const nom = this.ajuster(this.ascii(infos.nomComplet), policeGras, 15, 10, largeurTexte);
+      page.drawText(nom.texte, {
         x: 14,
         y,
-        size: 15,
+        size: nom.taille,
         font: policeGras,
         color: encre,
       });
       y -= 15;
-      page.drawText(this.ascii(infos.qualite), {
+      const qualite = this.ajuster(this.ascii(infos.qualite), police, 7, 6, largeurTexte);
+      page.drawText(qualite.texte, {
         x: 14,
         y,
-        size: 7,
+        size: qualite.taille,
         font: police,
         color: gris,
       });
@@ -321,10 +365,11 @@ export class MemberCarteService {
       y -= 22;
       const ligne = (label: string, valeur: string) => {
         page.drawText(label, { x: 14, y, size: 6.5, font: police, color: gris });
-        page.drawText(this.ascii(valeur), {
+        const v = this.ajuster(this.ascii(valeur), policeGras, 9, 7, largeurValeurs);
+        page.drawText(v.texte, {
           x: 14,
           y: y - 11,
-          size: 9,
+          size: v.taille,
           font: policeGras,
           color: encre,
         });
@@ -355,6 +400,80 @@ export class MemberCarteService {
     return Buffer.from(bytes);
   }
 
+  /**
+   * Médaillon rond : la photo (recadrée « cover » dans un cercle) si elle est
+   * embarquable, sinon une silhouette neutre — jamais d'erreur, jamais d'image
+   * cassée. Un échec d'embarquement (octets PNG/JPEG corrompus) retombe aussi
+   * sur la silhouette.
+   */
+  private async dessinerMedaillon(
+    doc: PDFDocument,
+    page: PDFPage,
+    photo: Buffer | null,
+    cx: number,
+    cy: number,
+    r: number,
+  ): Promise<void> {
+    let image: Awaited<ReturnType<PDFDocument['embedPng']>> | null = null;
+    const format = photo ? formatPhotoPdf(photo) : null;
+    if (photo && format) {
+      try {
+        image = format === 'png' ? await doc.embedPng(photo) : await doc.embedJpg(photo);
+      } catch (error) {
+        this.logger.warn(
+          `Photo non embarquable dans la carte (${error instanceof Error ? error.message : 'erreur inconnue'}) — silhouette neutre.`,
+        );
+      }
+    } else if (photo) {
+      this.logger.warn('Photo dans un format non supporté par le PDF (PNG/JPEG uniquement) — silhouette neutre.');
+    }
+
+    // Cercle de découpe : 4 courbes de Bézier (k ≈ 0,5523).
+    const k = 0.5523 * r;
+    page.pushOperators(
+      pushGraphicsState(),
+      moveTo(cx + r, cy),
+      appendBezierCurve(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
+      appendBezierCurve(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
+      appendBezierCurve(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
+      appendBezierCurve(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+      closePath(),
+      clip(),
+      endPath(),
+    );
+    if (image) {
+      const echelle = (2 * r) / Math.min(image.width, image.height);
+      const w = image.width * echelle;
+      const h = image.height * echelle;
+      page.drawImage(image, { x: cx - w / 2, y: cy - h / 2, width: w, height: h });
+    } else {
+      page.drawCircle({ x: cx, y: cy, size: r, color: rgb(0.9, 0.91, 0.94) });
+      page.drawCircle({ x: cx, y: cy + r * 0.22, size: r * 0.3, color: rgb(0.7, 0.72, 0.78) });
+      page.drawEllipse({ x: cx, y: cy - r * 0.78, xScale: r * 0.62, yScale: r * 0.5, color: rgb(0.7, 0.72, 0.78) });
+    }
+    page.pushOperators(popGraphicsState());
+    page.drawCircle({ x: cx, y: cy, size: r, borderColor: rgb(0.13, 0.29, 0.53), borderWidth: 1.2 });
+  }
+
+  /** Réduit la taille de police jusqu'à `min`, puis tronque avec « ... » pour
+   * tenir dans `largeur` — le texte ne déborde jamais sur le médaillon/QR. */
+  private ajuster(
+    texte: string,
+    font: PDFFont,
+    taille: number,
+    min: number,
+    largeur: number,
+  ): { texte: string; taille: number } {
+    let t = taille;
+    while (t > min && font.widthOfTextAtSize(texte, t) > largeur) t -= 0.5;
+    if (font.widthOfTextAtSize(texte, t) <= largeur) return { texte, taille: t };
+    let court = texte;
+    while (court.length > 1 && font.widthOfTextAtSize(`${court}...`, t) > largeur) {
+      court = court.slice(0, -1);
+    }
+    return { texte: `${court.trimEnd()}...`, taille: t };
+  }
+
   /** pdf-lib (Helvetica/WinAnsi) : on retire ce qui n'est pas encodable. */
   private ascii(texte: string): string {
     return texte
@@ -371,6 +490,30 @@ export class MemberCarteService {
 
   private get serviceKey(): string {
     return process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+  }
+
+  /**
+   * Octets de la photo (bucket privé `photos`, lecture `service_role`) —
+   * `null` si aucune photo ou si le téléchargement échoue : la carte est alors
+   * générée normalement avec la silhouette, jamais bloquée par la photo.
+   */
+  private async chargerPhoto(chemin: string | null | undefined): Promise<Buffer | null> {
+    if (!chemin || !process.env.SUPABASE_URL || !this.serviceKey) return null;
+    try {
+      const res = await fetch(`${this.baseStorage}/object/authenticated/photos/${chemin}`, {
+        headers: { Authorization: `Bearer ${this.serviceKey}`, apikey: this.serviceKey },
+      });
+      if (!res.ok) {
+        this.logger.warn(`Photo introuvable pour la carte (${res.status}) : ${chemin} — silhouette neutre.`);
+        return null;
+      }
+      return Buffer.from(await res.arrayBuffer());
+    } catch (error) {
+      this.logger.warn(
+        `Téléchargement de la photo impossible (${error instanceof Error ? error.message : 'erreur inconnue'}) — silhouette neutre.`,
+      );
+      return null;
+    }
   }
 
   private async televerserEtSigner(

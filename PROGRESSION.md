@@ -6022,3 +6022,47 @@ Terminé, commité et poussé.
   ASSUREUR_DIRECTION → 200, fiche rendue, bouton et colonne ABSENTS. Nettoyage vérifié.
 - ASSUREUR_DIRECTION n'a pas ce droit, par choix : seuls INFORMATIQUE/EXPLOITATION étaient
   demandés (`ROLES_PHOTO_PERSONNEL`) ; l'API le refuse aussi (403, test unitaire).
+
+## 2026-09-29 — Photo en médaillon : carte de membre PDF + fiches profil
+
+### Réalisé
+- **Carte PDF** (`member/carte.service.ts`) : photo en médaillon rond (découpe circulaire,
+  recadrage « cover », liseré bleu) en haut à droite, entre le bandeau et le QR — adhérent,
+  bénéficiaire et lot souscripteur. Octets lus dans le bucket privé `photos` (service_role).
+  Format détecté par les octets (`formatPhotoPdf`) : PNG/JPEG embarqués ; sans photo,
+  WEBP (non supporté par pdf-lib), objet absent ou octets corrompus → silhouette neutre,
+  la carte est TOUJOURS générée. Nom / qualité / valeurs bornés en largeur (police réduite
+  puis « ... ») : un nom long ne passe jamais sous le médaillon ou le QR.
+- **Web** : `Medaillon` (lecture seule, silhouette si pas de photo, textes alternatifs),
+  réutilisé par `PhotoUploader`. `lib/photos.ts` : `chargerPhotosFamille` (URLs signées
+  courte durée via `GET …/photo`, jamais d'URL publique) et `sansCheminsPhoto` (le chemin
+  de stockage `photoUrl` ne part plus au navigateur — il était sérialisé dans le payload
+  RSC jusqu'ici). Affichage :
+  - fiche informatique `/dashboard-assureur/informatique/adherents/[id]` : médaillons pour
+    tout lecteur, upload seulement INFORMATIQUE/EXPLOITATION ;
+  - fiche société `/dashboard-societe/administration/adherents/[id]` : médaillons en
+    lecture seule ;
+  - `/dashboard-adherent` : nouvelle section « Ma famille » (titulaire + bénéficiaires) ;
+    `/dashboard-adherent/beneficiaires` passe par le même helper.
+  - 4 server actions `obtenirPhoto*` devenues inutiles supprimées.
+
+### Tests
+- Unitaires : +9 (`carte.service.spec.ts`, 18/18) — images réellement embarquées comptées
+  dans le PDF (hors masques /SMask) : PNG, JPEG, sans photo, WEBP, 404, PNG corrompu, lot,
+  nom très long. Backend 741/741. `tsc` api + web OK.
+- **HTTP réel 46/46** : 4 cartes générées puis téléchargées par URL signée — A1 et B1
+  contiennent leur photo (160×200, 150×150) + QR, B2 et A2 le QR seul ; 7 écrans rendus
+  (informatique, société, adhérent, avec et sans photo) : médaillons attendus, URLs signées
+  servant réellement l'image, silhouettes, aucune URL publique ni `photoUrl` dans le HTML,
+  boutons d'upload seulement où attendu.
+- **Visuel (Chrome)** : cartes PDF A1/B1 (photo dans le cercle) et B2 (silhouette) ; fiches
+  informatique A1/A2, société A1/A2, vue d'ensemble adhérent A1. Session isolée sur
+  `e2e.localhost` pour ne pas toucher la session `localhost` de l'utilisateur.
+- Nettoyage vérifié (base 0, objets Storage photos + cartes 0).
+
+### Limite connue
+Photo WEBP : acceptée à l'upload et affichée à l'écran, mais silhouette sur la carte PDF
+(pdf-lib ne lit que PNG/JPEG ; conversion non ajoutée — pas de binaire natif type sharp).
+
+### Statut
+Terminé, commité et poussé.

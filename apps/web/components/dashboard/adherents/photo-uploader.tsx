@@ -1,9 +1,8 @@
 'use client';
 
-import { User } from 'lucide-react';
 import { useRef, useState, useTransition } from 'react';
 
-import { cn } from '@/lib/utils';
+import { Medaillon } from './medaillon';
 
 export type ResultatPhoto =
   | { ok: true; url: string; expiresIn: number }
@@ -43,21 +42,11 @@ export function PhotoUploader({
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={pending}
-        className={cn(
-          'relative shrink-0 overflow-hidden rounded-full border bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
-          compact ? 'size-9' : 'size-14',
-        )}
+        className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         aria-label={nomAccessible}
         title={libelle}
       >
-        {urlLocale ? (
-          // eslint-disable-next-line @next/next/no-img-element -- URL signée Storage, pas d'optimisation Next.js utile
-          <img src={urlLocale} alt="" className="size-full object-cover" />
-        ) : (
-          <span className="grid size-full place-items-center text-muted-foreground">
-            <User aria-hidden="true" className={compact ? 'size-4' : 'size-5'} />
-          </span>
-        )}
+        <Medaillon url={urlLocale} nom={nomPersonne ?? ''} taille={compact ? 'sm' : 'md'} />
       </button>
       <input
         ref={inputRef}

@@ -1,9 +1,16 @@
 'use client';
 
 import { FileText, Scale, Wallet } from 'lucide-react';
+import Link from 'next/link';
 
+import { Medaillon } from '@/components/dashboard/adherents/medaillon';
 import { CarteResume, GrilleCartes, StatutBadge } from '@/components/dashboard/patterns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  LIBELLE_STATUT_BENEFICIAIRE,
+  LIENS_PARENTE,
+  TON_STATUT_BENEFICIAIRE,
+} from '@/lib/member';
 
 export interface GarantieAdherent {
   id: string;
@@ -39,7 +46,20 @@ export interface AdherentDetail {
   numeroCarte: string;
   statut: string;
   police: PoliceAdherent | null;
+  /** Chemin de stockage : lu par la page serveur pour signer, retiré
+   * (`sansCheminsPhoto`) avant d'atteindre ce composant client. */
+  photoUrl?: string | null;
+  beneficiaires?: {
+    id: string;
+    nom: string;
+    prenom: string;
+    lienParente: string;
+    statut: string;
+    photoUrl?: string | null;
+  }[];
 }
+
+const LIBELLE_LIEN = Object.fromEntries(LIENS_PARENTE.map((l) => [l.valeur, l.libelle]));
 
 export interface ReclamationAdherent {
   id: string;
@@ -85,11 +105,17 @@ export function AdherentVueEnsemble({
   adherent,
   produit,
   reclamations,
+  photoAdherentUrl = null,
+  photosParBeneficiaire = {},
 }: {
   adherent: AdherentDetail;
   produit: ProduitAvecGaranties | null;
   reclamations: ReclamationAdherent[];
+  /** URLs signées courte durée (`chargerPhotosFamille`). */
+  photoAdherentUrl?: string | null;
+  photosParBeneficiaire?: Record<string, string | null>;
 }) {
+  const beneficiaires = adherent.beneficiaires ?? [];
   const police = adherent.police;
   const enCours = reclamations.filter((r) => RECLAMATIONS_EN_COURS.includes(r.statut));
   const derniereAvecPlafond = [...reclamations]
@@ -130,6 +156,60 @@ export function AdherentVueEnsemble({
           tonIndice={enCours.length > 0 ? 'neutre' : 'positif'}
         />
       </GrilleCartes>
+
+      <section aria-labelledby="titre-famille" className="space-y-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <h2 id="titre-famille" className="text-sm font-semibold text-muted-foreground">
+            Ma famille
+          </h2>
+          <Link
+            href="/dashboard-adherent/beneficiaires"
+            className="text-sm text-primary underline-offset-2 hover:underline"
+          >
+            Gérer les photos et bénéficiaires
+          </Link>
+        </div>
+        <Card>
+          <CardContent>
+            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <li className="flex items-center gap-3">
+                <Medaillon url={photoAdherentUrl} nom={`${adherent.prenom} ${adherent.nom}`} />
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {adherent.prenom} {adherent.nom}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Titulaire · <span className="font-mono">{adherent.numeroCarte}</span>
+                  </p>
+                </div>
+              </li>
+              {beneficiaires.map((b) => (
+                <li key={b.id} className="flex items-center gap-3">
+                  <Medaillon url={photosParBeneficiaire[b.id] ?? null} nom={`${b.prenom} ${b.nom}`} />
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {b.prenom} {b.nom}
+                    </p>
+                    <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                      {LIBELLE_LIEN[b.lienParente] ?? b.lienParente}
+                      {b.statut !== 'ACTIF' && (
+                        <StatutBadge
+                          statut={b.statut}
+                          map={TON_STATUT_BENEFICIAIRE}
+                          libelles={LIBELLE_STATUT_BENEFICIAIRE}
+                        />
+                      )}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {beneficiaires.length === 0 && (
+              <p className="mt-4 text-sm text-muted-foreground">Aucun bénéficiaire rattaché.</p>
+            )}
+          </CardContent>
+        </Card>
+      </section>
 
       <section className="space-y-4">
         <h2 className="text-sm font-semibold text-muted-foreground">Votre couverture</h2>

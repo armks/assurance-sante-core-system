@@ -37,6 +37,7 @@ import {
   TON_STATUT_MEMBRE,
 } from '@/lib/member';
 import { CarteBouton } from './carte-bouton';
+import { Medaillon } from './medaillon';
 import { PhotoUploader } from './photo-uploader';
 import type { AdherentDetail as AdherentDetailType, Beneficiaire } from './types';
 
@@ -79,7 +80,9 @@ export function AdherentDetail({
   /** ASSUREUR_INFORMATIQUE/EXPLOITATION — photo de l'adhérent et de ses
    * bénéficiaires (mêmes endpoints et même dossier famille que le self-service). */
   peutModifierPhoto?: boolean;
-  /** URLs signées courte durée, résolues côté serveur par la page. */
+  /** URLs signées courte durée, résolues côté serveur par la page
+   * (`chargerPhotosFamille`). Affichées à tout lecteur de la fiche ;
+   * modifiables seulement si `peutModifierPhoto`. */
   photoAdherentUrl?: string | null;
   photosParBeneficiaire?: Record<string, string | null>;
 }) {
@@ -88,29 +91,26 @@ export function AdherentDetail({
   const [erreur, setErreur] = useState<string | null>(null);
   const actif = adherent.statut === 'ACTIF';
 
-  const colPhoto: ColonneTable<Beneficiaire>[] = peutModifierPhoto
-    ? [
-        {
-          cle: 'photoUrl',
-          entete: 'Photo',
-          rendu: (b) => {
-            const url = photosParBeneficiaire[b.id] ?? null;
-            return (
-              <PhotoUploader
-                compact
-                url={url}
-                libelle={url ? 'Modifier la photo' : 'Ajouter la photo'}
-                nomPersonne={`${b.nom} ${b.prenom}`}
-                onUpload={(fd) => televerserPhotoBeneficiairePersonnel(adherent.id, b.id, fd)}
-              />
-            );
-          },
-        },
-      ]
-    : [];
-
   const colBenef: ColonneTable<Beneficiaire>[] = [
-    ...colPhoto,
+    {
+      cle: 'photoUrl',
+      entete: 'Photo',
+      rendu: (b) => {
+        const url = photosParBeneficiaire[b.id] ?? null;
+        const nom = `${b.nom} ${b.prenom}`;
+        return peutModifierPhoto ? (
+          <PhotoUploader
+            compact
+            url={url}
+            libelle={url ? 'Modifier la photo' : 'Ajouter la photo'}
+            nomPersonne={nom}
+            onUpload={(fd) => televerserPhotoBeneficiairePersonnel(adherent.id, b.id, fd)}
+          />
+        ) : (
+          <Medaillon url={url} nom={nom} taille="sm" />
+        );
+      },
+    },
     {
       cle: 'nom',
       entete: 'Nom / prénom',
@@ -161,16 +161,18 @@ export function AdherentDetail({
           <CardTitle className="text-base">Informations</CardTitle>
         </CardHeader>
         <CardContent className="divide-y">
-          {peutModifierPhoto && (
-            <div className="pb-3">
+          <div className="pb-3">
+            {peutModifierPhoto ? (
               <PhotoUploader
                 url={photoAdherentUrl}
                 libelle={photoAdherentUrl ? 'Modifier la photo' : 'Ajouter la photo'}
                 nomPersonne={`${adherent.nom} ${adherent.prenom}`}
                 onUpload={(fd) => televerserPhotoAdherentPersonnel(adherent.id, fd)}
               />
-            </div>
-          )}
+            ) : (
+              <Medaillon url={photoAdherentUrl} nom={`${adherent.nom} ${adherent.prenom}`} />
+            )}
+          </div>
           <Ligne label="N° d’adhérent">{adherent.numeroAdherent}</Ligne>
           <Ligne label="Nom / prénom">
             {adherent.nom} {adherent.prenom}

@@ -31,7 +31,7 @@ export interface AdherentListe {
   } | null;
   _count?: { beneficiaires: number };
   /** Chemin de stockage (bucket privé `photos`) — jamais affiché directement,
-   * résolu via `obtenirPhotoAdherent`/`obtenirPhotoBeneficiaire`. */
+   * résolu en URL signée par `chargerPhotosFamille` (lib/photos.ts). */
   photoUrl?: string | null;
   /** Renseigné uniquement pendant `statut = 'PROPOSE_SORTANT'`. */
   statutSortantCible?: string | null;

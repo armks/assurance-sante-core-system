@@ -142,6 +142,7 @@ export function BeneficiairesEcran({
               <div className="flex items-center gap-3">
                 <PhotoUploader
                   url={photosParBeneficiaire[b.id] ?? null}
+                  nomPersonne={`${b.nom} ${b.prenom}`}
                   onUpload={async (fd) => {
                     const r = await televerserPhotoBeneficiaire(adherentId, b.id, fd);
                     router.refresh();

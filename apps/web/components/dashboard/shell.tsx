@@ -78,7 +78,7 @@ export function DashboardShell({
       <LienEvitement />
 
       {/* Sidebar (desktop) */}
-      <aside className="hidden flex-col border-r bg-muted/30 md:flex">
+      <aside className="hidden flex-col border-r bg-card md:flex">
         <div className="border-b px-4 py-4">
           <Brand />
         </div>
@@ -94,7 +94,7 @@ export function DashboardShell({
 
       {/* Contenu */}
       <div className="flex min-h-svh min-w-0 flex-col">
-        <header className="flex items-center gap-3 border-b bg-background/80 px-4 py-3 backdrop-blur md:px-8">
+        <header className="flex items-center gap-3 border-b bg-card/80 px-4 py-3 backdrop-blur md:px-8">
           <div className="md:hidden">
             <Brand />
           </div>
@@ -112,7 +112,7 @@ export function DashboardShell({
         <main
           id={ID_CONTENU_PRINCIPAL}
           tabIndex={-1}
-          className="flex-1 bg-muted/10 p-4 focus:outline-none md:p-8"
+          className="flex-1 p-4 focus:outline-none md:p-8"
         >
           <div className={cn('mx-auto', CLASSE_LARGEUR[largeur])}>{children}</div>
         </main>

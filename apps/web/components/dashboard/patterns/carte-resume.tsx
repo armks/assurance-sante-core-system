@@ -66,7 +66,7 @@ export function CarteResume({
           )}
         </div>
         {Icon && (
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg border bg-background text-muted-foreground">
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground">
             <Icon className="size-4" />
           </span>
         )}

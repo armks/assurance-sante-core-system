@@ -69,8 +69,8 @@ export function LienNav({
       className={cn(
         'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
         actif
-          ? 'bg-background font-medium text-foreground shadow-sm'
-          : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
+          ? 'bg-accent font-semibold text-accent-foreground'
+          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
         item.bientot && 'cursor-default hover:bg-transparent hover:text-muted-foreground',
       )}
     >

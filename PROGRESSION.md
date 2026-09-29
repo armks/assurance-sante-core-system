@@ -5924,3 +5924,45 @@ permanent ; la création de comptes éphémères n'a pas été faite sans accord
 
 ### Statut
 P1-01 terminé, non commité. En attente de validation.
+
+## 2026-09-29 — Palette « lavande » (réf. Dribbble #23605847) appliquée au dashboard
+
+### Réalisé
+- **Jetons de thème** (`apps/web/app/globals.css`, clair + sombre) repris du shot Dribbble
+  #23605847 (pixels échantillonnés sur l'original) : primaire violet `#7353EA` (≈ `#7757EA`
+  du shot, assombri d'un cran pour l'AA), fond de page lavande `#F3F4FC`, surfaces blanches,
+  texte `#2A2A2A`, accent `#EBE5FD`, bordures teintées. Thème sombre dérivé (violet `#9A7FE9`
+  éclairci, fonds violet-noir). Contrastes calculés : tous ≥ 4,6:1 (AA).
+- **Shells** (`dashboard/shell.tsx`, `superadmin/shell.tsx`) : sidebar et en-tête sur `bg-card`
+  (blanc), contenu sur le fond de page lavande.
+- **Menu** (`navigation-shell.tsx`) : élément actif = pilule `bg-accent` + texte violet semi-gras.
+- **CarteResume** : icône sur pastille lavande (`bg-accent text-accent-foreground`).
+- **Badge** : tonalités alignées sur le shot — succès vert, attention orange (pêche),
+  danger rose, info cyan.
+- Captures de référence : `docs/design-references/` (Behance HealthTrack + 3 shots Dribbble).
+
+### Tests
+`tsc --noEmit` OK. Rendu vérifié dans Chrome sur `/login` (clair et sombre) : `--primary`
+= `253 78% 62%`, bouton `rgb(115,83,234)`. Pas de vérification visuelle des écrans
+authentifiés (pas de compte de test utilisable sans mot de passe).
+
+### Statut
+Terminé, non commité. En attente de validation.
+
+## 2026-09-29 — Palette lavande : bordure des champs à 3:1 (WCAG 1.4.11) + commentaires corrigés
+
+### Réalisé
+- `--input` (bordure de tous les champs : `Input`, `Champ*`, selects de `DataTable` et des
+  écrans) : clair `235 10% 58%` = `#898B9F` (avant `#D6D7E1`, 1,43:1) ; sombre
+  `250 10% 45%` = `#6B677E` (avant `#34313F`, 1,43:1).
+- Commentaires de `globals.css` alignés sur les valeurs réelles après conversion HSL :
+  fond `#F3F4FC`, accent `#EDE7FD`, bordures des champs `#898B9F` / `#6B677E`.
+
+### Tests
+Ratios mesurés dans Chrome (`/login`, styles calculés, transitions neutralisées) et
+identiques au calcul : bordure/carte 3,36 (clair) / 3,33 (sombre), bordure/fond de page
+3,06 / 3,51. Effet de bord sombre vérifié (`dark:bg-input/30` s'éclaircit : fond de champ
+`#302E3B`) : texte 12,19:1, placeholder 5,25:1. `tsc --noEmit` OK, `git diff --check` OK.
+
+### Statut
+Terminé, non commité. En attente de validation.

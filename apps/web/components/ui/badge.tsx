@@ -13,13 +13,14 @@ const badgeVariants = cva(
         secondary:
           'border-transparent bg-secondary text-secondary-foreground',
         outline: 'text-foreground',
+        // Teintes de la palette lavande : vert, pêche, rose, cyan (cf. globals.css).
         success:
-          'border-transparent bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
+          'border-transparent bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300',
         warning:
-          'border-transparent bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+          'border-transparent bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',
         danger:
           'border-transparent bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300',
-        info: 'border-transparent bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300',
+        info: 'border-transparent bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300',
         muted:
           'border-transparent bg-muted text-muted-foreground',
       },

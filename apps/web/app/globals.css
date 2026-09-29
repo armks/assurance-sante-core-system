@@ -3,53 +3,63 @@
 @tailwind utilities;
 
 @layer base {
+  /* Palette « lavande » (réf. docs/design-references/dribbble-23605847-*) :
+     violet #7757EA, fond de page #F3F4FC, surfaces blanches, texte #2A2A2A. */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
+    --background: 231 60% 97%;
+    --foreground: 0 0% 16.5%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
+    --card-foreground: 0 0% 16.5%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
+    --popover-foreground: 0 0% 16.5%;
+    /* #7353EA (≈ #7757EA du shot, assombri d’un cran) : texte blanc à 5,1:1,
+       texte violet à 5,1:1 sur blanc et 4,6:1 sur le fond de page (WCAG AA). */
+    --primary: 253 78% 62%;
+    --primary-foreground: 0 0% 100%;
+    /* #F4F0FE : lavande très pâle */
+    --secondary: 256 88% 97%;
+    --secondary-foreground: 254 54% 40%;
+    --muted: 0 0% 96%;
+    /* 42 % : 5,3:1 sur blanc, 4,9:1 sur le fond de page et sur muted. */
+    --muted-foreground: 0 0% 42%;
+    /* #EDE7FD (élément de menu actif) + texte violet foncé à 6,1:1 */
+    --accent: 255 86% 95%;
+    --accent-foreground: 254 54% 50%;
     /* 0 72% 45% : texte ≥ 5,3:1 sur fond blanc et sur teinte destructive/5 (WCAG AA). */
     --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    --border: 235 22% 91%;
+    /* #898B9F : bordure des champs ≥ 3:1 sur blanc et sur le fond (WCAG 1.4.11). */
+    --input: 235 10% 58%;
+    --ring: 253 78% 62%;
     --radius: 0.625rem;
     color-scheme: light;
   }
 
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
+    --background: 250 18% 7%;
+    --foreground: 0 0% 96%;
+    --card: 250 16% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 250 16% 10%;
+    --popover-foreground: 0 0% 96%;
+    /* #9A7FE9 éclairci : texte sombre à 6,1:1, et ≥ 6:1 en texte sur fond/cartes. */
+    --primary: 255 71% 72%;
+    --primary-foreground: 250 30% 10%;
+    --secondary: 252 20% 16%;
+    --secondary-foreground: 255 80% 88%;
+    --muted: 250 12% 15%;
+    --muted-foreground: 250 8% 66%;
+    --accent: 254 32% 22%;
+    --accent-foreground: 255 90% 88%;
     /* 0 84% 67% : texte ≥ 5,8:1 sur fond sombre ; le bouton destructive
        (dark:bg-destructive/60 + texte blanc) reste à 6,8:1. */
     --destructive: 0 84% 67%;
     --destructive-foreground: 0 0% 9%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
+    --border: 250 12% 18%;
+    /* #6B677E : bordure des champs ≥ 3:1 sur les cartes et sur le fond (WCAG 1.4.11). */
+    --input: 250 10% 45%;
+    --ring: 255 71% 72%;
     /* selects natifs, barres de défilement, champs date en thème sombre */
     color-scheme: dark;
   }

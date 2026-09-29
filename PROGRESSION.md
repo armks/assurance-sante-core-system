@@ -6011,3 +6011,14 @@ dans le module (claims, contestation, preauthorization, member).
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-29 — Photos personnel : vérification de rendu complétée
+
+- Serveur Next de dev relancé (l'instance précédente, en panne « Jest worker … child
+  process exceptions » après une alerte mémoire, a été arrêtée).
+- Page `/dashboard-assureur/informatique/adherents/[id]` rendue en HTTP réel (cookies de
+  session Supabase), 7/7 : ASSUREUR_EXPLOITATION et ASSUREUR_INFORMATIQUE → 200, fiche
+  rendue, bouton « Ajouter la photo » (adhérent + bénéficiaire) et colonne Photo présents ;
+  ASSUREUR_DIRECTION → 200, fiche rendue, bouton et colonne ABSENTS. Nettoyage vérifié.
+- ASSUREUR_DIRECTION n'a pas ce droit, par choix : seuls INFORMATIQUE/EXPLOITATION étaient
+  demandés (`ROLES_PHOTO_PERSONNEL`) ; l'API le refuse aussi (403, test unitaire).

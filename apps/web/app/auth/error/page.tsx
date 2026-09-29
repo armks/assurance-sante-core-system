@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ error: string }> }) {
@@ -9,14 +11,20 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ e
         <div className="flex flex-col gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-2xl">Sorry, something went wrong.</CardTitle>
+              <CardTitle className="text-2xl">Une erreur est survenue</CardTitle>
             </CardHeader>
-            <CardContent>
-              {params?.error ? (
-                <p className="text-sm text-muted-foreground">Code error: {params.error}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground">An unspecified error occurred.</p>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Ce lien est invalide ou a expiré. Recommencez la procédure ou contactez votre
+                administrateur.
+              </p>
+              {params?.error && (
+                // message brut de Supabase (anglais), conservé pour le support
+                <p className="text-xs text-muted-foreground">Détail technique : {params.error}</p>
               )}
+              <Link href="/login" className="inline-block text-sm underline underline-offset-4">
+                Retour à la connexion
+              </Link>
             </CardContent>
           </Card>
         </div>

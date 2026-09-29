@@ -9,7 +9,7 @@ import {
   Search,
 } from 'lucide-react';
 import * as React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -87,6 +87,7 @@ export function DataTable<T extends object>({
     null,
   );
   const [page, setPage] = useState(1);
+  const idRecherche = useId();
 
   const colonneParCle = useMemo(
     () => new Map(colonnes.map((c) => [c.cle, c])),
@@ -166,8 +167,16 @@ export function DataTable<T extends object>({
           <div className="flex flex-wrap items-center gap-2">
             {recherche && (
               <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <label htmlFor={idRecherche} className="sr-only">
+                  Rechercher dans le tableau
+                </label>
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
                 <Input
+                  id={idRecherche}
+                  type="search"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder={recherche.placeholder ?? 'Rechercher…'}
@@ -205,6 +214,15 @@ export function DataTable<T extends object>({
               {colonnes.map((c) => (
                 <th
                   key={c.cle}
+                  aria-sort={
+                    !c.triable
+                      ? undefined
+                      : tri?.cle === c.cle
+                        ? tri.sens === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : 'none'
+                  }
                   className={cn(
                     'px-3 py-2 font-medium',
                     c.aligneDroite && 'text-right',
@@ -220,12 +238,15 @@ export function DataTable<T extends object>({
                       {c.entete}
                       {tri?.cle === c.cle ? (
                         tri.sens === 'asc' ? (
-                          <ArrowUp className="size-3" />
+                          <ArrowUp aria-hidden="true" className="size-3" />
                         ) : (
-                          <ArrowDown className="size-3" />
+                          <ArrowDown aria-hidden="true" className="size-3" />
                         )
                       ) : (
-                        <ArrowUpDown className="size-3 opacity-40" />
+                        <ArrowUpDown
+                          aria-hidden="true"
+                          className="size-3 opacity-40"
+                        />
                       )}
                     </button>
                   ) : (
@@ -306,8 +327,9 @@ export function DataTable<T extends object>({
                 variant="outline"
                 disabled={pageSure <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Page précédente"
               >
-                <ChevronLeft className="size-4" />
+                <ChevronLeft aria-hidden="true" className="size-4" />
               </Button>
               <Button
                 type="button"
@@ -315,8 +337,9 @@ export function DataTable<T extends object>({
                 variant="outline"
                 disabled={pageSure >= nbPages}
                 onClick={() => setPage((p) => Math.min(nbPages, p + 1))}
+                aria-label="Page suivante"
               >
-                <ChevronRight className="size-4" />
+                <ChevronRight aria-hidden="true" className="size-4" />
               </Button>
             </div>
           )}

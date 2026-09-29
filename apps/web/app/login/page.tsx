@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import type { Metadata } from 'next';
 
 import { Brand } from '@/components/brand';
@@ -28,13 +27,7 @@ export default function LoginPage() {
         <LoginForm />
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
-          Accès réservé. Un compte est créé par votre administrateur.{' '}
-          <Link
-            href="/auth/forgot-password"
-            className="underline underline-offset-4 hover:text-foreground"
-          >
-            Mot de passe oublié ?
-          </Link>
+          Accès réservé. Un compte est créé par votre administrateur.
         </p>
       </div>
     </main>

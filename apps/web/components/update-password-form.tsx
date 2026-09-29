@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
+import { messageErreurAuth } from '@/lib/auth-erreurs'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
@@ -34,7 +35,7 @@ export function UpdatePasswordForm({ className, ...props }: React.ComponentProps
       // Update this route to redirect to an authenticated route. The user already has an active session.
       router.push('/dashboard')
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'An error occurred')
+      setError(messageErreurAuth(error))
     } finally {
       setIsLoading(false)
     }
@@ -44,26 +45,31 @@ export function UpdatePasswordForm({ className, ...props }: React.ComponentProps
     <div className={cn('flex flex-col gap-6', className)} {...props}>
       <Card>
         <CardHeader>
-          <CardTitle className="text-2xl">Reset Your Password</CardTitle>
-          <CardDescription>Please enter your new password below.</CardDescription>
+          <CardTitle className="text-2xl">Nouveau mot de passe</CardTitle>
+          <CardDescription>Choisissez votre nouveau mot de passe.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleForgotPassword}>
             <div className="flex flex-col gap-6">
               <div className="grid gap-2">
-                <Label htmlFor="password">New password</Label>
+                <Label htmlFor="password">Nouveau mot de passe</Label>
                 <Input
                   id="password"
+                  name="password"
                   type="password"
-                  placeholder="New password"
+                  autoComplete="new-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              {error && <p className="text-sm text-red-500">{error}</p>}
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? 'Saving...' : 'Save new password'}
+                {isLoading ? 'Enregistrement…' : 'Enregistrer le mot de passe'}
               </Button>
             </div>
           </form>

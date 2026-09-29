@@ -119,7 +119,11 @@ export function FormulaireModal({
           <div className="grid gap-4">{children}</div>
 
           {(erreur || erreurs.length > 0) && (
-            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+            // role="alert" : annoncé par les lecteurs d'écran dès son apparition
+            <div
+              role="alert"
+              className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            >
               {erreur && <p className="font-medium">{erreur}</p>}
               {erreurs.length > 0 && (
                 <ul className="mt-1 list-disc space-y-0.5 pl-4">

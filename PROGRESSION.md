@@ -5845,3 +5845,42 @@ le même dossier (`{org}/familles/DIALLO-AC-CM0000000100`) avec 3 noms de fichie
 (`DIALLO-AC-CM0000000100.jpg`, `DIALLO-AC-CM0000000101.jpg`, `TRAORE-AC-CM0000000102.jpg`) ;
 listing RÉEL du bucket Supabase Storage (pas seulement la colonne `photoUrl`) confirmant que
 les 3 fichiers existent bien physiquement à cet endroit.
+
+## 2026-09-29 (suite) — Audit UI/UX : lot P0 (accessibilité, contrastes, parcours d'authentification)
+
+Premier lot de l'audit UI/UX du frontend (`apps/web`), validé seul (P1/P2/P3 non traités).
+Aucune logique métier, API, contrat front/back, Supabase, NestJS ni microservice touché.
+
+### Réalisé
+- **Contraste `--destructive`** (`app/globals.css`) : clair `0 72% 45%` (≥ 5,3:1 sur blanc
+  et sur la teinte `destructive/5`, contre 3,8:1 avant), sombre `0 84% 67%` (≥ 5,8:1, contre
+  2:1 avant) ; `--destructive-foreground` sombre passé en foncé pour rester lisible sur le
+  rouge clair. Le bouton `destructive` (texte blanc, `dark:bg-destructive/60`) reste ≥ 5,8:1.
+- **`color-scheme`** : `light` sur `:root`, `dark` sur `.dark` (selects natifs, barres de
+  défilement et champs date suivent le thème).
+- **DataTable** (`patterns/data-table.tsx`) : recherche en `type="search"` avec libellé
+  `sr-only` associé (`useId`), `aria-sort` sur les en-têtes triables, `aria-label`
+  « Page précédente / Page suivante » sur la pagination, icônes décoratives `aria-hidden`.
+- **FormulaireModal** : bloc d'erreur en `role="alert"` (annoncé à l'apparition).
+- **Parcours d'authentification en français** (connexion, mot de passe oublié / mis à jour,
+  inscription, succès d'inscription, page d'erreur) : lien « Sign up » retiré de la connexion
+  (compte créé par l'administrateur ; la route `/auth/sign-up` reste en place, traduite), un
+  seul lien « Mot de passe oublié ? » (dans le formulaire), `autocomplete` (`username`,
+  `current-password`, `email`, `new-password`), `spellCheck={false}` sur les e-mails, erreurs
+  en `role="alert"` + `text-destructive` au lieu de `text-red-500`.
+- **Erreurs Supabase traduites** : nouveau `lib/auth-erreurs.ts` (`messageErreurAuth`), basé
+  sur `error.code` (invalid_credentials, email_not_confirmed, weak_password, same_password,
+  otp_expired, rate limits…), repli réseau et message générique français. La page
+  `/auth/error` affiche un message français ; le message brut de Supabase n'y apparaît plus
+  que comme « détail technique ».
+
+### Tests
+`tsc --noEmit` propre ; `next build --webpack` OK (toutes les routes). Vérification sur le
+build de production (`next start`, serveur arrêté ensuite) : HTML de `/login`,
+`/auth/forgot-password`, `/auth/update-password`, `/auth/error` en français, attributs
+`autocomplete` présents, plus aucun lien vers `/auth/sign-up` ; CSS compilé contenant les
+nouveaux `--destructive` et les deux `color-scheme`. `npm run lint` inutilisable (préexistant :
+`next lint` supprimé dans Next 16, aucun ESLint configuré).
+
+### Statut
+Lot P0 terminé. En attente de validation pour P1.

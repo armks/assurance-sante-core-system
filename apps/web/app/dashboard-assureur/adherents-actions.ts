@@ -232,3 +232,55 @@ export async function validerSortants(
   revalider();
   return { ok: true };
 }
+
+// --- Photo de profil par le personnel (ASSUREUR_INFORMATIQUE/EXPLOITATION) —
+// mêmes endpoints que le self-service adhérent ; l'API vérifie le rôle et
+// l'organisation, et applique la même convention de dossier famille. ---
+
+type ResultatPhoto =
+  | { ok: true; url: string; expiresIn: number }
+  | { ok: false; error: string };
+
+export async function televerserPhotoAdherentPersonnel(
+  adherentId: string,
+  fd: FormData,
+): Promise<ResultatPhoto> {
+  const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/photo`, {
+    method: 'POST',
+    body: fd,
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider(`/${adherentId}`);
+  return { ok: true, ...(await res.json()) };
+}
+
+export async function televerserPhotoBeneficiairePersonnel(
+  adherentId: string,
+  beneficiaireId: string,
+  fd: FormData,
+): Promise<ResultatPhoto> {
+  const res = await apiFetch(
+    `/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/photo`,
+    { method: 'POST', body: fd },
+  );
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider(`/${adherentId}`);
+  return { ok: true, ...(await res.json()) };
+}
+
+export async function obtenirPhotoAdherentPersonnel(adherentId: string): Promise<ResultatPhoto> {
+  const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/photo`);
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  return { ok: true, ...(await res.json()) };
+}
+
+export async function obtenirPhotoBeneficiairePersonnel(
+  adherentId: string,
+  beneficiaireId: string,
+): Promise<ResultatPhoto> {
+  const res = await apiFetch(
+    `/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/photo`,
+  );
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  return { ok: true, ...(await res.json()) };
+}

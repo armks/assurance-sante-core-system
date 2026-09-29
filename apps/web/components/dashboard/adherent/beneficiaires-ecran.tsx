@@ -1,8 +1,7 @@
 'use client';
 
-import { User } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useRef, useState, useTransition } from 'react';
+import { useState } from 'react';
 
 import {
   modifierMonBeneficiaire,
@@ -23,76 +22,11 @@ import {
   SEXES,
   TON_STATUT_BENEFICIAIRE,
 } from '@/lib/member';
+import { PhotoUploader } from '@/components/dashboard/adherents/photo-uploader';
 import type { Beneficiaire } from '@/components/dashboard/adherents/types';
 
 const LIBELLE_LIEN = Object.fromEntries(LIENS_PARENTE.map((l) => [l.valeur, l.libelle]));
 const dateFr = (d: string) => new Date(d).toLocaleDateString('fr-FR');
-
-type ResultatPhoto = { ok: true; url: string; expiresIn: number } | { ok: false; error: string };
-
-function PhotoUploader({
-  url,
-  onUpload,
-}: {
-  url: string | null;
-  onUpload: (fd: FormData) => Promise<ResultatPhoto>;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [pending, start] = useTransition();
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [urlLocale, setUrlLocale] = useState(url);
-
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={pending}
-        className="relative size-14 shrink-0 overflow-hidden rounded-full border bg-muted disabled:opacity-60"
-        title="Changer la photo"
-      >
-        {urlLocale ? (
-          // eslint-disable-next-line @next/next/no-img-element -- URL signée Storage, pas d'optimisation Next.js utile
-          <img src={urlLocale} alt="" className="size-full object-cover" />
-        ) : (
-          <span className="grid size-full place-items-center text-muted-foreground">
-            <User className="size-5" />
-          </span>
-        )}
-      </button>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        className="hidden"
-        onChange={(e) => {
-          const fichier = e.target.files?.[0];
-          e.target.value = '';
-          if (!fichier) return;
-          const fd = new FormData();
-          fd.set('photo', fichier);
-          start(async () => {
-            setErreur(null);
-            const r = await onUpload(fd);
-            if (r.ok) setUrlLocale(r.url);
-            else setErreur(r.error);
-          });
-        }}
-      />
-      <div className="text-xs">
-        <button
-          type="button"
-          className="text-muted-foreground underline-offset-2 hover:underline disabled:opacity-60"
-          disabled={pending}
-          onClick={() => inputRef.current?.click()}
-        >
-          {pending ? 'Envoi…' : 'Changer la photo'}
-        </button>
-        {erreur && <p className="text-destructive">{erreur}</p>}
-      </div>
-    </div>
-  );
-}
 
 function ChampsBeneficiaire({ beneficiaire }: { beneficiaire?: Beneficiaire }) {
   return (

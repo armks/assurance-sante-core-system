@@ -5966,3 +5966,48 @@ identiques au calcul : bordure/carte 3,36 (clair) / 3,33 (sombre), bordure/fond 
 
 ### Statut
 Terminé, non commité. En attente de validation.
+
+## 2026-09-29 — Photos « dossier famille » : ouverture au personnel INFORMATIQUE/EXPLOITATION
+
+### Déjà en place (commit d1aafdd, inchangé)
+Points 1-3, 5 et 7 de la demande : dossier `{org}/familles/{NOM}-{2 lettres société}-{numero_carte}`,
+fichier de l'adhérent = nom du dossier, fichier d'un bénéficiaire = SES nom/numéro dans le
+MÊME dossier, normalisation, test de non-collision.
+
+### Réalisé
+- **API** (`member.types.ts`, `adherent.service.ts`) : `ROLES_PHOTO_PERSONNEL`
+  (ASSUREUR_INFORMATIQUE, ASSUREUR_EXPLOITATION — adjoints inclus via `roleChain`).
+  `assertPhotoAutorisee` remplace `assertEntiteAdherent` dans les 2 uploads : self-service
+  adhérent inchangé (son propre dossier uniquement, 403 sinon) OU personnel habilité ;
+  tout autre rôle → 403. Scope organisation par `chargerAdherent` (filtre `organisationId`)
+  et `chargerBeneficiaire` (bénéficiaire rattaché à CET adhérent) — aucun id cru sur parole.
+  Hors organisation → **404** (convention du module : ne pas révéler l'existence).
+  Chemin et nommage strictement identiques au self-service (même code).
+- **Web** : `PhotoUploader` extrait en composant partagé
+  (`components/dashboard/adherents/photo-uploader.tsx`, + nom accessible, variante compacte),
+  réutilisé par le self-service (inchangé) et par la fiche
+  `/dashboard-assureur/informatique/adherents/[id]` (écran commun INFORMATIQUE/EXPLOITATION) :
+  « Ajouter/Modifier la photo » sur l'adhérent et colonne Photo pour chaque bénéficiaire,
+  visibles seulement si `peutModifierPhotoMembre` ; URLs signées résolues côté serveur.
+  Server actions `televerserPhoto*Personnel` / `obtenirPhoto*Personnel`.
+
+### Tests
+- Unitaires : +11 (`adherent.service.spec.ts`, 72/72) — INFORMATIQUE/EXPLOITATION/adjoint,
+  bénéficiaire, autre organisation (404, rien téléversé), ids croisés (404), 4 rôles non
+  habilités (403), self-service inchangé. Suite backend : 732/732. `tsc` api + web OK.
+- **HTTP réel 25/25** : INFORMATIQUE (org A) sur adhérent + 2 bénéficiaires de l'org B → 404,
+  rien en base ni dans le bucket (listing Storage réel) ; COMPTABLE → 403 ; INFORMATIQUE +
+  EXPLOITATION sur l'org A → 201, 3 fichiers `DIALLO-AC-CM…104.png`, `DIALLO-AC-CM…105.png`,
+  `KONE-AC-CM…106.png` dans le même dossier (listing réel) ; GET photo → octets identiques ;
+  adhérent → sa photo 201 au MÊME chemin (upsert, toujours 3 fichiers), autre adhérent → 403.
+  Nettoyage vérifié (orgs, profils, objets Storage : 0).
+- Page rendue : INFORMATIQUE → 200, bouton + colonne Photo présents. EXPLOITATION/DIRECTION
+  non vérifiés en rendu : serveur Next de dev en panne (« Jest worker … child process
+  exceptions », mémoire basse), pas relancé sans accord.
+
+### Écart assumé
+La demande attendait 403 pour une autre organisation ; c'est 404, comme partout ailleurs
+dans le module (claims, contestation, preauthorization, member).
+
+### Statut
+Terminé, commité et poussé.

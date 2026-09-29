@@ -768,6 +768,101 @@ describe('AdherentService — fichier des membres', () => {
       expect(cheminBeneficiaire).toBe('org-1/familles/KONAN-AC-CM0000000042/KONAN-AC-CM0000000050.jpg');
     });
 
+    // --- Personnel habilité (ASSUREUR_INFORMATIQUE / ASSUREUR_EXPLOITATION) ---
+
+    const PHOTO = { buffer: Buffer.from('img'), originalname: 'p.jpg', mimetype: 'image/jpeg', size: 100 };
+
+    it.each(['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION', 'ASSUREUR_INFORMATIQUE_ADJOINT'])(
+      'personnel %s : photo d’un adhérent de SON organisation → même dossier/nom que le self-service',
+      async (role) => {
+        const chaine = role.endsWith('_ADJOINT') ? [role, role.replace('_ADJOINT', '')] : [role];
+        identity.getMe.mockResolvedValue(identite(chaine));
+        global.fetch = okFetch() as any;
+
+        await service.televerserPhotoAdherent(USER, 'adh-1', PHOTO);
+
+        expect(prisma.adherent.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: 'adh-1', organisationId: 'org-1', deletedAt: null } }),
+        );
+        expect(prisma.adherent.update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: { photoUrl: 'org-1/familles/KONAN-AC-CM0000000042/KONAN-AC-CM0000000042.jpg' },
+          }),
+        );
+      },
+    );
+
+    it('personnel : photo d’un bénéficiaire → MÊME dossier famille, nommé avec ses propres nom/numéro (identique au self-service)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+      prisma.beneficiaire.findFirst.mockResolvedValue({
+        id: 'ben-1', adherentId: 'adh-1', nom: 'Aya Konan', numeroCarte: 'CM-0000000043',
+      });
+      global.fetch = okFetch() as any;
+
+      await service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-1', PHOTO);
+
+      expect(prisma.beneficiaire.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'ben-1', adherentId: 'adh-1', deletedAt: null } }),
+      );
+      expect(prisma.beneficiaire.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { photoUrl: 'org-1/familles/KONAN-AC-CM0000000042/AYA_KONAN-AC-CM0000000043.jpg' },
+        }),
+      );
+    });
+
+    it('personnel : adhérent d’une AUTRE organisation → 404, rien n’est téléversé ni modifié', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE'], { organisationId: 'org-2' }));
+      prisma.adherent.findFirst.mockResolvedValue(null); // filtré par organisationId: 'org-2'
+      global.fetch = jest.fn() as any;
+
+      await expect(service.televerserPhotoAdherent(USER, 'adh-1', PHOTO)).rejects.toBeInstanceOf(NotFoundException);
+      await expect(
+        service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-1', PHOTO),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.adherent.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ organisationId: 'org-2' }) }),
+      );
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
+      expect(prisma.beneficiaire.update).not.toHaveBeenCalled();
+    });
+
+    it('personnel : bénéficiaire rattaché à un AUTRE adhérent → 404 (jamais de confiance dans le couple d’ids)', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.beneficiaire.findFirst.mockResolvedValue(null); // where { adherentId: 'adh-1' } ne trouve rien
+      global.fetch = jest.fn() as any;
+
+      await expect(
+        service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-dun-autre', PHOTO),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['ASSUREUR_COMPTABLE', {}],
+      ['ASSUREUR_DIRECTION', {}],
+      ['SOCIETE_ADMINISTRATION', { entite: 'SOCIETE_AFFILIEE', societeId: 'sous-1' }],
+      ['CENTRE_MEDICAL_ACCUEIL', {}],
+    ])('rôle non habilité %s → 403, rien n’est téléversé', async (role, extra) => {
+      identity.getMe.mockResolvedValue(identite([role], extra));
+      global.fetch = jest.fn() as any;
+
+      await expect(service.televerserPhotoAdherent(USER, 'adh-1', PHOTO)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(
+        service.televerserPhotoBeneficiaire(USER, 'adh-1', 'ben-1', PHOTO),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('self-service inchangé : un adhérent ne peut toujours pas viser le dossier d’un autre, même avec le nouveau chemin personnel', async () => {
+      identity.getMe.mockResolvedValue(
+        identite(['ADHERENT_TITULAIRE', 'ASSUREUR_INFORMATIQUE'], { entite: 'ADHERENT', adherentId: 'adh-1' }),
+      );
+      await expect(service.televerserPhotoAdherent(USER, 'adh-AUTRE', PHOTO)).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
     it('obtenirPhotoAdherent : 404 si aucune photo', async () => {
       identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE'], { entite: 'ADHERENT', adherentId: 'adh-1' }));
       prisma.adherent.findFirst.mockResolvedValue({

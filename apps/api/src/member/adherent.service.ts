@@ -32,6 +32,7 @@ import {
   ROLE_RECHERCHE_CARTE,
   ROLE_VALIDATION_ADHERENT,
   ROLES_GESTION_MEMBRE,
+  ROLES_PHOTO_PERSONNEL,
   ROLES_VALIDATION_BENEFICIAIRE_ASSUREUR,
   ROLES_VALIDATION_IMPORT_ADHERENTS,
   STATUT_ADHERENT_PROPOSE_SORTANT,
@@ -851,17 +852,16 @@ export class AdherentService {
 
   // --- Photo de profil (adhérent + bénéficiaires, donnée non structurante) --
 
-  /** L'adhérent modifie SA PROPRE photo — jamais de validation requise. */
+  /** L'adhérent modifie SA PROPRE photo, ou le personnel habilité
+   * (`ROLES_PHOTO_PERSONNEL`) celle d'un adhérent de son organisation —
+   * jamais de validation requise. */
   async televerserPhotoAdherent(
     user: AuthenticatedUser,
     adherentId: string,
     fichier: FichierTeleverse,
   ) {
     const ctx = await this.contexteAppelant(user);
-    this.assertEntiteAdherent(ctx);
-    if (adherentId !== ctx.adherentId) {
-      throw new ForbiddenException('Vous ne pouvez modifier que votre propre photo.');
-    }
+    this.assertPhotoAutorisee(ctx, adherentId, 'Vous ne pouvez modifier que votre propre photo.');
     this.validerImagePhoto(fichier);
 
     const adherent = await this.chargerAdherent(ctx, adherentId);
@@ -878,7 +878,9 @@ export class AdherentService {
     return { url: await this.signerPhoto(chemin), expiresIn: this.dureeUrlSigneePhoto };
   }
 
-  /** L'adhérent modifie la photo d'un de SES bénéficiaires — jamais de validation. */
+  /** L'adhérent modifie la photo d'un de SES bénéficiaires, ou le personnel
+   * habilité celle d'un bénéficiaire d'un adhérent de son organisation —
+   * jamais de validation. */
   async televerserPhotoBeneficiaire(
     user: AuthenticatedUser,
     adherentId: string,
@@ -886,10 +888,13 @@ export class AdherentService {
     fichier: FichierTeleverse,
   ) {
     const ctx = await this.contexteAppelant(user);
-    this.assertEntiteAdherent(ctx);
-    if (adherentId !== ctx.adherentId) {
-      throw new ForbiddenException("Vous ne pouvez modifier que la photo de vos propres bénéficiaires.");
-    }
+    this.assertPhotoAutorisee(
+      ctx,
+      adherentId,
+      'Vous ne pouvez modifier que la photo de vos propres bénéficiaires.',
+    );
+    // Scope organisation (et bénéficiaire rattaché à CET adhérent) vérifié par
+    // `chargerAdherent`/`chargerBeneficiaire` — jamais de confiance dans les ids.
     const adherent = await this.chargerAdherent(ctx, adherentId);
     const benef = await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
     this.validerImagePhoto(fichier);
@@ -1008,6 +1013,38 @@ export class AdherentService {
         'Cette action est réservée à un compte adhérent rattaché à son propre dossier.',
       );
     }
+  }
+
+  /**
+   * Photo (adhérent ou bénéficiaire) : soit l'adhérent lui-même sur SON propre
+   * dossier (self-service, inchangé), soit le personnel `ROLES_PHOTO_PERSONNEL`.
+   * Pour le personnel, l'appartenance de l'adhérent à l'organisation de
+   * l'appelant est vérifiée ensuite par `chargerAdherent` (404 hors
+   * organisation, comme partout dans ce module — ne jamais révéler qu'un
+   * adhérent existe dans une autre organisation).
+   */
+  private assertPhotoAutorisee(
+    ctx: ContexteAppelant,
+    adherentId: string,
+    messageAdherent: string,
+  ): void {
+    if (ctx.entite === ENTITE_ADHERENT) {
+      this.assertEntiteAdherent(ctx);
+      if (adherentId !== ctx.adherentId) {
+        throw new ForbiddenException(messageAdherent);
+      }
+      return;
+    }
+    if (
+      ctx.roleChain.some((code) =>
+        (ROLES_PHOTO_PERSONNEL as readonly string[]).includes(code),
+      )
+    ) {
+      return;
+    }
+    throw new ForbiddenException(
+      'La photo est modifiable par l’adhérent lui-même, ou par ASSUREUR_INFORMATIQUE / ASSUREUR_EXPLOITATION.',
+    );
   }
 
   private validerImagePhoto(fichier: FichierTeleverse): void {

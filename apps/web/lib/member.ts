@@ -123,6 +123,17 @@ export function peutValiderBeneficiaireAssureur(roleChain: string[] | undefined)
 }
 
 /**
+ * Ajout/modification de la photo d'un adhérent ou d'un bénéficiaire depuis
+ * l'écran de gestion — miroir de `ROLES_PHOTO_PERSONNEL` (member.types.ts,
+ * API), en plus du self-service de l'adhérent. L'API revérifie toujours le rôle
+ * et l'organisation : ceci ne fait que masquer le bouton.
+ */
+export function peutModifierPhotoMembre(roleChain: string[] | undefined): boolean {
+  const rc = roleChain ?? [];
+  return rc.includes('ASSUREUR_INFORMATIQUE') || rc.includes('ASSUREUR_EXPLOITATION');
+}
+
+/**
  * Mouvements de personnel — SORTANTS : proposition réservée EXCLUSIVEMENT à
  * SOCIETE_ADMINISTRATION (pas SOCIETE_ASSUREE, contrairement aux
  * propositions d'AJOUT). Validation réutilise les mêmes rôles que la

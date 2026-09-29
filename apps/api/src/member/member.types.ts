@@ -102,6 +102,14 @@ export const ROLES_VALIDATION_BENEFICIAIRE_ASSUREUR = ['ASSUREUR_INFORMATIQUE', 
  * un bénéficiaire encore EN_ATTENTE_SOCIETE/EN_ATTENTE_ASSUREUR.
  */
 export const TAILLE_MAX_PHOTO_OCTETS = 5 * 1024 * 1024;
+/**
+ * Personnel habilité à ajouter/modifier la photo d'un adhérent ou d'un de ses
+ * bénéficiaires depuis l'écran de gestion — EN PLUS du self-service de
+ * l'adhérent (jamais à sa place). Toujours scopé à l'organisation de
+ * l'appelant (`chargerAdherent`). Mêmes conventions de nommage et de dossier
+ * famille que le self-service.
+ */
+export const ROLES_PHOTO_PERSONNEL = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION'] as const;
 export const MIME_TYPES_PHOTO_AUTORISES = ['image/jpeg', 'image/png', 'image/webp'];
 
 /**

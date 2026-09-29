@@ -15,3 +15,8 @@ next-env.d.ts
 
 # Prisma (client généré)
 apps/api/generated/
+
+# graphify (graphe de connaissances régénéré localement) + éditeur
+graphify-out/
+*.graphify-bak
+.vscode/

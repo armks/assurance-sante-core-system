@@ -19,6 +19,8 @@ import {
   Wallet,
 } from 'lucide-react';
 
+import type { LargeurPage } from '@/lib/navigation';
+
 export type NiveauAcces = 'LECTURE_SEULE' | 'MODIFICATION' | 'ADMIN';
 
 export const RANG_NIVEAU: Record<NiveauAcces, number> = {
@@ -37,6 +39,8 @@ export interface NavItem {
   requiertValidation?: boolean;
   /** section pas encore implémentée — affichée mais non cliquable. */
   bientot?: boolean;
+  /** largeur du contenu de cette page (défaut : `liste`), voir `lib/navigation.ts`. */
+  largeur?: LargeurPage;
 }
 
 /**
@@ -71,7 +75,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   // aucune donnée d'un autre adhérent n'est jamais exposée (voir les fix de
   // scoping member/claims/preauthorization de l'audit dashboard adhérent).
   [ADHERENT]: [
-    { label: "Vue d'ensemble", href: ADHERENT, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: ADHERENT, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Mes bénéficiaires',
       href: `${ADHERENT}/beneficiaires`,
@@ -104,7 +108,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   // de duplication. « Mes bénéficiaires » et « Réclamations » restent hors
   // périmètre, non demandés pour ce rôle.
   [ADHERENT_INDIVIDUEL]: [
-    { label: "Vue d'ensemble", href: ADHERENT_INDIVIDUEL, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: ADHERENT_INDIVIDUEL, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Consultation',
       href: `${ADHERENT}/consultation`,
@@ -186,7 +190,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   // des ajouts, cf. `ROLES_PROPOSITION_ADHERENTS_SOCIETE` ; réclamations en
   // lecture pour ses propres adhérents, cf. `ROLES_SOCIETE_CLAIMS`).
   [SOCIETE_ASSUREE]: [
-    { label: "Vue d'ensemble", href: SOCIETE_ASSUREE, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: SOCIETE_ASSUREE, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Adhérents',
       href: `${SOCIETE_ADMINISTRATION}/adherents`,
@@ -248,7 +252,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     },
   ],
   [MEDECIN_CONSEIL]: [
-    { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Actes à homologuer',
       href: `${MEDECIN_CONSEIL}/actes-a-homologuer`,
@@ -288,7 +292,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     },
   ],
   [PHARMACIEN_CONSEIL]: [
-    { label: "Vue d'ensemble", href: PHARMACIEN_CONSEIL, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: PHARMACIEN_CONSEIL, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Médicaments à homologuer',
       href: `${PHARMACIEN_CONSEIL}/medicaments-a-homologuer`,
@@ -309,7 +313,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   // l'informatique (l'API autorise déjà ASSUREUR_DIRECTION sur ces modules).
   // Pas de Cotisations ni de réseau de soins : réservés à l'informatique.
   [DIRECTION]: [
-    { label: "Vue d'ensemble", href: DIRECTION, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: DIRECTION, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Souscripteurs',
       href: `${INFORMATIQUE}/souscripteurs`,
@@ -385,7 +389,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
  */
 function navExploitation(racineVueEnsemble: string): NavItem[] {
   return [
-    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Pré-autorisations',
       href: `${racineVueEnsemble}/preautorisations`,
@@ -424,7 +428,7 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
  */
 function navComptable(racineVueEnsemble: string): NavItem[] {
   return [
-    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard, largeur: 'dashboard' },
     { label: 'Cotisations', href: `${INFORMATIQUE}/cotisations`, icon: Wallet },
     {
       label: 'Factures pharmacie',
@@ -451,7 +455,7 @@ function navComptable(racineVueEnsemble: string): NavItem[] {
 
 function navInformatique(racineVueEnsemble: string): NavItem[] {
   return [
-    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard },
+    { label: "Vue d'ensemble", href: racineVueEnsemble, icon: LayoutDashboard, largeur: 'dashboard' },
     {
       label: 'Souscripteurs',
       href: `${INFORMATIQUE}/souscripteurs`,

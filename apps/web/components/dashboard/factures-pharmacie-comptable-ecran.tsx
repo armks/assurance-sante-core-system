@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { validerPourPaiement } from '@/app/dashboard-assureur/factures-pharmacie-actions';
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { moisFr, montantF } from '@/lib/format';
 
 export interface FactureMensuellePharmacieComptable {
   id: string;
@@ -37,10 +38,6 @@ const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> =
   PAYEE: 'succes',
 };
 
-const montant = (v: string) => `${Number(v).toLocaleString('fr-FR')} F`;
-const moisFr = (d: string) =>
-  new Date(d).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-
 export function FacturesPharmacieComptableEcran({
   factures,
   cible,
@@ -71,7 +68,7 @@ export function FacturesPharmacieComptableEcran({
       entete: 'Montant',
       aligneDroite: true,
       valeur: (f) => Number(f.montantTotal),
-      rendu: (f) => montant(f.montantTotal),
+      rendu: (f) => montantF(f.montantTotal),
     },
     {
       cle: 'statut',

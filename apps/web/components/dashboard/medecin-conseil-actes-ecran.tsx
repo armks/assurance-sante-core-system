@@ -9,6 +9,7 @@ import {
   trancherContestationActe,
 } from '@/app/dashboard-assureur/medecin-conseil/contestations/actions';
 import {
+  Alerte,
   ChampZone,
   DataTable,
   FormulaireModal,
@@ -178,11 +179,7 @@ export function MedecinConseilActesEcran({
 
   return (
     <div className="space-y-8">
-      {message && (
-        <p className="rounded-md border border-emerald-300/70 bg-emerald-50/50 p-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-400">
-          {message}
-        </p>
-      )}
+      {message && <Alerte ton="succes">{message}</Alerte>}
 
       <Card>
         <CardHeader>

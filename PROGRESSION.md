@@ -5884,3 +5884,43 @@ nouveaux `--destructive` et les deux `color-scheme`. `npm run lint` inutilisable
 
 ### Statut
 Lot P0 terminé. En attente de validation pour P1.
+
+## 2026-09-29 (suite 2) — Audit UI/UX : lot P1-01 (fondations UI partagées)
+
+Premier sous-lot de P1. Aucune API, logique métier, permission, route ni fonctionnalité
+modifiée ; les contrôles d'accès de la navigation (`minNiveau`, `requiertValidation`) sont
+inchangés.
+
+### Réalisé
+- **`lib/format.ts`** : `dateFr`, `dateHeureFr`, `moisFr` (UTC, accepte `AAAA-MM`),
+  `periodeFr`, `montantF` (option `arrondi`), `pourcent`, `VIDE` — `Intl` mis en cache,
+  « — » pour une valeur absente. Parité vérifiée à l'identique avec les anciennes
+  implémentations (46/46 cas, plusieurs fuseaux). Migrés : `comptes-financiers-ecran`,
+  `centre-medical/mes-factures-ecran`, `factures-pharmacie-comptable-ecran`,
+  `comptable-vue-ensemble`, `cotisations-ecran` (le reste : migration progressive).
+- **Pattern `<Alerte>`** (`patterns/alerte.tsx`) : tons `succes` / `erreur` /
+  `avertissement` / `info`, icône + couleur, `annonce` `immediate` (role=alert, défaut des
+  erreurs) / `polie` (role=status, défaut des autres) / `aucune` (bandeau statique).
+  Couleurs = celles déjà en usage, réunies en un seul endroit ; contrastes ≥ 5,3:1.
+  Migrés : `comptes-financiers-ecran` et `medecin-conseil-actes-ecran` (succès),
+  `referentiel-medical-ecran` (erreur).
+- **Navigation partagée** (`components/dashboard/navigation-shell.tsx`, `lib/navigation.ts`)
+  utilisée par les deux shells : lien d'évitement « Aller au contenu principal » (cible
+  `#contenu-principal`), `aria-current="page"` uniquement sur le lien de la page exacte,
+  un seul lien actif (le plus précis — corrige « Vue d'ensemble » affiché actif en même
+  temps que la page courante), menu mobile en panneau latéral (Dialog existant) au lieu de
+  la barre horizontale — et désormais présent sur le superadmin, qui n'en avait pas.
+- **Largeur du contenu par type de page**, déduite de la navigation : fiche `[id]` →
+  `max-w-5xl`, vue d'ensemble → `max-w-7xl`, liste → `max-w-screen-2xl` (1536 px) ;
+  champ optionnel `largeur` sur `NavItem`. Classification vérifiée sur les 97 routes des
+  shells : 15 fiches, 19 vues d'ensemble / hors menu, 63 listes.
+
+### Tests
+`git diff --check` propre, `tsc --noEmit` OK, `next build --webpack` OK. Scripts Node de
+vérification (hors dépôt) : parité des formats, classification des largeurs, calcul du lien
+actif / `aria-current` sur la vraie navigation (10/10), présence et ordre des classes dans
+le CSS compilé. Pas de test authentifié du rendu des shells (aucun compte de test
+permanent ; la création de comptes éphémères n'a pas été faite sans accord).
+
+### Statut
+P1-01 terminé, non commité. En attente de validation.

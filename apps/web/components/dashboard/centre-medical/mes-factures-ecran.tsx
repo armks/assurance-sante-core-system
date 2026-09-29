@@ -6,6 +6,7 @@ import {
   type ColonneTable,
   type FiltreSelect,
 } from '@/components/dashboard/patterns';
+import { dateFr, montantF } from '@/lib/format';
 
 export interface FactureDossierEtablissement {
   id: string;
@@ -35,8 +36,6 @@ const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> =
   CONTESTEE: 'danger',
 };
 
-const montant = (v: string) => `${Number(v).toLocaleString('fr-FR')} F`;
-const dateFr = (d: string) => new Date(d).toLocaleDateString('fr-FR');
 const periodeCle = (d: string) => d.slice(0, 7); // 'YYYY-MM'
 const periodeLibelle = (cle: string) =>
   new Date(`${cle}-01T00:00:00Z`).toLocaleDateString('fr-FR', {
@@ -61,7 +60,7 @@ export function MesFacturesEcran({ factures }: { factures: FactureDossierEtablis
       entete: 'Montant',
       aligneDroite: true,
       valeur: (f) => Number(f.montantTotal),
-      rendu: (f) => montant(f.montantTotal),
+      rendu: (f) => montantF(f.montantTotal),
     },
     {
       cle: 'statut',

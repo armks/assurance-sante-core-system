@@ -1,18 +1,23 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { Brand } from '@/components/brand';
+import {
+  ID_CONTENU_PRINCIPAL,
+  LienEvitement,
+  ListeNav,
+  NavMobile,
+} from '@/components/dashboard/navigation-shell';
 import { LogoutButton } from '@/components/logout-button';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Badge } from '@/components/ui/badge';
 import {
-  NavItem,
   RANG_NIVEAU,
   navPourDashboard,
   type NiveauAcces,
 } from '@/lib/dashboard-nav';
+import { CLASSE_LARGEUR, largeurPourChemin } from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 
 export interface ShellProps {
@@ -53,34 +58,34 @@ export function DashboardShell({
     return true;
   });
 
+  const largeur = largeurPourChemin(pathname, items);
+
+  const enteteRole = (
+    <>
+      <p className="text-sm font-medium leading-tight">
+        {libelleRole ?? role ?? 'Rôle inconnu'}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {entite && <Badge variant="secondary">{entite}</Badge>}
+        <Badge variant="outline">{LIBELLE_NIVEAU[niveauAcces]}</Badge>
+        {peutValider && <Badge variant="success">Validation</Badge>}
+      </div>
+    </>
+  );
+
   return (
     <div className="grid min-h-svh md:grid-cols-[16rem_1fr]">
+      <LienEvitement />
+
       {/* Sidebar (desktop) */}
       <aside className="hidden flex-col border-r bg-muted/30 md:flex">
         <div className="border-b px-4 py-4">
           <Brand />
         </div>
 
-        <div className="border-b px-4 py-4">
-          <p className="text-sm font-medium leading-tight">
-            {libelleRole ?? role ?? 'Rôle inconnu'}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {entite && <Badge variant="secondary">{entite}</Badge>}
-            <Badge variant="outline">{LIBELLE_NIVEAU[niveauAcces]}</Badge>
-            {peutValider && <Badge variant="success">Validation</Badge>}
-          </div>
-        </div>
+        <div className="border-b px-4 py-4">{enteteRole}</div>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-3">
-          {items.map((item) => (
-            <LienNav
-              key={item.href}
-              item={item}
-              actif={estActif(pathname, item.href)}
-            />
-          ))}
-        </nav>
+        <ListeNav items={items} className="flex-1 overflow-y-auto px-2 py-3" />
 
         <div className="border-t p-3">
           <LogoutButton />
@@ -88,7 +93,7 @@ export function DashboardShell({
       </aside>
 
       {/* Contenu */}
-      <div className="flex min-h-svh flex-col">
+      <div className="flex min-h-svh min-w-0 flex-col">
         <header className="flex items-center gap-3 border-b bg-background/80 px-4 py-3 backdrop-blur md:px-8">
           <div className="md:hidden">
             <Brand />
@@ -100,69 +105,18 @@ export function DashboardShell({
           <div className="md:hidden">
             <LogoutButton />
           </div>
+          {/* Nav mobile : panneau latéral au lieu d'une barre horizontale */}
+          <NavMobile items={items} entete={enteteRole} />
         </header>
 
-        {/* Nav horizontale (mobile) */}
-        <nav className="flex gap-1 overflow-x-auto border-b bg-muted/20 px-3 py-2 md:hidden">
-          {items.map((item) => (
-            <LienNav
-              key={item.href}
-              item={item}
-              actif={estActif(pathname, item.href)}
-              compact
-            />
-          ))}
-        </nav>
-
-        <main className="flex-1 bg-muted/10 p-4 md:p-8">
-          <div className="mx-auto max-w-5xl">{children}</div>
+        <main
+          id={ID_CONTENU_PRINCIPAL}
+          tabIndex={-1}
+          className="flex-1 bg-muted/10 p-4 focus:outline-none md:p-8"
+        >
+          <div className={cn('mx-auto', CLASSE_LARGEUR[largeur])}>{children}</div>
         </main>
       </div>
     </div>
   );
-}
-
-function estActif(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-function LienNav({
-  item,
-  actif,
-  compact = false,
-}: {
-  item: NavItem;
-  actif: boolean;
-  compact?: boolean;
-}) {
-  const Icon = item.icon;
-  const contenu = (
-    <span
-      className={cn(
-        'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
-        compact ? 'whitespace-nowrap' : 'w-full',
-        actif
-          ? 'bg-background font-medium text-foreground shadow-sm'
-          : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
-        item.bientot && 'cursor-default hover:bg-transparent hover:text-muted-foreground',
-      )}
-    >
-      <Icon className="size-4 shrink-0" />
-      <span className={compact ? '' : 'flex-1'}>{item.label}</span>
-      {item.bientot && (
-        <Badge variant="muted" className="ml-1 text-[10px] font-normal">
-          bientôt
-        </Badge>
-      )}
-    </span>
-  );
-
-  if (item.bientot) {
-    return (
-      <span aria-disabled="true" title="Disponible prochainement">
-        {contenu}
-      </span>
-    );
-  }
-  return <Link href={item.href}>{contenu}</Link>;
 }

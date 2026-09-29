@@ -8,6 +8,7 @@
  *  - `Champ*`           — champs libellés (texte, nombre, select, zone, checkbox) pour ces formulaires
  *  - `StatutBadge`      — badge de statut coloré (tonalité déduite du jeton, surchargeable par `map`)
  *  - `CarteResume`      — carte de chiffre-clé, + `GrilleCartes` pour la rangée
+ *  - `Alerte`           — bandeau succès / erreur / avertissement / info, annoncé aux lecteurs d'écran
  *
  * Doc et exemples : `./README.md`.
  */
@@ -25,3 +26,4 @@ export {
 } from './champs';
 export { StatutBadge, type TonStatut } from './statut-badge';
 export { CarteResume, GrilleCartes } from './carte-resume';
+export { Alerte, type AnnonceAlerte, type TonAlerte } from './alerte';

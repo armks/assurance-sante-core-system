@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
@@ -11,14 +10,28 @@ import {
 } from 'lucide-react';
 
 import { Brand } from '@/components/brand';
+import {
+  ID_CONTENU_PRINCIPAL,
+  LienEvitement,
+  ListeNav,
+  NavMobile,
+  type EntreeNav,
+} from '@/components/dashboard/navigation-shell';
 import { LogoutButton } from '@/components/logout-button';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Badge } from '@/components/ui/badge';
+import {
+  CLASSE_LARGEUR,
+  largeurPourChemin,
+  type LargeurPage,
+} from '@/lib/navigation';
 import { cn } from '@/lib/utils';
 
-const NAV = [
-  { label: 'Sociétés', href: '/superadmin/societes', icon: Building2 },
-  { label: 'Santé système', href: '/superadmin/sante-systeme', icon: Activity },
+const NAV: (EntreeNav & { largeur?: LargeurPage })[] = [
+  // grille de cartes (pas de tableau) : largeur intermédiaire
+  { label: 'Sociétés', href: '/superadmin/societes', icon: Building2, largeur: 'dashboard' },
+  // chiffres-clés + un tableau
+  { label: 'Santé système', href: '/superadmin/sante-systeme', icon: Activity, largeur: 'dashboard' },
   { label: 'Paramètres', href: '/superadmin/parametres', icon: SlidersHorizontal },
   {
     label: 'Catalogue national',
@@ -35,48 +48,36 @@ export function SuperadminShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const largeur = largeurPourChemin(pathname, NAV);
+
+  const enteteRole = (
+    <>
+      <p className="flex items-center gap-1.5 text-sm font-medium leading-tight">
+        <ShieldCheck aria-hidden="true" className="size-4 text-muted-foreground" />
+        Super administration
+      </p>
+      <div className="mt-2">
+        <Badge variant="secondary">Superadministrateur</Badge>
+      </div>
+    </>
+  );
 
   return (
     <div className="grid min-h-svh md:grid-cols-[16rem_1fr]">
+      <LienEvitement />
+
       <aside className="hidden flex-col border-r bg-muted/30 md:flex">
         <div className="border-b px-4 py-4">
           <Brand />
         </div>
-        <div className="border-b px-4 py-4">
-          <p className="flex items-center gap-1.5 text-sm font-medium leading-tight">
-            <ShieldCheck className="size-4 text-muted-foreground" />
-            Super administration
-          </p>
-          <div className="mt-2">
-            <Badge variant="secondary">Superadministrateur</Badge>
-          </div>
-        </div>
-        <nav className="flex-1 space-y-0.5 px-2 py-3">
-          {NAV.map(({ label, href, icon: Icon }) => {
-            const actif = pathname === href || pathname.startsWith(`${href}/`);
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={cn(
-                  'flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors',
-                  actif
-                    ? 'bg-background font-medium text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:bg-background/70 hover:text-foreground',
-                )}
-              >
-                <Icon className="size-4 shrink-0" />
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="border-b px-4 py-4">{enteteRole}</div>
+        <ListeNav items={NAV} className="flex-1 px-2 py-3" />
         <div className="border-t p-3">
           <LogoutButton />
         </div>
       </aside>
 
-      <div className="flex min-h-svh flex-col">
+      <div className="flex min-h-svh min-w-0 flex-col">
         <header className="flex items-center gap-3 border-b bg-background/80 px-4 py-3 backdrop-blur md:px-8">
           <div className="md:hidden">
             <Brand />
@@ -88,9 +89,15 @@ export function SuperadminShell({
           <div className="md:hidden">
             <LogoutButton />
           </div>
+          {/* Nav mobile : absente jusqu'ici sur le superadmin */}
+          <NavMobile items={NAV} entete={enteteRole} />
         </header>
-        <main className="flex-1 bg-muted/10 p-4 md:p-8">
-          <div className="mx-auto max-w-4xl">{children}</div>
+        <main
+          id={ID_CONTENU_PRINCIPAL}
+          tabIndex={-1}
+          className="flex-1 bg-muted/10 p-4 focus:outline-none md:p-8"
+        >
+          <div className={cn('mx-auto', CLASSE_LARGEUR[largeur])}>{children}</div>
         </main>
       </div>
     </div>

@@ -8,6 +8,7 @@ import {
   proposerMedicament,
 } from '@/app/dashboard-assureur/reference-actions';
 import {
+  Alerte,
   ChampTexte,
   DataTable,
   FormulaireModal,
@@ -79,9 +80,9 @@ export function ReferentielMedicalEcran({
   return (
     <div className="space-y-10">
       {erreur && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+        <Alerte ton="erreur" className="p-3">
           {erreur}
-        </div>
+        </Alerte>
       )}
 
       {/* --- Actes --- */}

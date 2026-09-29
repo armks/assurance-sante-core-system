@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { montantF } from '@/lib/format';
 
 export interface CotisationResume {
   montantDu: string;
@@ -17,7 +18,6 @@ export interface CotisationResume {
 }
 
 const INFORMATIQUE = '/dashboard-assureur/informatique';
-const montantF = (v: number) => `${Math.round(v).toLocaleString('fr-FR')} F`;
 
 /**
  * Vue d'ensemble partagée `ASSUREUR_COMPTABLE` / `ASSUREUR_COMPTABLE_ADJOINT`.
@@ -68,7 +68,7 @@ export function ComptableVueEnsemble({
           tonIndice={enRetard > 0 ? 'negatif' : 'neutre'}
           href={`${INFORMATIQUE}/cotisations`}
         />
-        <CarteResume libelle="Reste à encaisser" valeur={montantF(resteAEncaisser)} />
+        <CarteResume libelle="Reste à encaisser" valeur={montantF(resteAEncaisser, { arrondi: true })} />
       </GrilleCartes>
 
       <section className="space-y-3">

@@ -8,6 +8,7 @@ import {
   creerCompteFinancier,
 } from '@/app/dashboard-assureur/comptable/comptes-financiers/actions';
 import {
+  Alerte,
   ChampNombre,
   ChampSelect,
   ChampTexte,
@@ -17,6 +18,7 @@ import {
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
+import { dateFr, montantF } from '@/lib/format';
 
 export interface CompteFinancier {
   id: string;
@@ -35,9 +37,6 @@ const LIBELLE_TYPE: Record<string, string> = {
   CAISSE_INTERNE: 'Caisse interne',
 };
 
-const montant = (v: string) => `${Number(v).toLocaleString('fr-FR')} F`;
-const dateFr = (d: string) => new Date(d).toLocaleDateString('fr-FR');
-
 function ApprovisionnerForm({
   compte,
   autresComptes,
@@ -53,7 +52,7 @@ function ApprovisionnerForm({
     <FormulaireModal
       titre={`Approvisionner — ${compte.nom}`}
       mode="center"
-      description={`Solde actuel : ${montant(compte.soldeActuel)}.`}
+      description={`Solde actuel : ${montantF(compte.soldeActuel)}.`}
       declencheurLabel="Approvisionner"
       libelleSoumettre="Approvisionner"
       onSoumettre={async (fd) => {
@@ -87,7 +86,7 @@ function ApprovisionnerForm({
           placeholder="Choisir…"
           options={autresComptes
             .filter((c) => c.id !== compte.id)
-            .map((c) => ({ valeur: c.id, libelle: `${c.nom} (${montant(c.soldeActuel)})` }))}
+            .map((c) => ({ valeur: c.id, libelle: `${c.nom} (${montantF(c.soldeActuel)})` }))}
         />
       )}
       <ChampZone
@@ -123,7 +122,7 @@ export function ComptesFinanciersEcran({ comptes }: { comptes: CompteFinancier[]
       aligneDroite: true,
       triable: true,
       valeur: (c) => Number(c.soldeActuel),
-      rendu: (c) => <span className="font-medium tabular-nums">{montant(c.soldeActuel)}</span>,
+      rendu: (c) => <span className="font-medium tabular-nums">{montantF(c.soldeActuel)}</span>,
     },
     {
       cle: 'updatedAt',
@@ -136,11 +135,7 @@ export function ComptesFinanciersEcran({ comptes }: { comptes: CompteFinancier[]
 
   return (
     <div className="space-y-6">
-      {message && (
-        <p className="rounded-md border border-emerald-300/70 bg-emerald-50/50 p-2 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-400">
-          {message}
-        </p>
-      )}
+      {message && <Alerte ton="succes">{message}</Alerte>}
       <DataTable
         donnees={comptes}
         cleLigne={(c) => c.id}

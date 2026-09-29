@@ -27,6 +27,7 @@ import {
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { dateFr, montantF, periodeFr } from '@/lib/format';
 
 export interface Cotisation {
   id: string;
@@ -72,17 +73,6 @@ const LIBELLE_COTISATION: Record<string, string> = {
   EN_RETARD: 'En retard',
   ANNULEE: 'Annulée',
 };
-
-const montant = (v: string | number | null | undefined) =>
-  v === null || v === undefined || v === ''
-    ? '—'
-    : `${Number(v).toLocaleString('fr-FR')} F`;
-const periodeFr = (d: string) => {
-  const [y, m] = d.slice(0, 7).split('-');
-  return `${m}/${y}`;
-};
-const dateFr = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 
 export function CotisationsEcran({
   cotisations,
@@ -139,14 +129,14 @@ export function CotisationsEcran({
       entete: 'Montant dû',
       aligneDroite: true,
       valeur: (c) => Number(c.montantDu),
-      rendu: (c) => montant(c.montantDu),
+      rendu: (c) => montantF(c.montantDu),
     },
     {
       cle: 'montantPaye',
       entete: 'Montant payé',
       aligneDroite: true,
       valeur: (c) => Number(c.montantPaye),
-      rendu: (c) => montant(c.montantPaye),
+      rendu: (c) => montantF(c.montantPaye),
     },
     {
       cle: 'statut',
@@ -198,7 +188,7 @@ export function CotisationsEcran({
       entete: 'Montant mensuel',
       aligneDroite: true,
       valeur: (g) => Number(g.montantMensuel),
-      rendu: (g) => montant(g.montantMensuel),
+      rendu: (g) => montantF(g.montantMensuel),
     },
   ];
 
@@ -210,7 +200,7 @@ export function CotisationsEcran({
         <CarteResume libelle="En retard" valeur={nb('EN_RETARD')} icon={AlertTriangle} />
         <CarteResume
           libelle="Reste à encaisser"
-          valeur={montant(totalDu)}
+          valeur={montantF(totalDu)}
           icon={CheckCircle2}
           indice={`${nb('PAYEE')} payée(s)`}
         />
@@ -296,7 +286,7 @@ export function CotisationsEcran({
               mode="center"
               description={`Cotisation ${c.police?.numeroPolice ?? ''} · ${periodeFr(
                 c.periode,
-              )} — dû ${montant(c.montantDu)}, déjà payé ${montant(c.montantPaye)}.`}
+              )} — dû ${montantF(c.montantDu)}, déjà payé ${montantF(c.montantPaye)}.`}
               declencheur={
                 <Button size="xs" variant="ghost">
                   Enregistrer un paiement
@@ -530,7 +520,7 @@ function CalculForm({ polices }: { polices: OptionPolice[] }) {
                 libelle={calcul.source === 'NEGOCIE' ? 'Négocié' : 'Standard'}
               />
             </p>
-            <p>Tarif de base : {montant(calcul.tarifBase)}</p>
+            <p>Tarif de base : {montantF(calcul.tarifBase)}</p>
             {calcul.partMembrePourcent < 100 && (
               <p>
                 Part membre (collectivité subventionnée) :{' '}
@@ -538,7 +528,7 @@ function CalculForm({ polices }: { polices: OptionPolice[] }) {
               </p>
             )}
             <p className="pt-1 text-base">
-              Montant dû : <b>{montant(calcul.montantDu)}</b>
+              Montant dû : <b>{montantF(calcul.montantDu)}</b>
             </p>
           </div>
         )}

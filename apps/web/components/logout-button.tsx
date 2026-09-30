@@ -3,19 +3,24 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { destinationApresDeconnexion } from '@/app/deconnexion-actions';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 
 /**
  * Unique bouton de déconnexion (shells dashboard et superadmin, écrans de
- * message). Après un `signOut` réussi : navigation client vers la page
- * d'accueil publique `/`, sans rechargement. `replace` : la page protégée
- * quittée ne reste pas dans l'historique.
+ * message). Avant le `signOut`, la destination est demandée au serveur
+ * (`destinationApresDeconnexion`) : page d'accueil de l'organisation de
+ * l'utilisateur (`/{slug}`, établissement et pharmacie compris via leur
+ * assureur) si elle est active, sinon `/` (superadmin, organisation
+ * suspendue…). Après un `signOut` réussi : navigation client vers cette page,
+ * sans rechargement ; `replace` : la page protégée quittée ne reste pas dans
+ * l'historique.
  *
  * Pas de `router.refresh()` ici : il re-rendrait la page protégée courante,
  * désormais sans session, et le proxy la redirigerait vers `/login?next=…`
- * en concurrence avec la navigation vers `/`. La page `/` lit la session côté
- * serveur à chaque navigation (rendu dynamique) : elle arrive déjà à jour.
+ * en concurrence avec la navigation. `/` et `/{slug}` lisent la session côté
+ * serveur à chaque navigation (rendu dynamique) : elles arrivent déjà à jour.
  */
 export function LogoutButton() {
   const router = useRouter();
@@ -25,13 +30,14 @@ export function LogoutButton() {
   const logout = async () => {
     setEnCours(true);
     setEchec(false);
+    const destination = await destinationApresDeconnexion();
     const { error } = await createClient().auth.signOut();
     if (error) {
       setEnCours(false);
       setEchec(true);
       return;
     }
-    router.replace('/');
+    router.replace(destination);
   };
 
   return (

@@ -6544,3 +6544,37 @@ toute écriture.
 
 ### Statut
 Terminé, commité et poussé (commit isolé).
+
+## 2026-09-30 — Déconnexion vers la page de sa société (/{slug})
+
+### Réalisé
+- `GET /identity/me` : nouveau champ `profil.organisationSlug` — slug de l'organisation du
+  compte, **seulement si elle est ACTIVE et non supprimée** (sinon `null`, y compris sans
+  organisation). Le personnel d'établissement et de pharmacie est rattaché à
+  l'organisation de son assureur (`profils.organisation_id`) : il obtient le slug de
+  cet assureur.
+- `LogoutButton` : avant le `signOut` (session encore valide), la server action
+  `destinationApresDeconnexion` (`app/deconnexion-actions.ts`) lit `/identity/me` et
+  renvoie `/{slug}` (slug revalidé par `estCheminSociete`) ou `/` : superadmin, société
+  suspendue ou supprimée, compte sans profil, API injoignable. Puis `signOut` et
+  navigation client (`router.replace`) vers cette page. Aucun changement des shells ni
+  des écrans de message : le bouton unique couvre tous les rôles.
+
+### Tests
+- Unitaires identity : +4 (organisation active → slug ; suspendue, supprimée, sans
+  organisation → null). API 854/854, `tsc` api + web OK.
+- HTTP réel (4 comptes temporaires) : ASSUREUR_INFORMATIQUE de Test A →
+  `assureur-test-a` ; CENTRE_MEDICAL_ACCUEIL de l'établissement FARAH (assureur Test A)
+  → `assureur-test-a` ; SUPERADMIN_PRINCIPAL → `null` ; ASSUREUR_INFORMATIQUE de Test B
+  → `assureur-test-b`, puis `null` une fois Test B suspendue (sa page répond 404).
+- Chrome réel (connexion puis « Se déconnecter », sans rechargement dans les 4 cas) :
+  assureur → `/assureur-test-a` ; établissement → `/assureur-test-a` (son assureur) ;
+  superadmin → `/` ; société suspendue → `/` (pas de 404). Statut de Test B rétabli
+  (ACTIVE), comptes supprimés.
+
+### Constat hors périmètre
+Un compte d'une société SUSPENDUE se connecte toujours et accède à son tableau de bord
+complet : la suspension ne masque aujourd'hui que la page publique /{slug}. À décider.
+
+### Statut
+Terminé, commité et poussé.

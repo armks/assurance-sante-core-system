@@ -137,6 +137,16 @@ describe('IdentityService.getMe', () => {
     expect(res.profil.entite).toBe('ASSUREUR');
   });
 
+  it.each([
+    ['organisation ACTIVE', { slug: 'mutuelle-a', statut: 'ACTIVE', deletedAt: null }, 'mutuelle-a'],
+    ['organisation SUSPENDUE', { slug: 'mutuelle-a', statut: 'SUSPENDUE', deletedAt: null }, null],
+    ['organisation supprimée', { slug: 'mutuelle-a', statut: 'ACTIVE', deletedAt: new Date() }, null],
+    ['sans organisation (superadmin)', null, null],
+  ])('organisationSlug : %s → %p', async (_cas, organisation, attendu) => {
+    prisma.profil.findFirst.mockResolvedValue({ ...makeProfil(), organisation });
+    expect((await service.getMe(USER)).profil.organisationSlug).toBe(attendu);
+  });
+
   it('peutValider = valeur propre au rôle : true pour le titulaire, false pour l’adjoint', async () => {
     prisma.profil.findFirst.mockResolvedValue(
       makeProfil({ role: 'ASSUREUR_INFORMATIQUE' }),

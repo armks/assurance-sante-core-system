@@ -33,7 +33,10 @@ export class IdentityService {
   async getMe(user: AuthenticatedUser): Promise<IdentityMeResponse> {
     const profil = await this.prisma.profil.findFirst({
       where: { id: user.sub, deletedAt: null },
-      include: { sousRole: true },
+      include: {
+        sousRole: true,
+        organisation: { select: { slug: true, statut: true, deletedAt: true } },
+      },
     });
 
     if (!profil) {
@@ -45,6 +48,12 @@ export class IdentityService {
     const profilResume: ProfilResume = {
       id: profil.id,
       organisationId: profil.organisationId,
+      // Page d'accueil de l'organisation (/{slug}) — seulement si elle est
+      // active : une page suspendue ou supprimée répondrait 404.
+      organisationSlug:
+        profil.organisation && profil.organisation.statut === 'ACTIVE' && !profil.organisation.deletedAt
+          ? profil.organisation.slug
+          : null,
       role: profil.role,
       libelleRole: profil.sousRole?.libelle ?? null,
       entite: profil.sousRole?.entiteCode ?? null,

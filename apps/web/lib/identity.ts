@@ -9,6 +9,8 @@ export interface IdentityMe {
   profil: {
     id: string;
     organisationId: string | null;
+    /** Page d'accueil de l'organisation (/{slug}) si elle est active, sinon null. */
+    organisationSlug: string | null;
     role: string | null;
     libelleRole: string | null;
     entite: string | null;

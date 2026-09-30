@@ -12,6 +12,8 @@ export const ROLES_MEDICAUX = [
 export interface ProfilResume {
   id: string;
   organisationId: string | null;
+  /** Chemin de la page d'accueil de l'organisation (/{slug}) ; null si aucune organisation ou si elle n'est pas ACTIVE. */
+  organisationSlug: string | null;
   /** Code sous_roles ; null si le compte n'a pas encore de rôle assigné. */
   role: string | null;
   libelleRole: string | null;

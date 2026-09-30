@@ -73,3 +73,54 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Page d'accueil publique : animations (préfixe `accueil-`). Toutes neutralisées
+ * sous `prefers-reduced-motion: reduce` (bloc en fin de section).
+ * ------------------------------------------------------------------------- */
+@keyframes accueil-apparition {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes accueil-texte-entree {
+  from { opacity: 0; transform: translateY(0.35em); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes accueil-progression {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes accueil-etape {
+  from { opacity: 0; transform: translateY(10px) scale(0.92); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes accueil-trait-x {
+  from { transform: translateY(-50%) scaleX(0); }
+  to { transform: translateY(-50%) scaleX(1); }
+}
+@keyframes accueil-trait-y {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+@keyframes accueil-defilement {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.accueil-apparition { animation: accueil-apparition 180ms ease-out both; }
+.accueil-texte-entree { animation: accueil-texte-entree 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.accueil-defilement { animation: accueil-defilement 40s linear infinite; }
+.accueil-progression { animation: accueil-progression linear both; }
+.accueil-etape { animation: accueil-etape 520ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.accueil-trait-x { animation: accueil-trait-x 420ms ease-out both; }
+.accueil-trait-y { animation: accueil-trait-y 420ms ease-out both; }
+.accueil-defilement:hover { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  .accueil-apparition,
+  .accueil-texte-entree,
+  .accueil-defilement,
+  .accueil-progression,
+  .accueil-etape,
+  .accueil-trait-x,
+  .accueil-trait-y { animation: none; }
+}

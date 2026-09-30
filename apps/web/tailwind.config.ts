@@ -51,6 +51,11 @@ const config: Config = {
           foreground: 'hsl(var(--card-foreground))',
         },
       },
+      fontFamily: {
+        // Titres de la page d’accueil publique (Outfit, chargée via next/font
+        // sur cette page seulement) ; repli système partout ailleurs.
+        display: ['var(--font-display)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

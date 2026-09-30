@@ -17,6 +17,7 @@ import { PreauthorizationModule } from './preauthorization/preauthorization.modu
 import { PrismaModule } from './prisma/prisma.module';
 import { ProviderModule } from './provider/provider.module';
 import { ReferenceModule } from './reference/reference.module';
+import { VitrineModule } from './vitrine/vitrine.module';
 import { SuperadminModule } from './superadmin/superadmin.module';
 import { TenantModule } from './tenant/tenant.module';
 import { UnderwritingModule } from './underwriting/underwriting.module';
@@ -44,6 +45,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     ContestationModule,
     PaymentModule,
     SuperadminModule,
+    VitrineModule,
   ],
 })
 export class AppModule {}

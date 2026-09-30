@@ -1,51 +1,47 @@
-import Link from 'next/link';
+import type { Metadata } from 'next';
+import { Outfit } from 'next/font/google';
 import { redirect } from 'next/navigation';
 
-import { Brand } from '@/components/brand';
-import { ModeToggle } from '@/components/mode-toggle';
-import { Button } from '@/components/ui/button';
+import { BandeauPartenaires } from '@/components/accueil/bandeau-partenaires';
+import { CarrouselHero } from '@/components/accueil/carrousel-hero';
+import { CeQueNousFaisons } from '@/components/accueil/ce-que-nous-faisons';
+import { EnTeteAccueil } from '@/components/accueil/en-tete';
+import { Formulaires } from '@/components/accueil/formulaires';
+import { PiedDePage } from '@/components/accueil/pied-de-page';
+import { QuiSommesNous } from '@/components/accueil/qui-sommes-nous';
+import { ReseauSoins } from '@/components/accueil/reseau-soins';
 import { aUneSession } from '@/lib/identity';
 
+/** Titres de la page d'accueil uniquement (les tableaux de bord gardent la police système). */
+const outfit = Outfit({ subsets: ['latin'], variable: '--font-display', display: 'swap' });
+
+export const metadata: Metadata = {
+  title: 'Assurance Santé : la plateforme de l’assurance santé collective',
+  description:
+    'Réseau de soins conventionné, parcours anti-fraude, cotisations et remboursements : la plateforme de gestion de l’assurance santé collective en Côte d’Ivoire.',
+};
+
+/**
+ * Page d'accueil publique (hors authentification). Un utilisateur déjà
+ * connecté est renvoyé vers son tableau de bord, comme auparavant.
+ */
 export default async function Accueil() {
   if (await aUneSession()) {
     redirect('/dashboard');
   }
 
   return (
-    <div className="flex min-h-svh flex-col bg-gradient-to-b from-muted/40 to-background">
-      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-5">
-        <Brand />
-        <div className="flex items-center gap-2">
-          <ModeToggle />
-          <Button asChild size="sm">
-            <Link href="/login">Se connecter</Link>
-          </Button>
-        </div>
-      </header>
-
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-6 px-6 pb-24 text-center">
-        <span className="rounded-full border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
-          Plateforme métier — Côte d’Ivoire
-        </span>
-        <h1 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-          Le core system de l’assurance santé collective
-        </h1>
-        <p className="max-w-xl text-pretty text-muted-foreground">
-          Souscripteurs, produits versionnés, polices, adhésions, cotisations et
-          adjudication des remboursements — une seule plateforme pour piloter votre
-          activité d’assurance santé, du devis au paiement.
-        </p>
-        <Button asChild size="lg">
-          <Link href="/login">Accéder à mon espace</Link>
-        </Button>
-        <p className="text-xs text-muted-foreground">
-          Accès réservé. Chaque compte est provisionné par un administrateur.
-        </p>
+    <div className={`${outfit.variable} flex min-h-svh flex-col bg-background`}>
+      <EnTeteAccueil />
+      <main id="contenu-principal" className="flex-1">
+        <CarrouselHero />
+        <BandeauPartenaires />
+        <QuiSommesNous />
+        <CeQueNousFaisons />
+        <ReseauSoins />
+        <Formulaires />
       </main>
-
-      <footer className="mx-auto w-full max-w-5xl px-6 py-6 text-xs text-muted-foreground">
-        © {new Date().getFullYear()} Assurance Santé — Core System
-      </footer>
+      <PiedDePage />
     </div>
   );
 }

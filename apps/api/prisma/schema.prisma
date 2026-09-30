@@ -1881,3 +1881,15 @@ model Remboursement {
 
   @@map("remboursements")
 }
+
+/// Inscriptions newsletter de la page d'accueil publique (prisma/sql/059).
+/// Pas d'organisation_id : page commune à la plateforme. Email en minuscules, unique.
+model NewsletterAbonne {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String    @unique(map: "newsletter_abonnes_email_unique")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("newsletter_abonnes")
+}

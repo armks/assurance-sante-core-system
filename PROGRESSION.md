@@ -6066,3 +6066,60 @@ Photo WEBP : acceptée à l'upload et affichée à l'écran, mais silhouette sur
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Page d'accueil publique : refonte complète
+
+### Réalisé
+- **Direction** (validée) : recherche réelle (HealthEdge, Curacel, Sapiens ; Vitech refusé
+  par la permission du site), continuité de la marque lavande (violet `#7353EA` seul
+  accent, bande nuit `#17152B` pour bannière et pied de page), titres en Outfit
+  (`next/font`, page d'accueil seulement), mode sombre via les jetons existants.
+- **En-tête + méga menu** : Réseau de soins / Devenir partenaire / Adhésion ouvrent un panneau
+  pleine largeur (3 colonnes, colonne active en évidence), Qui sommes-nous, Contact,
+  Connexion (`/login`). Survol + clic (bug survol→clic qui refermait aussitôt corrigé),
+  Échap rend le focus, `aria-expanded`/`aria-controls`, panneau latéral sous lg.
+- **Bannière** : carrousel en fondu enchaîné (3 diapositives, fin du titre animée),
+  pause au survol/focus, bouton Pause (WCAG 2.2.2), statique si « réduire les animations ».
+- **Sections** : bandeau de logos partenaires défilant (liste vide, emplacements neutres,
+  `PARTENAIRES-PLACEHOLDER`), Qui sommes-nous, Ce que nous faisons (grille asymétrique de
+  capacités réelles + **frise animée des quatre codes anti-fraude**, horizontale ≥ md,
+  verticale en mobile, apparition étape par étape via un IntersectionObserver unique),
+  Réseau de soins (principe du conventionnement), formulaires, pied de page
+  (coordonnées, liens utiles, références CIMA / IPS-CNAM / ARTCI, newsletter).
+- **Photos** : 5 photos Pexels (licence commerciale, sans attribution obligatoire),
+  téléchargées dans `public/images/accueil/`, répertoriées dans
+  `components/accueil/photos.ts` et marquées **PHOTO-TEMPORAIRE** (à remplacer).
+  Pas d'API Unsplash/Pexels : elle exige une clé de compte.
+- **Coordonnées** : `components/accueil/coordonnees.ts` (**À RENSEIGNER** : adresse,
+  téléphone, e-mail ; masqués tant que vides, rien d'inventé).
+- **API, module `vitrine/`** (public, sans authentification) :
+  `POST /api/v1/public/demandes` (Contact, Devenir partenaire, Adhésion → e-mail Resend à
+  `CONTACT_EMAIL`, réponse directe au demandeur via `replyTo`) et
+  `POST /api/v1/public/newsletter` (table `newsletter_abonnes`, prisma/sql/059 : e-mail en
+  minuscules unique, RLS sans policy, inscription idempotente). Anti-spam : limiteur en
+  fenêtre glissante par IP (3 demandes / 5 inscriptions par 15 min) + plafond GLOBAL
+  (30 / 100) contre l'IP falsifiée, pot de miel qui renvoie la même réponse qu'un succès.
+  `EmailService.envoyerEmail` : option `replyTo` (rétrocompatible). `CONTACT_EMAIL`
+  documenté dans `.env.example`.
+- **Espacements** : deux réductions demandées entre sections (≈ −35 %, puis −20 %) :
+  sections 58/42 px, bandeau 16 px, pied de page 32 px ; respiration interne inchangée.
+
+### Tests
+- Unitaires : +20 (limiteur, service, DTO). Backend 779/779. `tsc` api + web OK.
+- Navigateur réel (Chrome, origine isolée `e2e.localhost` pour ne pas toucher la session de
+  l'utilisateur ; `allowedDevOrigins` ajouté puis retiré, non commité) : méga menu (clic,
+  lien → onglet présélectionné, Échap), carrousel qui avance seul, formulaire de contact →
+  **e-mail réellement accepté par Resend** (id `01a0f077…`, clé en envoi seul : statut de
+  remise non consultable), inscription newsletter enregistrée en base.
+- HTTP réel : 4e demande par IP → 429, autre IP non affectée, pot de miel → 201 sans e-mail
+  ni écriture, 6e inscription newsletter → 429, e-mail invalide → 400.
+- Largeurs 375/768/1280 (iframes à la largeur exacte) : frise horizontale/verticale,
+  débordement horizontal mobile trouvé (onglets du formulaire) et corrigé, aucun
+  débordement ensuite. Données de test supprimées.
+
+### Hors de ce commit
+Le logo d'organisation et la refonte de la carte PDF (prompts précédents) restent en attente
+de validation des PDF, non commités.
+
+### Statut
+Terminé, commité et poussé.

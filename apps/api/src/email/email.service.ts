@@ -38,11 +38,13 @@ export class EmailService {
    * @param destinataire une ou plusieurs adresses e-mail
    * @param sujet objet du message
    * @param contenu corps du message (texte brut)
+   * @param options.replyTo adresse de réponse (ex. l'auteur d'un formulaire public)
    */
   async envoyerEmail(
     destinataire: string | string[],
     sujet: string,
     contenu: string,
+    options: { replyTo?: string } = {},
   ): Promise<ResultatEnvoi> {
     const to = Array.isArray(destinataire) ? destinataire : [destinataire];
 
@@ -59,6 +61,7 @@ export class EmailService {
         to,
         subject: sujet,
         text: contenu,
+        ...(options.replyTo ? { replyTo: options.replyTo } : {}),
       });
       if (error) {
         this.logger.error(

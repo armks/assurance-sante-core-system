@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LineChart,
   type LucideIcon,
+  MapPin,
   Package,
   PackageCheck,
   Pill,
@@ -96,6 +97,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     { label: 'Factures', href: `${ADHERENT}/factures`, icon: ReceiptText },
     { label: 'Réclamations', href: `${ADHERENT}/reclamations`, icon: Scale },
     { label: 'Ma carte', href: `${ADHERENT}/carte`, icon: CreditCard },
+    { label: 'Réseau de soins', href: `${ADHERENT}/reseau-de-soins`, icon: MapPin },
   ],
   // SOUSCRIPTEUR_INDIVIDUEL : rôle distinct d'ADHERENT_TITULAIRE (même entité
   // ADHERENT, dashboardRoute propre en base). Le narrowing au seul dossier de

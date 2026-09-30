@@ -35,8 +35,9 @@ const COLONNES: ColonneMenu[] = [
     description: 'Établissements de santé et pharmacies conventionnés, et le parcours de l’adhérent.',
     icone: Stethoscope,
     liens: [
-      { libelle: 'Le principe du réseau', href: '#reseau' },
-      { libelle: 'Le parcours anti-fraude', href: '#services' },
+      { libelle: 'Trouver un établissement ou une pharmacie', href: '/reseau-de-soins' },
+      { libelle: 'Le principe du réseau', href: '/#reseau' },
+      { libelle: 'Le parcours anti-fraude', href: '/#services' },
     ],
   },
   {
@@ -44,14 +45,14 @@ const COLONNES: ColonneMenu[] = [
     titre: 'Devenir partenaire',
     description: 'Clinique, centre de santé ou pharmacie : rejoignez le réseau conventionné.',
     icone: Building2,
-    liens: [{ libelle: 'Déposer une candidature', href: '#partenaire' }],
+    liens: [{ libelle: 'Déposer une candidature', href: '/#partenaire' }],
   },
   {
     id: 'adhesion',
     titre: 'Adhésion',
     description: 'Entreprise, collectivité ou mutuelle : couvrez la santé de vos membres.',
     icone: Users,
-    liens: [{ libelle: 'Manifester votre intérêt', href: '#adhesion' }],
+    liens: [{ libelle: 'Manifester votre intérêt', href: '/#adhesion' }],
   },
 ];
 
@@ -139,10 +140,10 @@ export function EnTeteAccueil() {
               />
             </button>
           ))}
-          <a href="#qui-sommes-nous" className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <a href="/#qui-sommes-nous" className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Qui sommes-nous
           </a>
-          <a href="#contact" className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <a href="/#contact" className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Contact
           </a>
         </nav>
@@ -234,10 +235,10 @@ function MenuMobile() {
             </div>
           ))}
           <div className="space-y-1 border-t pt-4">
-            <a href="#qui-sommes-nous" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium">
+            <a href="/#qui-sommes-nous" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium">
               Qui sommes-nous
             </a>
-            <a href="#contact" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium">
+            <a href="/#contact" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium">
               Contact
             </a>
           </div>

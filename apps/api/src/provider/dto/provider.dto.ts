@@ -16,6 +16,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import {
   CIBLES_RECHERCHE,
@@ -110,15 +111,22 @@ export class UpdatePharmacieDto {
   @IsOptional() @IsBoolean() tiersPayant?: boolean;
 }
 
-/** Recherche géolocalisée (query params castés en nombres via `transform`). */
+/**
+ * Recherche dans le réseau de soins (query params castés en nombres via
+ * `transform`). Avec `lat`/`lng` : recherche géolocalisée dans un rayon, triée
+ * par distance. Sans position : annuaire complet des lieux actifs (triés par
+ * nom, avec ou sans coordonnées). `lat` et `lng` vont ensemble.
+ */
 export class RechercheGeoDto {
+  @ValidateIf((d: RechercheGeoDto) => d.lat != null || d.lng != null)
   @Type(() => Number)
   @IsLatitude()
-  lat!: number;
+  lat?: number;
 
+  @ValidateIf((d: RechercheGeoDto) => d.lat != null || d.lng != null)
   @Type(() => Number)
   @IsLongitude()
-  lng!: number;
+  lng?: number;
 
   /** Rayon en kilomètres (défaut 5, max 200). */
   @IsOptional()

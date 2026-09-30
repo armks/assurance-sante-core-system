@@ -6318,3 +6318,43 @@ Terminé, commité et poussé.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Annuaire du réseau de soins (espace adhérent + page publique)
+
+### Réalisé
+- **API** `GET /provider/recherche` : `lat` / `lng` deviennent facultatifs (ensemble ou
+  pas du tout). Sans position → annuaire des établissements ACTIFS et pharmacies
+  ACTIVES de l'organisation, avec ou sans coordonnées, triés par nom, même forme de
+  réponse (`centre` / `rayonKm` à `null`, `limite` seulement si demandée). Avec position
+  → recherche géolocalisée inchangée. Constat préalable : champs nécessaires présents
+  (ville, commune, type, garde, coordonnées) mais recherche par rayon (5 km par défaut,
+  200 km max, entrées sans coordonnées exclues), inadaptée à un annuaire national.
+- **Composant partagé** `components/reseau-soins/` : `ReseauSoinsRecherche` (DataTable,
+  filtres combinables ville / type / commune / garde, recherche nom-ville-commune),
+  forme commune `LieuAnnuaire` réduite côté serveur (seuls les champs affichés partent au
+  navigateur). Clic sur un lieu → itinéraire Google Maps
+  (`/maps/dir/?api=1`) dans un nouvel onglet ouvert dans le geste de l'utilisateur :
+  `origin` = position du navigateur, repli sur la destination seule si géolocalisation
+  refusée / indisponible / sans réponse ; destination = coordonnées, sinon nom + adresse
+  en texte (segments dédoublonnés).
+- **Espace adhérent** : entrée « Réseau de soins » → `/dashboard-adherent/reseau-de-soins`.
+- **Page publique** `/reseau-de-soins` (en-tête et pied de page de la vitrine) : lecture
+  par le client Supabase `anon` sur les vues `etablissements_sante_public` /
+  `pharmacies_public` (PROMPT 14), colonnes demandées explicitement — jamais l'API
+  authentifiée. Route publique dans le proxy ; la connexion s'y ouvre aussi en
+  superposition. Méga menu : « Trouver un établissement ou une pharmacie » ; pied de page
+  « Réseau de soins » → cette page ; liens d'ancre en `/#…` pour fonctionner depuis
+  toute page.
+
+### Tests
+- Unitaires provider : +5 (annuaire sans position, cible / limite, DTO position
+  facultative). API 816/816.
+- `anon` : vues publiques lisibles, tables complètes → 0 ligne (RLS).
+- Chrome réel, public et adhérent, jeu de 9 lieux temporaires (supprimés) : filtres
+  combinés exacts (dont combinaison incompatible → aucun résultat) ; itinéraires
+  vérifiés (origine fournie → trajet Abidjan → Bouaké 346 km ; refus → destination
+  seule ; lieu sans coordonnées → adresse texte). Fuite : charge utile publique sans
+  e-mail, téléphone, adresse, organisation ni champ interne.
+
+### Statut
+Terminé, commité et poussé.

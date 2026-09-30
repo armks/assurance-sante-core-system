@@ -1,8 +1,11 @@
 import { ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RechercheGeoDto } from './dto/provider.dto';
 import { GeocodageService } from './geocodage.service';
 import { ProviderService } from './provider.service';
 
@@ -228,6 +231,42 @@ describe('ProviderService', () => {
     expect(prisma.pharmacie.findMany).not.toHaveBeenCalled();
     expect(res.pharmacies).toBeUndefined();
     expect(res.rayonKm).toBe(5); // défaut
+  });
+
+  it('recherche sans position : annuaire des lieux actifs de l’organisation, triés par nom, sans filtre de coordonnées', async () => {
+    identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE']));
+    prisma.etablissementSante.findMany.mockResolvedValue([
+      { id: 'a', nom: 'Clinique A', latitude: null, longitude: null },
+    ]);
+    prisma.pharmacie.findMany.mockResolvedValue([{ id: 'p', nom: 'Pharmacie P' }]);
+
+    const res = await service.rechercheGeolocalisee(USER, {});
+
+    expect(res).toEqual({
+      centre: null,
+      rayonKm: null,
+      etablissements: [{ id: 'a', nom: 'Clinique A', latitude: null, longitude: null }],
+      pharmacies: [{ id: 'p', nom: 'Pharmacie P' }],
+    });
+    expect(prisma.etablissementSante.findMany).toHaveBeenCalledWith({
+      where: { organisationId: 'org-1', deletedAt: null, statut: 'ACTIF' },
+      orderBy: { nom: 'asc' },
+    });
+    expect(prisma.pharmacie.findMany).toHaveBeenCalledWith({
+      where: { organisationId: 'org-1', deletedAt: null, statut: 'ACTIVE' },
+      orderBy: { nom: 'asc' },
+    });
+  });
+
+  it('recherche sans position : cible et limite respectées', async () => {
+    identity.getMe.mockResolvedValue(identite(['ADHERENT_TITULAIRE']));
+    prisma.pharmacie.findMany.mockResolvedValue([]);
+
+    const res = await service.rechercheGeolocalisee(USER, { cible: 'PHARMACIES', limite: 10 });
+
+    expect(prisma.etablissementSante.findMany).not.toHaveBeenCalled();
+    expect(res.etablissements).toBeUndefined();
+    expect(prisma.pharmacie.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 10 }));
   });
 
   // --- Automatisation (v8 §9, PROMPT 15) --------------------------
@@ -478,5 +517,21 @@ describe('ProviderService', () => {
     await expect(service.reverifierObsoletes(USER, {})).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+});
+
+describe('RechercheGeoDto — position facultative, lat et lng ensemble', () => {
+  const erreurs = async (o: object) =>
+    (await validate(plainToInstance(RechercheGeoDto, o))).map((e) => e.property);
+
+  it('sans position : valide', async () => {
+    expect(await erreurs({})).toEqual([]);
+  });
+  it('position complète (query params en chaînes) : valide', async () => {
+    expect(await erreurs({ lat: '5.32', lng: '-4.02' })).toEqual([]);
+  });
+  it('latitude seule → longitude exigée ; hors bornes refusé', async () => {
+    expect(await erreurs({ lat: '5.32' })).toEqual(['lng']);
+    expect(await erreurs({ lat: '95', lng: '0' })).toEqual(['lat']);
   });
 });

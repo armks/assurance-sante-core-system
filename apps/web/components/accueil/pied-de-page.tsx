@@ -9,11 +9,11 @@ import { inscrireNewsletter, type ResultatFormulaire } from '@/app/accueil-actio
 import { COORDONNEES, REFERENCES } from './coordonnees';
 
 const LIENS = [
-  { libelle: 'Réseau de soins', href: '#reseau' },
-  { libelle: 'Devenir partenaire', href: '#partenaire' },
-  { libelle: 'Adhésion', href: '#adhesion' },
-  { libelle: 'Qui sommes-nous', href: '#qui-sommes-nous' },
-  { libelle: 'Contact', href: '#contact' },
+  { libelle: 'Réseau de soins', href: '/reseau-de-soins' },
+  { libelle: 'Devenir partenaire', href: '/#partenaire' },
+  { libelle: 'Adhésion', href: '/#adhesion' },
+  { libelle: 'Qui sommes-nous', href: '/#qui-sommes-nous' },
+  { libelle: 'Contact', href: '/#contact' },
 ];
 
 /** Pied de page (bande nuit, même teinte que la bannière) + newsletter. */

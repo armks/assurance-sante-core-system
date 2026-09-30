@@ -386,6 +386,9 @@ export class ProviderService {
 
   async rechercheGeolocalisee(user: AuthenticatedUser, dto: RechercheGeoDto) {
     const ctx = await this.contexteAppelant(user);
+    if (dto.lat == null || dto.lng == null) {
+      return this.annuaire(ctx.organisationId, dto);
+    }
     const rayon = dto.rayonKm ?? 5;
     const limite = dto.limite ?? 50;
     const cible = dto.cible ?? 'TOUS';
@@ -435,6 +438,39 @@ export class ProviderService {
       );
     }
 
+    return resultat;
+  }
+
+  /**
+   * Recherche sans position : annuaire des lieux actifs de l'organisation
+   * (avec ou sans coordonnées), triés par nom. Même forme de réponse que la
+   * recherche géolocalisée, sans `distanceKm` ; `centre` et `rayonKm` à `null`.
+   * `limite` n'est appliquée que si elle est demandée.
+   */
+  private async annuaire(organisationId: string, dto: RechercheGeoDto) {
+    const cible = dto.cible ?? 'TOUS';
+    const commun = {
+      orderBy: { nom: 'asc' as const },
+      ...(dto.limite ? { take: dto.limite } : {}),
+    };
+    const resultat: {
+      centre: null;
+      rayonKm: null;
+      etablissements?: unknown[];
+      pharmacies?: unknown[];
+    } = { centre: null, rayonKm: null };
+    if (cible === 'ETABLISSEMENTS' || cible === 'TOUS') {
+      resultat.etablissements = await this.prisma.etablissementSante.findMany({
+        where: { organisationId, deletedAt: null, statut: 'ACTIF' },
+        ...commun,
+      });
+    }
+    if (cible === 'PHARMACIES' || cible === 'TOUS') {
+      resultat.pharmacies = await this.prisma.pharmacie.findMany({
+        where: { organisationId, deletedAt: null, statut: 'ACTIVE' },
+        ...commun,
+      });
+    }
     return resultat;
   }
 

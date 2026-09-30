@@ -22,6 +22,7 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
   let service: VitrineService;
   let prisma: { newsletterAbonne: { upsert: jest.Mock }; organisation: { findFirst: jest.Mock } };
   let email: { envoyerEmail: jest.Mock };
+  let moduleStats: { obtenir: jest.Mock };
 
   beforeEach(async () => {
     process.env.CONTACT_EMAIL = 'contact@plateforme.ci';
@@ -30,12 +31,13 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
       organisation: { findFirst: jest.fn().mockResolvedValue(null) },
     };
     email = { envoyerEmail: jest.fn().mockResolvedValue({ envoye: true, id: 'em_1' }) };
+    moduleStats = { obtenir: jest.fn().mockResolvedValue({ arreteAu: '2026-09-29', seuilMinimum: 100, compteurs: {} }) };
     const moduleRef = await Test.createTestingModule({
       providers: [
         VitrineService,
         { provide: PrismaService, useValue: prisma },
         { provide: EmailService, useValue: email },
-        { provide: StatistiquesService, useValue: { obtenir: jest.fn().mockResolvedValue({ arreteAu: '2026-09-29', seuilMinimum: 100, compteurs: {} }) } },
+        { provide: StatistiquesService, useValue: moduleStats },
       ],
     }).compile();
     service = moduleRef.get(VitrineService);
@@ -128,7 +130,7 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
     await service.envoyerDemande({ ...CONTACT, organisation: 'mutuelle-abidjan' }, '41.202.4.1');
     expect(prisma.organisation.findFirst).toHaveBeenCalledWith({
       where: { slug: 'mutuelle-abidjan', deletedAt: null, statut: 'ACTIVE' },
-      select: { id: true, slug: true, nom: true, logoUrl: true, emailContact: true },
+      select: expect.objectContaining({ id: true, slug: true, nom: true, emailContact: true }),
     });
     const [dest, sujet, corps, options] = email.envoyerEmail.mock.calls[0];
     expect(dest).toBe('contact@mutuelle-abidjan.ci');
@@ -159,14 +161,35 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
     expect(email.envoyerEmail.mock.calls[0][1]).toMatch(/^\[Site\] /);
   });
 
-  it('fiche publique : nom, slug et logo seulement ; 404 si inconnue', async () => {
-    prisma.organisation.findFirst.mockResolvedValueOnce(SOCIETE);
+  it('fiche publique : identité, bannière et contact seulement (jamais l’identifiant) ; 404 si inconnue', async () => {
+    prisma.organisation.findFirst.mockResolvedValueOnce({
+      ...SOCIETE,
+      telephoneContact: '+225 27 20 00 00 00',
+      heroTitre: 'Votre santé, notre engagement',
+      heroSousTitre: null,
+      heroImageUrl: null,
+    });
     expect(await service.obtenirOrganisation('mutuelle-abidjan', '41.202.4.5')).toEqual({
       slug: 'mutuelle-abidjan',
       nom: 'Mutuelle d’Abidjan',
       logoUrl: 'https://x/logo.png',
+      emailContact: 'contact@mutuelle-abidjan.ci',
+      telephoneContact: '+225 27 20 00 00 00',
+      heroTitre: 'Votre santé, notre engagement',
+      heroSousTitre: null,
+      heroImageUrl: null,
     });
     await expect(service.obtenirOrganisation('absente', '41.202.4.5')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('statistiques d’une société : calculées sur SON organisation ; slug inconnu → 404', async () => {
+    const stats = moduleStats;
+    prisma.organisation.findFirst.mockResolvedValueOnce(SOCIETE);
+    await service.obtenirStatistiques('41.202.4.6', 'mutuelle-abidjan');
+    expect(stats.obtenir).toHaveBeenCalledWith(SOCIETE.id);
+    await expect(service.obtenirStatistiques('41.202.4.6', 'absente')).rejects.toBeInstanceOf(NotFoundException);
+    await service.obtenirStatistiques('41.202.4.6');
+    expect(stats.obtenir).toHaveBeenLastCalledWith();
   });
 
   // --- Statistiques ---------------------------------------------------------

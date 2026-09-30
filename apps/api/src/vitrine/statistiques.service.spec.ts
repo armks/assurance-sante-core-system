@@ -91,6 +91,19 @@ describe('StatistiquesService — compteurs publics agrégés', () => {
     expect(service.seuil).toBe(100);
   });
 
+  it('page d’une société : chaque compteur filtré sur SON organisation, cache distinct de la plateforme', async () => {
+    const ORG = '11111111-1111-4111-8111-111111111111';
+    await service.obtenir(ORG);
+    for (const m of Object.values(prisma)) {
+      expect(m.count).toHaveBeenCalledWith({ where: expect.objectContaining({ organisationId: ORG }) });
+    }
+    await service.obtenir(); // plateforme : pas servie depuis le cache de l'organisation
+    expect(prisma.codeConsultation.count).toHaveBeenCalledTimes(2);
+    expect(prisma.codeConsultation.count.mock.calls[1][0].where).not.toHaveProperty('organisationId');
+    await service.obtenir(ORG); // même jour : cache de l'organisation
+    expect(prisma.codeConsultation.count).toHaveBeenCalledTimes(2);
+  });
+
   it('base vide (état actuel) : tous les compteurs masqués', async () => {
     for (const m of Object.values(prisma)) m.count.mockResolvedValue(0);
     const res = await service.obtenir();

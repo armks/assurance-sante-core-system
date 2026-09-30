@@ -7,9 +7,17 @@ export const LONGUEUR_MAX_SLUG = 60;
 
 /**
  * Premiers segments d'URL déjà pris par l'application ou des ressources
- * techniques — MÊME liste que la contrainte `organisations_slug_non_reserve`
- * (prisma/sql/061) et que `apps/web/lib/slugs.ts` (proxy Next.js).
- * Tout segment commençant par `dashboard` est aussi réservé.
+ * techniques.
+ *
+ * ⚠ AJOUT D'UNE PAGE DE PREMIER NIVEAU (ex. /tarifs) — trois endroits à
+ * mettre à jour ENSEMBLE, sinon une société pourrait prendre ce chemin (ou le
+ * proxy traiterait la page comme publique) :
+ *   1. API       : apps/api/src/common/slug.util.ts  → SEGMENTS_RESERVES
+ *   2. Proxy web : apps/web/lib/slugs.ts             → SEGMENTS_RESERVES
+ *   3. Base      : contrainte organisations_slug_non_reserve (prisma/sql/061) —
+ *                  nouvelle migration : drop constraint + add constraint avec la
+ *                  liste complétée (vérifier avant qu'aucun slug existant ne la viole).
+ * Les segments commençant par `dashboard` sont déjà réservés aux trois endroits.
  */
 export const SEGMENTS_RESERVES: ReadonlySet<string> = new Set([
   'accepter-invitation',

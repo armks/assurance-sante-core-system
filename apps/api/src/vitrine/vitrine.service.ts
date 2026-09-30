@@ -99,26 +99,51 @@ export class VitrineService {
   }
 
   /**
-   * Fiche publique d'une société ACTIVE pour sa page /{slug} : nom, chemin et
-   * logo uniquement (aucun identifiant, contact ni donnée interne).
+   * Fiche publique d'une société ACTIVE pour sa page /{slug} : nom, chemin,
+   * logo, bannière personnalisée et coordonnées de contact (e-mail et
+   * téléphone de contact, affichés dans son pied de page). Aucun identifiant
+   * ni donnée interne.
    */
   async obtenirOrganisation(slug: string, ip: string) {
     this.verifierLimite(this.limiteOrganisations.consommer(ip));
     const societe = await this.societeActive(slug);
     if (!societe) throw new NotFoundException('Page introuvable.');
-    return { slug: societe.slug, nom: societe.nom, logoUrl: societe.logoUrl };
+    return {
+      slug: societe.slug,
+      nom: societe.nom,
+      logoUrl: societe.logoUrl,
+      emailContact: societe.emailContact,
+      telephoneContact: societe.telephoneContact,
+      heroTitre: societe.heroTitre,
+      heroSousTitre: societe.heroSousTitre,
+      heroImageUrl: societe.heroImageUrl,
+    };
   }
 
   private societeActive(slug: string) {
     return this.prisma.organisation.findFirst({
       where: { slug, deletedAt: null, statut: 'ACTIVE' },
-      select: { id: true, slug: true, nom: true, logoUrl: true, emailContact: true },
+      select: {
+        id: true,
+        slug: true,
+        nom: true,
+        logoUrl: true,
+        emailContact: true,
+        telephoneContact: true,
+        heroTitre: true,
+        heroSousTitre: true,
+        heroImageUrl: true,
+      },
     });
   }
 
-  async obtenirStatistiques(ip: string) {
+  /** Plateforme entière, ou la société du slug (page /{slug}) ; slug inconnu → 404. */
+  async obtenirStatistiques(ip: string, slug?: string) {
     this.verifierLimite(this.limiteStatistiques.consommer(ip));
-    return this.statistiques.obtenir();
+    if (!slug) return this.statistiques.obtenir();
+    const societe = await this.societeActive(slug);
+    if (!societe) throw new NotFoundException('Page introuvable.');
+    return this.statistiques.obtenir(societe.id);
   }
 
   private verifierLimite(r: ResultatLimite): void {

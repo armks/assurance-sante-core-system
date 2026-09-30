@@ -7,6 +7,13 @@ export interface OrganisationPublique {
   slug: string;
   nom: string;
   logoUrl: string | null;
+  /** Coordonnées affichées dans son pied de page (null : celles de la plateforme). */
+  emailContact: string | null;
+  telephoneContact: string | null;
+  /** Bannière personnalisée (null : valeur par défaut de la plateforme). */
+  heroTitre: string | null;
+  heroSousTitre: string | null;
+  heroImageUrl: string | null;
 }
 
 /** En-tête X-Forwarded-For du visiteur, pour les limiteurs de l'API. */

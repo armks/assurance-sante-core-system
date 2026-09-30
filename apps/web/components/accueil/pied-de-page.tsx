@@ -19,10 +19,21 @@ const LIENS = [
 
 /**
  * Pied de page (bande nuit, même teinte que la bannière) + newsletter. Sur la
- * page d'une société (/{slug}) : son nom, liens de section restant sur sa page.
+ * page d'une société (/{slug}) : son nom, liens de section restant sur sa page,
+ * et ses coordonnées de contact (e-mail — celui qui reçoit ses formulaires — et
+ * téléphone) si elle en a ; sinon les coordonnées de la plateforme.
  */
-export function PiedDePage({ marque, racine = '/' }: { marque?: MarqueVitrine; racine?: string } = {}) {
+export function PiedDePage({
+  marque,
+  racine = '/',
+  contact,
+}: {
+  marque?: MarqueVitrine;
+  racine?: string;
+  contact?: { email: string | null; telephone: string | null };
+} = {}) {
   const nom = marque?.nom ?? 'Assurance Santé';
+  const contactSociete = contact && (contact.email || contact.telephone) ? contact : null;
   return (
     <footer className="bg-nuit text-white/80">
       <div className="mx-auto grid max-w-7xl gap-12 px-4 py-8 sm:px-6 md:grid-cols-2 lg:grid-cols-12">
@@ -31,12 +42,31 @@ export function PiedDePage({ marque, racine = '/' }: { marque?: MarqueVitrine; r
           <p className="mt-3 max-w-[40ch] text-sm leading-relaxed">
             Le système de gestion de l’assurance santé collective, du devis au remboursement.
           </p>
-          <address className="mt-5 space-y-1 text-sm not-italic">
-            {COORDONNEES.adresse && <p>{COORDONNEES.adresse}</p>}
-            <p>{COORDONNEES.ville}</p>
-            {COORDONNEES.telephone && <p>{COORDONNEES.telephone}</p>}
-            {COORDONNEES.email && <p>{COORDONNEES.email}</p>}
-          </address>
+          {contactSociete ? (
+            <address className="mt-5 space-y-1 text-sm not-italic">
+              {contactSociete.telephone && (
+                <p>
+                  <a href={`tel:${contactSociete.telephone.replace(/\s/g, '')}`} className="hover:text-white hover:underline">
+                    {contactSociete.telephone}
+                  </a>
+                </p>
+              )}
+              {contactSociete.email && (
+                <p>
+                  <a href={`mailto:${contactSociete.email}`} className="hover:text-white hover:underline">
+                    {contactSociete.email}
+                  </a>
+                </p>
+              )}
+            </address>
+          ) : (
+            <address className="mt-5 space-y-1 text-sm not-italic">
+              {COORDONNEES.adresse && <p>{COORDONNEES.adresse}</p>}
+              <p>{COORDONNEES.ville}</p>
+              {COORDONNEES.telephone && <p>{COORDONNEES.telephone}</p>}
+              {COORDONNEES.email && <p>{COORDONNEES.email}</p>}
+            </address>
+          )}
         </div>
 
         <nav aria-label="Liens utiles" className="lg:col-span-2">

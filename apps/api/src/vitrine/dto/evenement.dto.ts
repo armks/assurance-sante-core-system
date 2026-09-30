@@ -94,3 +94,36 @@ export class ModifierEvenementDto {
   @IsBoolean()
   actif?: boolean;
 }
+
+/** Texte facultatif de la bannière : chaîne vide → `null` (retour au texte par défaut). */
+const texteOuNull = ({ value }: { value: unknown }) => {
+  if (typeof value !== 'string') return value;
+  const t = value.trim();
+  return t === '' ? null : t;
+};
+
+/**
+ * Bannière de la page /{slug} (multipart : champs + fichier `image` facultatif).
+ * Champ absent : inchangé ; champ vide : effacé (valeur par défaut de la plateforme).
+ */
+export class ModifierHeroDto {
+  @IsOptional()
+  @Transform(texteOuNull)
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  heroTitre?: string | null;
+
+  @IsOptional()
+  @Transform(texteOuNull)
+  @IsString()
+  @MinLength(2)
+  @MaxLength(300)
+  heroSousTitre?: string | null;
+
+  /** `true` : retire l'image personnalisée (image par défaut de la plateforme). */
+  @IsOptional()
+  @Transform(versBooleen)
+  @IsBoolean()
+  supprimerImage?: boolean;
+}

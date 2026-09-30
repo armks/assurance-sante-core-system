@@ -1,4 +1,6 @@
-import { erreurSlug, estReserve, slugDepuisNom, slugLibre } from './slug.util';
+import { readdirSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { erreurSlug, estReserve, SEGMENTS_RESERVES, slugDepuisNom, slugLibre } from './slug.util';
 
 describe('slug.util — chemin de la page d’accueil d’une société', () => {
   it.each([
@@ -35,5 +37,31 @@ describe('slug.util — chemin de la page d’accueil d’une société', () => 
     const pris = new Set(['mutuelle', 'mutuelle-2']);
     expect(await slugLibre('mutuelle', async (s) => pris.has(s))).toBe('mutuelle-3');
     expect(await slugLibre('autre', async (s) => pris.has(s))).toBe('autre');
+  });
+});
+
+describe('segments réservés — synchronisation API / proxy web / base', () => {
+  const racine = join(__dirname, '..', '..', '..', '..');
+  const chaines = (bloc: string) => [...bloc.matchAll(/'([a-z0-9-]+)'/g)].map((m) => m[1]).sort();
+
+  it('apps/web/lib/slugs.ts : même liste que SEGMENTS_RESERVES', () => {
+    const web = readFileSync(join(racine, 'apps/web/lib/slugs.ts'), 'utf8');
+    const bloc = web.slice(web.indexOf('const SEGMENTS_RESERVES'), web.indexOf(']);'));
+    expect(chaines(bloc)).toEqual([...SEGMENTS_RESERVES].sort());
+  });
+
+  it('contrainte SQL organisations_slug_non_reserve (dernière migration qui la définit) : même liste', () => {
+    const dossier = join(racine, 'apps/api/prisma/sql');
+    const derniere = readdirSync(dossier)
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+      .map((f) => readFileSync(join(dossier, f), 'utf8'))
+      .filter((sql) => sql.includes('add constraint organisations_slug_non_reserve'))
+      .pop()!;
+    const contrainte = derniere.slice(derniere.indexOf('add constraint organisations_slug_non_reserve'));
+    const debut = contrainte.indexOf('not in (');
+    const bloc = contrainte.slice(debut, contrainte.indexOf(')', debut));
+    expect(chaines(bloc)).toEqual([...SEGMENTS_RESERVES].sort());
+    expect(contrainte).toContain("slug !~ '^dashboard'");
   });
 });

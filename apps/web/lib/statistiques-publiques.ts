@@ -17,11 +17,14 @@ export interface StatistiquesPubliques {
  * limiteur de débit de l'API. Toute erreur (API injoignable, 429) renvoie
  * `null` : la page s'affiche simplement sans chiffres.
  */
-export async function chargerStatistiquesPubliques(): Promise<StatistiquesPubliques | null> {
+export async function chargerStatistiquesPubliques(slugOrganisation?: string): Promise<StatistiquesPubliques | null> {
   try {
     const h = await headers();
     const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || '';
-    const res = await apiFetchPublic('/api/v1/public/statistiques', {
+    const chemin = slugOrganisation
+      ? `/api/v1/public/statistiques?organisation=${encodeURIComponent(slugOrganisation)}`
+      : '/api/v1/public/statistiques';
+    const res = await apiFetchPublic(chemin, {
       headers: ip ? { 'X-Forwarded-For': ip } : {},
     });
     return res.ok ? ((await res.json()) as StatistiquesPubliques) : null;

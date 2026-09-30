@@ -15,7 +15,13 @@ import { PHOTOS } from './photos';
  *                                              | médecin et pharmacien conseil (4 col)
  * Une seule colonne sous md, dans cet ordre.
  */
-export function CeQueNousFaisons({ statistiques }: { statistiques?: StatistiquesPubliques | null }) {
+export function CeQueNousFaisons({
+  statistiques,
+  perimetre,
+}: {
+  statistiques?: StatistiquesPubliques | null;
+  perimetre?: string;
+}) {
   return (
     <section id="services" className="scroll-mt-20 bg-muted/40 py-[2.625rem] md:py-[3.625rem]">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
@@ -49,7 +55,7 @@ export function CeQueNousFaisons({ statistiques }: { statistiques?: Statistiques
 
           {/* Frise dynamique des quatre codes, pleine largeur. */}
           <div className="md:col-span-6">
-            <FriseAntiFraude statistiques={statistiques} />
+            <FriseAntiFraude statistiques={statistiques} perimetre={perimetre} />
           </div>
 
           {/* Réseau : tuile photo. */}

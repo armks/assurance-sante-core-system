@@ -6452,3 +6452,64 @@ Les statistiques de la frise restent celles de la plateforme sur les pages de so
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Pages société : statistiques, pied de page et bannière propres à la société
+
+### Réalisé
+1. **Statistiques anti-fraude par société** : `StatistiquesService.obtenir(organisationId?)`
+   filtre les quatre compteurs sur l'organisation (mêmes protections : instantané de la
+   veille, arrondi, seuil par compteur — qui masque les volumes d'une petite société) ;
+   un cache quotidien par périmètre. `GET /public/statistiques?organisation={slug}`
+   (slug inconnu → 404). Légende de la frise : « Chiffres d'Assureur X … » (élision),
+   « de la plateforme » inchangé sur `/`.
+2. **Pied de page** : la fiche publique renvoie `emailContact` (celui qui reçoit les
+   formulaires) et `telephoneContact` ; affichés (liens `mailto:` / `tel:`) à la place des
+   coordonnées de la plateforme si l'un des deux est renseigné, sinon pied de page par
+   défaut.
+3. **Carrousel d'événements** : vérifié diapositive par diapositive sur une société à 2
+   événements — titre, description, date et image affichés sont ceux de l'événement de la
+   diapositive (image nommée `{id_evenement}-…`, identifiants recoupés en base) ; aucun
+   texte générique.
+4. **Bannière personnalisable** (prisma/sql/062) : `organisations.hero_titre`,
+   `hero_sous_titre`, `hero_image_url` (facultatifs). `GET / PATCH /vitrine/hero`
+   (multipart) réservés au rôle exact ASSUREUR_INFORMATIQUE de l'organisation ; image
+   vérifiée par les octets, bucket public `evenements` (`{organisation}/hero-…`),
+   ancienne image supprimée, champ vidé → valeur par défaut, audit
+   `MODIFICATION_HERO_ORGANISATION`. `organisations` n'accepte d'écriture que du
+   `service_role` (policy existante) : aucun client ne peut écrire directement.
+   Écran « Événements » : carte « Bannière de la page d'accueil » (aperçu, lien vers la
+   page, formulaire). Page société : bannière fixe avec son texte / sa sous-ligne / son
+   image, chaque champ manquant repris de la bannière de la plateforme ; aucune
+   personnalisation → carrousel par défaut inchangé. Jamais de section vide.
+
+### Noms réservés : les TROIS endroits à synchroniser
+Toute nouvelle page de premier niveau (ex. `/tarifs`) doit être ajoutée ENSEMBLE à :
+1. **API** — `apps/api/src/common/slug.util.ts` → `SEGMENTS_RESERVES` ;
+2. **Proxy web** — `apps/web/lib/slugs.ts` → `SEGMENTS_RESERVES` ;
+3. **Base** — contrainte `organisations_slug_non_reserve` (prisma/sql/061) : nouvelle
+   migration `drop constraint` + `add constraint` avec la liste complétée.
+Les segments `dashboard…` sont réservés partout. Procédure recopiée en commentaire dans
+les deux fichiers TypeScript, et **garde-fou automatique** :
+`common/slug.util.spec.ts` compare la liste de l'API à celle du proxy web et à celle de la
+dernière migration qui définit la contrainte — un oubli fait échouer les tests
+(vérifié en injectant une désynchronisation).
+
+### Tests
+- Unitaires : +9 (statistiques par organisation et caches distincts, fiche publique
+  enrichie, statistiques par slug / 404, bannière : rôles refusés, enregistrement +
+  suppression de l'ancienne image + audit, retrait de l'image, synchronisation des
+  segments réservés). API 848/848, `tsc` api + web OK.
+- HTTP réel (Assureur Test A / Test B, valeurs d'origine restaurées ensuite) : 105 codes de
+  consultation temporaires pour A → A « plus de 100 », B masqué ; ASSUREUR_COMPTABLE →
+  403 sur la bannière ; bannière A enregistrée, B par défaut ; fiches publiques sans
+  identifiant.
+- Chrome réel : `/assureur-test-a` (bannière personnalisée, statistiques d'A, pied de page
+  avec son téléphone et son e-mail, carrousel vérifié par diapositive) ;
+  `/assureur-test-b` (bannière par défaut à 3 diapositives, message d'attente
+  « d'Assureur Test B », pied de page par défaut, son seul événement) ; écran
+  « Événements » : sous-titre vidé depuis le formulaire → texte par défaut sur la page
+  publique, titre personnalisé conservé. Page principale `/` : HTML rendu identique à la
+  référence (titre, texte, liens, textes alternatifs), avant et après le jeu de test.
+
+### Statut
+Terminé, commité et poussé.

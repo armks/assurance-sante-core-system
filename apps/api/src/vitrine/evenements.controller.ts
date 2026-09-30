@@ -15,7 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { CreerEvenementDto, ModifierEvenementDto } from './dto/evenement.dto';
+import { CreerEvenementDto, ModifierEvenementDto, ModifierHeroDto } from './dto/evenement.dto';
 import { EvenementsService, TAILLE_MAX_IMAGE_EVENEMENT, type FichierImage } from './evenements.service';
 
 /** Multer : au-delà de 5 Mo, rejet avant même la lecture complète (413). */
@@ -27,20 +27,37 @@ const IMAGE = FileInterceptor('image', { limits: { fileSize: TAILLE_MAX_IMAGE_EV
  *   POST   /api/v1/vitrine/evenements        création (multipart, image requise)
  *   PATCH  /api/v1/vitrine/evenements/:id    modification (image facultative)
  *   DELETE /api/v1/vitrine/evenements/:id    suppression logique
+ *   GET / PATCH /api/v1/vitrine/hero         bannière de la page /{slug} de la société
  * Réservé à ASSUREUR_INFORMATIQUE (vérifié dans EvenementsService, + RLS).
  * La lecture publique est `GET /api/v1/public/evenements` (VitrineController).
  */
-@Controller('vitrine/evenements')
+@Controller('vitrine')
 @UseGuards(SupabaseAuthGuard)
 export class EvenementsController {
   constructor(private readonly evenements: EvenementsService) {}
 
-  @Get()
+  /** Bannière de la page /{slug} de SA société (GET / PATCH multipart, champ `image`). */
+  @Get('hero')
+  obtenirHero(@CurrentUser() user: AuthenticatedUser) {
+    return this.evenements.obtenirHero(user);
+  }
+
+  @Patch('hero')
+  @UseInterceptors(IMAGE)
+  modifierHero(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ModifierHeroDto,
+    @UploadedFile() image: FichierImage | undefined,
+  ) {
+    return this.evenements.modifierHero(user, dto, image);
+  }
+
+  @Get('evenements')
   listerEvenements(@CurrentUser() user: AuthenticatedUser) {
     return this.evenements.lister(user);
   }
 
-  @Post()
+  @Post('evenements')
   @UseInterceptors(IMAGE)
   creerEvenement(
     @CurrentUser() user: AuthenticatedUser,
@@ -50,7 +67,7 @@ export class EvenementsController {
     return this.evenements.creer(user, dto, image);
   }
 
-  @Patch(':id')
+  @Patch('evenements/:id')
   @UseInterceptors(IMAGE)
   modifierEvenement(
     @CurrentUser() user: AuthenticatedUser,
@@ -61,7 +78,7 @@ export class EvenementsController {
     return this.evenements.modifier(user, id, dto, image);
   }
 
-  @Delete(':id')
+  @Delete('evenements/:id')
   supprimerEvenement(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.evenements.supprimer(user, id);
   }

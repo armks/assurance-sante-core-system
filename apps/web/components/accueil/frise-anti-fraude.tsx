@@ -18,6 +18,9 @@ const DUREE_COMPTEUR_MS = 1200;
 
 const nombre = (n: number) => n.toLocaleString('fr-FR');
 
+/** « de la plateforme », « de Mutuelle X », « d’Assureur Y » (élision devant une voyelle). */
+const de = (nom: string) => (/^[aeiouyàâäéèêëîïôöûùüœ]/i.test(nom) ? `d’${nom}` : `de ${nom}`);
+
 /**
  * Compteur « plus de N » : défile de 0 à N au lancement. Écrit directement le
  * texte du nœud dans requestAnimationFrame (aucun état React par image).
@@ -63,7 +66,14 @@ const dateLongue = (iso: string) =>
  * Statistiques : arrondies et arrêtées la veille par l'API ; un compteur sous
  * le seuil arrive `null` et n'est pas affiché (aucun chiffre côté navigateur).
  */
-export function FriseAntiFraude({ statistiques }: { statistiques?: StatistiquesPubliques | null }) {
+export function FriseAntiFraude({
+  statistiques,
+  perimetre = 'la plateforme',
+}: {
+  statistiques?: StatistiquesPubliques | null;
+  /** « la plateforme » (page principale) ou le nom de la société (page /{slug}). */
+  perimetre?: string;
+}) {
   const racine = useRef<HTMLOListElement>(null);
   const [etat, setEtat] = useState<'statique' | 'attente' | 'visible'>('statique');
 
@@ -171,8 +181,8 @@ export function FriseAntiFraude({ statistiques }: { statistiques?: StatistiquesP
       {statistiques && (
         <p className="mx-auto mt-8 max-w-[60ch] text-center text-xs leading-relaxed text-muted-foreground">
           {auMoinsUn
-            ? `Chiffres de la plateforme arrêtés au ${dateLongue(statistiques.arreteAu)}, arrondis à la baisse. Un chiffre n’est publié qu’au-delà de ${nombre(statistiques.seuilMinimum)}.`
-            : 'Les chiffres d’activité de la plateforme seront publiés ici dès que le volume le permettra.'}
+            ? `Chiffres ${de(perimetre)} arrêtés au ${dateLongue(statistiques.arreteAu)}, arrondis à la baisse. Un chiffre n’est publié qu’au-delà de ${nombre(statistiques.seuilMinimum)}.`
+            : `Les chiffres d’activité ${de(perimetre)} seront publiés ici dès que le volume le permettra.`}
         </p>
       )}
     </div>

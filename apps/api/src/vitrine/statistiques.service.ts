@@ -26,10 +26,11 @@ export function arrondiPublic(valeur: number, seuil: number): number | null {
 }
 
 /**
- * Statistiques publiques de la page d'accueil : quatre compteurs AGRÉGÉS sur
- * toute la plateforme (toutes organisations confondues : la page publique n'a
- * pas de contexte de tenant). Jamais de détail, jamais de ventilation par
- * organisation, établissement ou société.
+ * Statistiques publiques de la page d'accueil : quatre compteurs AGRÉGÉS —
+ * sur toute la plateforme pour la page principale, sur l'organisation seule
+ * pour la page d'une société (/{slug}, qui ne publie que ses propres volumes).
+ * Jamais de détail, jamais de ventilation par établissement ou par société
+ * tierce.
  *
  * Protection contre la déduction (données de santé et volumes d'activité) :
  *   1. instantané quotidien : seuls les enregistrements créés avant aujourd'hui
@@ -42,7 +43,8 @@ export function arrondiPublic(valeur: number, seuil: number): number | null {
 @Injectable()
 export class StatistiquesService {
   private readonly logger = new Logger(StatistiquesService.name);
-  private cache: { jour: string; donnees: StatistiquesPubliques } | null = null;
+  /** Un instantané par périmètre et par jour : `*` = plateforme, sinon l'organisation. */
+  private readonly cache = new Map<string, { jour: string; donnees: StatistiquesPubliques }>();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -57,27 +59,36 @@ export class StatistiquesService {
     return Math.max(seuil, SEUIL_PLANCHER);
   }
 
-  async obtenir(): Promise<StatistiquesPubliques> {
+  /**
+   * Compteurs de la plateforme entière, ou d'UNE organisation (page /{slug} de
+   * la société) : mêmes protections (instantané de la veille, arrondi, seuil
+   * par compteur) — le seuil protège d'autant plus une petite organisation.
+   */
+  async obtenir(organisationId?: string): Promise<StatistiquesPubliques> {
     const debutJour = new Date(this.maintenant());
     debutJour.setUTCHours(0, 0, 0, 0);
     const jour = debutJour.toISOString().slice(0, 10);
-    if (this.cache?.jour === jour && this.cache.donnees.seuilMinimum === this.seuil) {
-      return this.cache.donnees;
+    const cle = organisationId ?? '*';
+    const enCache = this.cache.get(cle);
+    if (enCache?.jour === jour && enCache.donnees.seuilMinimum === this.seuil) {
+      return enCache.donnees;
     }
 
     const avant = { lt: debutJour };
+    const perimetre = organisationId ? { organisationId } : {};
     const [codes, ordonnances, tickets, facturesEtab, facturesPharma] = await Promise.all([
-      this.prisma.codeConsultation.count({ where: { createdAt: avant } }),
+      this.prisma.codeConsultation.count({ where: { ...perimetre, createdAt: avant } }),
       this.prisma.ordonnance.count({
         where: {
+          ...perimetre,
           createdAt: avant,
           deletedAt: null,
           statut: { in: ['PARTIELLEMENT_DELIVREE', 'COMPLETEMENT_DELIVREE'] },
         },
       }),
-      this.prisma.ticketSoins.count({ where: { createdAt: avant, statut: { not: 'ANNULE' } } }),
-      this.prisma.factureMensuelleEtablissement.count({ where: { createdAt: avant, statut: 'PAYEE' } }),
-      this.prisma.factureMensuellePharmacie.count({ where: { createdAt: avant, statut: 'PAYEE' } }),
+      this.prisma.ticketSoins.count({ where: { ...perimetre, createdAt: avant, statut: { not: 'ANNULE' } } }),
+      this.prisma.factureMensuelleEtablissement.count({ where: { ...perimetre, createdAt: avant, statut: 'PAYEE' } }),
+      this.prisma.factureMensuellePharmacie.count({ where: { ...perimetre, createdAt: avant, statut: 'PAYEE' } }),
     ]);
 
     const veille = new Date(debutJour.getTime() - 24 * 3600 * 1000).toISOString().slice(0, 10);
@@ -92,8 +103,8 @@ export class StatistiquesService {
         facturesReglees: arrondiPublic(facturesEtab + facturesPharma, seuil),
       },
     };
-    this.cache = { jour, donnees };
-    this.logger.log(`Statistiques publiques recalculées (arrêtées au ${veille}).`);
+    this.cache.set(cle, { jour, donnees });
+    this.logger.log(`Statistiques publiques recalculées (${organisationId ? `organisation ${organisationId}` : 'plateforme'}, arrêtées au ${veille}).`);
     return donnees;
   }
 }

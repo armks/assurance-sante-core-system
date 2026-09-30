@@ -9,6 +9,7 @@ import { VitrineService } from './vitrine.service';
  *   POST /api/v1/public/demandes    Contact, Devenir partenaire, Adhésion
  *   POST /api/v1/public/newsletter  inscription newsletter
  *   GET  /api/v1/public/statistiques compteurs agrégés (arrondis, seuillés, arrêtés la veille)
+ *                                    (?organisation={slug} : ceux de cette société)
  *   GET  /api/v1/public/evenements   5 événements au plus de l'organisation vitrine
  *                                    (?organisation={slug} : ceux de cette société)
  *   GET  /api/v1/public/organisations/:slug  fiche publique d'une société (page /{slug})
@@ -35,8 +36,9 @@ export class VitrineController {
 
   /** Compteurs agrégés, arrondis et seuillés (StatistiquesService). */
   @Get('statistiques')
-  obtenirStatistiques(@Req() req: Request) {
-    return this.vitrine.obtenirStatistiques(ipClient(req));
+  obtenirStatistiques(@Req() req: Request, @Query('organisation') organisation?: string) {
+    const slug = typeof organisation === 'string' && organisation !== '' ? organisation.toLowerCase() : undefined;
+    return this.vitrine.obtenirStatistiques(ipClient(req), slug);
   }
 
   /** Carrousel du bloc « Qui sommes-nous » (EvenementsService.publics). */

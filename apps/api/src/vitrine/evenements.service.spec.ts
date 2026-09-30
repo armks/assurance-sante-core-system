@@ -29,7 +29,7 @@ describe('EvenementsService', () => {
   let service: EvenementsService;
   let prisma: {
     evenement: { findMany: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
-    organisation: { findFirst: jest.Mock };
+    organisation: { findFirst: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
     $executeRaw: jest.Mock;
   };
   let identity: { getMe: jest.Mock };
@@ -48,7 +48,13 @@ describe('EvenementsService', () => {
         create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...data, createdAt: new Date(), updatedAt: new Date() })),
         update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...ligne(), ...data })),
       },
-      organisation: { findFirst: jest.fn().mockResolvedValue(null) },
+      organisation: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue({ heroTitre: null, heroSousTitre: null, heroImageUrl: null }),
+        update: jest.fn().mockImplementation(({ data }) =>
+          Promise.resolve({ heroTitre: null, heroSousTitre: null, heroImageUrl: null, ...data }),
+        ),
+      },
       $executeRaw: jest.fn().mockResolvedValue(1),
     };
     identity = { getMe: jest.fn() };
@@ -178,6 +184,39 @@ describe('EvenementsService', () => {
     process.env.VITRINE_ORGANISATION_ID = ORG;
     expect(await service.publics('1.1.1.5', 'inconnue')).toEqual([]);
     expect(prisma.evenement.findMany).not.toHaveBeenCalled();
+  });
+
+  it('bannière : ASSUREUR_COMPTABLE / adjoint → 403, rien écrit', async () => {
+    for (const r of ['ASSUREUR_COMPTABLE', 'ASSUREUR_INFORMATIQUE_ADJOINT']) {
+      role(r);
+      await expect(service.modifierHero(USER, { heroTitre: 'X' })).rejects.toBeInstanceOf(ForbiddenException);
+    }
+    expect(prisma.organisation.update).not.toHaveBeenCalled();
+  });
+
+  it('bannière : textes et image enregistrés sur SA société, ancienne image supprimée, audit', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    prisma.organisation.findUnique.mockResolvedValue({
+      heroTitre: null,
+      heroSousTitre: null,
+      heroImageUrl: 'https://projet.supabase.co/storage/v1/object/public/evenements/org/hero-1.jpg',
+    });
+    const res = await service.modifierHero(USER, { heroTitre: 'Votre santé, notre engagement', heroSousTitre: null }, image());
+    const data = prisma.organisation.update.mock.calls[0][0];
+    expect(data.where).toEqual({ id: ORG });
+    expect(data.data.heroTitre).toBe('Votre santé, notre engagement');
+    expect(data.data.heroSousTitre).toBeNull();
+    expect(data.data.heroImageUrl).toMatch(new RegExp(`/object/public/evenements/${ORG}/hero-\\d+\\.jpg$`));
+    expect(res.heroTitre).toBe('Votre santé, notre engagement');
+    expect(fetchMock.mock.calls[1][1].method).toBe('DELETE');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ prefixes: ['org/hero-1.jpg'] });
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
+
+  it('bannière : retrait de l’image → null (image par défaut), champs absents inchangés', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    await service.modifierHero(USER, { supprimerImage: true });
+    expect(prisma.organisation.update.mock.calls[0][0].data).toEqual({ heroImageUrl: null });
   });
 
   it('public : 60 lectures par IP, la 61e → 429', async () => {

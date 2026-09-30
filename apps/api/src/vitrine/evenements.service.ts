@@ -12,7 +12,7 @@ import { randomUUID } from 'crypto';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import type { CreerEvenementDto, ModifierEvenementDto } from './dto/evenement.dto';
+import type { CreerEvenementDto, ModifierEvenementDto, ModifierHeroDto } from './dto/evenement.dto';
 import { LimiteurRequetes } from './limiteur-requetes';
 import { LIMITE_EVENEMENTS } from './vitrine.types';
 
@@ -198,6 +198,73 @@ export class EvenementsService {
     await this.supprimerObjet(this.cheminDepuisUrl(existant.imageUrl));
     await this.audit(ctx.userId, 'SUPPRESSION_EVENEMENT', id, null);
     return { ok: true };
+  }
+
+  // --- Bannière de la page /{slug} (ASSUREUR_INFORMATIQUE) ---------------
+
+  /**
+   * Bannière personnalisée de SA société (champs `null` = valeurs par défaut),
+   * avec le chemin de sa page (`slug`) pour la prévisualiser.
+   */
+  async obtenirHero(user: AuthenticatedUser) {
+    const ctx = await this.contexteGestion(user);
+    const [hero, org] = await Promise.all([
+      this.lireHero(ctx.organisationId),
+      this.prisma.organisation.findUnique({ where: { id: ctx.organisationId }, select: { slug: true } }),
+    ]);
+    return { ...hero, slug: org?.slug ?? null };
+  }
+
+  /**
+   * Modifie la bannière de SA société : texte d'accroche, sous-titre, image de
+   * fond (même contrôle que les images d'événements, même bucket public, sous
+   * `{organisation}/hero-…`). Champ vidé → valeur par défaut de la plateforme ;
+   * l'image remplacée ou retirée est supprimée du bucket.
+   */
+  async modifierHero(user: AuthenticatedUser, dto: ModifierHeroDto, fichier?: FichierImage) {
+    const ctx = await this.contexteGestion(user);
+    const avant = await this.lireHero(ctx.organisationId);
+
+    let heroImageUrl: string | null | undefined;
+    if (fichier) {
+      const image = this.validerImage(fichier);
+      const chemin = `${ctx.organisationId}/hero-${Date.now()}.${image.ext}`;
+      await this.televerser(chemin, fichier.buffer, image.mime);
+      heroImageUrl = this.urlPublique(chemin);
+    } else if (dto.supprimerImage) {
+      heroImageUrl = null;
+    }
+
+    const apres = await this.prisma.organisation.update({
+      where: { id: ctx.organisationId },
+      data: {
+        ...(dto.heroTitre !== undefined ? { heroTitre: dto.heroTitre } : {}),
+        ...(dto.heroSousTitre !== undefined ? { heroSousTitre: dto.heroSousTitre } : {}),
+        ...(heroImageUrl !== undefined ? { heroImageUrl } : {}),
+      },
+      select: { heroTitre: true, heroSousTitre: true, heroImageUrl: true },
+    });
+    if (heroImageUrl !== undefined && avant.heroImageUrl) {
+      await this.supprimerObjet(this.cheminDepuisUrl(avant.heroImageUrl));
+    }
+    await this.prisma.$executeRaw`
+      SELECT log_audit(
+        ${'MODIFICATION_HERO_ORGANISATION'}::text,
+        ${'organisations'}::text,
+        ${ctx.organisationId}::uuid,
+        ${ctx.userId}::uuid,
+        ${JSON.stringify({ avant, apres })}::jsonb
+      )`;
+    return apres;
+  }
+
+  private async lireHero(organisationId: string) {
+    const org = await this.prisma.organisation.findUnique({
+      where: { id: organisationId },
+      select: { heroTitre: true, heroSousTitre: true, heroImageUrl: true },
+    });
+    if (!org) throw new NotFoundException('Organisation introuvable.');
+    return org;
   }
 
   // --- Lecture publique ------------------------------------------------

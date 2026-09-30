@@ -39,6 +39,11 @@ model Organisation {
   /// Chemin de la page d'accueil dédiée (/{slug}) — prisma/sql/061. Unique,
   /// généré depuis `nom`, modifiable par SUPERADMIN_PRINCIPAL.
   slug             String    @unique
+  /// Bannière de la page /{slug} (prisma/sql/062) — ASSUREUR_INFORMATIQUE ; null :
+  /// valeur par défaut de la plateforme.
+  heroTitre        String?   @map("hero_titre")
+  heroSousTitre    String?   @map("hero_sous_titre")
+  heroImageUrl     String?   @map("hero_image_url")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")

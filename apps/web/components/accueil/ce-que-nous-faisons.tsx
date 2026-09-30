@@ -30,7 +30,7 @@ export function CeQueNousFaisons({ statistiques }: { statistiques?: Statistiques
         <div className="mt-12 grid gap-4 md:grid-cols-6">
           {/* Anti-fraude : tuile principale, fond nuit. Le détail des quatre codes
               est dans la frise juste en dessous. */}
-          <article className="rounded-2xl bg-[#17152b] p-7 text-white md:col-span-4 md:p-10">
+          <article className="rounded-2xl bg-nuit p-7 text-white md:col-span-4 md:p-10">
             <h3 className="font-display text-2xl font-semibold md:text-3xl">Un parcours anti-fraude en quatre codes</h3>
             <p className="mt-4 max-w-[52ch] leading-relaxed text-white/75">
               Chaque étape du parcours de soins reçoit son propre code à usage unique. Une prestation ne peut être
@@ -61,7 +61,7 @@ export function CeQueNousFaisons({ statistiques }: { statistiques?: Statistiques
               sizes="(min-width: 768px) 33vw, 100vw"
               className="-z-10 object-cover"
             />
-            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-t from-[#17152b]/95 via-[#17152b]/55 to-transparent" />
+            <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-t from-nuit/95 via-nuit/55 to-transparent" />
             <h3 className="font-display text-xl font-semibold">Réseau de soins conventionné</h3>
             <p className="mt-2 text-sm leading-relaxed text-white/85">
               Établissements de santé et pharmacies partenaires, avec leurs tarifs négociés.

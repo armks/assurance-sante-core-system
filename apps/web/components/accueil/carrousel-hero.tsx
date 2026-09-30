@@ -74,7 +74,7 @@ export function CarrouselHero() {
     <section
       aria-roledescription="carrousel"
       aria-label="Présentation de la plateforme"
-      className="relative isolate flex min-h-[560px] items-end overflow-hidden bg-[#17152b] text-white md:h-[calc(100dvh-4rem)] md:max-h-[820px] md:items-center"
+      className="relative isolate flex min-h-[560px] items-end overflow-hidden bg-nuit text-white md:h-[calc(100dvh-4rem)] md:max-h-[820px] md:items-center"
       onMouseEnter={() => setSuspendu(true)}
       onMouseLeave={() => setSuspendu(false)}
       onFocus={() => setSuspendu(true)}
@@ -101,7 +101,7 @@ export function CarrouselHero() {
       {/* Voile : lisibilité du texte blanc (plein sur mobile, dégradé depuis la gauche au-delà). */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-gradient-to-t from-[#17152b] via-[#17152b]/80 to-[#17152b]/30 md:bg-gradient-to-r md:from-[#17152b]/95 md:via-[#17152b]/75 md:to-transparent"
+        className="absolute inset-0 bg-gradient-to-t from-nuit via-nuit/80 to-nuit/30 md:bg-gradient-to-r md:from-nuit/95 md:via-nuit/75 md:to-transparent"
       />
 
       <div className="relative mx-auto w-full max-w-7xl px-4 pb-10 pt-40 sm:px-6 md:py-16">

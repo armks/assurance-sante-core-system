@@ -156,13 +156,15 @@ export function EnTeteAccueil() {
         </div>
       </div>
 
-      {/* Panneau du méga menu (desktop) */}
+      {/* Panneau du méga menu (desktop) : bleu nuit de la vitrine (token `nuit`).
+          Contrastes AA : titres/liens blancs ≥ 15:1, descriptions blue-200 ≥ 10,7:1
+          (fond ou colonne surlignée), anneau de focus blanc. */}
       <div
         id={idPanneau}
         role="region"
         aria-label="Nos services"
         hidden={!ouvert}
-        className="accueil-apparition absolute inset-x-0 top-full border-b bg-background shadow-[0_24px_48px_-24px_hsl(253_40%_20%/0.25)]"
+        className="accueil-apparition absolute inset-x-0 top-full border-b border-white/10 bg-nuit text-white shadow-[0_24px_48px_-24px_hsl(253_40%_10%/0.6)]"
       >
         <div className="mx-auto grid max-w-7xl grid-cols-3 gap-4 px-6 py-8">
           {COLONNES.map((c) => {
@@ -172,21 +174,21 @@ export function EnTeteAccueil() {
                 key={c.id}
                 className={cn(
                   'rounded-2xl p-5 transition-colors',
-                  ouvert === c.id ? 'bg-accent/70' : 'bg-transparent',
+                  ouvert === c.id ? 'bg-white/[0.06]' : 'bg-transparent',
                 )}
               >
                 <span className="grid size-10 place-items-center rounded-md bg-primary text-primary-foreground">
                   <Icone aria-hidden="true" className="size-5" />
                 </span>
-                <p className="mt-4 font-display text-base font-semibold">{c.titre}</p>
-                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{c.description}</p>
+                <p className="mt-4 font-display text-base font-semibold text-white">{c.titre}</p>
+                <p className="mt-1 text-sm leading-relaxed text-blue-200">{c.description}</p>
                 <ul className="mt-4 space-y-1">
                   {c.liens.map((l) => (
                     <li key={l.href}>
                       <a
                         href={l.href}
                         onClick={() => setOuvert(null)}
-                        className="group inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-accent-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="group inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                       >
                         {l.libelle}
                         <ArrowRight aria-hidden="true" className="size-3.5 transition-transform group-hover:translate-x-0.5" />
@@ -214,19 +216,24 @@ function MenuMobile() {
           <Menu aria-hidden="true" className="size-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent side="right" className="max-w-sm gap-0 overflow-y-auto p-0" aria-describedby={undefined}>
-        <DialogHeader className="border-b px-5 py-4">
-          <DialogTitle>Menu</DialogTitle>
+      <DialogContent
+        side="right"
+        // Même bleu nuit que le méga menu ; croix de fermeture (dernier bouton) en blanc.
+        className="max-w-sm gap-0 overflow-y-auto border-white/10 bg-nuit p-0 text-white [&>button:last-child]:text-white [&>button:last-child]:opacity-90 [&>button:last-child]:focus-visible:ring-white"
+        aria-describedby={undefined}
+      >
+        <DialogHeader className="border-b border-white/10 px-5 py-4">
+          <DialogTitle className="text-white">Menu</DialogTitle>
         </DialogHeader>
         <nav aria-label="Navigation mobile" className="space-y-6 px-5 py-5">
           {COLONNES.map((c) => (
             <div key={c.id}>
-              <p className="font-display text-sm font-semibold">{c.titre}</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">{c.description}</p>
+              <p className="font-display text-sm font-semibold text-white">{c.titre}</p>
+              <p className="mt-0.5 text-xs text-blue-200">{c.description}</p>
               <ul className="mt-2 space-y-1">
                 {c.liens.map((l) => (
                   <li key={l.href}>
-                    <a href={l.href} onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-accent-foreground">
+                    <a href={l.href} onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
                       {l.libelle}
                     </a>
                   </li>
@@ -234,11 +241,11 @@ function MenuMobile() {
               </ul>
             </div>
           ))}
-          <div className="space-y-1 border-t pt-4">
-            <a href="/#qui-sommes-nous" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium">
+          <div className="space-y-1 border-t border-white/10 pt-4">
+            <a href="/#qui-sommes-nous" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
               Qui sommes-nous
             </a>
-            <a href="/#contact" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium">
+            <a href="/#contact" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
               Contact
             </a>
           </div>

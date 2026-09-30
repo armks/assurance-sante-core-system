@@ -6358,3 +6358,32 @@ Terminé, commité et poussé.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Méga menu en bleu nuit (même jeton que le pied de page)
+
+### Réalisé
+- La couleur du pied de page et de la bannière n'était pas un jeton mais une valeur en
+  dur `bg-[#17152b]` répétée : promue en jeton Tailwind `nuit` (même valeur, ajouté avec
+  le commit des événements) et utilisée partout (bannière, dégradés, tuile anti-fraude,
+  pied de page, bouton newsletter). Aucune nouvelle valeur de couleur.
+- Panneau du méga menu (desktop) et menu latéral (mobile) sur `bg-nuit` : titres et
+  liens blancs, descriptions `blue-200` (#bfdbfe), colonne active `white/6`, bordures
+  `white/10`, anneaux de focus et croix de fermeture blancs.
+- Contrastes WCAG AA : blanc 17,8:1 sur le fond, 15,3:1 sur la colonne active ;
+  blue-200 12,5:1 et 10,7:1 ; anneau de focus blanc (le violet n'aurait fait que 3,3:1
+  sur la colonne active).
+
+### Incident de rendu corrigé
+Fonds du menu et du pied de page transparents juste après la modification : le serveur de
+développement servait une CSS compilée avec l'ancienne configuration Tailwind (sans
+`nuit`), conservée dans `.next/dev/cache` malgré un redémarrage. Configuration vérifiée
+correcte (CLI Tailwind : `.bg-nuit` généré), cache de développement supprimé : les deux
+fonds sont `rgb(23, 21, 43)`, opacité 1. Aucun changement de code nécessaire ; sans
+effet sur un build de production.
+
+### Tests (Chrome réel)
+1280 px (panneau desktop), 768 px et 375 px (menu latéral, sans débordement horizontal) :
+couleurs calculées vérifiées, captures envoyées au porteur du projet.
+
+### Statut
+Terminé, commité et poussé.

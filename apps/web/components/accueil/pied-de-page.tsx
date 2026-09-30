@@ -19,7 +19,7 @@ const LIENS = [
 /** Pied de page (bande nuit, même teinte que la bannière) + newsletter. */
 export function PiedDePage() {
   return (
-    <footer className="bg-[#17152b] text-white/80">
+    <footer className="bg-nuit text-white/80">
       <div className="mx-auto grid max-w-7xl gap-12 px-4 py-8 sm:px-6 md:grid-cols-2 lg:grid-cols-12">
         <div className="lg:col-span-4">
           <p className="font-display text-lg font-semibold text-white">Assurance Santé</p>
@@ -122,7 +122,7 @@ function Newsletter() {
             <button
               type="submit"
               disabled={pending}
-              className="h-10 shrink-0 rounded-md bg-white px-4 text-sm font-medium text-[#17152b] transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 active:scale-[0.98] disabled:opacity-60"
+              className="h-10 shrink-0 rounded-md bg-white px-4 text-sm font-medium text-nuit transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 active:scale-[0.98] disabled:opacity-60"
             >
               {pending ? 'Envoi…' : 'S’inscrire'}
             </button>

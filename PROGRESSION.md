@@ -6164,3 +6164,33 @@ Consentement des assureurs à voir leurs volumes contribuer à une statistique p
 ### Statut
 Terminé, commité et poussé. (Logo d'organisation et carte PDF toujours en attente de
 validation, non commités.)
+
+## 2026-09-30 — Connexion en superposition (popup) depuis la page d'accueil
+
+### Réalisé
+- **Routes interceptées + route parallèle** (Next.js 16) : slot `app/@modal` rendu par le
+  layout racine ; `app/@modal/(.)login/page.tsx` intercepte `/login` en navigation client.
+  `components/connexion-modale.tsx` : fond flouté semi-transparent par-dessus l'accueil,
+  marque + `LoginForm` (inchangé) centrés ; fermeture Échap / clic dehors / × →
+  `router.back()` (retour à l'accueil, sans rechargement). Fondu `accueil-fondu`
+  (neutralisé sous `prefers-reduced-motion`).
+- **Garde-fou** : une interception à la racine s'applique depuis toutes les pages. La
+  popup n'est retenue que depuis `/` et sans `?next=` ; sinon (déconnexion, redirection
+  du proxy vers `/login?next=…`, liens des pages d'authentification)
+  `components/rechargement-complet.tsx` recharge l'URL → page complète comme avant.
+- `app/@modal/[...catchAll]/page.tsx` vide le slot à toute autre navigation (connexion
+  réussie, « Mot de passe oublié ? ») ; `app/@modal/page.tsx` nécessaire pour que `/`
+  porte le slot (le `default.tsx` seul n'y suffit pas).
+- Accès direct, favori, actualisation : jamais interceptés → `app/login/page.tsx` inchangé.
+
+### Tests (Chrome réel, compte superadmin éphémère supprimé ensuite)
+- Clic « Connexion » depuis l'accueil → popup, URL `/login`, pas de rechargement, focus
+  sur l'e-mail ; Échap, clic dehors et × → retour `/` ; connexion depuis la popup →
+  `/dashboard` → espace du rôle, popup fermée.
+- `/login` tapé directement → page complète, connexion → tableau de bord par défaut.
+- Route protégée hors session → `/login?next=/superadmin/catalogue-national` en page
+  complète, connexion → `/superadmin/catalogue-national`.
+- Bouton de déconnexion (navigation client vers `/login`) → page complète.
+
+### Statut
+Terminé, validé par capture, commité et poussé.

@@ -11,9 +11,11 @@ export const metadata: Metadata = {
   description: 'Core System — assurance santé collective (Côte d’Ivoire)',
 };
 
+/** `modal` : emplacement parallèle (`app/@modal`) de la connexion en superposition. */
 export default function RootLayout({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+  modal,
+}: Readonly<{ children: React.ReactNode; modal: React.ReactNode }>) {
   return (
     <html lang="fr" suppressHydrationWarning>
       <body className="min-h-screen bg-background text-foreground antialiased">
@@ -24,6 +26,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
+          {modal}
         </ThemeProvider>
       </body>
     </html>

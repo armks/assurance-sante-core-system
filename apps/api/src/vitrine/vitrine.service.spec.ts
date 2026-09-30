@@ -5,6 +5,7 @@ import { validate } from 'class-validator';
 import { EmailService } from '../email/email.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
+import { StatistiquesService } from './statistiques.service';
 import { VitrineService } from './vitrine.service';
 
 const CONTACT: DemandeVitrineDto = {
@@ -31,6 +32,7 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
         VitrineService,
         { provide: PrismaService, useValue: prisma },
         { provide: EmailService, useValue: email },
+        { provide: StatistiquesService, useValue: { obtenir: jest.fn().mockResolvedValue({ arreteAu: '2026-09-29', seuilMinimum: 100, compteurs: {} }) } },
       ],
     }).compile();
     service = moduleRef.get(VitrineService);
@@ -93,6 +95,14 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
   it('échec Resend → 503 (le visiteur sait que sa demande n’est pas partie)', async () => {
     email.envoyerEmail.mockResolvedValue({ envoye: false, erreur: 'boom' });
     await expect(service.envoyerDemande(CONTACT, '41.202.1.6')).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  // --- Statistiques ---------------------------------------------------------
+
+  it('statistiques : 60 lectures par IP, la 61e → 429', async () => {
+    for (let i = 0; i < 60; i++) await service.obtenirStatistiques('41.202.3.1');
+    const err = await service.obtenirStatistiques('41.202.3.1').catch((e) => e);
+    expect(err.getStatus()).toBe(429);
   });
 
   // --- Newsletter -----------------------------------------------------------

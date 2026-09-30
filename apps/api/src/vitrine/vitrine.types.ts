@@ -24,3 +24,5 @@ export const LIBELLE_CATEGORIE: Record<(typeof CATEGORIES_PARTENAIRE)[number], s
  */
 export const LIMITE_DEMANDES: ReglesLimite = { parCle: 3, global: 30, fenetreMs: 15 * 60 * 1000 };
 export const LIMITE_NEWSLETTER: ReglesLimite = { parCle: 5, global: 100, fenetreMs: 15 * 60 * 1000 };
+/** Statistiques : simple lecture en cache, un chargement de page = une requête. */
+export const LIMITE_STATISTIQUES: ReglesLimite = { parCle: 60, global: 3000, fenetreMs: 15 * 60 * 1000 };

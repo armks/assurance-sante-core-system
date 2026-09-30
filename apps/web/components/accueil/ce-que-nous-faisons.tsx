@@ -1,6 +1,8 @@
 import { FileCheck2, IdCard, Receipt, Stethoscope } from 'lucide-react';
 import Image from 'next/image';
 
+import type { StatistiquesPubliques } from '@/lib/statistiques-publiques';
+
 import { FriseAntiFraude } from './frise-anti-fraude';
 import { PHOTOS } from './photos';
 
@@ -13,7 +15,7 @@ import { PHOTOS } from './photos';
  *                                              | médecin et pharmacien conseil (4 col)
  * Une seule colonne sous md, dans cet ordre.
  */
-export function CeQueNousFaisons() {
+export function CeQueNousFaisons({ statistiques }: { statistiques?: StatistiquesPubliques | null }) {
   return (
     <section id="services" className="scroll-mt-20 bg-muted/40 py-[2.625rem] md:py-[3.625rem]">
       <div className="mx-auto max-w-7xl px-4 sm:px-6">
@@ -47,7 +49,7 @@ export function CeQueNousFaisons() {
 
           {/* Frise dynamique des quatre codes, pleine largeur. */}
           <div className="md:col-span-6">
-            <FriseAntiFraude />
+            <FriseAntiFraude statistiques={statistiques} />
           </div>
 
           {/* Réseau : tuile photo. */}

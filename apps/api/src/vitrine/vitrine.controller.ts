@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
 import { VitrineService } from './vitrine.service';
@@ -7,6 +7,7 @@ import { VitrineService } from './vitrine.service';
  * Endpoints PUBLICS de la page d'accueil (aucun `SupabaseAuthGuard`) :
  *   POST /api/v1/public/demandes    Contact, Devenir partenaire, Adhésion
  *   POST /api/v1/public/newsletter  inscription newsletter
+ *   GET  /api/v1/public/statistiques compteurs agrégés (arrondis, seuillés, arrêtés la veille)
  * Protégés par limiteur de débit + pot de miel (VitrineService).
  */
 @Controller('public')
@@ -23,6 +24,12 @@ export class VitrineController {
   @HttpCode(201)
   inscrireNewsletter(@Body() dto: InscriptionNewsletterDto, @Req() req: Request) {
     return this.vitrine.inscrireNewsletter(dto, ipClient(req));
+  }
+
+  /** Compteurs agrégés, arrondis et seuillés (StatistiquesService). */
+  @Get('statistiques')
+  obtenirStatistiques(@Req() req: Request) {
+    return this.vitrine.obtenirStatistiques(ipClient(req));
   }
 }
 

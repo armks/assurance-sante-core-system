@@ -6123,3 +6123,44 @@ de validation des PDF, non commités.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Statistiques publiques dans la frise anti-fraude
+
+### Réalisé
+- **API** `GET /api/v1/public/statistiques` (module `vitrine/`, sans authentification,
+  limiteur 60 lectures / IP / 15 min + plafond global) : quatre compteurs AGRÉGÉS sur toute
+  la plateforme (la page publique n'a pas de contexte de tenant ; jamais de ventilation par
+  organisation, établissement ou société) :
+  codes de consultation émis ; ordonnances délivrées (partiellement ou complètement) ;
+  tickets de soins ouverts (hors annulés) ; factures mensuelles réglées (établissements +
+  pharmacies, statut `PAYEE`).
+- **Protection contre la déduction** (`StatistiquesService`) : instantané quotidien (seuls
+  les enregistrements créés avant aujourd'hui 00:00 UTC, calcul une fois par jour en cache,
+  aucun incrément en temps réel rapprochable d'une visite) ; arrondi vers le bas (10 / 100 /
+  1 000) ; seuil minimum par compteur `STATS_SEUIL_MINIMUM` (100 par défaut, plancher 10) :
+  sous le seuil, le nombre n'est PAS transmis (`null`). Réponse limitée à `arreteAu`,
+  `seuilMinimum`, `compteurs`.
+- **Web** : compteurs animés (« plus de N ») sous chaque étape de la frise, apparition avec
+  l'étape, lus côté serveur au rendu (IP du visiteur transmise) ; mention « arrêtés au … ,
+  arrondis » ; tant que tout est sous le seuil : message d'attente, aucun chiffre. Pas de
+  courbe : aucun historique exploitable et un instantané quotidien n'apporte rien à suivre en
+  temps réel.
+
+### Tests
+- Unitaires : +14 (arrondi, seuil et plancher, champs exposés, filtres de date et de
+  statut, cache quotidien, limiteur). Backend 793/793, `tsc` api + web OK.
+- **Bogue trouvé par le test HTTP réel** : statut « payée » réel = `PAYEE` (CHECK SQL), pas
+  `PAYE` (commentaire du schéma Prisma trompeur) → corrigé, verrouillé par un test.
+- HTTP réel : base actuelle vide → 4 compteurs `null` (cohérent : 0 activité en base). Jeu
+  contrôlé (organisation temporaire) : bruts 137 / 128 / 214 / 115, avec exclusions
+  (aujourd'hui, annulés, non délivrées, factures seulement soumises) → API 130 / 120 / 210 /
+  110, identique au comptage SQL indépendant. Données supprimées, cache purgé.
+- Visuel (Chrome) 1280 et 375 px, avec données puis à vide.
+
+### À décider (porteur du projet)
+Consentement des assureurs à voir leurs volumes contribuer à une statistique publique
+(option d'adhésion par organisation à prévoir si plusieurs assureurs).
+
+### Statut
+Terminé, commité et poussé. (Logo d'organisation et carte PDF toujours en attente de
+validation, non commités.)

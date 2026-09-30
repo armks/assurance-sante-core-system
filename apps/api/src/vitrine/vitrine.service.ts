@@ -9,11 +9,13 @@ import { EmailService } from '../email/email.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
 import { LimiteurRequetes, type ResultatLimite } from './limiteur-requetes';
+import { StatistiquesService } from './statistiques.service';
 import {
   LIBELLE_CATEGORIE,
   LIBELLE_TYPE_DEMANDE,
   LIMITE_DEMANDES,
   LIMITE_NEWSLETTER,
+  LIMITE_STATISTIQUES,
 } from './vitrine.types';
 
 const MESSAGE_DEMANDE = 'Merci, votre demande a bien été envoyée. Nous vous répondons rapidement.';
@@ -33,10 +35,12 @@ export class VitrineService {
   private readonly logger = new Logger(VitrineService.name);
   private readonly limiteDemandes = new LimiteurRequetes(LIMITE_DEMANDES);
   private readonly limiteNewsletter = new LimiteurRequetes(LIMITE_NEWSLETTER);
+  private readonly limiteStatistiques = new LimiteurRequetes(LIMITE_STATISTIQUES);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly statistiques: StatistiquesService,
   ) {}
 
   async envoyerDemande(dto: DemandeVitrineDto, ip: string) {
@@ -84,6 +88,11 @@ export class VitrineService {
       update: { deletedAt: null },
     });
     return { ok: true, message: MESSAGE_NEWSLETTER };
+  }
+
+  async obtenirStatistiques(ip: string) {
+    this.verifierLimite(this.limiteStatistiques.consommer(ip));
+    return this.statistiques.obtenir();
   }
 
   private verifierLimite(r: ResultatLimite): void {

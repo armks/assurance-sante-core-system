@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { VitrineController } from './vitrine.controller';
+import { StatistiquesService } from './statistiques.service';
 import { VitrineService } from './vitrine.service';
 
 /**
@@ -10,6 +11,6 @@ import { VitrineService } from './vitrine.service';
  */
 @Module({
   controllers: [VitrineController],
-  providers: [VitrineService],
+  providers: [VitrineService, StatistiquesService],
 })
 export class VitrineModule {}

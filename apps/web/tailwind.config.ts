@@ -17,6 +17,10 @@ const config: Config = {
     },
     extend: {
       colors: {
+        // Bleu nuit de la vitrine (bannière, méga menu, pied de page) : fond fixe,
+        // indépendant du thème clair/sombre. Textes validés WCAG AA dessus :
+        // blanc 17,8:1, blue-200 12,5:1 (10,7:1 sur une colonne surlignée white/6).
+        nuit: '#17152b',
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',

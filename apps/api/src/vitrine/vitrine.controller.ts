@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
+import { EvenementsService } from './evenements.service';
 import { VitrineService } from './vitrine.service';
 
 /**
@@ -8,11 +9,15 @@ import { VitrineService } from './vitrine.service';
  *   POST /api/v1/public/demandes    Contact, Devenir partenaire, Adhésion
  *   POST /api/v1/public/newsletter  inscription newsletter
  *   GET  /api/v1/public/statistiques compteurs agrégés (arrondis, seuillés, arrêtés la veille)
+ *   GET  /api/v1/public/evenements   5 événements au plus de l'organisation vitrine
  * Protégés par limiteur de débit + pot de miel (VitrineService).
  */
 @Controller('public')
 export class VitrineController {
-  constructor(private readonly vitrine: VitrineService) {}
+  constructor(
+    private readonly vitrine: VitrineService,
+    private readonly evenements: EvenementsService,
+  ) {}
 
   @Post('demandes')
   @HttpCode(201)
@@ -30,6 +35,12 @@ export class VitrineController {
   @Get('statistiques')
   obtenirStatistiques(@Req() req: Request) {
     return this.vitrine.obtenirStatistiques(ipClient(req));
+  }
+
+  /** Carrousel du bloc « Qui sommes-nous » (EvenementsService.publics). */
+  @Get('evenements')
+  obtenirEvenements(@Req() req: Request) {
+    return this.evenements.publics(ipClient(req));
   }
 }
 

@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   Building2,
+  CalendarDays,
   ClipboardList,
   CreditCard,
   DoorOpen,
@@ -492,6 +493,11 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
       icon: Pill,
       minNiveau: 'LECTURE_SEULE',
     },
+    // Événements de la page d'accueil : ASSUREUR_INFORMATIQUE EXCLUSIVEMENT (rôle
+    // exact côté API et RLS) — absent de la navigation de l'adjoint.
+    ...(racineVueEnsemble === INFORMATIQUE
+      ? [{ label: 'Événements', href: `${INFORMATIQUE}/evenements`, icon: CalendarDays }]
+      : []),
     // Création directe d'actes/médicaments (ROLE_PROPOSITION = ASSUREUR_INFORMATIQUE,
     // reference.types.ts) — homologation restant réservée au médecin conseil /
     // pharmacien conseil sur leurs propres écrans.

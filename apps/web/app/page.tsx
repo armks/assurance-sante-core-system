@@ -11,6 +11,7 @@ import { PiedDePage } from '@/components/accueil/pied-de-page';
 import { QuiSommesNous } from '@/components/accueil/qui-sommes-nous';
 import { ReseauSoins } from '@/components/accueil/reseau-soins';
 import { aUneSession } from '@/lib/identity';
+import { chargerEvenementsPublics } from '@/lib/evenements-publics';
 import { chargerStatistiquesPubliques } from '@/lib/statistiques-publiques';
 
 /** Titres de la page d'accueil uniquement (les tableaux de bord gardent la police système). */
@@ -30,7 +31,7 @@ export default async function Accueil() {
   if (await aUneSession()) {
     redirect('/dashboard');
   }
-  const statistiques = await chargerStatistiquesPubliques();
+  const [statistiques, evenements] = await Promise.all([chargerStatistiquesPubliques(), chargerEvenementsPublics()]);
 
   return (
     <div className={`${outfit.variable} flex min-h-svh flex-col bg-background`}>
@@ -38,7 +39,7 @@ export default async function Accueil() {
       <main id="contenu-principal" className="flex-1">
         <CarrouselHero />
         <BandeauPartenaires />
-        <QuiSommesNous />
+        <QuiSommesNous evenements={evenements} />
         <CeQueNousFaisons statistiques={statistiques} />
         <ReseauSoins />
         <Formulaires />

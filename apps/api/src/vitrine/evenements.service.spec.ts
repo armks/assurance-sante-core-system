@@ -1,0 +1,211 @@
+import { BadRequestException, ForbiddenException, HttpException, NotFoundException } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { IdentityService } from '../identity/identity.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { CreerEvenementDto } from './dto/evenement.dto';
+import {
+  EvenementsService,
+  formatImageEvenement,
+  selectionPublique,
+  statutEvenement,
+  type FichierImage,
+} from './evenements.service';
+
+const USER = { id: 'u-1', email: 'it@assureur.ci' } as unknown as AuthenticatedUser;
+const ORG = '11111111-1111-4111-8111-111111111111';
+const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+const image = (buffer = JPEG, size = buffer.length): FichierImage => ({
+  buffer,
+  size,
+  originalname: 'affiche.jpg',
+  mimetype: 'image/jpeg',
+});
+const d = (iso: string) => new Date(`${iso}T00:00:00Z`);
+
+describe('EvenementsService', () => {
+  let service: EvenementsService;
+  let prisma: {
+    evenement: { findMany: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
+    $executeRaw: jest.Mock;
+  };
+  let identity: { getMe: jest.Mock };
+  let fetchMock: jest.Mock;
+  const role = (r: string, organisationId: string | null = ORG) =>
+    identity.getMe.mockResolvedValue({ profil: { id: 'u-1', role: r, organisationId }, permissions: {} });
+
+  beforeEach(async () => {
+    process.env.SUPABASE_URL = 'https://projet.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'cle-service-test';
+    delete process.env.VITRINE_ORGANISATION_ID;
+    prisma = {
+      evenement: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn(),
+        create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...data, createdAt: new Date(), updatedAt: new Date() })),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...ligne(), ...data })),
+      },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+    };
+    identity = { getMe: jest.fn() };
+    fetchMock = jest.fn().mockResolvedValue({ ok: true, text: async () => '' });
+    global.fetch = fetchMock as unknown as typeof fetch;
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        EvenementsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: IdentityService, useValue: identity },
+      ],
+    }).compile();
+    service = moduleRef.get(EvenementsService);
+    jest.spyOn(service, 'maintenant').mockReturnValue(new Date('2026-09-30T10:00:00Z'));
+  });
+
+  const ligne = (o: Partial<Record<string, unknown>> = {}) => ({
+    id: 'e-1',
+    organisationId: ORG,
+    titre: 'Journée santé',
+    description: null,
+    imageUrl: 'https://projet.supabase.co/storage/v1/object/public/evenements/org/e-1-1.jpg',
+    dateEvenement: d('2026-10-15'),
+    ordreAffichage: 0,
+    actif: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+    ...o,
+  });
+
+  it.each(['ASSUREUR_COMPTABLE', 'ASSUREUR_INFORMATIQUE_ADJOINT', 'ASSUREUR_DIRECTION', 'ADHERENT_TITULAIRE'])(
+    'rôle %s → 403, rien n’est téléversé ni écrit',
+    async (r) => {
+      role(r);
+      await expect(
+        service.creer(USER, { titre: 'X', dateEvenement: '2026-10-01' }, image()),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.lister(USER)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(prisma.evenement.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it('création : image JPEG téléversée dans le bucket public, URL publique enregistrée, audit', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    const res = await service.creer(
+      USER,
+      { titre: 'Journée santé', dateEvenement: '2026-10-15', ordreAffichage: 2, actif: true },
+      image(),
+    );
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toMatch(new RegExp(`^https://projet\\.supabase\\.co/storage/v1/object/evenements/${ORG}/[0-9a-f-]{36}-\\d+\\.jpg$`));
+    expect(init.headers['Content-Type']).toBe('image/jpeg');
+    const data = prisma.evenement.create.mock.calls[0][0].data;
+    expect(data.organisationId).toBe(ORG);
+    expect(data.imageUrl).toMatch(/\/storage\/v1\/object\/public\/evenements\//);
+    expect(res.statut).toBe('A_VENIR');
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
+
+  it('création sans image → 400 ; contenu non image (déclaré image/jpeg) → 400', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    await expect(service.creer(USER, { titre: 'X', dateEvenement: '2026-10-01' })).rejects.toBeInstanceOf(BadRequestException);
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>');
+    await expect(service.creer(USER, { titre: 'X', dateEvenement: '2026-10-01' }, image(svg))).rejects.toThrow(
+      'Formats d’image acceptés',
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('échec en base après téléversement → l’image est supprimée du bucket (pas d’orpheline publique)', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    prisma.evenement.create.mockRejectedValue(new Error('boom'));
+    await expect(service.creer(USER, { titre: 'X', dateEvenement: '2026-10-01' }, image())).rejects.toThrow('boom');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][1].method).toBe('DELETE');
+  });
+
+  it('modification / suppression d’un événement d’une autre organisation → 404', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    prisma.evenement.findFirst.mockResolvedValue(null);
+    await expect(service.modifier(USER, 'e-x', { titre: 'Y' })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.supprimer(USER, 'e-x')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.evenement.findFirst).toHaveBeenCalledWith({ where: { id: 'e-x', organisationId: ORG, deletedAt: null } });
+  });
+
+  it('suppression : logique (deletedAt + inactif) et image retirée du bucket', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    prisma.evenement.findFirst.mockResolvedValue(ligne());
+    await service.supprimer(USER, 'e-1');
+    expect(prisma.evenement.update).toHaveBeenCalledWith({
+      where: { id: 'e-1' },
+      data: { deletedAt: expect.any(Date), actif: false },
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ prefixes: ['org/e-1-1.jpg'] });
+  });
+
+  it('public : VITRINE_ORGANISATION_ID absente ou invalide → liste vide, aucune requête', async () => {
+    expect(await service.publics('1.1.1.1')).toEqual([]);
+    process.env.VITRINE_ORGANISATION_ID = 'pas-un-uuid';
+    expect(await service.publics('1.1.1.1')).toEqual([]);
+    expect(prisma.evenement.findMany).not.toHaveBeenCalled();
+  });
+
+  it('public : filtre organisation vitrine + actif + non supprimé ; champs publics seulement', async () => {
+    process.env.VITRINE_ORGANISATION_ID = ORG;
+    prisma.evenement.findMany.mockResolvedValue([ligne()]);
+    const res = await service.publics('1.1.1.2');
+    expect(prisma.evenement.findMany).toHaveBeenCalledWith({ where: { organisationId: ORG, actif: true, deletedAt: null } });
+    expect(Object.keys(res[0]).sort()).toEqual(['dateEvenement', 'description', 'id', 'imageUrl', 'statut', 'titre']);
+  });
+
+  it('public : 60 lectures par IP, la 61e → 429', async () => {
+    for (let i = 0; i < 60; i++) await service.publics('1.1.1.3');
+    const err = await service.publics('1.1.1.3').catch((e) => e);
+    expect(err).toBeInstanceOf(HttpException);
+    expect(err.getStatus()).toBe(429);
+  });
+});
+
+describe('Règles pures', () => {
+  const now = new Date('2026-09-30T10:00:00Z');
+
+  it('statut : jour même = à venir, veille = passé', () => {
+    expect(statutEvenement(d('2026-09-30'), now)).toBe('A_VENIR');
+    expect(statutEvenement(d('2026-09-29'), now)).toBe('PASSE');
+  });
+
+  it('sélection : ordre d’affichage, puis à venir (plus proche) avant passés (plus récent), 5 au plus', () => {
+    const e = (id: string, ordre: number, date: string) => ({ id, ordreAffichage: ordre, dateEvenement: d(date) });
+    const res = selectionPublique(
+      [
+        e('passe-recent', 1, '2026-09-20'),
+        e('avenir-loin', 1, '2026-12-01'),
+        e('avenir-proche', 1, '2026-10-02'),
+        e('passe-ancien', 1, '2026-01-10'),
+        e('prioritaire', 0, '2025-05-01'),
+        e('ordre-5', 5, '2026-10-01'),
+        e('ordre-9', 9, '2026-10-01'),
+      ],
+      now,
+    ).map((x) => x.id);
+    expect(res).toEqual(['prioritaire', 'avenir-proche', 'avenir-loin', 'passe-recent', 'passe-ancien']);
+  });
+
+  it('format d’après les octets : JPEG, PNG, WEBP ; SVG / texte refusés', () => {
+    expect(formatImageEvenement(JPEG)?.mime).toBe('image/jpeg');
+    expect(formatImageEvenement(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))?.ext).toBe('png');
+    expect(formatImageEvenement(Buffer.from('RIFF\x00\x00\x00\x00WEBPVP8 ', 'binary'))?.ext).toBe('webp');
+    expect(formatImageEvenement(Buffer.from('<svg/>'))).toBeNull();
+  });
+
+  it('DTO multipart : actif "false" → false, ordre "3" → 3, date stricte', async () => {
+    const dto = plainToInstance(CreerEvenementDto, { titre: 'Forum', dateEvenement: '2026-10-01', actif: 'false', ordreAffichage: '3' });
+    expect(await validate(dto)).toEqual([]);
+    expect(dto.actif).toBe(false);
+    expect(dto.ordreAffichage).toBe(3);
+    const mauvais = plainToInstance(CreerEvenementDto, { titre: 'Forum', dateEvenement: '01/10/2026' });
+    expect((await validate(mauvais)).map((x) => x.property)).toEqual(['dateEvenement']);
+  });
+});

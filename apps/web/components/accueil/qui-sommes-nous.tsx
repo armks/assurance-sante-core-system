@@ -1,6 +1,9 @@
 import { MapPin, ShieldCheck, Workflow } from 'lucide-react';
 import Image from 'next/image';
 
+import type { EvenementPublic } from '@/lib/evenements-publics';
+
+import { CarrouselEvenements } from './carrousel-evenements';
 import { PHOTOS } from './photos';
 
 const REPERES = [
@@ -9,19 +12,27 @@ const REPERES = [
   { icone: Workflow, titre: 'Du devis au remboursement', texte: 'Souscription, soins, facturation et paiement suivis au même endroit.' },
 ];
 
-export function QuiSommesNous() {
+/**
+ * « Qui sommes-nous ». La colonne visuelle affiche le carrousel des événements
+ * publiés (même place, même format 4:3) ; sans événement, l'image habituelle.
+ */
+export function QuiSommesNous({ evenements = [] }: { evenements?: EvenementPublic[] }) {
   return (
     <section id="qui-sommes-nous" className="scroll-mt-20 py-[2.625rem] md:py-[3.625rem]">
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 md:grid-cols-12 md:gap-14">
         <div className="relative md:col-span-6">
-          <Image
-            src={PHOTOS.equipe.src}
-            alt={PHOTOS.equipe.alt}
-            width={PHOTOS.equipe.largeur}
-            height={PHOTOS.equipe.hauteur}
-            sizes="(min-width: 768px) 50vw, 100vw"
-            className="aspect-[4/3] w-full rounded-2xl object-cover"
-          />
+          {evenements.length > 0 ? (
+            <CarrouselEvenements evenements={evenements} />
+          ) : (
+            <Image
+              src={PHOTOS.equipe.src}
+              alt={PHOTOS.equipe.alt}
+              width={PHOTOS.equipe.largeur}
+              height={PHOTOS.equipe.hauteur}
+              sizes="(min-width: 768px) 50vw, 100vw"
+              className="aspect-[4/3] w-full rounded-2xl object-cover"
+            />
+          )}
         </div>
         <div className="md:col-span-6">
           <h2 className="font-display text-3xl font-semibold tracking-tight md:text-4xl">Qui sommes-nous</h2>

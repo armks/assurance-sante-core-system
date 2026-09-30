@@ -6194,3 +6194,57 @@ validation, non commités.)
 
 ### Statut
 Terminé, validé par capture, commité et poussé.
+
+## 2026-09-30 — Événements de la vitrine (carrousel « Qui sommes-nous »)
+
+### Réalisé
+- **Table `evenements`** (prisma/sql/060) : titre, description, image_url, date_evenement,
+  ordre_affichage, actif, horodatages, deleted_at. Statut PASSE / A_VENIR **calculé** à la
+  lecture (jamais stocké : il deviendrait faux le lendemain). RLS : lecture publique `anon`
+  limitée aux événements actifs, non supprimés, de l'organisation vitrine
+  (`public.organisation_vitrine()`, SECURITY DEFINER, lit `parametres_plateforme`
+  cle `vitrine_organisation_id`) ; lecture interne par l'organisation ; écriture
+  `profil_a_role(…, ['ASSUREUR_INFORMATIQUE'])`. Bucket **public** `evenements`
+  (JPEG/PNG/WEBP, 5 Mo).
+- **API** (module `vitrine`) : `GET/POST /vitrine/evenements`, `PATCH/DELETE
+  /vitrine/evenements/:id` (multipart, champ `image`) réservés au rôle **exact**
+  ASSUREUR_INFORMATIQUE (l'adjoint est refusé, « exclusivement »). Format d'image
+  déterminé par les octets (un SVG déguisé en .jpg est refusé), Content-Type servi = format
+  réel, cache CDN ramené à 5 min, image supprimée du bucket à la suppression / au
+  remplacement, image orpheline retirée si l'écriture en base échoue. `log_audit` sur
+  création / modification / suppression. `GET /public/evenements` : limiteur 60/IP et
+  3000 global par 15 min, 5 événements au plus, champs publics seulement ; organisation
+  = `VITRINE_ORGANISATION_ID` (absente ou invalide → liste vide, aucune fuite
+  multi-tenant par défaut).
+- **Sélection publique** : `ordre_affichage` croissant, puis à venir avant passés, les
+  plus proches dans le temps d'abord.
+- **Écran** `/dashboard-assureur/informatique/evenements` (entrée de menu pour le
+  titulaire seulement) : GrilleCartes, DataTable (recherche, filtres statut /
+  publication), FormulaireModal création / édition (titre, description, image, date,
+  ordre, actif) et confirmation de suppression. `serverActions.bodySizeLimit` porté à
+  6 Mo, `images.remotePatterns` limité au chemin public du bucket.
+- **Page d'accueil** : l'image du bloc « Qui sommes-nous » devient le carrousel des
+  événements, même place, même format 4:3 (fondu, pastilles de progression, pause,
+  suspendu au survol / focus, désactivé si « réduire les animations »). Sans événement :
+  l'image habituelle, rien d'autre ne change. Jeton Tailwind `nuit` (#17152b, valeur
+  déjà utilisée par la bannière et le pied de page).
+
+### Tests
+- Unitaires : +20 (rôles refusés dont l'adjoint, image requise / SVG déguisé, nettoyage
+  d'image orpheline, périmètre organisation, suppression logique, organisation vitrine
+  absente, champs publics, limiteur, règles de statut et de sélection, DTO multipart).
+  API 816/816, `tsc` api + web OK.
+- HTTP réel (27 vérifications, toutes OK) : ASSUREUR_COMPTABLE et
+  ASSUREUR_INFORMATIQUE_ADJOINT → 403 sur création / liste / modification / suppression,
+  sans jeton → 401 ; création avec image → 201, image servie en `image/jpeg` ; lecture
+  publique ordonnée ; RLS `anon` directe : 0 ligne sans réglage, lignes actives seulement
+  avec, INSERT refusé ; désactivation retirée du public ; audit_log vérifié en base.
+- Navigateur : création depuis l'écran (upload réel), carrousel à 2 événements sur la page
+  d'accueil publique, puis suppression → image statique rétablie.
+
+### Configuration
+`VITRINE_ORGANISATION_ID` (API) et `parametres_plateforme.vitrine_organisation_id` (RLS)
+doivent désigner la même organisation ; en local : « Assureur Test A ».
+
+### Statut
+Terminé, commité et poussé.

@@ -1893,3 +1893,23 @@ model NewsletterAbonne {
 
   @@map("newsletter_abonnes")
 }
+
+/// Événements de la vitrine (carrousel du bloc « Qui sommes-nous »), gérés par
+/// ASSUREUR_INFORMATIQUE — prisma/sql/060. Statut PASSE/A_VENIR calculé à la
+/// lecture, jamais stocké. `organisationId` : clé étrangère SQL, sans relation
+/// Prisma (lecture/écriture toujours filtrées par l'organisation de l'appelant).
+model Evenement {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String    @map("organisation_id") @db.Uuid
+  titre          String
+  description    String?
+  imageUrl       String    @map("image_url")
+  dateEvenement  DateTime  @map("date_evenement") @db.Date
+  ordreAffichage Int       @default(0) @map("ordre_affichage")
+  actif          Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("evenements")
+}

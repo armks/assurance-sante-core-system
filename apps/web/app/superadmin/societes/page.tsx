@@ -1,5 +1,6 @@
 import { PageTitre } from '@/components/page-titre';
 import { FileActionsEnAttente } from '@/components/superadmin/file-actions';
+import { LogoOrganisation } from '@/components/superadmin/logo-organisation';
 import {
   ActionsLicence,
   CreerSocieteFlow,
@@ -8,6 +9,7 @@ import type { ActionEnAttente } from '@/app/superadmin/societes/actions';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, messageErreur } from '@/lib/api';
+import { exigerIdentite } from '@/lib/identity';
 
 interface Licence {
   plan: string;
@@ -23,14 +25,19 @@ interface Organisation {
   devise: string;
   statut: string;
   createdAt: string;
+  logoUrl: string | null;
   licence: Licence | null;
 }
 
 export default async function Societes() {
-  const [res, resActions] = await Promise.all([
+  const [res, resActions, etat] = await Promise.all([
     apiFetch('/api/v1/identity/organisations'),
     apiFetch('/api/v1/superadmin/actions'),
+    exigerIdentite('/superadmin/societes'),
   ]);
+  // Logo : EXCLUSIVEMENT SUPERADMIN_PRINCIPAL (rôle propre, pas hérité).
+  const peutModifierLogo =
+    etat.kind === 'ok' && etat.identity.profil.role === 'SUPERADMIN_PRINCIPAL';
   const organisations: Organisation[] = res.ok ? await res.json() : [];
   const erreur = res.ok ? null : await messageErreur(res);
   const actionsEnAttente: ActionEnAttente[] = resActions.ok
@@ -95,11 +102,20 @@ export default async function Societes() {
                 )}
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-5">
               <ActionsLicence
                 organisationId={org.id}
                 organisationNom={org.nom}
               />
+              <section aria-label={`Logo de ${org.nom}`} className="border-t pt-4">
+                <h3 className="mb-3 text-sm font-medium">Logo</h3>
+                <LogoOrganisation
+                  organisationId={org.id}
+                  organisationNom={org.nom}
+                  logoUrl={org.logoUrl}
+                  peutModifier={peutModifierLogo}
+                />
+              </section>
             </CardContent>
           </Card>
         ))}

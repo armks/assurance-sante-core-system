@@ -6248,3 +6248,22 @@ doivent désigner la même organisation ; en local : « Assureur Test A ».
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Logo d'organisation + refonte de la carte de membre PDF
+
+### Réalisé
+- **Logo d'organisation** (prisma/sql/058) : colonne `organisations.logo_url`, bucket
+  PUBLIC `logos` (PNG/JPEG, 2 Mo). `POST /identity/organisations/:id/logo` (multipart,
+  champ `logo`) réservé EXCLUSIVEMENT à SUPERADMIN_PRINCIPAL : format vérifié par les
+  octets (`common/images.util.ts`), nom horodaté, ancien logo supprimé, `log_audit`.
+  Écran superadmin « Sociétés » : aperçu et remplacement du logo.
+- **Carte de membre PDF** : photo carrée sans bordure, agrandie et centrée
+  verticalement ; logo de l'assureur dans la bande d'en-tête et en filigrane ; carte
+  générée sans logo tant qu'aucun n'est téléversé.
+
+### Tests
+- Unitaires identity + carte : 47/47 (droits superadmin exclusifs, formats refusés,
+  remplacement, carte avec / sans logo). PDF générés et relus visuellement (4 variantes).
+
+### Statut
+Validé par le porteur du projet (2026-09-30), commité et poussé.

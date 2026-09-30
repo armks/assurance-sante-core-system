@@ -12,10 +12,10 @@ import {
   type PDFFont,
   type PDFPage,
   StandardFonts,
-  appendBezierCurve,
   clip,
   closePath,
   endPath,
+  lineTo,
   moveTo,
   popGraphicsState,
   pushGraphicsState,
@@ -23,6 +23,7 @@ import {
 } from 'pdf-lib';
 import * as QRCode from 'qrcode';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { formatImagePdf } from '../common/images.util';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -44,21 +45,6 @@ interface InfosCarte {
   dateValidite: string;
   numeroReference: string;
   organisation: string;
-}
-
-/**
- * Format d'une photo d'après ses octets (jamais d'après l'extension du chemin).
- * pdf-lib n'embarque que PNG et JPEG : tout le reste (WEBP, fichier corrompu…)
- * renvoie `null` et la carte est générée avec la silhouette neutre.
- */
-export function formatPhotoPdf(octets: Buffer): 'png' | 'jpg' | null {
-  if (octets.length >= 8 && octets.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
-    return 'png';
-  }
-  if (octets.length >= 3 && octets[0] === 0xff && octets[1] === 0xd8 && octets[2] === 0xff) {
-    return 'jpg';
-  }
-  return null;
 }
 
 /**
@@ -116,8 +102,11 @@ export class MemberCarteService {
 
     const infos = this.infosDepuisAdherent(adherent);
     const qr = await qrEnPng(adherent.numeroCarte);
-    const photo = await this.chargerPhoto(adherent.photoUrl);
-    const pdf = await this.construirePdf([{ infos, qr, photo }]);
+    const [photo, logo] = await Promise.all([
+      this.chargerPhoto(adherent.photoUrl),
+      this.chargerLogo(adherent.organisation?.logoUrl),
+    ]);
+    const pdf = await this.construirePdf([{ infos, qr, photo }], logo);
 
     const chemin = `${ctx.organisationId}/adherents/${adherentId}/carte-${Date.now()}.pdf`;
     const { url, expiresIn } = await this.televerserEtSigner(chemin, pdf);
@@ -168,8 +157,11 @@ export class MemberCarteService {
     const numeroCarte = benef.numeroCarte;
     const infos = this.infosDepuisBeneficiaire(adherent, { ...benef, numeroCarte });
     const qr = await qrEnPng(numeroCarte);
-    const photo = await this.chargerPhoto(benef.photoUrl);
-    const pdf = await this.construirePdf([{ infos, qr, photo }]);
+    const [photo, logo] = await Promise.all([
+      this.chargerPhoto(benef.photoUrl),
+      this.chargerLogo(adherent.organisation?.logoUrl),
+    ]);
+    const pdf = await this.construirePdf([{ infos, qr, photo }], logo);
 
     const chemin = `${ctx.organisationId}/beneficiaires/${beneficiaireId}/carte-${Date.now()}.pdf`;
     const { url, expiresIn } = await this.televerserEtSigner(chemin, pdf);
@@ -220,7 +212,7 @@ export class MemberCarteService {
       },
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
       include: {
-        organisation: { select: { nom: true } },
+        organisation: { select: { nom: true, logoUrl: true } },
         souscripteur: { select: { nom: true } },
         police: { include: { produit: true } },
       },
@@ -239,7 +231,8 @@ export class MemberCarteService {
         photo: await this.chargerPhoto(adherent.photoUrl),
       });
     }
-    const pdf = await this.construirePdf(cartes);
+    const logo = await this.chargerLogo(adherents[0]?.organisation?.logoUrl);
+    const pdf = await this.construirePdf(cartes, logo);
 
     const chemin = `${ctx.organisationId}/souscripteurs/${souscripteurId}/lot-${Date.now()}.pdf`;
     const { url, expiresIn } = await this.televerserEtSigner(chemin, pdf);
@@ -298,99 +291,147 @@ export class MemberCarteService {
 
   // --- PDF --------------------------------------------------------
 
+  /**
+   * Carte au format ID-1 (340 × 214 pt, ratio 85,6 × 54 mm). Origine en bas à
+   * gauche. Zones (aucun chevauchement ; tout contenu dans la zone de sécurité
+   * d'impression de 3 mm = 8,5 pt, seuls les fonds vont jusqu'au bord) :
+   *   - filigrane : logo de l'organisation (si `logo_url`) en grand, centré
+   *     dans la zone claire sous le bandeau, opacité 10 %, dessiné AVANT tout
+   *     le reste (texte, photo, QR restent lisibles par-dessus) ;
+   *   - bandeau 40 pt : logo (pastille blanche, 22 pt de haut) puis nom de la
+   *     compagnie. Opaque et dessiné APRÈS le filigrane : un logo sur fond
+   *     blanc (JPEG) laisserait sinon un rectangle pâle visible sur le bleu ;
+   *   - photo CARRÉE 112 × 112 pt, sans contour, bord droit à la marge et
+   *     centrée verticalement dans le corps (x 214–326, y 31–143) ;
+   *   - QR 52 pt centré en bas (x 144–196, y 10–62) ;
+   *   - colonne de texte à gauche, bornée en largeur : nom/qualité ≤ 190 pt
+   *     (jusqu'à la photo), valeurs ≤ 122 pt (jamais sous le QR).
+   */
   private async construirePdf(
     cartes: { infos: InfosCarte; qr: Buffer; photo: Buffer | null }[],
+    logo: Buffer | null = null,
   ): Promise<Buffer> {
     const doc = await PDFDocument.create();
     doc.setTitle('Carte(s) de membre');
     doc.setProducer('assurance-sante-core-system');
     const police = await doc.embedFont(StandardFonts.Helvetica);
     const policeGras = await doc.embedFont(StandardFonts.HelveticaBold);
+    // Logo embarqué UNE fois pour tout le document (lot : réutilisé sur chaque page).
+    const imageLogo = await this.embarquerImage(doc, logo, 'logo');
 
     const L = 340;
     const H = 214;
+    const MARGE = 14;
     const encre = rgb(0.1, 0.1, 0.16);
     const gris = rgb(0.42, 0.42, 0.48);
     const bleu = rgb(0.13, 0.29, 0.53);
 
-    // Médaillon photo : en haut à droite, entre le bandeau (H - 36) et le QR
-    // (sommet à 16 + 96 = 112). Le texte de gauche est borné pour ne jamais
-    // passer dessous, même avec un nom très long.
-    const rayon = 26;
-    const cx = L - 14 - rayon;
-    const cy = H - 36 - 8 - rayon;
-    const largeurTexte = cx - rayon - 10 - 14;
-    const largeurValeurs = L - 96 - 14 - 10 - 14;
+    const HAUTEUR_BANDEAU = 40;
+    const basBandeau = H - HAUTEUR_BANDEAU;
+    // Photo 112 pt, bord droit à la marge (x 214–326) et centrée VERTICALEMENT
+    // dans le corps de la carte (zone 0–174 sous le bandeau → y 31–143).
+    const TAILLE_PHOTO = 112;
+    const xPhoto = L - MARGE - TAILLE_PHOTO;
+    const yPhoto = (basBandeau - TAILLE_PHOTO) / 2;
+    const TAILLE_QR = 52; // = taille de l'ancienne photo
+    const xQr = (L - TAILLE_QR) / 2;
+    const yQr = 10;
+    const largeurTexte = xPhoto - 10 - MARGE;
+    const largeurValeurs = xQr - 8 - MARGE;
+
+    // Filigrane : proportions conservées, au plus 70 % de la largeur et
+    // 85 % de la hauteur de la zone sous le bandeau, centré dans cette zone.
+    const OPACITE_FILIGRANE = 0.1;
+    let filigrane: { x: number; y: number; w: number; h: number } | null = null;
+    if (imageLogo) {
+      const echelle = Math.min((L * 0.7) / imageLogo.width, (basBandeau * 0.85) / imageLogo.height);
+      const w = imageLogo.width * echelle;
+      const h = imageLogo.height * echelle;
+      filigrane = { x: (L - w) / 2, y: (basBandeau - h) / 2, w, h };
+    }
+    // Logo du bandeau (en plus du filigrane) : hauteur 22 pt max, largeur
+    // 70 pt max, sur pastille blanche (un logo sombre reste lisible sur le bleu).
+    let enTete: { w: number; h: number; pastille: number } | null = null;
+    if (imageLogo) {
+      const echelle = Math.min(22 / imageLogo.height, 70 / imageLogo.width);
+      const w = imageLogo.width * echelle;
+      enTete = { w, h: imageLogo.height * echelle, pastille: w + 8 };
+    }
 
     for (const { infos, qr, photo } of cartes) {
       const page = doc.addPage([L, H]);
       page.drawRectangle({ x: 0, y: 0, width: L, height: H, color: rgb(0.98, 0.98, 1) });
-      page.drawRectangle({ x: 0, y: H - 36, width: L, height: 36, color: bleu });
-      page.drawText(this.ascii(infos.organisation).toUpperCase(), {
-        x: 14,
-        y: H - 22,
-        size: 10,
+      if (imageLogo && filigrane) {
+        page.drawImage(imageLogo, { ...filigrane, width: filigrane.w, height: filigrane.h, opacity: OPACITE_FILIGRANE });
+      }
+      page.drawRectangle({ x: 0, y: basBandeau, width: L, height: HAUTEUR_BANDEAU, color: bleu });
+
+      let xTitre = MARGE;
+      if (imageLogo && enTete) {
+        page.drawRectangle({
+          x: 10,
+          y: basBandeau + 5,
+          width: enTete.pastille,
+          height: HAUTEUR_BANDEAU - 10,
+          color: rgb(1, 1, 1),
+        });
+        page.drawImage(imageLogo, {
+          x: 10 + 4,
+          y: basBandeau + (HAUTEUR_BANDEAU - enTete.h) / 2,
+          width: enTete.w,
+          height: enTete.h,
+        });
+        xTitre = 10 + enTete.pastille + 8;
+      }
+      const titre = this.ajuster(
+        this.ascii(infos.organisation).toUpperCase(),
+        policeGras,
+        11,
+        8,
+        L - xTitre - MARGE,
+      );
+      page.drawText(titre.texte, {
+        x: xTitre,
+        y: H - 20,
+        size: titre.taille,
         font: policeGras,
         color: rgb(1, 1, 1),
       });
       page.drawText('CARTE DE MEMBRE', {
-        x: 14,
-        y: H - 32,
-        size: 6,
+        x: xTitre,
+        y: H - 31,
+        size: 6.5,
         font: police,
         color: rgb(0.82, 0.88, 1),
       });
 
-      await this.dessinerMedaillon(doc, page, photo, cx, cy, rayon);
+      await this.dessinerPhoto(doc, page, photo, xPhoto, yPhoto, TAILLE_PHOTO);
 
-      let y = H - 58;
-      const nom = this.ajuster(this.ascii(infos.nomComplet), policeGras, 15, 10, largeurTexte);
-      page.drawText(nom.texte, {
-        x: 14,
-        y,
-        size: nom.taille,
-        font: policeGras,
-        color: encre,
-      });
-      y -= 15;
-      const qualite = this.ajuster(this.ascii(infos.qualite), police, 7, 6, largeurTexte);
-      page.drawText(qualite.texte, {
-        x: 14,
-        y,
-        size: qualite.taille,
-        font: police,
-        color: gris,
-      });
+      let y = basBandeau - 24;
+      const nom = this.ajuster(this.ascii(infos.nomComplet), policeGras, 17, 11, largeurTexte);
+      page.drawText(nom.texte, { x: MARGE, y, size: nom.taille, font: policeGras, color: encre });
+      y -= 14;
+      const qualite = this.ajuster(this.ascii(infos.qualite), police, 8, 6.5, largeurTexte);
+      page.drawText(qualite.texte, { x: MARGE, y, size: qualite.taille, font: police, color: gris });
 
-      y -= 22;
+      y -= 20;
       const ligne = (label: string, valeur: string) => {
-        page.drawText(label, { x: 14, y, size: 6.5, font: police, color: gris });
-        const v = this.ajuster(this.ascii(valeur), policeGras, 9, 7, largeurValeurs);
-        page.drawText(v.texte, {
-          x: 14,
-          y: y - 11,
-          size: v.taille,
-          font: policeGras,
-          color: encre,
-        });
-        y -= 27;
+        page.drawText(label, { x: MARGE, y, size: 7, font: police, color: gris });
+        const v = this.ajuster(this.ascii(valeur), policeGras, 10.5, 8, largeurValeurs);
+        page.drawText(v.texte, { x: MARGE, y: y - 12, size: v.taille, font: policeGras, color: encre });
+        y -= 28;
       };
       ligne('N° DE CARTE', infos.numeroCarte);
       ligne('FORMULE', infos.formule);
       ligne('VALABLE JUSQU AU', infos.dateValidite);
 
       const qrImg = await doc.embedPng(qr);
-      const taille = 96;
-      page.drawImage(qrImg, {
-        x: L - taille - 14,
-        y: 16,
-        width: taille,
-        height: taille,
-      });
-      page.drawText(infos.numeroReference, {
-        x: L - taille - 14,
-        y: 7,
-        size: 6,
+      page.drawImage(qrImg, { x: xQr, y: yQr, width: TAILLE_QR, height: TAILLE_QR });
+      const ref = this.ascii(infos.numeroReference);
+      page.drawText(ref, {
+        x: L - MARGE - police.widthOfTextAtSize(ref, 6.5),
+        y: yQr,
+        size: 6.5,
         font: police,
         color: gris,
       });
@@ -400,63 +441,67 @@ export class MemberCarteService {
     return Buffer.from(bytes);
   }
 
+  /** PNG/JPEG → image embarquée ; tout autre cas (absent, WEBP, corrompu) → null. */
+  private async embarquerImage(doc: PDFDocument, octets: Buffer | null, quoi: string) {
+    if (!octets) return null;
+    const format = formatImagePdf(octets);
+    if (!format) {
+      this.logger.warn(`${quoi} dans un format non supporté par le PDF (PNG/JPEG uniquement) — ignoré.`);
+      return null;
+    }
+    try {
+      return format === 'png' ? await doc.embedPng(octets) : await doc.embedJpg(octets);
+    } catch (error) {
+      this.logger.warn(
+        `${quoi} non embarquable (${error instanceof Error ? error.message : 'erreur inconnue'}) — ignoré.`,
+      );
+      return null;
+    }
+  }
+
   /**
-   * Médaillon rond : la photo (recadrée « cover » dans un cercle) si elle est
-   * embarquable, sinon une silhouette neutre — jamais d'erreur, jamais d'image
-   * cassée. Un échec d'embarquement (octets PNG/JPEG corrompus) retombe aussi
-   * sur la silhouette.
+   * Photo CARRÉE (coins droits, aucun contour) : recadrée « cover » dans le
+   * carré si elle est embarquable, sinon une silhouette neutre sur fond gris
+   * clair — jamais d'erreur, jamais d'image cassée. Un échec d'embarquement
+   * (octets PNG/JPEG corrompus) retombe aussi sur la silhouette.
    */
-  private async dessinerMedaillon(
+  private async dessinerPhoto(
     doc: PDFDocument,
     page: PDFPage,
     photo: Buffer | null,
-    cx: number,
-    cy: number,
-    r: number,
+    x: number,
+    y: number,
+    c: number,
   ): Promise<void> {
-    let image: Awaited<ReturnType<PDFDocument['embedPng']>> | null = null;
-    const format = photo ? formatPhotoPdf(photo) : null;
-    if (photo && format) {
-      try {
-        image = format === 'png' ? await doc.embedPng(photo) : await doc.embedJpg(photo);
-      } catch (error) {
-        this.logger.warn(
-          `Photo non embarquable dans la carte (${error instanceof Error ? error.message : 'erreur inconnue'}) — silhouette neutre.`,
-        );
-      }
-    } else if (photo) {
-      this.logger.warn('Photo dans un format non supporté par le PDF (PNG/JPEG uniquement) — silhouette neutre.');
-    }
+    const image = await this.embarquerImage(doc, photo, 'Photo');
 
-    // Cercle de découpe : 4 courbes de Bézier (k ≈ 0,5523).
-    const k = 0.5523 * r;
+    // Découpe au carré exact : un portrait non carré est rogné, jamais déformé.
     page.pushOperators(
       pushGraphicsState(),
-      moveTo(cx + r, cy),
-      appendBezierCurve(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
-      appendBezierCurve(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
-      appendBezierCurve(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
-      appendBezierCurve(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+      moveTo(x, y),
+      lineTo(x + c, y),
+      lineTo(x + c, y + c),
+      lineTo(x, y + c),
       closePath(),
       clip(),
       endPath(),
     );
     if (image) {
-      const echelle = (2 * r) / Math.min(image.width, image.height);
+      const echelle = c / Math.min(image.width, image.height);
       const w = image.width * echelle;
       const h = image.height * echelle;
-      page.drawImage(image, { x: cx - w / 2, y: cy - h / 2, width: w, height: h });
+      page.drawImage(image, { x: x + (c - w) / 2, y: y + (c - h) / 2, width: w, height: h });
     } else {
-      page.drawCircle({ x: cx, y: cy, size: r, color: rgb(0.9, 0.91, 0.94) });
-      page.drawCircle({ x: cx, y: cy + r * 0.22, size: r * 0.3, color: rgb(0.7, 0.72, 0.78) });
-      page.drawEllipse({ x: cx, y: cy - r * 0.78, xScale: r * 0.62, yScale: r * 0.5, color: rgb(0.7, 0.72, 0.78) });
+      const gris = rgb(0.7, 0.72, 0.78);
+      page.drawRectangle({ x, y, width: c, height: c, color: rgb(0.9, 0.91, 0.94) });
+      page.drawCircle({ x: x + c / 2, y: y + c * 0.6, size: c * 0.17, color: gris });
+      page.drawEllipse({ x: x + c / 2, y: y + c * 0.08, xScale: c * 0.32, yScale: c * 0.27, color: gris });
     }
     page.pushOperators(popGraphicsState());
-    page.drawCircle({ x: cx, y: cy, size: r, borderColor: rgb(0.13, 0.29, 0.53), borderWidth: 1.2 });
   }
 
   /** Réduit la taille de police jusqu'à `min`, puis tronque avec « ... » pour
-   * tenir dans `largeur` — le texte ne déborde jamais sur le médaillon/QR. */
+   * tenir dans `largeur` — le texte ne déborde jamais sur la photo/QR. */
   private ajuster(
     texte: string,
     font: PDFFont,
@@ -479,7 +524,7 @@ export class MemberCarteService {
     return texte
       .normalize('NFC')
       // eslint-disable-next-line no-control-regex
-      .replace(/[^ -ÿ]/g, '');
+      .replace(/[^\u0000-ÿ]/g, '');
   }
 
   // --- Stockage --------------------------------------------------
@@ -511,6 +556,28 @@ export class MemberCarteService {
     } catch (error) {
       this.logger.warn(
         `Téléchargement de la photo impossible (${error instanceof Error ? error.message : 'erreur inconnue'}) — silhouette neutre.`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Octets du logo de l'organisation (`organisations.logo_url`, bucket public
+   * `logos`) — `null` si aucun logo ou si le téléchargement échoue : la carte
+   * est alors générée normalement, sans logo, jamais bloquée.
+   */
+  private async chargerLogo(url: string | null | undefined): Promise<Buffer | null> {
+    if (!url) return null;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        this.logger.warn(`Logo introuvable pour la carte (${res.status}) : ${url} — carte sans logo.`);
+        return null;
+      }
+      return Buffer.from(await res.arrayBuffer());
+    } catch (error) {
+      this.logger.warn(
+        `Téléchargement du logo impossible (${error instanceof Error ? error.message : 'erreur inconnue'}) — carte sans logo.`,
       );
       return null;
     }
@@ -622,7 +689,7 @@ export class MemberCarteService {
     const adherent = await this.prisma.adherent.findFirst({
       where: { id, organisationId: ctx.organisationId, deletedAt: null },
       include: {
-        organisation: { select: { nom: true } },
+        organisation: { select: { nom: true, logoUrl: true } },
         souscripteur: { select: { nom: true } },
         police: { include: { produit: true } },
         beneficiaires: { where: { deletedAt: null } },
@@ -675,7 +742,7 @@ export class MemberCarteService {
 
 type AdherentComplet = Prisma.AdherentGetPayload<{
   include: {
-    organisation: { select: { nom: true } };
+    organisation: { select: { nom: true, logoUrl: true } };
     souscripteur: { select: { nom: true } };
     police: { include: { produit: true } };
     beneficiaires: true;

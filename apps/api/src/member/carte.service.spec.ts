@@ -9,8 +9,17 @@ import jsQR from 'jsqr';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream } from 'pdf-lib';
-import { MemberCarteService, formatPhotoPdf, qrEnPng } from './carte.service';
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  PDFNumber,
+  PDFRawStream,
+  decodePDFRawStream,
+} from 'pdf-lib';
+import { formatImagePdf } from '../common/images.util';
+import { MemberCarteService, qrEnPng } from './carte.service';
 
 /** Images réellement embarquées dans un PDF : dimensions de chaque XObject
  * /Image, hors masques de transparence (/SMask d'un PNG avec alpha, qui ne sont
@@ -33,6 +42,52 @@ async function imagesDuPdf(octets: Buffer): Promise<{ w: number; h: number }[]> 
       w: (dict.get(PDFName.of('Width')) as PDFNumber).asNumber(),
       h: (dict.get(PDFName.of('Height')) as PDFNumber).asNumber(),
     }));
+}
+
+/**
+ * Images DESSINÉES sur la 1re page, avec leur position/taille réelles (en pt) :
+ * lit le flux de contenu (`q … cm … /Nom Do Q`) et compose les matrices `cm`
+ * (translations/échelles uniquement, ce que produit pdf-lib). `px` = taille
+ * source de l'image (pour savoir laquelle est le QR, la photo ou le logo).
+ */
+/** Flux de contenu décodé de la 1re page (opérateurs PDF en clair). */
+async function contenuPage(octets: Buffer) {
+  const doc = await PDFDocument.load(octets);
+  const page = doc.getPage(0);
+  const contenu = page.node.Contents();
+  const flux = contenu instanceof PDFArray
+    ? contenu.asArray().map((r) => doc.context.lookup(r))
+    : [doc.context.lookup(page.node.get(PDFName.of('Contents')))];
+  const texte = flux
+    .map((s) => (s instanceof PDFRawStream ? Buffer.from(decodePDFRawStream(s).decode()).toString('latin1') : ''))
+    .join('\n');
+  return { doc, page, texte };
+}
+
+async function dessinsImages(octets: Buffer) {
+  const { doc, page, texte } = await contenuPage(octets);
+  const ressources = page.node.Resources()!;
+  const xobjets = ressources.lookup(PDFName.of('XObject'), PDFDict);
+  const dessins: { x: number; y: number; w: number; h: number; px: string; opacite: number }[] = [];
+  // Bloc le plus interne `q … /Nom Do Q` : aucune ligne `q`/`Q` entre les deux
+  // (sinon on agrégerait les `cm` des rectangles dessinés avant).
+  for (const bloc of texte.matchAll(/q\n((?:(?!q\n|Q\n)[^\n]*\n)*?)\/([\w-]+) Do\nQ/g)) {
+    let [a, d, e, f] = [1, 1, 0, 0];
+    for (const cm of bloc[1].matchAll(/([-\d.]+) 0 0 ([-\d.]+) ([-\d.]+) ([-\d.]+) cm/g)) {
+      const [ca, cd, ce, cf] = cm.slice(1).map(Number);
+      [e, f] = [e + a * ce, f + d * cf];
+      [a, d] = [a * ca, d * cd];
+    }
+    const img = doc.context.lookup(xobjets.get(PDFName.of(bloc[2]))) as PDFRawStream;
+    const px = `${(img.dict.get(PDFName.of('Width')) as PDFNumber).asNumber()}x${(img.dict.get(PDFName.of('Height')) as PDFNumber).asNumber()}`;
+    // Opacité : état graphique `/GS… gs` du bloc → ExtGState /ca (1 si absent).
+    const gs = bloc[1].match(/\/([\w-]+) gs/);
+    const etat = gs ? ressources.lookup(PDFName.of('ExtGState'), PDFDict).lookup(PDFName.of(gs[1]), PDFDict) : null;
+    const opacite = etat ? (etat.get(PDFName.of('ca')) as PDFNumber).asNumber() : 1;
+    const r = (v: number) => Math.round(v * 100) / 100;
+    dessins.push({ x: r(e), y: r(f), w: r(a), h: r(d), px, opacite });
+  }
+  return dessins;
 }
 
 /** PNG réel de `w`×`h` (pngjs), pour distinguer la photo du QR (240×240). */
@@ -286,11 +341,11 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
     const pdfTeleverse = (): Buffer =>
       fetchMock.mock.calls.find((c) => String(c[0]).includes('/object/cartes/'))![1].body;
 
-    it('formatPhotoPdf : détecte PNG/JPEG par les octets, refuse WEBP et le reste', () => {
-      expect(formatPhotoPdf(pngDe(2, 2))).toBe('png');
-      expect(formatPhotoPdf(JPEG_1X1)).toBe('jpg');
-      expect(formatPhotoPdf(Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1'))).toBeNull();
-      expect(formatPhotoPdf(Buffer.from('pas une image'))).toBeNull();
+    it('formatImagePdf : détecte PNG/JPEG par les octets, refuse WEBP et le reste', () => {
+      expect(formatImagePdf(pngDe(2, 2))).toBe('png');
+      expect(formatImagePdf(JPEG_1X1)).toBe('jpg');
+      expect(formatImagePdf(Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1'))).toBeNull();
+      expect(formatImagePdf(Buffer.from('pas une image'))).toBeNull();
     });
 
     it('adhérent AVEC photo PNG : téléchargée depuis le bucket privé et réellement embarquée dans le PDF', async () => {
@@ -363,6 +418,161 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
         nom: 'N’Guessan-Kouadio de la Rivière',
       });
       await expect(service.genererCarteAdherent(USER, 'adh-1')).resolves.toBeDefined();
+    });
+  });
+
+  // --- Mise en page (refonte) + logo de l'organisation -------------------
+
+  describe('mise en page et logo', () => {
+    const LOGO_URL = 'https://proj.supabase.co/storage/v1/object/public/logos/org-1/logo-1.png';
+    const PHOTO = 'org-1/familles/KONAN-AC-CM0000000099/KONAN-AC-CM0000000099.png';
+
+    /** Storage simulé : photo (bucket privé) et logo (URL publique). */
+    const servir = (opts: { photo?: Buffer; logo?: Buffer | 'absent' }) => {
+      fetchMock.mockImplementation(async (url: string) => {
+        const u = String(url);
+        const binaire = (b: Buffer | undefined, ok = true) =>
+          ({
+            ok,
+            status: ok ? 200 : 404,
+            arrayBuffer: async () => {
+              const x = b ?? Buffer.alloc(0);
+              return x.buffer.slice(x.byteOffset, x.byteOffset + x.byteLength);
+            },
+          }) as any;
+        if (u.includes('/object/authenticated/photos/')) return binaire(opts.photo, !!opts.photo);
+        if (u.startsWith(LOGO_URL)) return binaire(opts.logo === 'absent' ? undefined : opts.logo, opts.logo !== 'absent');
+        if (u.includes('/object/sign/')) {
+          return { ok: true, json: async () => ({ signedURL: '/object/sign/cartes/x.pdf?token=t' }) } as any;
+        }
+        return { ok: true, text: async () => '' } as any;
+      });
+    };
+    const pdfTeleverse = (): Buffer =>
+      fetchMock.mock.calls.find((c) => String(c[0]).includes('/object/cartes/'))![1].body;
+    const adherentAvec = (photoUrl: string | null, logoUrl: string | null) =>
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT,
+        photoUrl,
+        organisation: { nom: 'Assureur Test A', logoUrl },
+      });
+
+    it('logo + photo : photo CARRÉE 112 pt centrée verticalement, QR 52 pt centré en bas, logo en FILIGRANE et dans le BANDEAU', async () => {
+      adherentAvec(PHOTO, LOGO_URL);
+      servir({ photo: pngDe(100, 100), logo: pngDe(200, 80) });
+
+      await service.genererCarteAdherent(USER, 'adh-1');
+
+      expect(fetchMock.mock.calls.some((c) => String(c[0]) === LOGO_URL)).toBe(true);
+      const d = await dessinsImages(pdfTeleverse());
+      const qr = d.find((i) => i.px === '240x240')!;
+      const photo = d.find((i) => i.px === '100x100')!;
+      const logos = d.filter((i) => i.px === '200x80');
+      const logo = logos.find((i) => i.opacite < 1)!; // filigrane
+      const logoBandeau = logos.find((i) => i.opacite === 1)!;
+      // QR : 52 × 52, centré horizontalement ((340 - 52) / 2 = 144), en bas, opaque.
+      expect(qr).toMatchObject({ w: 52, h: 52, x: 144, y: 10, opacite: 1 });
+      // Photo : carré 112 × 112, bord droit à la marge (x 214–326), centrée
+      // verticalement dans le corps 0–174 (y 31–143), opaque.
+      expect(photo).toMatchObject({ w: 112, h: 112, x: 214, y: 31, opacite: 1 });
+      expect(photo.y + photo.h / 2).toBe(174 / 2);
+      expect(photo.x + photo.w).toBe(340 - 14);
+      // Logo présent DEUX fois : filigrane + bandeau.
+      expect(logos).toHaveLength(2);
+      // Bandeau : hauteur 22 pt (proportions conservées → 55 × 22), dans la bande 174–214.
+      expect(logoBandeau).toMatchObject({ w: 55, h: 22, x: 14, y: 183 });
+      expect(logoBandeau.y).toBeGreaterThanOrEqual(174);
+      expect(logoBandeau.y + logoBandeau.h).toBeLessThanOrEqual(214);
+      // Filigrane : 70 % de la largeur (238 pt, proportions conservées → 238 × 95,2),
+      // centré horizontalement ET dans la zone sous le bandeau (0–174), opacité 10 %.
+      expect(logo).toMatchObject({ w: 238, h: 95.2, x: 51, y: 39.4, opacite: 0.1 });
+      expect(logo.x + logo.w / 2).toBe(170);
+      expect(logo.y + logo.h / 2).toBe(87);
+      // Dessiné EN PREMIER : tout le reste (photo, QR, texte) passe par-dessus.
+      expect(d[0].px).toBe('200x80');
+      const { texte } = await contenuPage(pdfTeleverse());
+      const iFiligrane = texte.indexOf(' gs\n');
+      expect(iFiligrane).toBeGreaterThan(-1);
+      expect(texte.indexOf(' Tj', 0)).toBeGreaterThan(iFiligrane); // 1er texte après le filigrane
+      // Aucune image hors de la zone de sécurité d'impression : 3 mm (8,5 pt)
+      // de chaque bord — seuls les fonds (bandeau) vont au-delà.
+      const SECURITE = 8.5;
+      for (const i of d) {
+        expect(i.x).toBeGreaterThanOrEqual(SECURITE);
+        expect(i.y).toBeGreaterThanOrEqual(SECURITE);
+        expect(i.x + i.w).toBeLessThanOrEqual(340 - SECURITE);
+        expect(i.y + i.h).toBeLessThanOrEqual(214 - SECURITE);
+      }
+      // QR et photo ne se chevauchent pas ; la photo reste dans le corps (sous le bandeau).
+      expect(qr.x + qr.w <= photo.x || qr.y + qr.h <= photo.y).toBe(true);
+      expect(photo.y + photo.h).toBeLessThanOrEqual(174);
+    });
+
+    it('SANS logo NI photo : carte générée, QR seul dessiné (même place), aucun appel pour le logo', async () => {
+      adherentAvec(null, null);
+      servir({});
+
+      const res = await service.genererCarteAdherent(USER, 'adh-1');
+
+      expect(res.url).toContain('/object/sign/');
+      expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/logos/'))).toBe(false);
+      // Ni filigrane ni état de transparence : QR seul.
+      expect(await dessinsImages(pdfTeleverse())).toEqual([{ x: 144, y: 10, w: 52, h: 52, px: '240x240', opacite: 1 }]);
+      expect((await contenuPage(pdfTeleverse())).texte).not.toMatch(/ gs\n/);
+    });
+
+    it('photo CARRÉE sans contour : découpe rectangulaire exacte, aucune courbe, aucun trait', async () => {
+      adherentAvec(PHOTO, null);
+      // Portrait non carré : rogné dans le carré (cover), jamais déformé.
+      servir({ photo: pngDe(100, 120) });
+
+      await service.genererCarteAdherent(USER, 'adh-1');
+
+      const { texte } = await contenuPage(pdfTeleverse());
+      // Chemin de découpe = le carré 214,31 → 326,143 (coins droits).
+      expect(texte).toContain('214 31 m\n326 31 l\n326 143 l\n214 143 l\nh\nW\nn');
+      expect(texte).not.toMatch(/ c\n/); // aucune courbe de Bézier (pas d'arrondi)
+      expect(texte).not.toMatch(/(^|\n)S\n/); // aucun trait (pas de contour)
+      const photo = (await dessinsImages(pdfTeleverse())).find((i) => i.px === '100x120')!;
+      expect(photo).toMatchObject({ w: 112, h: 134.4, x: 214 }); // largeur = carré, hauteur rognée
+    });
+
+    it.each([
+      ['logo absent du bucket (404)', 'absent' as const],
+      ['logo dans un format non supporté (WEBP)', Buffer.from('RIFF\0\0\0\0WEBPVP8 ', 'latin1')],
+    ])('%s : carte générée normalement, sans logo', async (_cas, logo) => {
+      adherentAvec(null, LOGO_URL);
+      servir({ logo });
+
+      await service.genererCarteAdherent(USER, 'adh-1');
+
+      const d = await dessinsImages(pdfTeleverse());
+      expect(d.map((i) => i.px)).toEqual(['240x240']);
+    });
+
+    it('lot souscripteur : logo téléchargé UNE fois et réutilisé sur chaque page', async () => {
+      prisma.adherent.findMany.mockResolvedValue([
+        { ...ADHERENT, photoUrl: null, organisation: { nom: 'Assureur Test A', logoUrl: LOGO_URL } },
+        { ...ADHERENT, id: 'adh-2', numeroCarte: 'CM-0000000101', photoUrl: null, organisation: { nom: 'Assureur Test A', logoUrl: LOGO_URL } },
+      ]);
+      servir({ logo: pngDe(200, 80) });
+
+      await service.genererCartesSouscripteur(USER, 'sous-1');
+
+      expect(fetchMock.mock.calls.filter((c) => String(c[0]) === LOGO_URL)).toHaveLength(1);
+      const doc = await PDFDocument.load(pdfTeleverse());
+      expect(doc.getPageCount()).toBe(2);
+      const images = await imagesDuPdf(pdfTeleverse());
+      expect(images.filter((i) => i.w === 200 && i.h === 80)).toHaveLength(1);
+    });
+
+    it('format carte standard conservé : 340 × 214 pt (ratio ID-1 85,6 × 54 mm)', async () => {
+      adherentAvec(null, null);
+      servir({});
+      await service.genererCarteAdherent(USER, 'adh-1');
+      const { width, height } = (await PDFDocument.load(pdfTeleverse())).getPage(0).getSize();
+      expect([width, height]).toEqual([340, 214]);
+      expect(Math.abs(width / height - 85.6 / 54)).toBeLessThan(0.01);
     });
   });
 });

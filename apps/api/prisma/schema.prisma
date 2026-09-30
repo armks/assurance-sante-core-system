@@ -34,6 +34,8 @@ model Organisation {
   emailContact     String?   @map("email_contact")
   telephoneContact String?   @map("telephone_contact")
   statut           String    @default("ACTIVE") // ACTIVE | SUSPENDUE | ARCHIVEE
+  /// URL publique du logo (bucket `logos`, prisma/sql/058) — null : carte sans logo.
+  logoUrl          String?   @map("logo_url")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")

@@ -1,10 +1,20 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { IdentityService } from './identity.service';
 import { IdentityMeResponse } from './identity.types';
-import { OrganisationsService } from './organisations.service';
+import { OrganisationsService, type FichierLogo } from './organisations.service';
 import { ProvisioningService } from './provisioning.service';
 import { CompteOrganisation, RoleProposable } from './provisioning.types';
 
@@ -58,5 +68,20 @@ export class IdentityController {
   @Get('organisations')
   listerOrganisations(@CurrentUser() user: AuthenticatedUser) {
     return this.organisationsService.lister(user);
+  }
+
+  /**
+   * POST /api/v1/identity/organisations/:id/logo (multipart, champ `logo`) —
+   * remplace le logo de l'organisation. Réservé EXCLUSIVEMENT à
+   * SUPERADMIN_PRINCIPAL (vérifié dans OrganisationsService).
+   */
+  @Post('organisations/:id/logo')
+  @UseInterceptors(FileInterceptor('logo'))
+  modifierLogoOrganisation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @UploadedFile() fichier: FichierLogo | undefined,
+  ) {
+    return this.organisationsService.modifierLogoOrganisation(user, id, fichier);
   }
 }

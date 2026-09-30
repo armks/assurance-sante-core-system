@@ -134,3 +134,20 @@ export async function confirmerAction(
   }
   return { ok: true, message: 'Action confirmée.' };
 }
+
+export type ResultatLogo = { ok: true; logoUrl: string } | { ok: false; error: string };
+
+/** Remplace le logo de l'organisation (en-tête de la carte de membre) —
+ * réservé EXCLUSIVEMENT à SUPERADMIN_PRINCIPAL (revérifié par l'API). */
+export async function modifierLogoOrganisation(
+  organisationId: string,
+  fd: FormData,
+): Promise<ResultatLogo> {
+  const res = await apiFetch(`/api/v1/identity/organisations/${organisationId}/logo`, {
+    method: 'POST',
+    body: fd,
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true, ...((await res.json()) as { logoUrl: string }) };
+}

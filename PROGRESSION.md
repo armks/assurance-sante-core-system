@@ -6578,3 +6578,43 @@ complet : la suspension ne masque aujourd'hui que la page publique /{slug}. À d
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Ouverture de dossier : patient toujours de l'organisation de l'appelant
+
+### Constat (audit multi-tenant du 2026-09-30, point latent)
+`CareEpisodeService.ouvrirDossier` ne vérifiait pas que le patient fourni
+(`adherentId` / `beneficiaireId`) appartient à l'organisation de l'appelant ; ses
+contrôles d'éligibilité lisaient l'adhérent / le bénéficiaire sans filtre d'organisation,
+et le blocage « dossier déjà ouvert » citait le numéro du dossier trouvé, quelle que soit
+son organisation. Non exploitable aujourd'hui (aucune route n'expose la fonction ; son
+seul appelant, `validerCodeConsultation`, passe le patient du code déjà contrôlé), mais la
+protection dépendait de l'appelant.
+
+### Correctif (à la source)
+- `assertPatientDeLOrganisation` en tête de `ouvrirDossier` : adhérent avec
+  `organisationId` = celle de l'appelant, ou bénéficiaire via son adhérent titulaire
+  (`beneficiaires` n'a pas d'organisation propre) ; sinon **404 « Patient introuvable
+  dans votre organisation. »** — même réponse qu'il soit inconnu ou d'une autre
+  organisation, avant toute évaluation ou écriture.
+- Éligibilité (`evaluerEligibiliteMembre`, aussi utilisée par `evaluerEligibilite` à
+  l'émission d'un code) : lectures limitées à l'organisation.
+- « Dossier déjà ouvert » : l'unicité reste vérifiée tous organismes confondus (index
+  partiel en base), mais le numéro du dossier n'est cité que s'il appartient à
+  l'organisation de l'appelant.
+
+### Tests
+- Unitaires care-episode : +3 (adhérent et bénéficiaire d'une autre organisation → 404
+  sans évaluation ni création ; numéro cité pour sa propre organisation, jamais pour une
+  autre). Les 3 échouent sur le code d'avant le correctif (vérifié). API 857/857, `tsc` OK.
+- Appel direct (aucune route) sur l'application NestJS réelle et la base réelle : accueil
+  FARAH (Test A) → adhérent de « Org E2E » → 404 ; ASSUREUR_EXPLOITATION d'« Org E2E » →
+  bénéficiaire de Test A → 404 ; aucun dossier créé ; témoin accueil FARAH → son adhérent
+  → dossier ouvert ; seconde ouverture → 409 avec son numéro ; évaluation par l'autre
+  organisation → « déjà ouvert pour ce patient. » sans numéro, adhérent « inconnu ».
+- HTTP réel, seule voie de production : l'adhérent émet un code de consultation
+  (`POST /preauthorization/codes-consultation`), l'accueil FARAH le valide
+  (`POST …/codes-consultation/valider`) → 201, dossier OUVERT rattaché à Test A — pas de
+  régression. Données de test supprimées (dossiers, tickets, code, comptes).
+
+### Statut
+Terminé, commité et poussé.

@@ -87,6 +87,11 @@ export class CareEpisodeService {
         'Renseignez soit adherentId, soit beneficiaireId — pas les deux.',
       );
     }
+    // Le patient appartient TOUJOURS à l'organisation de l'appelant — contrôlé
+    // ici, à la source, quel que soit l'appelant (aujourd'hui la seule voie est
+    // `validerCodeConsultation`, qui passe le patient du code : la protection
+    // ne doit pas en dépendre).
+    await this.assertPatientDeLOrganisation(ctx.organisationId, dto);
 
     const etablissement = await this.prisma.etablissementSante.findFirst({
       where: {
@@ -103,7 +108,7 @@ export class CareEpisodeService {
       },
     });
 
-    const evaluation = await this.evaluerOuverture(dto, etablissement, police);
+    const evaluation = await this.evaluerOuverture(ctx.organisationId, dto, etablissement, police);
 
     if (evaluation.blocages.length > 0) {
       // 409 avec le détail — jamais un message générique (v1 §15.4).
@@ -213,11 +218,12 @@ export class CareEpisodeService {
     const police = await this.prisma.police.findFirst({
       where: { id: params.policeId, organisationId, deletedAt: null },
     });
-    return this.evaluerOuverture(params, etablissement, police);
+    return this.evaluerOuverture(organisationId, params, etablissement, police);
   }
 
   /** Évaluation pure (MoteurOuvertureDossier) — testable et réutilisable. */
   private async evaluerOuverture(
+    organisationId: string,
     dto: {
       adherentId?: string;
       beneficiaireId?: string;
@@ -269,13 +275,18 @@ export class CareEpisodeService {
     const patientWhere = dto.adherentId
       ? { adherentId: dto.adherentId }
       : { beneficiaireId: dto.beneficiaireId };
+    // Recherche NON limitée à l'organisation : l'unicité « un seul dossier
+    // ouvert par patient » est globale (index partiel en base). Mais le numéro
+    // du dossier n'est cité que s'il appartient à l'organisation de l'appelant.
     const dossierOuvert = await this.prisma.dossierSoins.findFirst({
       where: { ...patientWhere, statut: 'OUVERT', deletedAt: null },
+      select: { numeroTraitement: true, organisationId: true },
     });
     const aucunDossierOuvert = !dossierOuvert;
     if (dossierOuvert) {
+      const reference = dossierOuvert.organisationId === organisationId ? ` (${dossierOuvert.numeroTraitement})` : '';
       blocages.push(
-        `Un dossier de soins est déjà ouvert pour ce patient (${dossierOuvert.numeroTraitement}). Il doit être clôturé avant d'en ouvrir un nouveau.`,
+        `Un dossier de soins est déjà ouvert pour ce patient${reference}. Il doit être clôturé avant d'en ouvrir un nouveau.`,
       );
     }
 
@@ -305,7 +316,7 @@ export class CareEpisodeService {
     //    On vérifie désormais le STATUT réel dans le fichier des membres —
     //    plus le raccourci « éligible dès que la carte est valide ». Un adhérent
     //    SUSPENDU ou RADIE ne peut pas ouvrir de dossier de soins.
-    const adherentEligible = await this.evaluerEligibiliteMembre(dto, blocages);
+    const adherentEligible = await this.evaluerEligibiliteMembre(organisationId, dto, blocages);
 
     return {
       carteValide,
@@ -317,17 +328,41 @@ export class CareEpisodeService {
   }
 
   /**
+   * Le patient (adhérent, ou bénéficiaire via son adhérent titulaire) existe
+   * DANS l'organisation de l'appelant. Même réponse qu'il soit inconnu ou
+   * rattaché à une autre organisation : rien n'est révélé sur les autres.
+   */
+  private async assertPatientDeLOrganisation(
+    organisationId: string,
+    dto: { adherentId?: string; beneficiaireId?: string },
+  ): Promise<void> {
+    const trouve = dto.adherentId
+      ? await this.prisma.adherent.findFirst({
+          where: { id: dto.adherentId, organisationId, deletedAt: null },
+          select: { id: true },
+        })
+      : await this.prisma.beneficiaire.findFirst({
+          where: { id: dto.beneficiaireId, deletedAt: null, adherent: { organisationId } },
+          select: { id: true },
+        });
+    if (!trouve) {
+      throw new NotFoundException('Patient introuvable dans votre organisation.');
+    }
+  }
+
+  /**
    * Statut du membre (adhérent titulaire ou bénéficiaire) dans le fichier des
    * membres. `ACTIF` requis ; pour un bénéficiaire, l'adhérent titulaire doit
    * lui aussi être `ACTIF`. Ajoute un blocage précis sinon (v1 §15.4).
    */
   private async evaluerEligibiliteMembre(
+    organisationId: string,
     dto: { adherentId?: string; beneficiaireId?: string },
     blocages: string[],
   ): Promise<boolean> {
     if (dto.beneficiaireId) {
       const benef = await this.prisma.beneficiaire.findFirst({
-        where: { id: dto.beneficiaireId, deletedAt: null },
+        where: { id: dto.beneficiaireId, deletedAt: null, adherent: { organisationId } },
         select: { statut: true, adherent: { select: { statut: true } } },
       });
       if (!benef) {
@@ -351,7 +386,7 @@ export class CareEpisodeService {
 
     if (dto.adherentId) {
       const adherent = await this.prisma.adherent.findFirst({
-        where: { id: dto.adherentId, deletedAt: null },
+        where: { id: dto.adherentId, organisationId, deletedAt: null },
         select: { statut: true },
       });
       if (!adherent) {

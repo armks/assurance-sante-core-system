@@ -147,6 +147,53 @@ describe('CareEpisodeService', () => {
     expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
   });
 
+  it('patient (adhérent) d’une AUTRE organisation → 404, aucune évaluation ni création', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    prisma.adherent.findFirst.mockResolvedValue(null); // hors de l'organisation de l'appelant
+
+    await expect(service.ouvrirDossier(USER, dtoOuverture)).rejects.toThrow(
+      'Patient introuvable dans votre organisation.',
+    );
+    expect(prisma.adherent.findFirst).toHaveBeenCalledWith({
+      where: { id: dtoOuverture.adherentId, organisationId: 'org-1', deletedAt: null },
+      select: { id: true },
+    });
+    expect(prisma.dossierSoins.findFirst).not.toHaveBeenCalled(); // rien n'est évalué
+    expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
+  });
+
+  it('patient (bénéficiaire) d’une AUTRE organisation → 404 (organisation via l’adhérent titulaire)', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    prisma.beneficiaire.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.ouvrirDossier(USER, { ...dtoOuverture, adherentId: undefined, beneficiaireId: 'bbbbbbbb-2222-4222-8222-222222222222' }),
+    ).rejects.toThrow('Patient introuvable dans votre organisation.');
+    expect(prisma.beneficiaire.findFirst).toHaveBeenCalledWith({
+      where: { id: 'bbbbbbbb-2222-4222-8222-222222222222', deletedAt: null, adherent: { organisationId: 'org-1' } },
+      select: { id: true },
+    });
+    expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
+  });
+
+  it('« dossier déjà ouvert » : numéro cité pour SA organisation, jamais pour une autre', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    const blocages = async () => {
+      try {
+        await service.ouvrirDossier(USER, dtoOuverture);
+      } catch (e: any) {
+        return e.response.blocages.join(' ');
+      }
+      throw new Error('ouverture non refusée');
+    };
+    prisma.dossierSoins.findFirst.mockResolvedValue({ numeroTraitement: 'TRT-2026-09-000009', organisationId: 'org-1' });
+    expect(await blocages()).toContain('déjà ouvert pour ce patient (TRT-2026-09-000009)');
+    prisma.dossierSoins.findFirst.mockResolvedValue({ numeroTraitement: 'TRT-2026-09-000777', organisationId: 'org-autre' });
+    const autre = await blocages();
+    expect(autre).toContain('déjà ouvert pour ce patient.');
+    expect(autre).not.toContain('TRT-2026-09-000777');
+  });
+
   it('REFUSE l’ouverture pour un adhérent RADIE (contrôle de statut réel, PROMPT 12)', async () => {
     identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
     prisma.adherent.findFirst.mockResolvedValue({ statut: 'RADIE' });

@@ -6267,3 +6267,26 @@ Terminé, commité et poussé.
 
 ### Statut
 Validé par le porteur du projet (2026-09-30), commité et poussé.
+
+## 2026-09-30 — Déconnexion : retour systématique à la page d'accueil « / »
+
+### Diagnostic
+Une seule implémentation (`components/logout-button.tsx`), utilisée par les shells
+dashboard (tous les rôles), superadmin et les écrans de message. Elle faisait
+`router.push('/login')` puis `router.refresh()` immédiat : le rafraîchissement re-rendait
+la page protégée déjà sans session, le proxy la redirigeait vers `/login?next=…`, en
+concurrence avec la navigation.
+
+### Réalisé
+- Après un `signOut` réussi : `router.replace('/')` seul (navigation client, sans
+  rechargement ; la page quittée ne reste pas dans l'historique). Pas de `refresh()` :
+  `/` lit la session côté serveur à chaque navigation. En cas d'échec du `signOut` :
+  le bouton affiche « Échec, réessayer » et l'utilisateur reste sur place.
+- Une route protégée ouverte ensuite renvoie toujours vers `/login?next=…` (proxy inchangé).
+
+### Tests (Chrome réel)
+ASSUREUR_INFORMATIQUE, ADHERENT_TITULAIRE, CENTRE_MEDICAL_ACCUEIL : URL finale `/`,
+aucun rechargement complet, aucune erreur console, seule requête serveur `GET /`.
+
+### Statut
+Terminé, commité et poussé.

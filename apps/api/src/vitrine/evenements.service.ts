@@ -204,10 +204,11 @@ export class EvenementsService {
 
   /**
    * Événements publiés (5 au plus) de l'organisation vitrine
-   * (`VITRINE_ORGANISATION_ID`). Variable absente ou invalide : liste vide —
-   * jamais les événements d'une autre organisation par défaut.
+   * (`VITRINE_ORGANISATION_ID`) — ou, pour la page d'une société (/{slug}), de
+   * CETTE société seulement. Variable absente ou invalide, slug inconnu :
+   * liste vide — jamais les événements d'une autre organisation par défaut.
    */
-  async publics(ip: string): Promise<EvenementPublic[]> {
+  async publics(ip: string, slugOrganisation?: string): Promise<EvenementPublic[]> {
     const r = this.limitePublique.consommer(ip);
     if (!r.autorise) {
       throw new HttpException(
@@ -219,7 +220,14 @@ export class EvenementsService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-    const organisationId = process.env.VITRINE_ORGANISATION_ID?.trim();
+    const organisationId = slugOrganisation
+      ? (
+          await this.prisma.organisation.findFirst({
+            where: { slug: slugOrganisation, deletedAt: null, statut: 'ACTIVE' },
+            select: { id: true },
+          })
+        )?.id
+      : process.env.VITRINE_ORGANISATION_ID?.trim();
     if (!organisationId || !UUID.test(organisationId)) return [];
     const lignes = await this.prisma.evenement.findMany({
       where: { organisationId, actif: true, deletedAt: null },

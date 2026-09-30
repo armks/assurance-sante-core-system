@@ -1,14 +1,18 @@
 import type { NextConfig } from 'next';
 
-/** Images des événements (bucket Supabase PUBLIC `evenements`, prisma/sql/060). */
-const imagesEvenements = process.env.NEXT_PUBLIC_SUPABASE_URL
-  ? [new URL(`${process.env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/, '')}/storage/v1/object/public/evenements/**`)]
+/**
+ * Images publiques servies par Supabase Storage : événements (prisma/sql/060)
+ * et logos des sociétés affichés sur leur page /{slug} (prisma/sql/058).
+ */
+const baseStorage = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, '');
+const imagesStorage = baseStorage
+  ? ['evenements', 'logos'].map((bucket) => new URL(`${baseStorage}/storage/v1/object/public/${bucket}/**`))
   : [];
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   images: {
-    remotePatterns: imagesEvenements,
+    remotePatterns: imagesStorage,
   },
   experimental: {
     serverActions: {

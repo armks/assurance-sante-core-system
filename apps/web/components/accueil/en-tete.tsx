@@ -12,10 +12,11 @@ import {
 import Link from 'next/link';
 import { useEffect, useId, useRef, useState } from 'react';
 
-import { Brand } from '@/components/brand';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+
+import { ancrer, MarqueEnTete, type MarqueVitrine } from './marque';
 
 type IdMenu = 'reseau' | 'partenaire' | 'adhesion';
 
@@ -56,7 +57,12 @@ const COLONNES: ColonneMenu[] = [
   },
 ];
 
-export function EnTeteAccueil() {
+/**
+ * En-tête de la vitrine. Sans props : page principale de la plateforme. Avec
+ * `marque` et `racine` : page d'accueil d'une société (/{slug}) — son logo et
+ * son nom, liens de section restant sur sa page.
+ */
+export function EnTeteAccueil({ marque, racine: accueil = '/' }: { marque?: MarqueVitrine; racine?: string } = {}) {
   const [ouvert, setOuvert] = useState<IdMenu | null>(null);
   const idPanneau = useId();
   const racine = useRef<HTMLElement>(null);
@@ -102,8 +108,8 @@ export function EnTeteAccueil() {
       onMouseEnter={annulerFermeture}
     >
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
-        <Link href="/" aria-label="Accueil" className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <Brand />
+        <Link href={accueil} aria-label="Accueil" className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <MarqueEnTete marque={marque} />
         </Link>
 
         <nav aria-label="Navigation principale" className="hidden flex-1 items-center gap-1 lg:flex">
@@ -140,10 +146,10 @@ export function EnTeteAccueil() {
               />
             </button>
           ))}
-          <a href="/#qui-sommes-nous" className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <a href={ancrer('/#qui-sommes-nous', accueil)} className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Qui sommes-nous
           </a>
-          <a href="/#contact" className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <a href={ancrer('/#contact', accueil)} className="rounded-md px-3 py-2 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Contact
           </a>
         </nav>
@@ -152,7 +158,7 @@ export function EnTeteAccueil() {
           <Button asChild size="sm" className="hidden sm:inline-flex">
             <Link href="/login">Connexion</Link>
           </Button>
-          <MenuMobile />
+          <MenuMobile racine={accueil} />
         </div>
       </div>
 
@@ -186,7 +192,7 @@ export function EnTeteAccueil() {
                   {c.liens.map((l) => (
                     <li key={l.href}>
                       <a
-                        href={l.href}
+                        href={ancrer(l.href, accueil)}
                         onClick={() => setOuvert(null)}
                         className="group inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                       >
@@ -206,7 +212,7 @@ export function EnTeteAccueil() {
 }
 
 /** Menu mobile (< lg) : panneau latéral, mêmes entrées que le méga menu. */
-function MenuMobile() {
+function MenuMobile({ racine }: { racine: string }) {
   const [ouvert, setOuvert] = useState(false);
   const fermer = () => setOuvert(false);
   return (
@@ -233,7 +239,7 @@ function MenuMobile() {
               <ul className="mt-2 space-y-1">
                 {c.liens.map((l) => (
                   <li key={l.href}>
-                    <a href={l.href} onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+                    <a href={ancrer(l.href, racine)} onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
                       {l.libelle}
                     </a>
                   </li>
@@ -242,10 +248,10 @@ function MenuMobile() {
             </div>
           ))}
           <div className="space-y-1 border-t border-white/10 pt-4">
-            <a href="/#qui-sommes-nous" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+            <a href={ancrer('/#qui-sommes-nous', racine)} onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
               Qui sommes-nous
             </a>
-            <a href="/#contact" onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+            <a href={ancrer('/#contact', racine)} onClick={fermer} className="block rounded-md py-1.5 text-sm font-medium text-white underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
               Contact
             </a>
           </div>

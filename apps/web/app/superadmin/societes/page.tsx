@@ -1,6 +1,9 @@
+import { headers } from 'next/headers';
+
 import { PageTitre } from '@/components/page-titre';
 import { FileActionsEnAttente } from '@/components/superadmin/file-actions';
 import { LogoOrganisation } from '@/components/superadmin/logo-organisation';
+import { PagePubliqueOrganisation } from '@/components/superadmin/page-publique-organisation';
 import {
   ActionsLicence,
   CreerSocieteFlow,
@@ -26,6 +29,7 @@ interface Organisation {
   statut: string;
   createdAt: string;
   logoUrl: string | null;
+  slug: string;
   licence: Licence | null;
 }
 
@@ -43,6 +47,10 @@ export default async function Societes() {
   const actionsEnAttente: ActionEnAttente[] = resActions.ok
     ? await resActions.json()
     : [];
+  // Origine du site telle que vue par le navigateur : URL publique complète
+  // des pages /{slug} (domaine de production comme poste de développement).
+  const h = await headers();
+  const origine = `${h.get('x-forwarded-proto') ?? 'http'}://${h.get('x-forwarded-host') ?? h.get('host')}`;
 
   return (
     <div className="space-y-8">
@@ -107,6 +115,15 @@ export default async function Societes() {
                 organisationId={org.id}
                 organisationNom={org.nom}
               />
+              <section aria-label={`Page d’accueil de ${org.nom}`} className="border-t pt-4">
+                <h3 className="mb-3 text-sm font-medium">Page d’accueil publique</h3>
+                <PagePubliqueOrganisation
+                  organisationId={org.id}
+                  slug={org.slug}
+                  origine={origine}
+                  peutModifier={peutModifierLogo}
+                />
+              </section>
               <section aria-label={`Logo de ${org.nom}`} className="border-t pt-4">
                 <h3 className="mb-3 text-sm font-medium">Logo</h3>
                 <LogoOrganisation

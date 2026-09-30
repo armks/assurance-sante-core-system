@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+import { estCheminSociete } from '@/lib/slugs'
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -39,9 +41,19 @@ export async function updateSession(request: NextRequest) {
   const user = data?.claims
 
   const pathname = request.nextUrl.pathname
+
+  // /Ma-Mutuelle tapé à la main → /ma-mutuelle (les slugs sont en minuscules)
+  if (pathname !== pathname.toLowerCase() && estCheminSociete(pathname.toLowerCase())) {
+    const url = request.nextUrl.clone()
+    url.pathname = pathname.toLowerCase()
+    return NextResponse.redirect(url, 308)
+  }
   const estPublic =
     pathname === '/' ||
     pathname === '/reseau-de-soins' ||
+    // page d'accueil d'une société (/{slug}) : un seul segment, jamais un
+    // segment réservé ni `dashboard…` (lib/slugs.ts)
+    estCheminSociete(pathname) ||
     pathname.startsWith('/login') ||
     pathname.startsWith('/auth') ||
     pathname.startsWith('/accepter-invitation')

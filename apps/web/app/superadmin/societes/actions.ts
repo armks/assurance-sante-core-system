@@ -151,3 +151,17 @@ export async function modifierLogoOrganisation(
   revalidatePath(CIBLE);
   return { ok: true, ...((await res.json()) as { logoUrl: string }) };
 }
+
+export type ResultatSlug = { ok: true; slug: string } | { ok: false; error: string };
+
+/** Modifie le chemin de la page d'accueil de l'organisation (/{slug}) —
+ * réservé EXCLUSIVEMENT à SUPERADMIN_PRINCIPAL (revérifié par l'API). */
+export async function modifierSlugOrganisation(organisationId: string, slug: string): Promise<ResultatSlug> {
+  const res = await apiFetch(`/api/v1/identity/organisations/${organisationId}/slug`, {
+    method: 'PATCH',
+    body: JSON.stringify({ slug }),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true, ...((await res.json()) as { slug: string }) };
+}

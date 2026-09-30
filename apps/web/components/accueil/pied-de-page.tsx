@@ -7,6 +7,7 @@ import { useId, useState, useTransition } from 'react';
 import { inscrireNewsletter, type ResultatFormulaire } from '@/app/accueil-actions';
 
 import { COORDONNEES, REFERENCES } from './coordonnees';
+import { ancrer, type MarqueVitrine } from './marque';
 
 const LIENS = [
   { libelle: 'Réseau de soins', href: '/reseau-de-soins' },
@@ -16,13 +17,17 @@ const LIENS = [
   { libelle: 'Contact', href: '/#contact' },
 ];
 
-/** Pied de page (bande nuit, même teinte que la bannière) + newsletter. */
-export function PiedDePage() {
+/**
+ * Pied de page (bande nuit, même teinte que la bannière) + newsletter. Sur la
+ * page d'une société (/{slug}) : son nom, liens de section restant sur sa page.
+ */
+export function PiedDePage({ marque, racine = '/' }: { marque?: MarqueVitrine; racine?: string } = {}) {
+  const nom = marque?.nom ?? 'Assurance Santé';
   return (
     <footer className="bg-nuit text-white/80">
       <div className="mx-auto grid max-w-7xl gap-12 px-4 py-8 sm:px-6 md:grid-cols-2 lg:grid-cols-12">
         <div className="lg:col-span-4">
-          <p className="font-display text-lg font-semibold text-white">Assurance Santé</p>
+          <p className="font-display text-lg font-semibold text-white">{nom}</p>
           <p className="mt-3 max-w-[40ch] text-sm leading-relaxed">
             Le système de gestion de l’assurance santé collective, du devis au remboursement.
           </p>
@@ -39,7 +44,7 @@ export function PiedDePage() {
           <ul className="mt-4 space-y-2 text-sm">
             {LIENS.map((l) => (
               <li key={l.href}>
-                <a href={l.href} className="hover:text-white hover:underline">
+                <a href={ancrer(l.href, racine)} className="hover:text-white hover:underline">
                   {l.libelle}
                 </a>
               </li>
@@ -71,7 +76,7 @@ export function PiedDePage() {
       </div>
       <div className="border-t border-white/10">
         <p className="mx-auto max-w-7xl px-4 py-6 text-xs text-white/60 sm:px-6">
-          © {new Date().getFullYear()} Assurance Santé. Tous droits réservés.
+          © {new Date().getFullYear()}{` ${nom}. Tous droits réservés.`}
         </p>
       </div>
     </footer>

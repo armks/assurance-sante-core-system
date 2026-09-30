@@ -28,3 +28,5 @@ export const LIMITE_NEWSLETTER: ReglesLimite = { parCle: 5, global: 100, fenetre
 export const LIMITE_STATISTIQUES: ReglesLimite = { parCle: 60, global: 3000, fenetreMs: 15 * 60 * 1000 };
 /** Événements publics : même profil que les statistiques (une requête par chargement de page). */
 export const LIMITE_EVENEMENTS: ReglesLimite = { parCle: 60, global: 3000, fenetreMs: 15 * 60 * 1000 };
+/** Fiche publique d'une société (page /{slug}) : une requête par chargement de page. */
+export const LIMITE_ORGANISATIONS: ReglesLimite = { parCle: 60, global: 3000, fenetreMs: 15 * 60 * 1000 };

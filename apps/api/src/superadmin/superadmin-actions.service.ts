@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { slugDepuisNom, slugLibre } from '../common/slug.util';
 import { EmailService } from '../email/email.service';
 import { IdentityService } from '../identity/identity.service';
 import { InvitationsService } from '../invitations/invitations.service';
@@ -240,11 +241,17 @@ export class SuperadminActionsService {
     codeId: string,
     p: Record<string, unknown>,
   ) {
+    // Chemin de la page d'accueil dédiée (/{slug}) : dérivé du nom, rendu
+    // unique (-2, -3…) ; modifiable ensuite par SUPERADMIN_PRINCIPAL.
+    const slug = await slugLibre(slugDepuisNom(String(p.nom)), async (s) =>
+      Boolean(await this.prisma.organisation.findUnique({ where: { slug: s }, select: { id: true } })),
+    );
     const organisation = await this.prisma.$transaction(async (tx) => {
       const org = await tx.organisation.create({
         data: {
           id: randomUUID(),
           nom: p.nom as string,
+          slug,
           raisonSociale: (p.raisonSociale as string | null) ?? null,
           type: p.type as string,
           pays: p.pays as string,
@@ -267,6 +274,7 @@ export class SuperadminActionsService {
       });
       await this.audit(tx, userId, 'CREATION_ORGANISATION', org.id, {
         nom: String(p.nom),
+        slug,
         type: String(p.type),
         plan: String(p.plan),
         viaCodeValidation: codeId,

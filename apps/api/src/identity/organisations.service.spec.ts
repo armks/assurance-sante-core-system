@@ -145,3 +145,65 @@ describe('OrganisationsService — logo de l’organisation', () => {
     expect(prisma.organisation.update).toHaveBeenCalled();
   });
 });
+
+describe('OrganisationsService — chemin de la page d’accueil (slug)', () => {
+  let service: OrganisationsService;
+  let prisma: any;
+  let identity: { getMe: jest.Mock };
+
+  beforeEach(async () => {
+    prisma = {
+      organisation: {
+        findFirst: jest.fn().mockResolvedValue({ id: ORG, slug: 'ancien-chemin' }),
+        findUnique: jest.fn().mockResolvedValue(null),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      $executeRaw: jest.fn().mockResolvedValue(1),
+    };
+    identity = {
+      getMe: jest.fn().mockResolvedValue({
+        profil: { id: 'u1', role: 'SUPERADMIN_PRINCIPAL' },
+        permissions: { roleChain: ['SUPERADMIN_PRINCIPAL'] },
+      }),
+    };
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        OrganisationsService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: IdentityService, useValue: identity },
+      ],
+    }).compile();
+    service = moduleRef.get(OrganisationsService);
+  });
+
+  it('SUPERADMIN_PRINCIPAL : chemin modifié, audité avec l’ancien', async () => {
+    expect(await service.modifierSlug(USER, ORG, ' Mutuelle-Abidjan ')).toEqual({ slug: 'mutuelle-abidjan' });
+    expect(prisma.organisation.update).toHaveBeenCalledWith({ where: { id: ORG }, data: { slug: 'mutuelle-abidjan' } });
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+  });
+
+  it('autre rôle (même hérité de SUPERADMIN_PRINCIPAL) → 403, rien écrit', async () => {
+    identity.getMe.mockResolvedValue({
+      profil: { id: 'u1', role: 'SUPERADMIN_UTILISATEUR_ADMIN' },
+      permissions: { roleChain: ['SUPERADMIN_UTILISATEUR_ADMIN', 'SUPERADMIN_PRINCIPAL'] },
+    });
+    await expect(service.modifierSlug(USER, ORG, 'mutuelle')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.organisation.update).not.toHaveBeenCalled();
+  });
+
+  it.each(['login', 'dashboard-x', 'Ma Mutuelle', 'a'])('chemin « %s » refusé (400)', async (slug) => {
+    await expect(service.modifierSlug(USER, ORG, slug)).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.organisation.update).not.toHaveBeenCalled();
+  });
+
+  it('chemin déjà pris par une autre organisation → 409', async () => {
+    prisma.organisation.findUnique.mockResolvedValue({ id: 'org-2' });
+    await expect(service.modifierSlug(USER, ORG, 'pris')).rejects.toThrow('déjà utilisé');
+    expect(prisma.organisation.update).not.toHaveBeenCalled();
+  });
+
+  it('organisation inconnue → 404', async () => {
+    prisma.organisation.findFirst.mockResolvedValue(null);
+    await expect(service.modifierSlug(USER, ORG, 'libre')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});

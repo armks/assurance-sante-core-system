@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
 import { EvenementsService } from './evenements.service';
@@ -10,6 +10,8 @@ import { VitrineService } from './vitrine.service';
  *   POST /api/v1/public/newsletter  inscription newsletter
  *   GET  /api/v1/public/statistiques compteurs agrégés (arrondis, seuillés, arrêtés la veille)
  *   GET  /api/v1/public/evenements   5 événements au plus de l'organisation vitrine
+ *                                    (?organisation={slug} : ceux de cette société)
+ *   GET  /api/v1/public/organisations/:slug  fiche publique d'une société (page /{slug})
  * Protégés par limiteur de débit + pot de miel (VitrineService).
  */
 @Controller('public')
@@ -39,8 +41,16 @@ export class VitrineController {
 
   /** Carrousel du bloc « Qui sommes-nous » (EvenementsService.publics). */
   @Get('evenements')
-  obtenirEvenements(@Req() req: Request) {
-    return this.evenements.publics(ipClient(req));
+  obtenirEvenements(@Req() req: Request, @Query('organisation') organisation?: string) {
+    const slug = typeof organisation === 'string' && /^[a-z0-9-]{2,60}$/.test(organisation) ? organisation : undefined;
+    if (organisation !== undefined && !slug) return [];
+    return this.evenements.publics(ipClient(req), slug);
+  }
+
+  /** Nom, chemin et logo d'une société active (page /{slug}) ; 404 sinon. */
+  @Get('organisations/:slug')
+  obtenirOrganisation(@Param('slug') slug: string, @Req() req: Request) {
+    return this.vitrine.obtenirOrganisation(slug.toLowerCase(), ipClient(req));
   }
 }
 

@@ -32,7 +32,12 @@ function ongletDepuisAncre(): Onglet | null {
   return ONGLETS.find((o) => o.ancre === a)?.id ?? null;
 }
 
-export function Formulaires() {
+/**
+ * Formulaires Contact / Devenir partenaire / Adhésion. `organisation` : slug de
+ * la société quand ils sont affichés sur sa page (/{slug}) — la demande lui est
+ * alors adressée.
+ */
+export function Formulaires({ organisation }: { organisation?: string } = {}) {
   const [onglet, setOnglet] = useState<Onglet>('CONTACT');
   const idBase = useId();
 
@@ -106,7 +111,7 @@ export function Formulaires() {
 
           <div role="tabpanel" id={`${idBase}-panneau`} aria-labelledby={`${idBase}-onglet-${onglet}`} className="mt-6">
             {/* `key` : formulaire remonté à chaque onglet (champs et état réinitialisés). */}
-            <FormulaireDemande key={onglet} type={onglet} />
+            <FormulaireDemande key={onglet} type={onglet} organisation={organisation} />
           </div>
         </div>
       </div>
@@ -114,7 +119,7 @@ export function Formulaires() {
   );
 }
 
-function FormulaireDemande({ type }: { type: Onglet }) {
+function FormulaireDemande({ type, organisation }: { type: Onglet; organisation?: string }) {
   const [pending, start] = useTransition();
   const [resultat, setResultat] = useState<ResultatFormulaire | null>(null);
   const form = useRef<HTMLFormElement>(null);
@@ -155,6 +160,7 @@ function FormulaireDemande({ type }: { type: Onglet }) {
       className="grid gap-5 sm:grid-cols-2"
     >
       <input type="hidden" name="type" value={type} />
+      {organisation && <input type="hidden" name="organisation" value={organisation} />}
 
       {/* Pot de miel : invisible et inaccessible aux humains, rempli par les robots. */}
       <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">

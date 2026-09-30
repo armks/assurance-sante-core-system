@@ -1,4 +1,4 @@
-import { HttpException, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, HttpException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
@@ -20,12 +20,15 @@ const CONTACT: DemandeVitrineDto = {
 
 describe('VitrineService — formulaires publics de la page d’accueil', () => {
   let service: VitrineService;
-  let prisma: { newsletterAbonne: { upsert: jest.Mock } };
+  let prisma: { newsletterAbonne: { upsert: jest.Mock }; organisation: { findFirst: jest.Mock } };
   let email: { envoyerEmail: jest.Mock };
 
   beforeEach(async () => {
     process.env.CONTACT_EMAIL = 'contact@plateforme.ci';
-    prisma = { newsletterAbonne: { upsert: jest.fn().mockResolvedValue({}) } };
+    prisma = {
+      newsletterAbonne: { upsert: jest.fn().mockResolvedValue({}) },
+      organisation: { findFirst: jest.fn().mockResolvedValue(null) },
+    };
     email = { envoyerEmail: jest.fn().mockResolvedValue({ envoye: true, id: 'em_1' }) };
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -108,6 +111,62 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
   it('échec Resend → 503 (le visiteur sait que sa demande n’est pas partie)', async () => {
     email.envoyerEmail.mockResolvedValue({ envoye: false, erreur: 'boom' });
     await expect(service.envoyerDemande(CONTACT, '41.202.1.6')).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  // --- Page d'une société (/{slug}) ----------------------------------------
+
+  const SOCIETE = {
+    id: 'bbbbbbbb-0000-0000-0000-000000000002',
+    slug: 'mutuelle-abidjan',
+    nom: 'Mutuelle d’Abidjan',
+    logoUrl: 'https://x/logo.png',
+    emailContact: 'contact@mutuelle-abidjan.ci',
+  };
+
+  it('demande depuis /{slug} : e-mail à la société, sujet et corps avec son nom, son slug et son organisation_id', async () => {
+    prisma.organisation.findFirst.mockResolvedValue(SOCIETE);
+    await service.envoyerDemande({ ...CONTACT, organisation: 'mutuelle-abidjan' }, '41.202.4.1');
+    expect(prisma.organisation.findFirst).toHaveBeenCalledWith({
+      where: { slug: 'mutuelle-abidjan', deletedAt: null, statut: 'ACTIVE' },
+      select: { id: true, slug: true, nom: true, logoUrl: true, emailContact: true },
+    });
+    const [dest, sujet, corps, options] = email.envoyerEmail.mock.calls[0];
+    expect(dest).toBe('contact@mutuelle-abidjan.ci');
+    expect(sujet).toBe('[Site Mutuelle d’Abidjan] Demande de contact - Coopérative des transporteurs d’Abobo');
+    expect(corps).toContain('reçue depuis la page d’accueil de Mutuelle d’Abidjan (/mutuelle-abidjan)');
+    expect(corps).toContain('organisation_id bbbbbbbb-0000-0000-0000-000000000002');
+    expect(options).toEqual({ replyTo: 'rh@coop-abobo.ci' });
+  });
+
+  it('société sans e-mail de contact → CONTACT_EMAIL de la plateforme (corps toujours identifié)', async () => {
+    prisma.organisation.findFirst.mockResolvedValue({ ...SOCIETE, emailContact: null });
+    await service.envoyerDemande({ ...CONTACT, organisation: 'mutuelle-abidjan' }, '41.202.4.2');
+    const [dest, , corps] = email.envoyerEmail.mock.calls[0];
+    expect(dest).toBe('contact@plateforme.ci');
+    expect(corps).toContain('organisation_id bbbbbbbb-0000-0000-0000-000000000002');
+  });
+
+  it('slug inconnu ou société inactive → 400, aucun e-mail', async () => {
+    await expect(service.envoyerDemande({ ...CONTACT, organisation: 'inconnue' }, '41.202.4.3')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(email.envoyerEmail).not.toHaveBeenCalled();
+  });
+
+  it('demande depuis la page principale : inchangée (CONTACT_EMAIL, sujet [Site])', async () => {
+    await service.envoyerDemande(CONTACT, '41.202.4.4');
+    expect(prisma.organisation.findFirst).not.toHaveBeenCalled();
+    expect(email.envoyerEmail.mock.calls[0][1]).toMatch(/^\[Site\] /);
+  });
+
+  it('fiche publique : nom, slug et logo seulement ; 404 si inconnue', async () => {
+    prisma.organisation.findFirst.mockResolvedValueOnce(SOCIETE);
+    expect(await service.obtenirOrganisation('mutuelle-abidjan', '41.202.4.5')).toEqual({
+      slug: 'mutuelle-abidjan',
+      nom: 'Mutuelle d’Abidjan',
+      logoUrl: 'https://x/logo.png',
+    });
+    await expect(service.obtenirOrganisation('absente', '41.202.4.5')).rejects.toBeInstanceOf(NotFoundException);
   });
 
   // --- Statistiques ---------------------------------------------------------

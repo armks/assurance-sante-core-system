@@ -36,6 +36,9 @@ model Organisation {
   statut           String    @default("ACTIVE") // ACTIVE | SUSPENDUE | ARCHIVEE
   /// URL publique du logo (bucket `logos`, prisma/sql/058) — null : carte sans logo.
   logoUrl          String?   @map("logo_url")
+  /// Chemin de la page d'accueil dédiée (/{slug}) — prisma/sql/061. Unique,
+  /// généré depuis `nom`, modifiable par SUPERADMIN_PRINCIPAL.
+  slug             String    @unique
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")

@@ -2,8 +2,12 @@ import { headers } from 'next/headers';
 
 import { ConnexionModale } from '@/components/connexion-modale';
 import { RechargementComplet } from '@/components/rechargement-complet';
+import { estCheminSociete } from '@/lib/slugs';
 
-/** Pages publiques à en-tête vitrine d'où la connexion s'ouvre en superposition. */
+/**
+ * Pages publiques à en-tête vitrine d'où la connexion s'ouvre en superposition
+ * (plus les pages des sociétés, /{slug} : `estCheminSociete`).
+ */
 const PAGES_VITRINE = new Set(['/', '/reseau-de-soins']);
 
 /**
@@ -21,7 +25,8 @@ export default async function ConnexionInterceptee({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const origine = (await headers()).get('next-url') ?? '';
-  const depuisAccueil = PAGES_VITRINE.has(origine.split(/[?#]/)[0]);
+  const chemin = origine.split(/[?#]/)[0];
+  const depuisAccueil = PAGES_VITRINE.has(chemin) || estCheminSociete(chemin);
   const { next } = await searchParams;
 
   if (!depuisAccueil || next !== undefined) {

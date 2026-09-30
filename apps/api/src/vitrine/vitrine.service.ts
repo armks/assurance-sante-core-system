@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   HttpException,
   HttpStatus,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { EmailService } from '../email/email.service';
@@ -15,6 +17,7 @@ import {
   LIBELLE_TYPE_DEMANDE,
   LIMITE_DEMANDES,
   LIMITE_NEWSLETTER,
+  LIMITE_ORGANISATIONS,
   LIMITE_STATISTIQUES,
 } from './vitrine.types';
 
@@ -36,6 +39,7 @@ export class VitrineService {
   private readonly limiteDemandes = new LimiteurRequetes(LIMITE_DEMANDES);
   private readonly limiteNewsletter = new LimiteurRequetes(LIMITE_NEWSLETTER);
   private readonly limiteStatistiques = new LimiteurRequetes(LIMITE_STATISTIQUES);
+  private readonly limiteOrganisations = new LimiteurRequetes(LIMITE_ORGANISATIONS);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -50,7 +54,11 @@ export class VitrineService {
       return { ok: true, message: MESSAGE_DEMANDE };
     }
 
-    const destinataire = process.env.CONTACT_EMAIL?.trim();
+    // Demande envoyée depuis la page d'une société (/{slug}) : adressée à son
+    // e-mail de contact s'il est renseigné, sinon au contact de la plateforme.
+    const societe = dto.organisation ? await this.societeActive(dto.organisation) : null;
+    if (dto.organisation && !societe) throw new BadRequestException('Société inconnue.');
+    const destinataire = societe?.emailContact?.trim() || process.env.CONTACT_EMAIL?.trim();
     if (!destinataire) {
       this.logger.error('CONTACT_EMAIL absent : impossible de transmettre la demande du site.');
       throw new ServiceUnavailableException(
@@ -61,8 +69,8 @@ export class VitrineService {
     const libelle = LIBELLE_TYPE_DEMANDE[dto.type];
     const resultat = await this.email.envoyerEmail(
       destinataire,
-      `[Site] ${libelle} - ${dto.structure}`,
-      this.corpsDemande(dto, libelle),
+      `[Site${societe ? ` ${societe.nom}` : ''}] ${libelle} - ${dto.structure}`,
+      this.corpsDemande(dto, libelle, societe),
       { replyTo: dto.email },
     );
     if (!resultat.envoye) {
@@ -90,6 +98,24 @@ export class VitrineService {
     return { ok: true, message: MESSAGE_NEWSLETTER };
   }
 
+  /**
+   * Fiche publique d'une société ACTIVE pour sa page /{slug} : nom, chemin et
+   * logo uniquement (aucun identifiant, contact ni donnée interne).
+   */
+  async obtenirOrganisation(slug: string, ip: string) {
+    this.verifierLimite(this.limiteOrganisations.consommer(ip));
+    const societe = await this.societeActive(slug);
+    if (!societe) throw new NotFoundException('Page introuvable.');
+    return { slug: societe.slug, nom: societe.nom, logoUrl: societe.logoUrl };
+  }
+
+  private societeActive(slug: string) {
+    return this.prisma.organisation.findFirst({
+      where: { slug, deletedAt: null, statut: 'ACTIVE' },
+      select: { id: true, slug: true, nom: true, logoUrl: true, emailContact: true },
+    });
+  }
+
   async obtenirStatistiques(ip: string) {
     this.verifierLimite(this.limiteStatistiques.consommer(ip));
     return this.statistiques.obtenir();
@@ -108,9 +134,16 @@ export class VitrineService {
     }
   }
 
-  private corpsDemande(dto: DemandeVitrineDto, libelle: string): string {
+  private corpsDemande(
+    dto: DemandeVitrineDto,
+    libelle: string,
+    societe: { id: string; slug: string; nom: string } | null = null,
+  ): string {
     const lignes = [
-      `${libelle} reçue depuis la page d’accueil.`,
+      societe
+        ? `${libelle} reçue depuis la page d’accueil de ${societe.nom} (/${societe.slug}).`
+        : `${libelle} reçue depuis la page d’accueil.`,
+      ...(societe ? [`Société : ${societe.nom} — organisation_id ${societe.id}`] : []),
       '',
       `Structure : ${dto.structure}`,
       dto.categorie ? `Catégorie : ${LIBELLE_CATEGORIE[dto.categorie]}` : null,

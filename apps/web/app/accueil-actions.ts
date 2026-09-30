@@ -68,6 +68,7 @@ export async function envoyerDemande(fd: FormData): Promise<ResultatFormulaire> 
     telephone: champ('telephone'),
     objet: champ('objet'),
     message: champ('message'),
+    organisation: champ('organisation'),
     siteWeb: champ('siteWeb'),
   });
 }

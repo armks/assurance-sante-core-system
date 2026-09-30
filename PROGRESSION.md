@@ -6387,3 +6387,68 @@ couleurs calculées vérifiées, captures envoyées au porteur du projet.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Page d'accueil dédiée par société (/{slug})
+
+### Décisions préalables (porteur du projet)
+- `nom_affichage` n'existe pas : le **`nom`** de l'organisation est affiché.
+- `logo_url` provenait du travail « logo + carte PDF » non commité : commité d'abord
+  (commit dédié), la page /{slug} s'appuie dessus.
+
+### Réalisé
+- **`organisations.slug`** (prisma/sql/061) : unique, `^[a-z0-9]+(-[a-z0-9]+)*$`, 2 à 60
+  caractères, segments réservés interdits par contrainte (routes de l'application,
+  `dashboard…`). Organisations existantes remplies depuis leur nom (accents retirés,
+  doublons suffixés). Généré à la création (`slugDepuisNom` + `slugLibre` : -2, -3…) ;
+  modifiable EXCLUSIVEMENT par SUPERADMIN_PRINCIPAL
+  (`PATCH /identity/organisations/:id/slug`, 400 format / réservé, 409 déjà pris,
+  audit `MODIFICATION_SLUG_ORGANISATION`). Liste des segments réservés identique à trois
+  endroits : `common/slug.util.ts` (API), `lib/slugs.ts` (proxy Next), contrainte SQL.
+- **API publique** : `GET /public/organisations/:slug` (société ACTIVE : nom, slug, logo
+  seulement ; 404 sinon ; limiteur) ; `GET /public/evenements?organisation={slug}` (CETTE
+  société seulement, jamais de repli sur l'organisation vitrine) ;
+  `POST /public/demandes` + `organisation` : e-mail à l'`email_contact` de la société,
+  sinon CONTACT_EMAIL, sujet `[Site {nom}]`, corps avec son nom, `/{slug}` et son
+  `organisation_id` ; slug inconnu → 400.
+- **Web** : structure de la page d'accueil extraite dans `PageAccueil`, partagée par `/`
+  et **`/[slug]`** (mêmes bannière, sections, carrousel, formulaires, pied de page).
+  Page société : logo + nom dans l'en-tête (initiales si pas de logo), nom dans le pied
+  de page et le copyright, titre de page, liens de section restant sur `/{slug}#…`,
+  formulaires adressés à la société, ses événements. Slug inconnu / inactif / réservé :
+  404. Proxy : pages `/{slug}` publiques (un segment, jamais réservé ni `dashboard…`),
+  `/Ma-Mutuelle` → 308 vers `/ma-mutuelle`. Connexion en superposition aussi depuis ces
+  pages. `images.remotePatterns` : chemin public du bucket `logos`.
+- **Superadmin** « Sociétés » : section « Page d'accueil publique » par organisation — URL
+  complète, lien « Prévisualiser » (nouvel onglet), chemin modifiable
+  (SUPERADMIN_PRINCIPAL).
+- Page principale `/` **inchangée** : titre, texte, liens et textes alternatifs du HTML
+  rendu identiques caractère pour caractère à l'instantané pris avant la modification
+  (un nœud de texte du copyright rétabli à l'identique au passage).
+
+### Tests
+- Unitaires : +25 (génération / validation / unicité du slug, droits exclusifs, 409,
+  création d'organisation avec slug suffixé, routage e-mail vers la société ou
+  CONTACT_EMAIL, slug inconnu, fiche publique limitée, événements par société sans
+  repli). API 841/841, `tsc` api + web OK.
+- HTTP réel : deux organisations créées par le flux superadmin réel (code à deux temps) →
+  slugs `mutuelle-alpha-sante-e2e` et `assurance-beta-vie-e2e` ; modification →
+  `/mutuelle-alpha` ; slug pris → 409, réservé → 400, ASSUREUR_INFORMATIQUE → 403 ;
+  fiche publique (3 champs), ancien slug et slug inexistant → 404 ; événements : Alpha 2,
+  Bêta 1, page principale aucun des deux.
+- Chrome réel : `/mutuelle-alpha` (logo chargé, nom en-tête / pied / copyright, ancres
+  sur la page, carrousel de SES 2 événements) ; `/assurance-beta-vie-e2e` (initiales, SON
+  événement) ; `/slug-inexistant` → 404 ; formulaire Contact soumis depuis
+  `/mutuelle-alpha` → e-mail accepté par Resend, sujet « [Site Mutuelle Alpha Santé
+  (E2E)] … », adressé au contact de la société, corps avec `organisation_id` ; écran
+  superadmin : URL complète + « Prévisualiser » pour chaque société, modification du
+  chemin depuis l'écran (ancienne adresse → 404). Routes protégées toujours redirigées
+  vers `/login?next=…`. Captures impossibles en fin de session (fenêtre Chrome réduite) :
+  vérifications faites sur le DOM.
+- Données de test entièrement supprimées (organisations, événements, logo, comptes).
+
+### À noter
+Les statistiques de la frise restent celles de la plateforme sur les pages de société
+(structure identique) ; coordonnées du pied de page : celles de la plateforme.
+
+### Statut
+Terminé, commité et poussé.

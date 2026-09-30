@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -8,6 +9,7 @@ import {
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { formatImagePdf } from '../common/images.util';
+import { erreurSlug } from '../common/slug.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdentityService } from './identity.service';
 
@@ -47,6 +49,29 @@ export class OrganisationsService {
       orderBy: { createdAt: 'desc' },
       include: { licence: true },
     });
+  }
+
+  /**
+   * Chemin de la page d'accueil dédiée (/{slug}) — réservé EXCLUSIVEMENT à
+   * SUPERADMIN_PRINCIPAL, comme le logo. Format, segments réservés et unicité
+   * vérifiés ici (et par les contraintes SQL de prisma/sql/061).
+   */
+  async modifierSlug(user: AuthenticatedUser, organisationId: string, slugPropose: string) {
+    const { userId } = await this.assertSuperadminPrincipal(user);
+    const slug = slugPropose.trim().toLowerCase();
+    const erreur = erreurSlug(slug);
+    if (erreur) throw new BadRequestException(erreur);
+    const organisation = await this.prisma.organisation.findFirst({
+      where: { id: organisationId, deletedAt: null },
+      select: { id: true, slug: true },
+    });
+    if (!organisation) throw new NotFoundException('Organisation introuvable.');
+    if (organisation.slug === slug) return { slug };
+    const pris = await this.prisma.organisation.findUnique({ where: { slug }, select: { id: true } });
+    if (pris) throw new ConflictException(`Le chemin « /${slug} » est déjà utilisé par une autre organisation.`);
+    await this.prisma.organisation.update({ where: { id: organisationId }, data: { slug } });
+    await this.audit(userId, organisationId, { slug, ancienSlug: organisation.slug }, 'MODIFICATION_SLUG_ORGANISATION');
+    return { slug };
   }
 
   /**
@@ -160,10 +185,11 @@ export class OrganisationsService {
     userId: string,
     organisationId: string,
     details: Record<string, string | null>,
+    action = 'MODIFICATION_LOGO_ORGANISATION',
   ): Promise<void> {
     await this.prisma.$executeRaw`
       SELECT log_audit(
-        ${'MODIFICATION_LOGO_ORGANISATION'}::text,
+        ${action}::text,
         ${'organisations'}::text,
         ${organisationId}::uuid,
         ${userId}::uuid,

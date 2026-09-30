@@ -52,6 +52,7 @@ describe('SuperadminActionsService — confirmation à deux temps', () => {
       organisation: {
         create: jest.fn(),
         findFirst: jest.fn(),
+        findUnique: jest.fn().mockResolvedValue(null),
         update: jest.fn(),
         updateMany: jest.fn(),
       },
@@ -188,10 +189,16 @@ describe('SuperadminActionsService — confirmation à deux temps', () => {
     });
     prisma.organisation.create.mockResolvedValue({ id: 'org-new', nom: 'Nouvelle Mutuelle' });
     prisma.licenceOrganisation.create.mockResolvedValue({ organisationId: 'org-new', plan: 'STARTER' });
+    // Chemin /{slug} dérivé du nom ; « nouvelle-mutuelle » déjà pris → suffixe -2.
+    prisma.organisation.findUnique.mockImplementation(({ where }: { where: { slug: string } }) =>
+      Promise.resolve(where.slug === 'nouvelle-mutuelle' ? { id: 'org-existante' } : null),
+    );
 
     const res = await service.confirmerAction(USER, { code: 'AB23CD45' });
 
-    expect(prisma.organisation.create).toHaveBeenCalled();
+    expect(prisma.organisation.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ nom: 'Nouvelle Mutuelle', slug: 'nouvelle-mutuelle-2' }) }),
+    );
     expect(prisma.licenceOrganisation.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ organisationId: 'org-new', plan: 'STARTER' }),

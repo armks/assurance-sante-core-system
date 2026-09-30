@@ -1,8 +1,10 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UploadedFile,
   UseGuards,
@@ -12,6 +14,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
+import { ModifierSlugDto } from './dto/organisation.dto';
 import { IdentityService } from './identity.service';
 import { IdentityMeResponse } from './identity.types';
 import { OrganisationsService, type FichierLogo } from './organisations.service';
@@ -68,6 +71,19 @@ export class IdentityController {
   @Get('organisations')
   listerOrganisations(@CurrentUser() user: AuthenticatedUser) {
     return this.organisationsService.lister(user);
+  }
+
+  /**
+   * PATCH /api/v1/identity/organisations/:id/slug `{ slug }` — chemin de la
+   * page d'accueil dédiée (/{slug}). EXCLUSIVEMENT SUPERADMIN_PRINCIPAL.
+   */
+  @Patch('organisations/:id/slug')
+  modifierSlugOrganisation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModifierSlugDto,
+  ) {
+    return this.organisationsService.modifierSlug(user, id, dto.slug);
   }
 
   /**

@@ -29,6 +29,7 @@ describe('EvenementsService', () => {
   let service: EvenementsService;
   let prisma: {
     evenement: { findMany: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
+    organisation: { findFirst: jest.Mock };
     $executeRaw: jest.Mock;
   };
   let identity: { getMe: jest.Mock };
@@ -47,6 +48,7 @@ describe('EvenementsService', () => {
         create: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...data, createdAt: new Date(), updatedAt: new Date() })),
         update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ ...ligne(), ...data })),
       },
+      organisation: { findFirst: jest.fn().mockResolvedValue(null) },
       $executeRaw: jest.fn().mockResolvedValue(1),
     };
     identity = { getMe: jest.fn() };
@@ -158,6 +160,24 @@ describe('EvenementsService', () => {
     const res = await service.publics('1.1.1.2');
     expect(prisma.evenement.findMany).toHaveBeenCalledWith({ where: { organisationId: ORG, actif: true, deletedAt: null } });
     expect(Object.keys(res[0]).sort()).toEqual(['dateEvenement', 'description', 'id', 'imageUrl', 'statut', 'titre']);
+  });
+
+  it('page d’une société : ses événements uniquement, jamais ceux de l’organisation vitrine', async () => {
+    process.env.VITRINE_ORGANISATION_ID = ORG;
+    const AUTRE = '22222222-2222-4222-8222-222222222222';
+    prisma.organisation.findFirst.mockResolvedValue({ id: AUTRE });
+    await service.publics('1.1.1.4', 'mutuelle-abidjan');
+    expect(prisma.organisation.findFirst).toHaveBeenCalledWith({
+      where: { slug: 'mutuelle-abidjan', deletedAt: null, statut: 'ACTIVE' },
+      select: { id: true },
+    });
+    expect(prisma.evenement.findMany).toHaveBeenCalledWith({ where: { organisationId: AUTRE, actif: true, deletedAt: null } });
+  });
+
+  it('slug inconnu → liste vide (pas de repli sur l’organisation vitrine)', async () => {
+    process.env.VITRINE_ORGANISATION_ID = ORG;
+    expect(await service.publics('1.1.1.5', 'inconnue')).toEqual([]);
+    expect(prisma.evenement.findMany).not.toHaveBeenCalled();
   });
 
   it('public : 60 lectures par IP, la 61e → 429', async () => {

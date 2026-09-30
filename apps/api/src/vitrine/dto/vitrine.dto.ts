@@ -89,6 +89,16 @@ export class DemandeVitrineDto {
   @MaxLength(3000)
   message?: string;
 
+  /**
+   * Page d'accueil d'une société (/{slug}) : la demande lui est adressée
+   * (e-mail de contact de l'organisation, sinon CONTACT_EMAIL).
+   */
+  @IsOptional()
+  @Transform(nettoyer)
+  @Matches(/^[a-z0-9]+(-[a-z0-9]+)*$/, { message: 'Société inconnue.' })
+  @MaxLength(60)
+  organisation?: string;
+
   /** Pot de miel : champ caché, jamais rempli par un humain. */
   @IsOptional()
   @IsString()

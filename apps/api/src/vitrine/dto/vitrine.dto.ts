@@ -3,6 +3,8 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   Matches,
@@ -51,6 +53,20 @@ export class DemandeVitrineDto {
   @IsString()
   @MaxLength(120)
   ville?: string;
+
+  /**
+   * Devenir partenaire : position de l'établissement (clic sur la carte ou
+   * saisie manuelle). Facultative, mais latitude et longitude vont ensemble.
+   */
+  @ValidateIf((d: DemandeVitrineDto) => d.type === 'PARTENAIRE' && (d.latitude != null || d.longitude != null))
+  @Type(() => Number)
+  @IsLatitude({ message: 'Latitude invalide (entre -90 et 90).' })
+  latitude?: number;
+
+  @ValidateIf((d: DemandeVitrineDto) => d.type === 'PARTENAIRE' && (d.latitude != null || d.longitude != null))
+  @Type(() => Number)
+  @IsLongitude({ message: 'Longitude invalide (entre -180 et 180).' })
+  longitude?: number;
 
   @Transform(nettoyer)
   @IsEmail({}, { message: 'Adresse e-mail invalide.' })

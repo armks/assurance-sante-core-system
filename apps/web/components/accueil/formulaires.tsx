@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
+import { CarteLocalisation } from './carte-localisation';
 import { COORDONNEES } from './coordonnees';
 
 type Onglet = 'CONTACT' | 'PARTENAIRE' | 'ADHESION';
@@ -185,6 +186,7 @@ function FormulaireDemande({ type }: { type: Onglet }) {
           <Bloc id={champ('ville')} libelle="Ville" optionnel>
             <Input id={champ('ville')} name="ville" maxLength={120} autoComplete="address-level2" />
           </Bloc>
+          <CarteLocalisation idBase={id} />
         </>
       ) : (
         <Bloc

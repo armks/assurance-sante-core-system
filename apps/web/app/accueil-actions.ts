@@ -52,13 +52,18 @@ export async function envoyerDemande(fd: FormData): Promise<ResultatFormulaire> 
     const v = fd.get(n);
     return typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
   };
-  const effectif = champ('effectif');
+  const nombre = (n: string) => {
+    const v = champ(n);
+    return v === undefined ? undefined : Number(v);
+  };
   return envoyer('/api/v1/public/demandes', {
     type: champ('type'),
     structure: champ('structure'),
-    effectif: effectif === undefined ? undefined : Number(effectif),
+    effectif: nombre('effectif'),
     categorie: champ('categorie'),
     ville: champ('ville'),
+    latitude: nombre('latitude'),
+    longitude: nombre('longitude'),
     email: champ('email'),
     telephone: champ('telephone'),
     objet: champ('objet'),

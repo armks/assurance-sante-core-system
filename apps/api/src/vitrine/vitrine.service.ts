@@ -116,6 +116,7 @@ export class VitrineService {
       dto.categorie ? `Catégorie : ${LIBELLE_CATEGORIE[dto.categorie]}` : null,
       dto.effectif != null ? `Nombre estimé d’employés / d’adhérents : ${dto.effectif}` : null,
       dto.ville ? `Ville : ${dto.ville}` : null,
+      ...this.lignesLocalisation(dto),
       `E-mail : ${dto.email}`,
       `Téléphone : ${dto.telephone}`,
       `Objet : ${dto.objet}`,
@@ -125,5 +126,17 @@ export class VitrineService {
       'Répondre à cet e-mail écrit directement au demandeur.',
     ];
     return lignes.filter((l) => l !== null).join('\n');
+  }
+
+  /** Devenir partenaire : coordonnées (6 décimales ≈ 10 cm) et lien OpenStreetMap. */
+  private lignesLocalisation(dto: DemandeVitrineDto): string[] {
+    if (dto.type !== 'PARTENAIRE' || dto.latitude == null || dto.longitude == null) return [];
+    const lat = dto.latitude.toFixed(6);
+    const lon = dto.longitude.toFixed(6);
+    return [
+      `Latitude : ${lat}`,
+      `Longitude : ${lon}`,
+      `Carte : https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=18/${lat}/${lon}`,
+    ];
   }
 }

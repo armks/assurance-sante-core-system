@@ -6290,3 +6290,31 @@ aucun rechargement complet, aucune erreur console, seule requête serveur `GET /
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — « Devenir partenaire » : localisation sur carte (latitude / longitude)
+
+### Réalisé
+- Aucune bibliothèque cartographique côté frontend auparavant (le géocodage du PROMPT 15
+  est Nominatim / OpenStreetMap, côté API) : ajout de **Leaflet** + tuiles
+  OpenStreetMap, cohérent avec ce géocodage.
+- `components/accueil/carte-localisation.tsx` (onglet « Devenir partenaire ») : carte
+  centrée sur Abidjan (zoom 13) ; un clic place un repère et remplit latitude / longitude
+  (6 décimales) ; repère déplaçable pour ajuster ; saisie manuelle toujours possible et
+  qui déplace le repère (recentrage différé pendant la frappe) ; « Placer au centre »
+  (alternative clavier) ; « Effacer ». Molette active seulement une fois la carte
+  sélectionnée. Leaflet chargé côté navigateur uniquement.
+- API : `latitude` / `longitude` facultatives mais valides (bornes) et fournies ensemble
+  (`DemandeVitrineDto`) ; l'e-mail Resend « Candidature partenaire » contient
+  latitude, longitude et un lien OpenStreetMap vers le point.
+
+### Tests
+- Unitaires vitrine : +2 (corps de l'e-mail avec coordonnées et lien ; validation
+  facultative / bornes / paire incomplète / chaînes du FormData).
+- Chrome réel : clic → 5,330518 / -4,022158 ; saisie manuelle déplace le repère ;
+  soumission → e-mail accepté par Resend (id `01a0f0e6…`) ; API en cours : latitude seule
+  → 400 « Longitude invalide », corps d'e-mail régénéré depuis le code compilé
+  (Ville, Latitude, Longitude, lien carte présents). Lecture de la boîte de réception
+  impossible avec la clé Resend (envoi seul) : à confirmer par réception.
+
+### Statut
+Terminé, commité et poussé.

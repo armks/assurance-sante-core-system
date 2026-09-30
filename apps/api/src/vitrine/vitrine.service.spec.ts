@@ -62,6 +62,19 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
     expect(sujet).toBe('[Site] Candidature partenaire - Pharmacie des Deux Plateaux');
     expect(corps).toContain('Catégorie : Pharmacie');
     expect(corps).toContain('Ville : Cocody');
+    expect(corps).not.toContain('Latitude');
+  });
+
+  it('Devenir partenaire : latitude, longitude (6 décimales) et lien carte dans le corps', async () => {
+    await service.envoyerDemande(
+      { ...CONTACT, type: 'PARTENAIRE', effectif: undefined, categorie: 'ETABLISSEMENT', ville: 'Abidjan', latitude: 5.3599517, longitude: -4.0082563 },
+      '41.202.1.7',
+    );
+    const [, , corps] = email.envoyerEmail.mock.calls[0];
+    expect(corps).toContain('Ville : Abidjan');
+    expect(corps).toContain('Latitude : 5.359952');
+    expect(corps).toContain('Longitude : -4.008256');
+    expect(corps).toContain('https://www.openstreetmap.org/?mlat=5.359952&mlon=-4.008256#map=18/5.359952/-4.008256');
   });
 
   it('pot de miel rempli : MÊME réponse qu’un succès, aucun e-mail envoyé', async () => {
@@ -146,6 +159,16 @@ describe('DemandeVitrineDto — validation par type de formulaire', () => {
     const e = await erreurs({ ...CONTACT, type: 'PARTENAIRE', effectif: undefined });
     expect(e).toContain('categorie');
     expect(e).not.toContain('effectif');
+  });
+
+  it('Partenaire : coordonnées facultatives, mais valides et fournies ensemble', async () => {
+    const P = { ...CONTACT, type: 'PARTENAIRE', effectif: undefined, categorie: 'PHARMACIE' };
+    expect(await erreurs(P)).toEqual([]);
+    expect(await erreurs({ ...P, latitude: '5.36', longitude: '-4.0083' })).toEqual([]); // FormData → chaînes
+    expect(await erreurs({ ...P, latitude: 91, longitude: 0 })).toEqual(['latitude']);
+    expect(await erreurs({ ...P, latitude: 5.36, longitude: -181 })).toEqual(['longitude']);
+    expect(await erreurs({ ...P, latitude: 5.36 })).toEqual(['longitude']);
+    expect(await erreurs({ ...P, latitude: 'abc', longitude: -4 })).toEqual(['latitude']);
   });
 
   it('e-mail et téléphone invalides refusés, type inconnu refusé', async () => {

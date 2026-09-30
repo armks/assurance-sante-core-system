@@ -205,6 +205,15 @@ export class InvitationsService {
         `Seul le rôle « ${inv.roleValidateur ?? '—'} » peut rejeter cette proposition.`,
       );
     }
+    // Même contrôle que `validerProposition` : sans lui, un validateur d'une
+    // autre organisation pouvait rejeter cette proposition avec son seul id.
+    if (
+      inv.organisationId &&
+      ctx.organisationId &&
+      inv.organisationId !== ctx.organisationId
+    ) {
+      throw new ForbiddenException('Proposition hors de votre organisation.');
+    }
 
     const maj = await this.prisma.$transaction(async (tx) => {
       const i = await tx.invitation.update({

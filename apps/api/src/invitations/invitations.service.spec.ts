@@ -466,6 +466,47 @@ describe('InvitationsService', () => {
     expect(res.statut).toBe('EN_ATTENTE');
   });
 
+  const PROPOSITION_ORG_B = {
+    id: 'inv-b',
+    statut: 'EN_ATTENTE_VALIDATION_INFORMATIQUE',
+    roleValidateur: 'ASSUREUR_INFORMATIQUE',
+    organisationId: 'org-B',
+    email: 'caisse@pharm-b.ci',
+    rolePropose: 'PHARMACIE_CAISSIERE',
+    token: 'tok-b',
+  };
+
+  it('rejeterProposition : validateur d’une AUTRE organisation → 403, rien n’est modifié', async () => {
+    connecte({ roleChain: ['ASSUREUR_INFORMATIQUE'], organisationId: 'org-A' });
+    prisma.invitation.findFirst.mockResolvedValue(PROPOSITION_ORG_B);
+
+    await expect(service.rejeterProposition(USER, 'inv-b', 'intrusion')).rejects.toThrow(
+      'Proposition hors de votre organisation.',
+    );
+    expect(prisma._tx.invitation.update).not.toHaveBeenCalled();
+  });
+
+  it('rejeterProposition : validateur de la MÊME organisation → proposition REJETEE', async () => {
+    connecte({ roleChain: ['ASSUREUR_INFORMATIQUE'], organisationId: 'org-B' });
+    prisma.invitation.findFirst.mockResolvedValue(PROPOSITION_ORG_B);
+    prisma._tx.invitation.update.mockImplementation(({ data }: any) => ({
+      ...PROPOSITION_ORG_B,
+      telephone: null,
+      mode: 'PROPOSITION',
+      expireLe: DANS_72H,
+      accepteLe: null,
+      createdAt: new Date(),
+      ...data,
+    }));
+
+    const res = await service.rejeterProposition(USER, 'inv-b', 'doublon');
+
+    expect(prisma._tx.invitation.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'inv-b' }, data: expect.objectContaining({ statut: 'REJETEE' }) }),
+    );
+    expect(res.statut).toBe('REJETEE');
+  });
+
   it('accepterInvitation : refuse une invitation expirée (410)', async () => {
     prisma.invitation.findFirst.mockResolvedValue({
       id: 'inv-1',

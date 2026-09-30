@@ -6513,3 +6513,34 @@ dernière migration qui définit la contrainte — un oubli fait échouer les te
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Correctif de sécurité : rejet d'une proposition d'invitation inter-sociétés
+
+### Faille (relevée par l'audit multi-tenant du 2026-09-30)
+`InvitationsService.rejeterProposition` chargeait l'invitation par son seul `id` et ne
+vérifiait que le **rôle** validateur de l'appelant, jamais son **organisation** —
+contrairement à `validerProposition`. Un ASSUREUR_INFORMATIQUE de la société A qui
+connaissait l'identifiant d'une proposition en attente de la société B pouvait la
+rejeter (statut REJETEE, motif et audit à son nom). Exploitation conditionnée à la
+connaissance d'un UUID (aucune liste ne l'expose hors de l'organisation).
+
+### Correctif
+Même contrôle que `validerProposition`, au même endroit : organisation de l'invitation
+≠ organisation de l'appelant → 403 « Proposition hors de votre organisation. », avant
+toute écriture.
+
+### Tests
+- Unitaires : +2 (autre organisation → 403 sans écriture ; même organisation → REJETEE).
+  Le test inter-sociétés échoue sur le code d'avant le correctif (vérifié), passe après.
+  API 850/850, `tsc` OK.
+- HTTP réel : proposition créée par l'ASSUREUR_INFORMATIQUE de la société B via
+  `POST /invitations` (ASSUREUR_EXPLOITATION, flux réel) ; rejet par
+  l'ASSUREUR_INFORMATIQUE de la société A avec l'id exact → **403**, statut et motif
+  inchangés en base, aucune écriture d'audit ; validation par A → 403 ; rejet par B →
+  201 REJETEE. Un premier passage, servi par erreur par un processus API orphelin
+  antérieur au correctif, a au passage **reproduit la faille** en réel (201, proposition
+  de B rejetée par A) ; processus arrêté, test rejoué sur le code corrigé.
+- Données de test supprimées (invitation, comptes).
+
+### Statut
+Terminé, commité et poussé (commit isolé).

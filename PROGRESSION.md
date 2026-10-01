@@ -6649,3 +6649,46 @@ patient, déjà encaissée au guichet, était payée une seconde fois. La pharma
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Échec d'envoi d'e-mail Supabase rendu visible (invitation, mot de passe oublié)
+
+### Constat (rejeu HTTP de la chaîne anti-fraude)
+Supabase répond `500 unexpected_failure` (« Error sending invite/recovery email ») :
+- invitation : le compte était créé sans e-mail (`emailEnvoye=false` en base) mais
+  l'écran annonçait « Proposition validée — invitation envoyée » ; et une fois validée,
+  la proposition (émise par un pharmacien) disparaissait de la liste de
+  l'ASSUREUR_INFORMATIQUE — le badge « Email non envoyé » et le bouton « Renvoyer
+  l'email » existants ne lui apparaissaient donc jamais (et le renvoi lui aurait été
+  refusé : réservé à l'émetteur) ;
+- mot de passe oublié : message générique « Une erreur est survenue ».
+
+### Correctif
+- API (`invitations.service.ts`) : le rôle validateur d'une PROPOSITION (même
+  organisation) continue de la voir après validation, et peut « Renvoyer l'email » et
+  « Révoquer » (nouveau `estGestionnaire` = émetteur OU validateur de la même
+  organisation ; une autre société reste refusée). `supabase-admin.service.ts` :
+  log explicite « E-mail d'invitation NON envoyé … emailEnvoye=false » ; le compte
+  reste créé (nécessaire à « Copier le lien » / l'acceptation) mais l'échec n'est
+  plus jamais présenté comme un succès.
+- Web : `validerProposition` / `inviterUtilisateur` lisent `emailEnvoye` et affichent
+  en erreur « …mais l'e-mail d'invitation n'a pas pu être envoyé. Utilisez « Renvoyer
+  l'email » ou « Copier le lien » » ; le badge de statut affiche « En attente
+  d'acceptation » (au lieu de « Invitation envoyée ») à côté de « Email non envoyé ».
+- Mot de passe oublié : `messageErreurEnvoiEmail` (lib/auth-erreurs.ts) — « L'e-mail
+  n'a pas pu être envoyé. Réessayez dans quelques minutes ; si le problème persiste,
+  contactez le support. » (les limites de débit gardent leur message dédié).
+
+### Tests
+- Unitaires invitations : +3 (renvoi par le validateur ; renvoi/révocation refusés au
+  validateur d'une autre société ; liste du validateur après validation). API 861/861.
+- HTTP réel, échec Supabase réel (500 « Error sending invite email ») : proposition du
+  pharmacien → validation par l'informatique → `emailEnvoye=false` ; visible dans sa
+  liste avec le lien de secours ; « Renvoyer » par le validateur → 201, nouvel échec
+  restitué ; par l'informatique d'une autre société → 403, invisible dans sa liste.
+- Navigateur (e2e.localhost) : mot de passe oublié → message explicite ; écran
+  Utilisateurs → « Valider » affiche l'échec en rouge, ligne « En attente
+  d'acceptation » + « Email non envoyé » + « Renvoyer l'email » / « Copier le lien » ;
+  « Renvoyer l'email » → « Nouvel échec de l'envoi… ». Données de test supprimées.
+
+### Statut
+Terminé, commité et poussé.

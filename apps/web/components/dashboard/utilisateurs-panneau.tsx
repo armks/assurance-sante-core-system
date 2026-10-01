@@ -296,7 +296,9 @@ export function UtilisateursPanneau({
                               : 'secondary'
                           }
                         >
-                          {LIBELLE_STATUT[inv.statut] ?? inv.statut}
+                          {inv.statut === 'EN_ATTENTE' && inv.emailEnvoye === false
+                            ? 'En attente d’acceptation'
+                            : (LIBELLE_STATUT[inv.statut] ?? inv.statut)}
                         </Badge>
                         {inv.statut === 'EN_ATTENTE' &&
                           inv.emailEnvoye === false && (

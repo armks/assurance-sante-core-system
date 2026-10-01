@@ -234,9 +234,9 @@ export class InvitationsService {
     const ctx = await this.contexteAppelant(user);
     const inv = await this.charger(id);
 
-    if (inv.invitePar !== ctx.userId) {
+    if (!this.estGestionnaire(ctx, inv)) {
       throw new ForbiddenException(
-        'Seul l’émetteur de l’invitation peut la révoquer.',
+        'Seul l’émetteur de l’invitation (ou son validateur) peut la révoquer.',
       );
     }
     if (['ACCEPTEE', 'REJETEE', 'REVOQUEE'].includes(inv.statut)) {
@@ -275,9 +275,9 @@ export class InvitationsService {
     const ctx = await this.contexteAppelant(user);
     const inv = await this.charger(id);
 
-    if (inv.invitePar !== ctx.userId) {
+    if (!this.estGestionnaire(ctx, inv)) {
       throw new ForbiddenException(
-        "Seul l'émetteur de l'invitation peut renvoyer l'e-mail.",
+        "Seul l'émetteur de l'invitation (ou son validateur) peut renvoyer l'e-mail.",
       );
     }
     if (inv.statut !== 'EN_ATTENTE') {
@@ -322,8 +322,12 @@ export class InvitationsService {
         deletedAt: null,
         OR: [
           { invitePar: ctx.userId },
+          // Propositions dont l'appelant est le rôle validateur — y compris
+          // APRÈS validation : c'est la validation qui déclenche l'e-mail, le
+          // validateur doit donc voir un échec d'envoi (« Email non envoyé »)
+          // et pouvoir le renvoyer.
           {
-            statut: 'EN_ATTENTE_VALIDATION_INFORMATIQUE',
+            mode: 'PROPOSITION',
             roleValidateur: { in: ctx.roleChain },
             organisationId: ctx.organisationId,
           },
@@ -648,6 +652,29 @@ export class InvitationsService {
 
   private genererToken(): string {
     return randomBytes(32).toString('base64url');
+  }
+
+  /**
+   * Émetteur de l'invitation, ou — pour une PROPOSITION — le rôle validateur de
+   * la même organisation (c'est lui qui a déclenché l'envoi de l'e-mail).
+   */
+  private estGestionnaire(
+    ctx: { userId: string; organisationId: string | null; roleChain: string[] },
+    inv: {
+      invitePar: string;
+      mode: string;
+      roleValidateur: string | null;
+      organisationId: string | null;
+    },
+  ): boolean {
+    if (inv.invitePar === ctx.userId) return true;
+    return (
+      inv.mode === 'PROPOSITION' &&
+      !!inv.roleValidateur &&
+      ctx.roleChain.includes(inv.roleValidateur) &&
+      !!ctx.organisationId &&
+      inv.organisationId === ctx.organisationId
+    );
   }
 
   private async charger(id: string) {

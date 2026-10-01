@@ -39,12 +39,18 @@ export async function inviterUtilisateur(input: {
       message: `Proposition enregistrée pour ${inv.email} — en attente de validation.`,
     };
   }
-  const suffixe = inv.emailEnvoye
-    ? ' Un e-mail d’invitation a été envoyé.'
-    : inv.lienAcceptation
-      ? ` Lien d’activation : ${inv.lienAcceptation}`
-      : '';
-  return { ok: true, message: `Invitation envoyée à ${inv.email}.${suffixe}` };
+  if (inv.emailEnvoye === false) {
+    return { ok: false, error: echecEnvoi(`Invitation créée pour ${inv.email}`) };
+  }
+  return {
+    ok: true,
+    message: `Invitation envoyée à ${inv.email}. Un e-mail d’invitation a été envoyé.`,
+  };
+}
+
+/** L'action a abouti mais l'e-mail n'est pas parti : affiché comme une erreur. */
+function echecEnvoi(prefixe: string): string {
+  return `${prefixe}, mais l’e-mail d’invitation n’a pas pu être envoyé. Utilisez « Renvoyer l’email » ou « Copier le lien » dans « Invitations en cours ».`;
 }
 
 /** Valide une proposition en attente (rôle validateur). */
@@ -57,7 +63,11 @@ export async function validerProposition(
   if (!res.ok) {
     return { ok: false, error: await messageErreur(res) };
   }
+  const inv = (await res.json()) as { email: string; emailEnvoye?: boolean | null };
   revalidatePath(CIBLE);
+  if (inv.emailEnvoye === false) {
+    return { ok: false, error: echecEnvoi(`Proposition validée pour ${inv.email}`) };
+  }
   return { ok: true, message: 'Proposition validée — invitation envoyée.' };
 }
 

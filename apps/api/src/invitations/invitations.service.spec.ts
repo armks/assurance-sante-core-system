@@ -680,4 +680,59 @@ describe('InvitationsService', () => {
     const res = await service.renvoyerEmail(USER, 'inv-1');
     expect(res.emailEnvoye).toBe(true);
   });
+
+  // --- Proposition validée : le validateur gère l'échec d'envoi -----------
+
+  const propositionValidee = (organisationId: string) => ({
+    id: 'inv-2',
+    invitePar: 'pharmacien-emetteur',
+    mode: 'PROPOSITION',
+    roleValidateur: 'ASSUREUR_INFORMATIQUE',
+    organisationId,
+    statut: 'EN_ATTENTE',
+    authUserId: 'auth-2',
+    email: 'caissiere@y.ci',
+    rolePropose: 'PHARMACIE_CAISSIERE',
+    token: 'tok2',
+    emailEnvoye: false,
+    telephone: null,
+    expireLe: DANS_72H,
+    accepteLe: null,
+    createdAt: new Date(),
+  });
+
+  it('renvoyerEmail : le VALIDATEUR d’une proposition (même organisation) peut renvoyer l’e-mail', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.invitation.findFirst.mockResolvedValue(propositionValidee('org-1'));
+    admin.inviterUtilisateur.mockResolvedValue({ authUserId: 'auth-2', emailEnvoye: false });
+    prisma._tx.invitation.update.mockImplementation(({ data }: any) => ({ ...propositionValidee('org-1'), ...data }));
+
+    const res = await service.renvoyerEmail(USER, 'inv-2');
+    expect(admin.inviterUtilisateur).toHaveBeenCalledTimes(1);
+    expect(res.emailEnvoye).toBe(false);
+  });
+
+  it('renvoyerEmail / revoquer : refusés au validateur d’une AUTRE organisation', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-2', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.invitation.findFirst.mockResolvedValue(propositionValidee('org-1'));
+
+    await expect(service.renvoyerEmail(USER, 'inv-2')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.revoquer(USER, 'inv-2')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+  });
+
+  it('listerMesInvitations : le validateur continue de voir ses propositions APRÈS validation', async () => {
+    connecte({ role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] });
+    prisma.invitation.findMany.mockResolvedValue([propositionValidee('org-1')]);
+
+    const res = await service.listerMesInvitations(USER);
+
+    const where = prisma.invitation.findMany.mock.calls[0][0].where;
+    expect(where.OR).toContainEqual({
+      mode: 'PROPOSITION',
+      roleValidateur: { in: ['ASSUREUR_INFORMATIQUE'] },
+      organisationId: 'org-1',
+    });
+    expect(res[0]).toMatchObject({ statut: 'EN_ATTENTE', emailEnvoye: false });
+  });
 });

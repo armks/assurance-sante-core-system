@@ -45,9 +45,12 @@ export class SupabaseAdminService {
 
   /**
    * Équivalent `supabase.auth.admin.inviteUserByEmail` : crée le compte auth
-   * (sans mot de passe) et déclenche l'e-mail d'invitation. Retombe sur une
-   * création simple si l'envoi d'e-mail échoue (SMTP non configuré en dev), afin
-   * que le flux reste utilisable — l'invité recevra le lien par un autre canal.
+   * (sans mot de passe) et déclenche l'e-mail d'invitation. Si l'envoi échoue
+   * (SMTP Supabase indisponible, limite d'envoi…), le compte est tout de même
+   * créé — sans quoi « Copier le lien » et l'acceptation seraient impossibles —
+   * mais l'échec n'est JAMAIS masqué : `emailEnvoye: false` est enregistré sur
+   * l'invitation, affiché (« Email non envoyé » + « Renvoyer l'email ») et
+   * annoncé explicitement par le message de résultat.
    *
    * @returns id du compte auth + indicateur d'envoi d'e-mail
    */
@@ -82,7 +85,7 @@ export class SupabaseAdminService {
     }
 
     this.logger.warn(
-      `inviteUserByEmail a échoué (${res.status}: ${detail.slice(0, 200)}) — repli sur admin/users.`,
+      `E-mail d'invitation NON envoyé à ${email} (${res.status}: ${detail.slice(0, 200)}) — compte créé sans e-mail, emailEnvoye=false.`,
     );
     try {
       const cree = await this.creerUtilisateur(email, metadata);

@@ -52,3 +52,26 @@ export function messageErreurAuth(error: unknown): string {
   if (status === 429) return MESSAGES.over_request_rate_limit;
   return ERREUR_GENERIQUE;
 }
+
+const ECHEC_ENVOI_EMAIL =
+  'L’e-mail n’a pas pu être envoyé. Réessayez dans quelques minutes ; si le problème persiste, contactez le support.';
+
+/**
+ * Pour les parcours qui DÉCLENCHENT un e-mail (mot de passe oublié) : un échec
+ * serveur signifie que l'e-mail n'est pas parti — Supabase répond alors
+ * `500 unexpected_failure` « Error sending recovery email ». On le dit
+ * explicitement au lieu du message générique.
+ */
+export function messageErreurEnvoiEmail(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const { code, status, message } = error as {
+      code?: string;
+      status?: number;
+      message?: string;
+    };
+    if (!(code && MESSAGES[code]) && ((status ?? 0) >= 500 || /error sending/i.test(message ?? ''))) {
+      return ECHEC_ENVOI_EMAIL;
+    }
+  }
+  return messageErreurAuth(error);
+}

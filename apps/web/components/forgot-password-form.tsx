@@ -3,7 +3,7 @@
 import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
-import { messageErreurAuth } from '@/lib/auth-erreurs'
+import { messageErreurEnvoiEmail } from '@/lib/auth-erreurs'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,7 +37,7 @@ export function ForgotPasswordForm({ className, ...props }: React.ComponentProps
       if (error) throw error
       setSuccess(true)
     } catch (error: unknown) {
-      setError(messageErreurAuth(error))
+      setError(messageErreurEnvoiEmail(error))
     } finally {
       setIsLoading(false)
     }

@@ -14,6 +14,7 @@ import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   DefinirPrixStockDto,
   ListerDispensationsQueryDto,
+  ListerMesDispensationsQueryDto,
   PreparerDispensationDto,
   RechercherParCarteQueryDto,
   SoumettreFactureMensuelleDto,
@@ -79,8 +80,8 @@ export class PharmacyController {
 
   /** Côté ADHÉRENT : ses dispensations en attente (avec le code). */
   @Get('dispensations/mes-dispensations')
-  mesDispensations(@CurrentUser() user: AuthenticatedUser) {
-    return this.pharmacy.listerMesDispensations(user);
+  mesDispensations(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesDispensationsQueryDto) {
+    return this.pharmacy.listerMesDispensations(user, dto);
   }
 
   /** Côté PHARMACIE : détail/statut d'une dispensation de SA pharmacie. */

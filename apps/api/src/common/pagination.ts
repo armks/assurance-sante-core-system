@@ -22,13 +22,8 @@ export class PaginationQueryDto {
   limite?: number;
 }
 
-/** Pagination + recherche texte (`q`) + période (`du` / `au`, dates incluses). */
-export class RecherchePeriodeQueryDto extends PaginationQueryDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  q?: string;
-
+/** Pagination + période (`du` / `au`, dates incluses). */
+export class PeriodeQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsISO8601({ strict: true })
   du?: string;
@@ -36,6 +31,14 @@ export class RecherchePeriodeQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsISO8601({ strict: true })
   au?: string;
+}
+
+/** Pagination + période + recherche texte (`q`). */
+export class RecherchePeriodeQueryDto extends PeriodeQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }
 
 export interface Page<T> {
@@ -63,6 +66,13 @@ export function bornesPeriode(du?: string, au?: string): { debut?: Date; finExcl
   const debut = du ? new Date(`${du.slice(0, 10)}T00:00:00.000Z`) : undefined;
   const finExclue = au ? new Date(new Date(`${au.slice(0, 10)}T00:00:00.000Z`).getTime() + 86_400_000) : undefined;
   return { debut, finExclue };
+}
+
+/** Même période, pour un `where` Prisma (`undefined` = pas de borne). */
+export function filtrePeriode(du?: string, au?: string): { gte?: Date; lt?: Date } | undefined {
+  const { debut, finExclue } = bornesPeriode(du, au);
+  if (!debut && !finExclue) return undefined;
+  return { ...(debut ? { gte: debut } : {}), ...(finExclue ? { lt: finExclue } : {}) };
 }
 
 /**

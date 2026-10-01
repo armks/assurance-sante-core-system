@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { listerDispensationsPharmacie } from '@/app/dashboard-pharmacie/dispensation-actions';
 import { DispensationsListeEcran } from '@/components/dashboard/pharmacie/dispensations-liste-ecran';
 import { PageTitre } from '@/components/page-titre';
+import { requeteListe, type ParametresUrl } from '@/lib/liste-serveur';
 
 export const metadata: Metadata = { title: 'Suivi des dispensations — Comptable' };
 
@@ -14,8 +15,15 @@ export const metadata: Metadata = { title: 'Suivi des dispensations — Comptabl
  * uniquement (filtré côté serveur) — cohérent avec le rôle déjà en place
  * avant cette bascule, aucune action de préparation/paiement ici.
  */
-export default async function ComptablePage() {
-  const dispensations = await listerDispensationsPharmacie('PAYEE');
+export default async function ComptablePage({
+  searchParams,
+}: {
+  searchParams: Promise<ParametresUrl>;
+}) {
+  const dispensations = await listerDispensationsPharmacie(
+    requeteListe(await searchParams, ['q', 'du', 'au']),
+    'PAYEE',
+  );
 
   return (
     <div className="space-y-8">
@@ -25,7 +33,8 @@ export default async function ComptablePage() {
       />
       <DispensationsListeEcran
         dispensations={dispensations}
-        vide="Aucune dispensation réglée pour l’instant."
+        filtreStatut={false}
+        vide="Aucune dispensation réglée ne correspond à ces critères."
       />
     </div>
   );

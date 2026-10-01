@@ -3,8 +3,11 @@
 import type { DispensationResume } from '@/app/dashboard-pharmacie/dispensation-types';
 import {
   DataTable,
+  FiltresServeur,
+  PaginationServeur,
   StatutBadge,
   type ColonneTable,
+  type PageServeur,
 } from '@/components/dashboard/patterns';
 
 const LIBELLE_STATUT: Record<string, string> = {
@@ -28,9 +31,13 @@ const montantFr = (v: string) => `${Number(v).toLocaleString('fr-FR')} F`;
 export function DispensationsListeEcran({
   dispensations,
   vide,
+  filtreStatut = true,
 }: {
-  dispensations: DispensationResume[];
+  /** Page renvoyée par l'API (pagination, recherche, statut, période serveur). */
+  dispensations: PageServeur<DispensationResume>;
   vide: string;
+  /** Le comptable ne voit que les PAYEE (imposé côté serveur) : pas de choix de statut. */
+  filtreStatut?: boolean;
 }) {
   const colonnes: ColonneTable<DispensationResume>[] = [
     {
@@ -67,26 +74,36 @@ export function DispensationsListeEcran({
     {
       cle: 'datePreparation',
       entete: 'Préparée le',
-      triable: true,
-      valeur: (d) => d.datePreparation,
       rendu: (d) => dateFr(d.datePreparation),
     },
     {
       cle: 'datePaiement',
       entete: 'Payée le',
-      triable: true,
-      valeur: (d) => d.datePaiement ?? '',
       rendu: (d) => dateFr(d.datePaiement),
     },
   ];
 
+  // Liste paginée CÔTÉ SERVEUR (du plus récent au plus ancien) : pas de tri
+  // local, qui ne porterait que sur la page affichée.
   return (
-    <DataTable
-      donnees={dispensations}
-      cleLigne={(d) => d.id}
-      parPage={10}
-      colonnes={colonnes}
-      vide={vide}
-    />
+    <div className="space-y-3">
+      <FiltresServeur
+        recherche={{ placeholder: 'Patient, n° de carte, médicament…' }}
+        periode
+        libellePeriode="Préparée"
+        selects={
+          filtreStatut
+            ? [{ cle: 'statut', libelle: 'Statut', options: Object.entries(LIBELLE_STATUT).map(([valeur, libelle]) => ({ valeur, libelle })) }]
+            : []
+        }
+      />
+      <DataTable donnees={dispensations.items} cleLigne={(d) => d.id} parPage={0} piedMasque colonnes={colonnes} vide={vide} />
+      <PaginationServeur
+        page={dispensations.page}
+        pages={dispensations.pages}
+        total={dispensations.total}
+        limite={dispensations.limite}
+      />
+    </div>
   );
 }

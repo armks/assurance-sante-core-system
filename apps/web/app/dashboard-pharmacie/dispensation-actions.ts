@@ -2,8 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 
-import type { ResultatSoumission } from '@/components/dashboard/patterns';
+import type { PageServeur, ResultatSoumission } from '@/components/dashboard/patterns';
 import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
+import { PAGE_VIDE } from '@/lib/liste-serveur';
 import type {
   DispensationDetail,
   DispensationResume,
@@ -57,12 +58,20 @@ export async function definirPrixStock(
  * révision du flux par ligne. `statut` filtre côté serveur (le comptable ne
  * veut que PAYEE).
  */
+/**
+ * Page de dispensations (pagination, recherche, statut, période CÔTÉ SERVEUR —
+ * l'API s'arrêtait aux 100 plus récentes). `filtres` : chaîne `?…` issue de
+ * l'URL ; `statutImpose` (comptable : PAYEE) l'emporte toujours.
+ */
 export async function listerDispensationsPharmacie(
-  statut?: StatutDispensation,
-): Promise<DispensationResume[]> {
-  const qs = statut ? `?statut=${statut}` : '';
-  const res = await apiFetch(`/api/v1/pharmacy/dispensations${qs}`);
-  return res.ok ? ((await res.json()) as DispensationResume[]) : [];
+  filtres = '',
+  statutImpose?: StatutDispensation,
+): Promise<PageServeur<DispensationResume>> {
+  const p = new URLSearchParams(filtres.startsWith('?') ? filtres.slice(1) : filtres);
+  if (statutImpose) p.set('statut', statutImpose);
+  const qs = p.toString();
+  const res = await apiFetch(`/api/v1/pharmacy/dispensations${qs ? `?${qs}` : ''}`);
+  return res.ok ? ((await res.json()) as PageServeur<DispensationResume>) : PAGE_VIDE;
 }
 
 export async function preparerDispensation(

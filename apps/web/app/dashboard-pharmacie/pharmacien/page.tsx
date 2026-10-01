@@ -8,6 +8,7 @@ import { DispensationsListeEcran } from '@/components/dashboard/pharmacie/dispen
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { requeteListe, type ParametresUrl } from '@/lib/liste-serveur';
 
 export const metadata: Metadata = { title: 'Dispensation — Pharmacien' };
 
@@ -22,13 +23,17 @@ const CIBLE = '/dashboard-pharmacie/pharmacien';
  * l'historique complet (tous statuts) de la pharmacie, absent côté
  * caissière.
  */
-export default async function PharmacienPage() {
+export default async function PharmacienPage({
+  searchParams,
+}: {
+  searchParams: Promise<ParametresUrl>;
+}) {
   const etat = await exigerIdentite(CIBLE);
   if (etat.kind !== 'ok') redirect('/dashboard');
 
   const [resStock, dispensations] = await Promise.all([
     apiFetch('/api/v1/pharmacy/stock'),
-    listerDispensationsPharmacie(),
+    listerDispensationsPharmacie(requeteListe(await searchParams, ['q', 'du', 'au', 'statut'])),
   ]);
   const stock: LigneStock[] = resStock.ok ? await resStock.json() : [];
   const erreur = resStock.ok ? null : await messageErreur(resStock);
@@ -53,7 +58,7 @@ export default async function PharmacienPage() {
         </h2>
         <DispensationsListeEcran
           dispensations={dispensations}
-          vide="Aucune dispensation pour l’instant."
+          vide="Aucune dispensation ne correspond à ces critères."
         />
       </div>
     </div>

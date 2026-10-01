@@ -7020,3 +7020,31 @@ prescription) » étaient INVISIBLES et incontestables ; `?q=…&page=2` ignoré
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-01 — Pagination serveur : dispensations pharmacie et adhérent (listes tronquées n° 3 et 4)
+
+### Correctif
+- `common/pagination.ts` : `PeriodeQueryDto` (pagination + `du` / `au`, sans recherche)
+  et `filtrePeriode()` pour un `where` Prisma.
+- `GET /pharmacy/dispensations` (pharmacien ; comptable avec `statut=PAYEE` imposé) :
+  `take: 100` remplacé par la pagination serveur + statut + période de préparation +
+  recherche `q` sans accent (patient, n° de carte, médicaments — pré-sélection SQL puis
+  `where` Prisma) ; réponse `Page`, `count` sur le même `where`.
+- `GET /pharmacy/dispensations/mes-dispensations` (adhérent) : `take: 50` remplacé par
+  la pagination serveur + statut + période.
+- Web : action `listerDispensationsPharmacie(filtres, statutImpose)`, pages pharmacien /
+  comptable / adhérent lisent `searchParams` ; écrans avec `FiltresServeur` +
+  `PaginationServeur` (pas de choix de statut pour le comptable).
+
+### Tests
+- Unitaires : +3 (skip/take et même `where` pour le total, recherche pré-sélectionnée,
+  scope adhérent) ; tests existants adaptés au format paginé. API 911/911.
+- HTTP réel : 110 dispensations (la plus ancienne au 15/03/2025) + 1 dispensation réelle
+  avec ligne : total 110/111, parcours complet sans doublon, la plus ancienne en
+  dernière page et par la période mars 2025 ; statut + période combinés (47) ;
+  « ibuprofene », « IBUPROFÈNE 400 », « yao kouassi », « CM-0000000002 » retrouvés ;
+  statut invalide → 400. Navigateur (adhérent) : filtre mars 2025 → 1 résultat,
+  page 5 « 101–111 sur 111 ». Volume supprimé.
+
+### Statut
+Terminé, commité et poussé.

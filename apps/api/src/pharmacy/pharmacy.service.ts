@@ -16,11 +16,13 @@ import {
   STATUTS_CONTESTATION_EN_LITIGE,
 } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
+import { bornesPage, conditionRecherche, filtrePeriode, versPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DefinirPrixStockDto,
   LigneChoisieDto,
   ListerDispensationsQueryDto,
+  ListerMesDispensationsQueryDto,
   SoumettreFactureMensuelleDto,
   SubstituerMedicamentDto,
   ValiderCodeDispensationDto,
@@ -427,11 +429,39 @@ export class PharmacyService {
     const ctx = await this.contexteAppelant(user);
     this.assertPharmacie(ctx);
 
-    const dispensations = await this.prisma.dispensationPharmacie.findMany({
-      where: {
-        pharmacieId: ctx.pharmacieId!,
-        ...(dto.statut ? { statut: dto.statut } : {}),
-      },
+    // Pagination SERVEUR (remplace `take: 100` : l'historique au-delà était
+    // inaccessible). Recherche sans accent pré-sélectionnée en SQL, puis
+    // statut / période / pagination via Prisma ; total = résultats filtrés.
+    const { page, limite, offset } = bornesPage(dto);
+    const idsRecherche = dto.q?.trim()
+      ? (
+          await this.prisma.$queryRaw<{ id: string }[]>`
+            SELECT dp.id::text AS id
+            FROM dispensations_pharmacie dp
+            JOIN ordonnances o ON o.id = dp.ordonnance_id
+            JOIN dossiers_soins d ON d.id = o.dossier_soins_id
+            LEFT JOIN adherents ad ON ad.id = d.adherent_id
+            LEFT JOIN beneficiaires b ON b.id = d.beneficiaire_id
+            WHERE dp.pharmacie_id = ${ctx.pharmacieId!}::uuid
+              AND ${conditionRecherche(dto.q, [
+                Prisma.sql`ad.prenom`, Prisma.sql`ad.nom`, Prisma.sql`ad.numero_carte`,
+                Prisma.sql`b.prenom`, Prisma.sql`b.nom`, Prisma.sql`b.numero_carte`,
+                Prisma.sql`(SELECT string_agg(concat_ws(' ', lo.denomination_medicament, ld.medicament_substitue), ' ')
+                            FROM lignes_dispensation ld JOIN lignes_ordonnance lo ON lo.id = ld.ligne_ordonnance_id
+                            WHERE ld.dispensation_id = dp.id)`,
+              ])}`
+        ).map((r) => r.id)
+      : null;
+    const where: Prisma.DispensationPharmacieWhereInput = {
+      pharmacieId: ctx.pharmacieId!,
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(filtrePeriode(dto.du, dto.au) ? { datePreparation: filtrePeriode(dto.du, dto.au) } : {}),
+      ...(idsRecherche ? { id: { in: idsRecherche } } : {}),
+    };
+    const [total, dispensations] = await Promise.all([
+      this.prisma.dispensationPharmacie.count({ where }),
+      this.prisma.dispensationPharmacie.findMany({
+      where,
       include: {
         ordonnance: {
           include: {
@@ -445,15 +475,17 @@ export class PharmacyService {
         },
         lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } } },
       },
-      orderBy: { datePreparation: 'desc' },
-      take: 100,
-    });
+      orderBy: [{ datePreparation: 'desc' }, { id: 'asc' }],
+      skip: offset,
+      take: limite,
+    }),
+    ]);
 
     const enLitige = await this.chargerLignesEnLitige(
       dispensations.flatMap((d) => d.lignes.map((l) => l.ligneOrdonnanceId)),
     );
 
-    return dispensations.map((d) => {
+    const items = dispensations.map((d) => {
       const patient = d.ordonnance.dossier.adherent ?? d.ordonnance.dossier.beneficiaire;
       const montantAssurance = d.lignes.reduce(
         (acc, l) =>
@@ -485,34 +517,44 @@ export class PharmacyService {
         })),
       };
     });
+    return versPage(items, total, page, limite);
   }
 
   // --- Côté ADHÉRENT : ses dispensations en attente (avec le code) --
 
-  async listerMesDispensations(user: AuthenticatedUser) {
+  async listerMesDispensations(user: AuthenticatedUser, dto: ListerMesDispensationsQueryDto = {}) {
     const ctx = await this.contexteAppelant(user);
+    const { page, limite, offset } = bornesPage(dto);
     if (!ctx.adherentId) {
-      return [];
+      return versPage([], 0, page, limite);
     }
-    const dispensations = await this.prisma.dispensationPharmacie.findMany({
-      where: {
-        ordonnance: {
-          dossier: {
-            OR: [
-              { adherentId: ctx.adherentId },
-              { beneficiaire: { adherentId: ctx.adherentId } },
-            ],
-          },
+    // Pagination SERVEUR (remplace `take: 50`) + statut + période de préparation.
+    const where: Prisma.DispensationPharmacieWhereInput = {
+      ordonnance: {
+        dossier: {
+          OR: [
+            { adherentId: ctx.adherentId },
+            { beneficiaire: { adherentId: ctx.adherentId } },
+          ],
         },
       },
-      include: {
-        pharmacie: { select: { nom: true } },
-        lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } } },
-      },
-      orderBy: { datePreparation: 'desc' },
-      take: 50,
-    });
-    return dispensations.map((d) => {
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(filtrePeriode(dto.du, dto.au) ? { datePreparation: filtrePeriode(dto.du, dto.au) } : {}),
+    };
+    const [total, dispensations] = await Promise.all([
+      this.prisma.dispensationPharmacie.count({ where }),
+      this.prisma.dispensationPharmacie.findMany({
+        where,
+        include: {
+          pharmacie: { select: { nom: true } },
+          lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } } },
+        },
+        orderBy: [{ datePreparation: 'desc' }, { id: 'asc' }],
+        skip: offset,
+        take: limite,
+      }),
+    ]);
+    const items = dispensations.map((d) => {
       const montantPatient = d.lignes.reduce(
         (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
         new Decimal(0),
@@ -533,6 +575,7 @@ export class PharmacyService {
         datePreparation: d.datePreparation,
       };
     });
+    return versPage(items, total, page, limite);
   }
 
   /** Validation du code par l'ADHÉRENT — passe à VALIDEE, PAS encore PAYEE. */

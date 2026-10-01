@@ -15,6 +15,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { PeriodeQueryDto, RecherchePeriodeQueryDto } from '../../common/pagination';
 import { DECISIONS_VALIDATION_FACTURE_MENSUELLE_PHARMACIE, STATUTS_DISPENSATION } from '../pharmacy.types';
 
 export class RechercherParCarteQueryDto {
@@ -67,7 +68,19 @@ export class DefinirPrixStockDto {
   disponible?: boolean;
 }
 
-export class ListerDispensationsQueryDto {
+/**
+ * Dispensations de la pharmacie : pagination serveur (remplace `take: 100`),
+ * statut, période de préparation, recherche (patient, n° de carte, médicament
+ * — sans accent).
+ */
+export class ListerDispensationsQueryDto extends RecherchePeriodeQueryDto {
+  @IsOptional()
+  @IsIn(STATUTS_DISPENSATION)
+  statut?: (typeof STATUTS_DISPENSATION)[number];
+}
+
+/** Dispensations de l'adhérent : pagination serveur (remplace `take: 50`), statut, période. */
+export class ListerMesDispensationsQueryDto extends PeriodeQueryDto {
   @IsOptional()
   @IsIn(STATUTS_DISPENSATION)
   statut?: (typeof STATUTS_DISPENSATION)[number];

@@ -14,6 +14,7 @@ import {
   AjouterActeDto,
   AutoriserRepetitionConsultationDto,
   AutoriserRepetitionDto,
+  MarquerActeRealiseDto,
   TraiterParExploitationDto,
   ValiderPreautorisationDto,
 } from './dto/acte.dto';
@@ -181,6 +182,19 @@ export class PreauthorizationController {
     @Body() dto: AutoriserRepetitionConsultationDto,
   ) {
     return this.preauth.autoriserRepetitionConsultation(user, id, dto);
+  }
+
+  /**
+   * Côté MÉDECIN TRAITANT exclusivement (CENTRE_MEDICAL_MEDECIN) : atteste
+   * qu'un acte prescrit a été effectué — condition pour qu'il soit facturable.
+   */
+  @Post('actes/:id/realiser')
+  marquerActeRealise(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarquerActeRealiseDto,
+  ) {
+    return this.preauth.marquerActeRealise(user, id, dto);
   }
 
   // --- Pré-autorisation obligatoire (analyses/examens médicaux) -----

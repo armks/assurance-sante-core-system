@@ -52,6 +52,7 @@ export default async function DossierPage({
       <DossierDetail
         dossier={dossier}
         moiId={profil.id}
+        role={profil.role ?? ''}
         roleChain={permissions.roleChain}
         actesDisponibles={actesDisponibles}
       />

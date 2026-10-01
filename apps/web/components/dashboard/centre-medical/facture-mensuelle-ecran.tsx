@@ -7,6 +7,7 @@ import { soumettreFactureMensuelleEtablissement } from '@/app/dashboard-centre-m
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { StatutActe } from './statut-acte';
 
 export interface ActeDuMois {
   id: string;
@@ -14,6 +15,8 @@ export interface ActeDuMois {
   libelle: string;
   codeActe: string | null;
   montantPrescrit: string | null;
+  statut: string;
+  dateRealisation: string | null;
   statutPreautorisation: string;
   datePrescription: string;
   numeroTraitement: string;
@@ -98,6 +101,11 @@ export function FactureMensuelleEtablissementEcran({
       triable: true,
       valeur: (a) => a.datePrescription,
       rendu: (a) => dateFr(a.datePrescription),
+    },
+    {
+      cle: 'statut',
+      entete: 'Réalisation',
+      rendu: (a) => <StatutActe statut={a.statut} dateRealisation={a.dateRealisation} />,
     },
     {
       cle: 'etat',

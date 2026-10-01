@@ -11,7 +11,12 @@ import {
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { LIBELLE_PREAUTORISATION, TON_PREAUTORISATION } from '@/lib/centre-medical';
+import {
+  LIBELLE_PREAUTORISATION,
+  STATUTS_ACTE_FACTURABLES,
+  TON_PREAUTORISATION,
+} from '@/lib/centre-medical';
+import { StatutActe } from './statut-acte';
 
 interface LigneFacturationActe {
   id: string;
@@ -27,6 +32,7 @@ interface Acte {
   montantPrescrit: string | null;
   statutPreautorisation: string;
   statut: string;
+  dateRealisation: string | null;
   lignesFacturation: LigneFacturationActe[];
 }
 interface CycleFacturation {
@@ -65,19 +71,33 @@ function Ligne({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/** Un acte est facturable si sa pré-autorisation ne le bloque pas et qu'il n'est pas déjà réglé. */
+/**
+ * Même règle que l'API (`genererFactureSelection`, qui reste l'autorité) :
+ * acte réalisé, pré-autorisation non bloquante, pas déjà réglé.
+ */
 function estFacturable(a: Acte): boolean {
-  if (['EN_ATTENTE_VALIDATION', 'REFUSEE'].includes(a.statutPreautorisation)) return false;
+  if (!STATUTS_ACTE_FACTURABLES.includes(a.statut)) return false;
+  if (PREAUTORISATION_NON_FACTURABLE.includes(a.statutPreautorisation)) return false;
   if (a.lignesFacturation.some((l) => l.statut === 'PAYE')) return false;
   return true;
 }
 
+/** Miroir de `STATUTS_PREAUTORISATION_NON_FACTURABLES` (API). */
+const PREAUTORISATION_NON_FACTURABLE = [
+  'EN_ATTENTE_EXPLOITATION',
+  'EN_ATTENTE_MEDECIN_CONSEIL',
+  'REFUSEE',
+];
+
 function statutFacturationActe(a: Acte): { label: string; ton: 'succes' | 'attention' | 'neutre' | 'danger' } {
-  if (['EN_ATTENTE_VALIDATION', 'REFUSEE'].includes(a.statutPreautorisation)) {
-    return { label: 'Non facturable (pré-autorisation)', ton: 'danger' };
-  }
   const ligne = a.lignesFacturation[0]; // trié du plus récent au plus ancien côté API
   if (ligne?.statut === 'PAYE') return { label: 'Payé', ton: 'succes' };
+  if (!STATUTS_ACTE_FACTURABLES.includes(a.statut)) {
+    return { label: 'Non facturable (non réalisé)', ton: 'attention' };
+  }
+  if (PREAUTORISATION_NON_FACTURABLE.includes(a.statutPreautorisation)) {
+    return { label: 'Non facturable (pré-autorisation)', ton: 'danger' };
+  }
   if (ligne?.statut === 'A_PAYER') return { label: 'Code généré (en attente)', ton: 'attention' };
   return { label: 'À sélectionner', ton: 'neutre' };
 }
@@ -145,6 +165,11 @@ export function TicketDetail({
         aligneDroite: true,
         valeur: (a) => Number(a.montantPrescrit ?? 0),
         rendu: (a) => montant(a.montantPrescrit),
+      },
+      {
+        cle: 'statut',
+        entete: 'Réalisation',
+        rendu: (a) => <StatutActe statut={a.statut} dateRealisation={a.dateRealisation} />,
       },
       {
         cle: 'statutPreautorisation',
@@ -225,9 +250,10 @@ export function TicketDetail({
         </CardHeader>
         <CardContent>
           <p className="mb-3 text-sm text-muted-foreground">
-            Cochez les actes à régler maintenant. Les actes non facturables
-            (pré-autorisation en attente/refusée, ou déjà payés) ne sont pas
-            sélectionnables.
+            Cochez les actes à régler maintenant. Seuls les actes marqués
+            « Réalisé » par le médecin traitant sont facturables ; les actes
+            prescrits non réalisés, en attente/refusés de pré-autorisation ou
+            déjà payés ne sont pas sélectionnables.
           </p>
           <DataTable
             donnees={dossier.actes}

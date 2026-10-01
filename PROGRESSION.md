@@ -6692,3 +6692,60 @@ Supabase répond `500 unexpected_failure` (« Error sending invite/recovery emai
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Règle métier : un acte n'est facturable qu'une fois RÉALISÉ
+
+### Constat
+`actes_dossier.statut` (PRESCRIT | REALISE | ANNULE | LIQUIDE, prisma/sql/014) restait à
+PRESCRIT pour toujours : aucun code ni écran ne le faisait passer à REALISE. Un acte
+pouvait donc être facturé et payé sans avoir jamais été attesté effectué (constaté
+lors du rejeu HTTP de la chaîne anti-fraude).
+
+### Réalisé
+- API — `POST /preauthorization/actes/:id/realiser` (`marquerActeRealise`) : rôle EXACT
+  CENTRE_MEDICAL_MEDECIN (`ROLE_MEDECIN_TRAITANT`), de l'établissement du dossier ;
+  PRESCRIT → REALISE avec `dateRealisation` (maintenant par défaut, antérieure admise
+  pour un acte saisi après coup, jamais dans le futur ni avant l'ouverture du
+  dossier) ; 409 si déjà réalisé/annulé/liquidé ou ticket ANNULÉ ; audit
+  `REALISATION_ACTE` (`log_audit`).
+- API — garde de facturation (`genererFactureSelection`, seul point d'entrée qui crée
+  ou rattache une ligne de facturation) : tout acte hors REALISE/LIQUIDE est exclu,
+  comme les actes en litige ou en attente de pré-autorisation. Réponse enrichie
+  `exclusions: [{ acteId, motif }]` (NON_REALISE | PREAUTORISATION | DEJA_REGLE |
+  EN_LITIGE) ; 409 explicite « un acte doit d'abord être marqué « réalisé » par le
+  médecin traitant » quand rien n'est facturable. `listerActesDuMoisEtablissement`
+  expose `statut` + `dateRealisation`.
+- Base — `prisma/sql/063_acte_realise_avant_facturation.sql` (appliquée) : contrainte
+  `actes_dossier_realise_avec_date` (REALISE/LIQUIDE ⇒ date_realisation) et trigger
+  `trg_verifier_acte_realise_facturation` sur `lignes_facturation` (INSERT et UPDATE
+  de `facture_dossier_id`) — défense en profondeur.
+- Web :
+  - écran médecin (dossier en cours) : bouton « Marquer comme réalisé » par acte
+    prescrit, visible pour CENTRE_MEDICAL_MEDECIN uniquement (rôle exact transmis par
+    la page), modale avec date/heure pré-remplie à maintenant et modifiable ;
+  - indicateur partagé `StatutActe` (« Prescrit — non réalisé » ambre / « Réalisé le
+    … » vert) sur l'écran médecin, la sélection de facturation du comptable (colonne
+    « Réalisation » ; case à cocher absente pour un acte non réalisé, badge
+    « Non facturable (non réalisé) ») et la liste des actes de la facture mensuelle ;
+  - `estFacturable` (sélection comptable) aligné sur l'API : il testait un statut de
+    pré-autorisation inexistant (`EN_ATTENTE_VALIDATION`) au lieu de
+    EN_ATTENTE_EXPLOITATION / EN_ATTENTE_MEDECIN_CONSEIL.
+
+### Tests
+- Unitaires : +13 (marquage : succès + audit, date antérieure, 4 rôles refusés, autre
+  établissement, autre organisation, déjà REALISE/ANNULE/LIQUIDE, ticket annulé, date
+  future / avant ouverture ; facturation : acte PRESCRIT refusé en 409 sans cycle,
+  sélection mixte). Fixture des tests de facturation : acte REALISE par défaut.
+  API 876/876, `tsc` OK.
+- HTTP réel : acte 15 000 F PRESCRIT → facture-sélection 409 explicite, aucun cycle ;
+  INSERT SQL direct d'une ligne → refusé par le trigger ; accueil / comptable /
+  médecin conseil → 403 ; date future / avant ouverture → 400 ; médecin → 201
+  REALISE (second marquage 409) ; audit présent ; puis chaîne rejouée jusqu'au bout
+  (cycle 12 000 F assurance, code validé, réglé, facture mensuelle 12 000 F payée,
+  solde 988 000).
+- Navigateur (e2e.localhost) : médecin → bouton, modale, acte passé à « Réalisé le … » ;
+  comptable → colonne Réalisation, acte prescrit non sélectionnable ; facture mensuelle
+  → colonne Réalisation. Données de test supprimées.
+
+### Statut
+Terminé, commité et poussé.

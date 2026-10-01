@@ -71,6 +71,12 @@ export const ROLES_AJOUT_ACTE = [
   'ASSUREUR_INFORMATIQUE',
 ] as const;
 
+/**
+ * Statuts d'acte facturables : réalisé (ou déjà liquidé). Seul le médecin
+ * traitant (`ROLE_MEDECIN_TRAITANT`, rôle exact) atteste la réalisation.
+ */
+export const STATUTS_ACTE_FACTURABLES = ['REALISE', 'LIQUIDE'] as const;
+
 /** Rôles « personnel de centre médical » — soumis au contrôle d'établissement. */
 export const ROLES_CENTRE_MEDICAL = [
   'CENTRE_MEDICAL_MEDECIN',

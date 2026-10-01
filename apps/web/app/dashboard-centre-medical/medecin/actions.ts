@@ -125,3 +125,22 @@ export async function cloturerDossier(
   revalidatePath('/dashboard-centre-medical/medecin');
   return { ok: true };
 }
+
+/**
+ * Le médecin traitant atteste qu'un acte a été effectué — condition pour qu'il
+ * soit facturable. `dateRealisation` (ISO, déjà convertie depuis l'heure
+ * locale du poste) : maintenant si absente.
+ */
+export async function marquerActeRealise(
+  dossierId: string,
+  acteId: string,
+  dateRealisation?: string,
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/preauthorization/actes/${acteId}/realiser`, {
+    method: 'POST',
+    body: JSON.stringify(dateRealisation ? { dateRealisation } : {}),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(cible(dossierId));
+  return { ok: true, message: 'Acte marqué comme réalisé.' };
+}

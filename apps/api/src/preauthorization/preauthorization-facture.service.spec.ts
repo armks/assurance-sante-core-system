@@ -46,6 +46,7 @@ function acte(id: string, extra: Record<string, unknown> = {}) {
     montantPrescrit: dec(10000),
     quantite: 1,
     categorieActe: 'CONSULTATION',
+    statut: 'REALISE',
     statutPreautorisation: 'NON_REQUISE',
     lignesFacturation: [],
     ...extra,
@@ -60,7 +61,11 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
   beforeEach(async () => {
     prisma = {
       dossierSoins: { findFirst: jest.fn() },
-      acteDossier: { findMany: jest.fn().mockResolvedValue([]) },
+      acteDossier: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn(),
+        update: jest.fn(({ where, data }: any) => ({ id: where.id, ...data })),
+      },
       contestationActe: { findMany: jest.fn().mockResolvedValue([]) },
       garantie: { findMany: jest.fn().mockResolvedValue([]) },
       ligneFacturation: {
@@ -112,6 +117,93 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
     montantPatient: dec(Number(data.montantPatient)),
   });
 
+  describe('marquerActeRealise', () => {
+    const OUVERTURE = new Date('2026-09-01T08:00:00Z');
+    const acteEnBase = (extra: Record<string, unknown> = {}) => ({
+      id: 'acte-1',
+      statut: 'PRESCRIT',
+      dossierSoinsId: 'dos-1',
+      dossier: { organisationId: 'org-1', etablissementId: 'etab-1', dateOuverture: OUVERTURE },
+      ticket: { statut: 'OUVERT' },
+      ...extra,
+    });
+    const medecin = (extra: Record<string, unknown> = {}) =>
+      profil('CENTRE_MEDICAL_MEDECIN', { etablissementId: 'etab-1', ...extra });
+
+    it('médecin de l’établissement : PRESCRIT → REALISE, date = maintenant par défaut, audité', async () => {
+      identity.getMe.mockResolvedValue(medecin());
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+      const avant = Date.now();
+
+      const res = await service.marquerActeRealise(USER, 'acte-1', {});
+
+      expect(res.statut).toBe('REALISE');
+      expect(res.dateRealisation!.getTime()).toBeGreaterThanOrEqual(avant);
+      expect(prisma.acteDossier.update).toHaveBeenCalledWith({
+        where: { id: 'acte-1' },
+        data: { statut: 'REALISE', dateRealisation: expect.any(Date) },
+      });
+      expect(prisma.$executeRaw).toHaveBeenCalled(); // log_audit
+    });
+
+    it('date de réalisation antérieure à la saisie acceptée (acte fait avant d’être saisi)', async () => {
+      identity.getMe.mockResolvedValue(medecin());
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+
+      const res = await service.marquerActeRealise(USER, 'acte-1', { dateRealisation: '2026-09-02T10:30:00Z' });
+      expect(res.dateRealisation!.toISOString()).toBe('2026-09-02T10:30:00.000Z');
+    });
+
+    it.each([
+      ['CENTRE_MEDICAL_ACCUEIL'],
+      ['CENTRE_MEDICAL_COMPTABLE'],
+      ['ASSUREUR_MEDECIN_CONSEIL'],
+      ['ASSUREUR_INFORMATIQUE'],
+    ])('%s → 403 (réservé au médecin traitant)', async (role) => {
+      identity.getMe.mockResolvedValue(profil(role, { etablissementId: 'etab-1' }));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+      await expect(service.marquerActeRealise(USER, 'acte-1', {})).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.acteDossier.update).not.toHaveBeenCalled();
+    });
+
+    it('médecin d’un AUTRE établissement → 403', async () => {
+      identity.getMe.mockResolvedValue(medecin({ etablissementId: 'etab-2' }));
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+      await expect(service.marquerActeRealise(USER, 'acte-1', {})).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('acte d’une autre organisation → 404', async () => {
+      identity.getMe.mockResolvedValue(medecin());
+      prisma.acteDossier.findFirst.mockResolvedValue(
+        acteEnBase({ dossier: { organisationId: 'org-2', etablissementId: 'etab-1', dateOuverture: OUVERTURE } }),
+      );
+      await expect(service.marquerActeRealise(USER, 'acte-1', {})).rejects.toThrow('Acte introuvable.');
+    });
+
+    it.each([['REALISE'], ['ANNULE'], ['LIQUIDE']])('acte déjà %s → 409', async (statut) => {
+      identity.getMe.mockResolvedValue(medecin());
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase({ statut }));
+      await expect(service.marquerActeRealise(USER, 'acte-1', {})).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('ticket ANNULÉ → 409', async () => {
+      identity.getMe.mockResolvedValue(medecin());
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase({ ticket: { statut: 'ANNULE' } }));
+      await expect(service.marquerActeRealise(USER, 'acte-1', {})).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('date dans le futur, ou avant l’ouverture du dossier → 400', async () => {
+      identity.getMe.mockResolvedValue(medecin());
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+      const demain = new Date(Date.now() + 24 * 3600_000).toISOString();
+      await expect(service.marquerActeRealise(USER, 'acte-1', { dateRealisation: demain })).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.marquerActeRealise(USER, 'acte-1', { dateRealisation: '2026-08-31T23:00:00Z' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.acteDossier.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('genererFactureSelection', () => {
     beforeEach(() => {
       prisma.factureDossier.create.mockImplementation(({ data }: any) => acteCreeParDefaut(data));
@@ -119,6 +211,41 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         { categorieActe: 'CONSULTATION', tauxCouverture: dec(80), plafondParActe: null },
         { categorieActe: 'BIOLOGIE', tauxCouverture: dec(80), plafondParActe: null },
       ]);
+    });
+
+    it('REFUSE explicitement un acte encore PRESCRIT (non réalisé) — 409, aucun cycle créé', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { statut: 'PRESCRIT' })]);
+
+      const err = await service
+        .genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] })
+        .catch((e) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({
+        message: expect.stringContaining('marqué « réalisé »'),
+        exclusions: [{ acteId: 'acte-1', motif: 'NON_REALISE' }],
+      });
+      expect(prisma.factureDossier.create).not.toHaveBeenCalled();
+      expect(prisma.ligneFacturation.create).not.toHaveBeenCalled();
+    });
+
+    it('EXCLUT l’acte non réalisé d’une sélection mixte et ne facture que l’acte réalisé', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-1', { montantPrescrit: dec(15000) }),
+        acte('acte-2', { statut: 'PRESCRIT' }),
+      ]);
+
+      const res: any = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
+
+      expect(res.acteIdsInclus).toEqual(['acte-1']);
+      expect(res.exclusions).toEqual([{ acteId: 'acte-2', motif: 'NON_REALISE' }]);
+      expect(res.montantTotal).toBe('15000.00');
+      expect(res.message).toContain('1 non marqué(s) « réalisé »');
+      expect(prisma.ligneFacturation.create).toHaveBeenCalledTimes(1);
     });
 
     it('génère un cycle pour les actes sélectionnés, même si le ticket est encore OUVERT (facturation en cours de traitement)', async () => {

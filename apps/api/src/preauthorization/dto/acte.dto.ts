@@ -1,6 +1,7 @@
 import {
   IsIn,
   IsInt,
+  IsISO8601,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -39,6 +40,11 @@ export class AjouterActeDto {
   montantPrescrit?: number;
 
   @IsOptional() @IsString() dateRealisation?: string;
+}
+
+/** Date effective de réalisation — maintenant par défaut. */
+export class MarquerActeRealiseDto {
+  @IsOptional() @IsISO8601() dateRealisation?: string;
 }
 
 export class ValiderPreautorisationDto {

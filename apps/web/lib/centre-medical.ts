@@ -80,6 +80,27 @@ export const LIBELLE_PREAUTORISATION: Record<string, string> = {
   APPROUVEE_PARTIELLEMENT: 'Approuvée partiellement',
   REFUSEE: 'Refusée',
 };
+/**
+ * Statut d'un acte (`actes_dossier.statut`). Seul un acte RÉALISÉ (attesté par
+ * le médecin traitant) est facturable — PRESCRIT est donc signalé en ambre.
+ */
+export const LIBELLE_STATUT_ACTE: Record<string, string> = {
+  PRESCRIT: 'Prescrit — non réalisé',
+  REALISE: 'Réalisé',
+  ANNULE: 'Annulé',
+  LIQUIDE: 'Liquidé',
+};
+export const TON_STATUT_ACTE: Record<
+  string,
+  'succes' | 'attention' | 'danger' | 'neutre'
+> = {
+  PRESCRIT: 'attention',
+  REALISE: 'succes',
+  ANNULE: 'danger',
+  LIQUIDE: 'neutre',
+};
+export const STATUTS_ACTE_FACTURABLES = ['REALISE', 'LIQUIDE'];
+
 export const TON_PREAUTORISATION: Record<
   string,
   'succes' | 'attention' | 'danger' | 'neutre'

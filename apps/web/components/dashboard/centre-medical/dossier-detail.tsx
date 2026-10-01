@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 import {
   ajouterActe,
@@ -8,6 +9,7 @@ import {
   cloturerDossier,
   definirTypeVisite,
   emettreOrdonnance,
+  marquerActeRealise,
 } from '@/app/dashboard-centre-medical/medecin/actions';
 import {
   ChampNombre,
@@ -31,6 +33,7 @@ import {
   TYPES_VISITE,
   aUnRole,
 } from '@/lib/centre-medical';
+import { StatutActe } from './statut-acte';
 
 interface Consultation {
   id: string;
@@ -53,6 +56,7 @@ interface Acte {
   ticketModerateurSimule: string | null;
   statutPreautorisation: string;
   statut: string;
+  dateRealisation: string | null;
 }
 interface NoteDossier {
   id: string;
@@ -84,6 +88,32 @@ const dateHeureFr = (d: string) => new Date(d).toLocaleString('fr-FR');
 const montant = (v: string | null) =>
   v === null || v === '' ? '—' : `${Number(v).toLocaleString('fr-FR')} F`;
 
+/** Heure locale du poste au format `datetime-local` (AAAA-MM-JJTHH:MM). */
+function maintenantLocal(): string {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
+
+/**
+ * Initialisé au montage — le formulaire est remonté à chaque ouverture, la
+ * valeur proposée est donc toujours « maintenant ».
+ */
+function ChampDateRealisation() {
+  const [valeur] = useState(maintenantLocal);
+  return (
+    <ChampTexte
+      name="dateRealisation"
+      label="Date et heure de réalisation"
+      type="datetime-local"
+      required
+      defaultValue={valeur}
+      max={valeur}
+      aide="Maintenant par défaut — modifiez-la si l’acte a été effectué à un autre moment que sa saisie."
+    />
+  );
+}
+
 function Ligne({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-4 py-1.5 text-sm">
@@ -96,11 +126,14 @@ function Ligne({ label, children }: { label: string; children: React.ReactNode }
 export function DossierDetail({
   dossier,
   moiId,
+  role,
   roleChain,
   actesDisponibles,
 }: {
   dossier: DossierComplet;
   moiId: string;
+  /** Rôle exact du compte connecté (pas la chaîne de rôles). */
+  role: string;
   roleChain: string[];
   actesDisponibles: { id: string; code: string; libelle: string }[];
 }) {
@@ -185,9 +218,12 @@ export function DossierDetail({
     {
       cle: 'statut',
       entete: 'Statut',
-      rendu: (a) => <StatutBadge statut={a.statut} />,
+      rendu: (a) => <StatutActe statut={a.statut} dateRealisation={a.dateRealisation} />,
     },
   ];
+
+  /** Rôle EXACT : seul le médecin traitant atteste la réalisation d'un acte. */
+  const peutMarquerRealise = role === ROLE_MEDECIN_TRAITANT && dossier.ticket?.statut !== 'ANNULE';
 
   /** Peut émettre une ordonnance sur CETTE consultation ? */
   function peutOrdonnance(c: Consultation): boolean {
@@ -456,6 +492,30 @@ export function DossierDetail({
             cleLigne={(a) => a.id}
             parPage={0}
             colonnes={colActes}
+            actionLigne={(a) =>
+              peutMarquerRealise && a.statut === 'PRESCRIT' ? (
+                <FormulaireModal
+                  titre="Marquer l’acte comme réalisé"
+                  mode="center"
+                  description={`« ${a.libelle} » — un acte n’est facturable qu’une fois marqué réalisé. Cette attestation est tracée dans l’audit.`}
+                  declencheur={
+                    <Button type="button" size="xs" variant="outline">
+                      Marquer comme réalisé
+                    </Button>
+                  }
+                  libelleSoumettre="Confirmer la réalisation"
+                  onSoumettre={async (fd) => {
+                    const v = String(fd.get('dateRealisation') ?? '');
+                    // datetime-local = heure locale du poste → ISO avec fuseau.
+                    const iso = v ? new Date(v).toISOString() : undefined;
+                    return marquerActeRealise(dossier.id, a.id, iso);
+                  }}
+                  onSucces={() => router.refresh()}
+                >
+                  <ChampDateRealisation />
+                </FormulaireModal>
+              ) : null
+            }
             vide="Aucun acte enregistré."
           />
         </CardContent>

@@ -20,6 +20,7 @@ import {
   AjouterActeDto,
   AutoriserRepetitionConsultationDto,
   AutoriserRepetitionDto,
+  MarquerActeRealiseDto,
   TraiterParExploitationDto,
   ValiderPreautorisationDto,
 } from './dto/acte.dto';
@@ -58,6 +59,7 @@ import {
   ROLE_VALIDATION_PREAUTORISATION,
   ROLE_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT,
   ROLES_TRAITEMENT_EXPLOITATION,
+  STATUTS_ACTE_FACTURABLES,
   STATUTS_PREAUTORISATION_NON_FACTURABLES,
   TAUX_COUVERTURE_DEFAUT,
   TYPE_VISITE_ANTI_REPETITION,
@@ -1176,6 +1178,90 @@ export class PreauthorizationService {
    * ASSUREUR_EXPLOITATION (même séparation que l'homologation d'un acte du
    * référentiel, module reference/).
    */
+  /**
+   * Le médecin traitant atteste qu'un acte prescrit a été effectué
+   * (PRESCRIT → REALISE) — condition pour qu'il soit facturable
+   * (`genererFactureSelection` + trigger prisma/sql/063). Rôle EXACT
+   * CENTRE_MEDICAL_MEDECIN, de l'établissement du dossier. La date de
+   * réalisation vaut maintenant par défaut ; une date antérieure est admise
+   * (acte saisi après coup) mais jamais avant l'ouverture du dossier ni dans
+   * le futur.
+   */
+  async marquerActeRealise(
+    user: AuthenticatedUser,
+    acteId: string,
+    dto: MarquerActeRealiseDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    if (ctx.role !== ROLE_MEDECIN_TRAITANT) {
+      throw new ForbiddenException(
+        'Seul le médecin traitant (CENTRE_MEDICAL_MEDECIN) peut marquer un acte comme réalisé.',
+      );
+    }
+
+    const acte = await this.prisma.acteDossier.findFirst({
+      where: { id: acteId, deletedAt: null },
+      include: { dossier: true, ticket: true },
+    });
+    if (!acte || acte.dossier.organisationId !== ctx.organisationId) {
+      throw new NotFoundException('Acte introuvable.');
+    }
+    if (ctx.etablissementId !== acte.dossier.etablissementId) {
+      throw new ForbiddenException(
+        "Vous n'appartenez pas à l'établissement de ce dossier de soins.",
+      );
+    }
+    if (acte.statut !== 'PRESCRIT') {
+      throw new ConflictException(
+        acte.statut === 'ANNULE'
+          ? 'Cet acte est annulé — il ne peut pas être marqué réalisé.'
+          : `Cet acte est déjà ${acte.statut === 'REALISE' ? 'marqué réalisé' : acte.statut}.`,
+      );
+    }
+    if (acte.ticket.statut === 'ANNULE') {
+      throw new ConflictException(
+        'Le ticket de soins est ANNULÉ — aucun acte ne peut y être marqué réalisé.',
+      );
+    }
+
+    const maintenant = new Date();
+    const dateRealisation = dto.dateRealisation ? new Date(dto.dateRealisation) : maintenant;
+    // Tolérance d'horloge de 5 minutes entre le poste et le serveur.
+    if (dateRealisation.getTime() > maintenant.getTime() + 5 * 60_000) {
+      throw new BadRequestException('La date de réalisation ne peut pas être dans le futur.');
+    }
+    if (dateRealisation < acte.dossier.dateOuverture) {
+      throw new BadRequestException(
+        "La date de réalisation ne peut pas précéder l'ouverture du dossier de soins.",
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const maj = await tx.acteDossier.update({
+        where: { id: acte.id },
+        data: { statut: 'REALISE', dateRealisation },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'REALISATION_ACTE',
+        acte.id,
+        {
+          dossierSoinsId: acte.dossierSoinsId,
+          statutPrecedent: acte.statut,
+          dateRealisation: dateRealisation.toISOString(),
+          dateSaisie: maintenant.toISOString(),
+        },
+        'actes_dossier',
+      );
+      return {
+        id: maj.id,
+        statut: maj.statut,
+        dateRealisation: maj.dateRealisation,
+      };
+    });
+  }
+
   async validerPreautorisation(
     user: AuthenticatedUser,
     acteId: string,
@@ -1835,20 +1921,32 @@ export class PreauthorizationService {
 
     const enLitige = await this.chargerActesEnLitige(actesDemandes.map((a) => a.id));
     const nonFacturables: readonly string[] = STATUTS_PREAUTORISATION_NON_FACTURABLES;
-    const actesEligibles = actesDemandes.filter(
-      (a) =>
-        !nonFacturables.includes(a.statutPreautorisation) &&
-        !a.lignesFacturation.some((l) => l.statut === 'PAYE') &&
-        !enLitige.has(a.id),
-    );
-    const acteIdsExclus = acteIdsDemandes.filter(
-      (id) => !actesEligibles.some((a) => a.id === id),
-    );
+    const statutsFacturables: readonly string[] = STATUTS_ACTE_FACTURABLES;
+    // Motif d'exclusion explicite par acte — le premier qui s'applique.
+    const motifExclusion = (a: (typeof actesDemandes)[number]): string | null =>
+      !statutsFacturables.includes(a.statut)
+        ? 'NON_REALISE'
+        : nonFacturables.includes(a.statutPreautorisation)
+          ? 'PREAUTORISATION'
+          : a.lignesFacturation.some((l) => l.statut === 'PAYE')
+            ? 'DEJA_REGLE'
+            : enLitige.has(a.id)
+              ? 'EN_LITIGE'
+              : null;
+    const exclusions = actesDemandes
+      .map((a) => ({ acteId: a.id, motif: motifExclusion(a) }))
+      .filter((x): x is { acteId: string; motif: string } => x.motif !== null);
+    const actesEligibles = actesDemandes.filter((a) => motifExclusion(a) === null);
+    const acteIdsExclus = exclusions.map((x) => x.acteId);
+    const nbNonRealises = exclusions.filter((x) => x.motif === 'NON_REALISE').length;
     if (actesEligibles.length === 0) {
       throw new ConflictException({
         message:
-          "Aucun des actes sélectionnés n'est facturable (en attente ou refusé en pré-autorisation, déjà réglé, ou en litige).",
+          nbNonRealises === exclusions.length
+            ? "Aucun des actes sélectionnés n'est facturable : un acte doit d'abord être marqué « réalisé » par le médecin traitant."
+            : "Aucun des actes sélectionnés n'est facturable (non réalisé, en attente ou refusé en pré-autorisation, déjà réglé, ou en litige).",
         acteIdsExclus,
+        exclusions,
       });
     }
 
@@ -1926,10 +2024,13 @@ export class PreauthorizationService {
       montantPatient: facture.montantPatient.toFixed(2),
       acteIdsInclus: actesEligibles.map((a) => a.id),
       acteIdsExclus,
+      exclusions,
       message:
         acteIdsExclus.length > 0
           ? "Facture générée pour les actes sélectionnés facturables. Le code de facturation a été transmis à l'adhérent pour validation. " +
-            `${acteIdsExclus.length} acte(s) sélectionné(s) exclu(s) (en attente/refusé de pré-autorisation, déjà réglé, ou en litige).`
+            `${acteIdsExclus.length} acte(s) sélectionné(s) exclu(s)` +
+            (nbNonRealises > 0 ? `, dont ${nbNonRealises} non marqué(s) « réalisé »` : '') +
+            ' (non réalisé, en attente/refusé de pré-autorisation, déjà réglé, ou en litige).'
           : "Facture générée pour les actes sélectionnés. Le code de facturation a été transmis à l'adhérent pour validation.",
     };
   }
@@ -2310,6 +2411,8 @@ export class PreauthorizationService {
       libelle: a.libelle,
       codeActe: a.codeActe,
       montantPrescrit: a.montantPrescrit?.toFixed(2) ?? null,
+      statut: a.statut,
+      dateRealisation: a.dateRealisation,
       statutPreautorisation: a.statutPreautorisation,
       datePrescription: a.datePrescription,
       numeroTraitement: a.dossier.numeroTraitement,

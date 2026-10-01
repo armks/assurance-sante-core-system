@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { SousRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
@@ -35,7 +35,7 @@ export class IdentityService {
       where: { id: user.sub, deletedAt: null },
       include: {
         sousRole: true,
-        organisation: { select: { slug: true, statut: true, deletedAt: true } },
+        organisation: { select: { nom: true, slug: true, statut: true, deletedAt: true } },
       },
     });
 
@@ -43,6 +43,26 @@ export class IdentityService {
       throw new NotFoundException(
         "Aucun profil actif n'est associé à ce compte.",
       );
+    }
+
+    // Organisation SUSPENDUE / ARCHIVEE / supprimée : accès coupé pour tous ses
+    // comptes. Tous les services authentifiés passent par getMe → la coupure
+    // vaut à CHAQUE requête (session déjà ouverte comprise), pas seulement à la
+    // prochaine connexion. Les superadmins (sans organisation) ne sont pas
+    // concernés. Doublé en base par prisma/sql/065 (accès PostgREST direct).
+    if (profil.organisationId) {
+      const org = profil.organisation;
+      if (!org || org.deletedAt || org.statut !== 'ACTIVE') {
+        const suspendue = org?.statut === 'SUSPENDUE' && !org.deletedAt;
+        throw new ForbiddenException({
+          statusCode: 403,
+          code: suspendue ? 'ORGANISATION_SUSPENDUE' : 'ORGANISATION_INACTIVE',
+          organisation: org?.nom ?? null,
+          message: suspendue
+            ? `L’accès de votre société « ${org.nom} » est suspendu. Contactez votre administrateur ou le support de la plateforme.`
+            : 'Votre société n’est plus active sur la plateforme. Contactez le support de la plateforme.',
+        });
+      }
     }
 
     const profilResume: ProfilResume = {

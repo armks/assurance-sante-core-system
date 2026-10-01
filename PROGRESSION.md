@@ -6796,3 +6796,56 @@ cas d'échec d'envoi, la demande était perdue (503 au visiteur, rien en base).
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-01 — Correctif de sécurité : une société SUSPENDUE n'a plus aucun accès
+
+### Diagnostic (avant correction)
+Faille signalée par deux audits : un compte d'une société suspendue continuait de se
+connecter et d'utiliser son dashboard. Vérification couche par couche :
+- `SupabaseAuthGuard` (NestJS) : ne valide que le JWT — aucune vérification
+  d'organisation ;
+- `IdentityService.getMe` (appelé par TOUS les services authentifiés — aucun ne lit
+  `user.sub` directement) : lisait `organisation.statut` seulement pour le slug,
+  sans rien bloquer ;
+- Next.js (`proxy.ts` / `lib/middleware.ts`) : ne vérifie que la session Supabase ;
+  `chargerIdentiteBrut` / `exigerIdentite` ne connaissaient pas la suspension ;
+- RLS Postgres (accès direct PostgREST avec le JWT) : l'accès effectif d'un client
+  passe par les fonctions SECURITY DEFINER `profil_a_role` / `peut_creer_role` /
+  `peut_inviter_role` (la table `profils` n'a aucune policy SELECT, les sous-requêtes
+  inline des autres policies ne voient rien pour un client) — aucune ne regardait le
+  statut de l'organisation.
+Constat HTTP réel avant correctif, sur une organisation de test suspendue par le flux
+Super Admin réel (initier → code → confirmer) : connexion OK, `/identity/me` 200,
+routes métier 200, et `GET /rest/v1/produits` en direct → 1 ligne.
+
+### Correctif
+- API — `IdentityService.getMe` : organisation SUSPENDUE → 403
+  `{ code: 'ORGANISATION_SUSPENDUE', organisation, message: "L'accès de votre société
+  « … » est suspendu. Contactez votre administrateur ou le support de la plateforme." }` ;
+  ARCHIVEE / supprimée / introuvable → 403 `ORGANISATION_INACTIVE`. Vérifié à CHAQUE
+  requête authentifiée (une session déjà ouverte est coupée immédiatement), avant
+  toute résolution de rôle. Superadmins (sans organisation) non concernés.
+- Base — `prisma/sql/065_organisation_suspendue_rls.sql` (appliquée) : fonction
+  `organisation_appelant_active()` ; les trois fonctions SECURITY DEFINER renvoient
+  `false` si l'organisation de l'appelant n'est pas ACTIVE (corps inchangés par ailleurs).
+- Web — nouvel état d'identité `organisation-suspendue` (403 avec ce code) ;
+  `exigerIdentite`, par lequel passent toutes les pages protégées, redirige vers
+  `/acces-suspendu` : écran explicite (« Accès suspendu », nom de la société, compte
+  non supprimé, bouton Se déconnecter → « / »). Plus de « Impossible de charger
+  votre profil ».
+
+### Tests
+- Unitaires identity : SUSPENDUE → 403 avec code et nom (avant toute résolution de
+  rôle), ARCHIVEE / supprimée / introuvable → 403 INACTIVE, superadmin sans
+  organisation → accès normal ; fixture avec organisation ACTIVE par défaut.
+  API 893/893, `tsc` OK.
+- HTTP réel, même scénario après correctif : société ACTIVE → connexion, API et
+  PostgREST normaux ; suspension par le Super Admin (flux réel) → `/identity/me`,
+  `/vitrine/demandes-adhesion`, `/plan/produits` → 403 ORGANISATION_SUSPENDUE avec
+  message explicite ; PostgREST direct → 0 ligne ; superadmin → 200.
+- Navigateur (e2e.localhost) : connexion du compte suspendu → écran « Accès
+  suspendu » ; URL directe d'un dashboard → même écran ; déconnexion → « / ».
+  Organisation, comptes et code de test supprimés.
+
+### Statut
+Terminé, commité et poussé (commit séparé, correctif de sécurité).

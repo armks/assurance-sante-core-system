@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
@@ -92,6 +92,7 @@ function makeProfil(overrides: Record<string, unknown> = {}) {
     updatedAt: new Date('2026-01-02'),
     deletedAt: null,
     sousRole,
+    organisation: { nom: 'Mutuelle A', slug: 'mutuelle-a', statut: 'ACTIVE', deletedAt: null },
     ...overrides,
   };
 }
@@ -137,14 +138,42 @@ describe('IdentityService.getMe', () => {
     expect(res.profil.entite).toBe('ASSUREUR');
   });
 
+  it('organisationSlug : organisation ACTIVE → son slug', async () => {
+    prisma.profil.findFirst.mockResolvedValue(makeProfil());
+    expect((await service.getMe(USER)).profil.organisationSlug).toBe('mutuelle-a');
+  });
+
+  it('superadmin (sans organisation) : accès normal, slug null', async () => {
+    prisma.profil.findFirst.mockResolvedValue(makeProfil({ organisationId: null, organisation: null }));
+    const res = await service.getMe(USER);
+    expect(res.profil.organisationSlug).toBeNull();
+    expect(res.permissions).not.toBeNull();
+  });
+
+  it('organisation SUSPENDUE → 403 ORGANISATION_SUSPENDUE, message explicite avec le nom de la société', async () => {
+    prisma.profil.findFirst.mockResolvedValue(
+      makeProfil({ organisation: { nom: 'Mutuelle A', slug: 'mutuelle-a', statut: 'SUSPENDUE', deletedAt: null } }),
+    );
+    const err = await service.getMe(USER).catch((e) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect(err.getResponse()).toMatchObject({
+      code: 'ORGANISATION_SUSPENDUE',
+      organisation: 'Mutuelle A',
+      message: expect.stringContaining('« Mutuelle A » est suspendu'),
+    });
+    // Coupure AVANT toute résolution de rôle / permission.
+    expect(prisma.sousRole.findMany).not.toHaveBeenCalled();
+  });
+
   it.each([
-    ['organisation ACTIVE', { slug: 'mutuelle-a', statut: 'ACTIVE', deletedAt: null }, 'mutuelle-a'],
-    ['organisation SUSPENDUE', { slug: 'mutuelle-a', statut: 'SUSPENDUE', deletedAt: null }, null],
-    ['organisation supprimée', { slug: 'mutuelle-a', statut: 'ACTIVE', deletedAt: new Date() }, null],
-    ['sans organisation (superadmin)', null, null],
-  ])('organisationSlug : %s → %p', async (_cas, organisation, attendu) => {
-    prisma.profil.findFirst.mockResolvedValue({ ...makeProfil(), organisation });
-    expect((await service.getMe(USER)).profil.organisationSlug).toBe(attendu);
+    ['ARCHIVEE', { nom: 'Mutuelle A', slug: 'mutuelle-a', statut: 'ARCHIVEE', deletedAt: null }],
+    ['supprimée', { nom: 'Mutuelle A', slug: 'mutuelle-a', statut: 'ACTIVE', deletedAt: new Date() }],
+    ['introuvable', null],
+  ])('organisation %s → 403 ORGANISATION_INACTIVE', async (_cas, organisation) => {
+    prisma.profil.findFirst.mockResolvedValue(makeProfil({ organisation }));
+    const err = await service.getMe(USER).catch((e) => e);
+    expect(err).toBeInstanceOf(ForbiddenException);
+    expect(err.getResponse()).toMatchObject({ code: 'ORGANISATION_INACTIVE' });
   });
 
   it('peutValider = valeur propre au rôle : true pour le titulaire, false pour l’adjoint', async () => {

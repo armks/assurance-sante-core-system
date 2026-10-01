@@ -37,11 +37,22 @@ export type EtatIdentite =
   | { kind: 'non-provisionne'; email: string }
   | { kind: 'erreur'; email: string; status: number; message: string };
 
+/** Organisation SUSPENDUE / inactive : accès coupé (403 de GET /identity/me). */
+export interface EtatSuspendu {
+  kind: 'organisation-suspendue';
+  email: string;
+  code: 'ORGANISATION_SUSPENDUE' | 'ORGANISATION_INACTIVE';
+  organisation: string | null;
+  message: string;
+}
+
+export const ROUTE_ACCES_SUSPENDU = '/acces-suspendu';
+
 /**
  * Charge l'identité une seule fois par requête (React `cache`). Ne redirige pas
  * ici — voir `exigerIdentite`.
  */
-const chargerIdentiteBrut = cache(async (): Promise<EtatIdentite> => {
+const chargerIdentiteBrut = cache(async (): Promise<EtatIdentite | EtatSuspendu> => {
   const supabase = await createClient();
 
   const {
@@ -64,7 +75,23 @@ const chargerIdentiteBrut = cache(async (): Promise<EtatIdentite> => {
 
     if (res.status === 404) return { kind: 'non-provisionne', email };
     if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { message?: string };
+      const body = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        code?: string;
+        organisation?: string | null;
+      };
+      if (
+        res.status === 403 &&
+        (body.code === 'ORGANISATION_SUSPENDUE' || body.code === 'ORGANISATION_INACTIVE')
+      ) {
+        return {
+          kind: 'organisation-suspendue',
+          email,
+          code: body.code,
+          organisation: body.organisation ?? null,
+          message: body.message ?? 'L’accès de votre société est suspendu.',
+        };
+      }
       return {
         kind: 'erreur',
         email,
@@ -101,7 +128,17 @@ export async function exigerIdentite(
   if (etat.kind === 'anonyme') {
     redirect(`/login?next=${encodeURIComponent(cible)}`);
   }
+  // Société suspendue : un seul écran explicite pour TOUTES les pages
+  // protégées (elles passent toutes par ici), jamais une page cassée.
+  if (etat.kind === 'organisation-suspendue') {
+    redirect(ROUTE_ACCES_SUSPENDU);
+  }
   return etat;
+}
+
+/** État brut pour l'écran /acces-suspendu (aucune redirection). */
+export async function etatIdentite(): Promise<EtatIdentite | EtatSuspendu> {
+  return chargerIdentiteBrut();
 }
 
 /** Y a-t-il une session Supabase valide ? (pour la page d'accueil publique) */

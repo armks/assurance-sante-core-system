@@ -296,8 +296,9 @@ export class MemberCarteService {
    * gauche. Zones (aucun chevauchement ; tout contenu dans la zone de sécurité
    * d'impression de 3 mm = 8,5 pt, seuls les fonds vont jusqu'au bord) :
    *   - filigrane : logo de l'organisation (si `logo_url`) en grand, centré
-   *     dans la zone claire sous le bandeau, opacité 10 %, dessiné AVANT tout
-   *     le reste (texte, photo, QR restent lisibles par-dessus) ;
+   *     dans la zone claire à GAUCHE de la photo (x 0–204, jamais masqué par
+   *     elle), opacité 10 %, dessiné AVANT tout le reste (texte et QR restent
+   *     lisibles par-dessus) ;
    *   - bandeau 40 pt : logo (pastille blanche, 22 pt de haut) puis nom de la
    *     compagnie. Opaque et dessiné APRÈS le filigrane : un logo sur fond
    *     blanc (JPEG) laisserait sinon un rectangle pâle visible sur le bleu ;
@@ -339,15 +340,21 @@ export class MemberCarteService {
     const largeurTexte = xPhoto - 10 - MARGE;
     const largeurValeurs = xQr - 8 - MARGE;
 
-    // Filigrane : proportions conservées, au plus 70 % de la largeur et
-    // 85 % de la hauteur de la zone sous le bandeau, centré dans cette zone.
+    // Filigrane : centré dans la zone LIBRE à gauche de la photo (x 0 → bord
+    // gauche de la photo − 10 pt) — la photo, opaque, en masquait sinon le tiers
+    // droit. Proportions conservées, au plus 90 % de la largeur et 85 % de la
+    // hauteur de cette zone.
     const OPACITE_FILIGRANE = 0.1;
+    const largeurZoneFiligrane = xPhoto - 10;
     let filigrane: { x: number; y: number; w: number; h: number } | null = null;
     if (imageLogo) {
-      const echelle = Math.min((L * 0.7) / imageLogo.width, (basBandeau * 0.85) / imageLogo.height);
+      const echelle = Math.min(
+        (largeurZoneFiligrane * 0.9) / imageLogo.width,
+        (basBandeau * 0.85) / imageLogo.height,
+      );
       const w = imageLogo.width * echelle;
       const h = imageLogo.height * echelle;
-      filigrane = { x: (L - w) / 2, y: (basBandeau - h) / 2, w, h };
+      filigrane = { x: (largeurZoneFiligrane - w) / 2, y: (basBandeau - h) / 2, w, h };
     }
     // Logo du bandeau (en plus du filigrane) : hauteur 22 pt max, largeur
     // 70 pt max, sur pastille blanche (un logo sombre reste lisible sur le bleu).
@@ -416,14 +423,14 @@ export class MemberCarteService {
 
       y -= 20;
       const ligne = (label: string, valeur: string) => {
-        page.drawText(label, { x: MARGE, y, size: 7, font: police, color: gris });
+        page.drawText(this.ascii(label), { x: MARGE, y, size: 7, font: police, color: gris });
         const v = this.ajuster(this.ascii(valeur), policeGras, 10.5, 8, largeurValeurs);
         page.drawText(v.texte, { x: MARGE, y: y - 12, size: v.taille, font: policeGras, color: encre });
         y -= 28;
       };
       ligne('N° DE CARTE', infos.numeroCarte);
       ligne('FORMULE', infos.formule);
-      ligne('VALABLE JUSQU AU', infos.dateValidite);
+      ligne('VALABLE JUSQU’AU', infos.dateValidite);
 
       const qrImg = await doc.embedPng(qr);
       page.drawImage(qrImg, { x: xQr, y: yQr, width: TAILLE_QR, height: TAILLE_QR });
@@ -519,10 +526,21 @@ export class MemberCarteService {
     return { texte: `${court.trimEnd()}...`, taille: t };
   }
 
-  /** pdf-lib (Helvetica/WinAnsi) : on retire ce qui n'est pas encodable. */
+  /**
+   * pdf-lib (Helvetica/WinAnsi) : la typographie courante est d'abord ramenée à
+   * son équivalent encodable — sans quoi l'apostrophe de « N’Guessan » ou
+   * « JUSQU’AU » (U+2019) disparaissait purement et simplement — puis on retire
+   * le reste de ce qui n'est pas encodable.
+   */
   private ascii(texte: string): string {
     return texte
       .normalize('NFC')
+      .replace(/[‘’‚‛ʼ]/g, "'")
+      .replace(/[“”„]/g, '"')
+      .replace(/[‐‑‒–—]/g, '-')
+      .replace(/…/g, '...')
+      .replace(/œ/g, 'oe')
+      .replace(/Œ/g, 'OE')
       // eslint-disable-next-line no-control-regex
       .replace(/[^\u0000-ÿ]/g, '');
   }

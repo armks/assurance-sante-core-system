@@ -419,6 +419,18 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
       });
       await expect(service.genererCarteAdherent(USER, 'adh-1')).resolves.toBeDefined();
     });
+
+    it('apostrophe typographique conservée (N’Guessan, JUSQU’AU) — jamais supprimée', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT, prenom: 'Aya', nom: 'N’Guessan' });
+      await service.genererCarteAdherent(USER, 'adh-1');
+      const { texte } = await contenuPage(pdfTeleverse());
+      // Texte WinAnsi encodé en hexadécimal par pdf-lib : on décode chaque Tj.
+      const chaines = [...texte.matchAll(/<([0-9A-Fa-f]+)> Tj/g)].map((m) =>
+        Buffer.from(m[1], 'hex').toString('latin1'),
+      );
+      expect(chaines).toEqual(expect.arrayContaining(["Aya N'Guessan", "VALABLE JUSQU'AU"]));
+      expect(chaines.join('|')).not.toMatch(/NGuessan|JUSQU AU|JUSQUAU/);
+    });
   });
 
   // --- Mise en page (refonte) + logo de l'organisation -------------------
@@ -483,11 +495,16 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
       expect(logoBandeau).toMatchObject({ w: 55, h: 22, x: 14, y: 183 });
       expect(logoBandeau.y).toBeGreaterThanOrEqual(174);
       expect(logoBandeau.y + logoBandeau.h).toBeLessThanOrEqual(214);
-      // Filigrane : 70 % de la largeur (238 pt, proportions conservées → 238 × 95,2),
-      // centré horizontalement ET dans la zone sous le bandeau (0–174), opacité 10 %.
-      expect(logo).toMatchObject({ w: 238, h: 95.2, x: 51, y: 39.4, opacite: 0.1 });
-      expect(logo.x + logo.w / 2).toBe(170);
-      expect(logo.y + logo.h / 2).toBe(87);
+      // Filigrane : centré dans la zone libre À GAUCHE de la photo (x 0–204),
+      // 90 % de sa largeur (183,6 pt, proportions conservées → 183,6 × 73,44),
+      // centré verticalement sous le bandeau (0–174), opacité 10 %.
+      expect(logo).toMatchObject({ w: 183.6, h: 73.44, opacite: 0.1 });
+      expect(logo.x).toBeCloseTo(10.2, 5);
+      expect(logo.y).toBeCloseTo(50.28, 5);
+      expect(logo.x + logo.w / 2).toBeCloseTo(102, 5);
+      expect(logo.y + logo.h / 2).toBeCloseTo(87, 5);
+      // Jamais masqué par la photo (opaque) : il s'arrête avant son bord gauche.
+      expect(logo.x + logo.w).toBeLessThanOrEqual(photo.x);
       // Dessiné EN PREMIER : tout le reste (photo, QR, texte) passe par-dessus.
       expect(d[0].px).toBe('200x80');
       const { texte } = await contenuPage(pdfTeleverse());

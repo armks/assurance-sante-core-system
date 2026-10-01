@@ -6849,3 +6849,30 @@ routes métier 200, et `GET /rest/v1/produits` en direct → 1 ligne.
 
 ### Statut
 Terminé, commité et poussé (commit séparé, correctif de sécurité).
+
+## 2026-10-01 — Carte de membre PDF : apostrophes conservées, filigrane non masqué
+
+### Constat (exemple généré pour revue)
+- « VALABLE JUSQU AU » : apostrophe absente du libellé ; plus grave, `ascii()` (nettoyage
+  WinAnsi de pdf-lib) supprimait tout caractère au-delà de U+00FF, dont l'apostrophe
+  typographique U+2019 — un nom « N’Guessan » s'imprimait « NGuessan ». Le test
+  « nom très long » ne vérifiait que l'absence d'erreur, jamais le texte rendu.
+- Filigrane centré sur toute la largeur : la photo (opaque, agrandie à 112 pt) en
+  masquait le tiers droit.
+
+### Correctif (`member/carte.service.ts`)
+- `ascii()` ramène la typographie courante à un équivalent encodable avant de filtrer :
+  ’ ‘ ‚ ‛ ʼ → ', “ ” „ → ", tirets → -, … → ..., œ/Œ → oe/OE. Les libellés passent
+  aussi par `ascii()` ; libellé « VALABLE JUSQU’AU ».
+- Filigrane centré dans la zone libre à gauche de la photo (x 0–204), 90 % de sa
+  largeur, 85 % de la hauteur sous le bandeau — il s'arrête avant le bord de la photo.
+
+### Tests
+- Test « mise en page » mis à jour (filigrane 183,6 × 73,44 centré en x 102, jamais
+  sous la photo) ; +1 test (texte décodé du PDF : « Aya N'Guessan » et « VALABLE
+  JUSQU'AU », jamais « NGuessan »). API 894/894, `tsc` OK.
+- Exemple régénéré par le pipeline réel du service (adhérent de test, photo de test
+  en mémoire, aucun téléversement ni audit) et vérifié visuellement.
+
+### Statut
+Terminé.

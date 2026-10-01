@@ -22,6 +22,7 @@ import {
   rgb,
 } from 'pdf-lib';
 import * as QRCode from 'qrcode';
+import sharp from 'sharp';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { formatImagePdf } from '../common/images.util';
 import { IdentityService } from '../identity/identity.service';
@@ -45,6 +46,8 @@ interface InfosCarte {
   dateValidite: string;
   numeroReference: string;
   organisation: string;
+  /** « Tél. … · e-mail » de la société d'assurance (bandeau), null si aucun des deux. */
+  contact: string | null;
 }
 
 /**
@@ -212,7 +215,7 @@ export class MemberCarteService {
       },
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],
       include: {
-        organisation: { select: { nom: true, logoUrl: true } },
+        organisation: { select: { nom: true, logoUrl: true, telephoneContact: true, emailContact: true } },
         souscripteur: { select: { nom: true } },
         police: { include: { produit: true } },
       },
@@ -259,7 +262,18 @@ export class MemberCarteService {
       dateValidite: this.libelleValidite(adherent.police),
       numeroReference: adherent.numeroAdherent,
       organisation: adherent.organisation?.nom ?? 'Assurance santé',
+      contact: this.contactSociete(adherent.organisation),
     };
+  }
+
+  /** Coordonnées de la société (celles de sa page /{slug}) : tél. puis e-mail. */
+  private contactSociete(
+    organisation: { telephoneContact: string | null; emailContact: string | null } | null,
+  ): string | null {
+    const tel = organisation?.telephoneContact?.trim();
+    const email = organisation?.emailContact?.trim();
+    const parties = [tel ? `Tél. ${tel}` : null, email || null].filter(Boolean);
+    return parties.length > 0 ? parties.join('  ·  ') : null;
   }
 
   private infosDepuisBeneficiaire(
@@ -276,6 +290,7 @@ export class MemberCarteService {
       dateValidite: this.libelleValidite(adherent.police),
       numeroReference: adherent.numeroAdherent,
       organisation: adherent.organisation?.nom ?? 'Assurance santé',
+      contact: this.contactSociete(adherent.organisation),
     };
   }
 
@@ -295,12 +310,14 @@ export class MemberCarteService {
    * Carte au format ID-1 (340 × 214 pt, ratio 85,6 × 54 mm). Origine en bas à
    * gauche. Zones (aucun chevauchement ; tout contenu dans la zone de sécurité
    * d'impression de 3 mm = 8,5 pt, seuls les fonds vont jusqu'au bord) :
-   *   - filigrane : logo de l'organisation (si `logo_url`) en grand, centré
-   *     dans la zone claire à GAUCHE de la photo (x 0–204, jamais masqué par
-   *     elle), opacité 10 %, dessiné AVANT tout le reste (texte et QR restent
-   *     lisibles par-dessus) ;
+   *   - filigrane : logo de l'organisation (si `logo_url`) en grand, sur toute
+   *     la zone claire à GAUCHE de la photo (x 8,5–214 : de la marge de sécurité
+   *     jusqu'au bord de la photo, jamais dessous), opacité 10 %, dessiné AVANT
+   *     tout le reste (texte et QR restent lisibles par-dessus) ;
    *   - bandeau 40 pt : logo (pastille blanche, 22 pt de haut) puis nom de la
-   *     compagnie. Opaque et dessiné APRÈS le filigrane : un logo sur fond
+   *     compagnie, et sous lui « CARTE DE MEMBRE » suivi, sur la même ligne, du
+   *     téléphone et de l'e-mail de contact de la société (s'ils sont
+   *     renseignés). Opaque et dessiné APRÈS le filigrane : un logo sur fond
    *     blanc (JPEG) laisserait sinon un rectangle pâle visible sur le bleu ;
    *   - photo CARRÉE 112 × 112 pt, sans contour, bord droit à la marge et
    *     centrée verticalement dans le corps (x 214–326, y 31–143) ;
@@ -340,21 +357,27 @@ export class MemberCarteService {
     const largeurTexte = xPhoto - 10 - MARGE;
     const largeurValeurs = xQr - 8 - MARGE;
 
-    // Filigrane : centré dans la zone LIBRE à gauche de la photo (x 0 → bord
-    // gauche de la photo − 10 pt) — la photo, opaque, en masquait sinon le tiers
-    // droit. Proportions conservées, au plus 90 % de la largeur et 85 % de la
-    // hauteur de cette zone.
+    // Filigrane : occupe TOUTE la zone libre à gauche de la photo, de la marge de
+    // sécurité d'impression (8,5 pt) jusqu'au bord gauche de la photo, sans
+    // jamais passer dessous (la photo, opaque, le masquerait). Proportions
+    // conservées, au plus 85 % de la hauteur sous le bandeau.
     const OPACITE_FILIGRANE = 0.1;
-    const largeurZoneFiligrane = xPhoto - 10;
+    const SECURITE_IMPRESSION = 8.5;
+    const largeurZoneFiligrane = xPhoto - SECURITE_IMPRESSION;
     let filigrane: { x: number; y: number; w: number; h: number } | null = null;
     if (imageLogo) {
       const echelle = Math.min(
-        (largeurZoneFiligrane * 0.9) / imageLogo.width,
+        largeurZoneFiligrane / imageLogo.width,
         (basBandeau * 0.85) / imageLogo.height,
       );
       const w = imageLogo.width * echelle;
       const h = imageLogo.height * echelle;
-      filigrane = { x: (largeurZoneFiligrane - w) / 2, y: (basBandeau - h) / 2, w, h };
+      filigrane = {
+        x: SECURITE_IMPRESSION + (largeurZoneFiligrane - w) / 2,
+        y: (basBandeau - h) / 2,
+        w,
+        h,
+      };
     }
     // Logo du bandeau (en plus du filigrane) : hauteur 22 pt max, largeur
     // 70 pt max, sur pastille blanche (un logo sombre reste lisible sur le bleu).
@@ -411,6 +434,20 @@ export class MemberCarteService {
         font: police,
         color: rgb(0.82, 0.88, 1),
       });
+      // Coordonnées de la société, sur la même ligne juste après « CARTE DE MEMBRE ».
+      if (infos.contact) {
+        const xContact = xTitre + police.widthOfTextAtSize('CARTE DE MEMBRE', 6.5) + 6;
+        const contact = this.contactAjuste(infos.contact, police, L - MARGE - xContact);
+        if (contact) {
+          page.drawText(contact.texte, {
+            x: xContact,
+            y: H - 31,
+            size: contact.taille,
+            font: police,
+            color: rgb(1, 1, 1),
+          });
+        }
+      }
 
       await this.dessinerPhoto(doc, page, photo, xPhoto, yPhoto, TAILLE_PHOTO);
 
@@ -509,6 +546,27 @@ export class MemberCarteService {
 
   /** Réduit la taille de police jusqu'à `min`, puis tronque avec « ... » pour
    * tenir dans `largeur` — le texte ne déborde jamais sur la photo/QR. */
+  /**
+   * Coordonnées du bandeau : réduites jusqu'à 5 pt pour tenir ; sinon on garde
+   * la seule partie qui tient ENTIÈRE (e-mail, puis téléphone) — une adresse
+   * tronquée par « ... » serait inutilisable. null si rien ne tient.
+   */
+  private contactAjuste(
+    contact: string,
+    font: PDFFont,
+    largeur: number,
+  ): { texte: string; taille: number } | null {
+    const candidats = [contact, ...contact.split('  ·  ').reverse()].map(
+      (c) => `·  ${this.ascii(c)}`,
+    );
+    for (const c of candidats) {
+      for (let t = 6.5; t >= 5; t -= 0.5) {
+        if (font.widthOfTextAtSize(c, t) <= largeur) return { texte: c, taille: t };
+      }
+    }
+    return null;
+  }
+
   private ajuster(
     texte: string,
     font: PDFFont,
@@ -592,12 +650,35 @@ export class MemberCarteService {
         this.logger.warn(`Logo introuvable pour la carte (${res.status}) : ${url} — carte sans logo.`);
         return null;
       }
-      return Buffer.from(await res.arrayBuffer());
+      return await this.rognerMarges(Buffer.from(await res.arrayBuffer()));
     } catch (error) {
       this.logger.warn(
         `Téléchargement du logo impossible (${error instanceof Error ? error.message : 'erreur inconnue'}) — carte sans logo.`,
       );
       return null;
+    }
+  }
+
+  /**
+   * Retire les marges transparentes ou unies d'un logo (couleur du pixel en
+   * haut à gauche, tolérance 10) : beaucoup de logos importés en contiennent
+   * (ex. 150 px vides sur 406), ce qui rapetissait le filigrane et le logo du
+   * bandeau. Sortie PNG (transparence conservée). En mémoire seulement — le
+   * fichier stocké n'est pas modifié. Échec, ou image entièrement unie →
+   * logo d'origine inchangé.
+   */
+  private async rognerMarges(logo: Buffer): Promise<Buffer> {
+    try {
+      const { data, info } = await sharp(logo)
+        .trim({ threshold: 10 })
+        .png()
+        .toBuffer({ resolveWithObject: true });
+      return info.width > 0 && info.height > 0 ? data : logo;
+    } catch (error) {
+      this.logger.debug(
+        `Logo non rogné (${error instanceof Error ? error.message : 'erreur inconnue'}) — utilisé tel quel.`,
+      );
+      return logo;
     }
   }
 
@@ -707,7 +788,7 @@ export class MemberCarteService {
     const adherent = await this.prisma.adherent.findFirst({
       where: { id, organisationId: ctx.organisationId, deletedAt: null },
       include: {
-        organisation: { select: { nom: true, logoUrl: true } },
+        organisation: { select: { nom: true, logoUrl: true, telephoneContact: true, emailContact: true } },
         souscripteur: { select: { nom: true } },
         police: { include: { produit: true } },
         beneficiaires: { where: { deletedAt: null } },
@@ -760,7 +841,7 @@ export class MemberCarteService {
 
 type AdherentComplet = Prisma.AdherentGetPayload<{
   include: {
-    organisation: { select: { nom: true, logoUrl: true } };
+    organisation: { select: { nom: true, logoUrl: true, telephoneContact: true, emailContact: true } };
     souscripteur: { select: { nom: true } };
     police: { include: { produit: true } };
     beneficiaires: true;

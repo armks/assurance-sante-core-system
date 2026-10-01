@@ -6876,3 +6876,48 @@ Terminé, commité et poussé (commit séparé, correctif de sécurité).
 
 ### Statut
 Terminé.
+
+## 2026-10-01 — Carte de membre PDF : coordonnées de la société sur la bande bleue
+
+### Réalisé (`member/carte.service.ts`)
+- Le téléphone et l'e-mail de contact de la société d'assurance (`telephone_contact`,
+  `email_contact` — les mêmes que le pied de page de sa page /{slug}) sont imprimés
+  sur la bande bleue, sur la même ligne, juste après « CARTE DE MEMBRE » :
+  « CARTE DE MEMBRE · Tél. … · e-mail ». Seules les coordonnées renseignées
+  apparaissent ; aucune → rien n'est ajouté.
+- Chargés pour les trois générations (adhérent, bénéficiaire, lot souscripteur).
+- Place disponible : réduction jusqu'à 5 pt ; au-delà, on ne garde que la partie qui
+  tient ENTIÈRE (e-mail, puis téléphone) — jamais une adresse tronquée par « ... ».
+
+### Tests
+- +3 (ligne complète juste après « CARTE DE MEMBRE », coordonnées partielles / absentes,
+  e-mail trop long → e-mail seul, jamais tronqué). API 897/897, `tsc` OK.
+- Exemple régénéré par le pipeline réel (sans téléversement ni audit) avec des
+  coordonnées d'exemple en mémoire — Assureur Test A n'en a pas en base.
+
+### Statut
+Terminé.
+
+## 2026-10-01 — Carte de membre PDF : filigrane agrandi jusqu'à la photo, logo rogné
+
+### Réalisé (`member/carte.service.ts`)
+- Filigrane : occupe toute la zone libre à gauche de la photo, de la marge de
+  sécurité d'impression (8,5 pt) jusqu'au bord de la photo (214 pt), sans jamais
+  passer dessous ; proportions conservées, 85 % de la hauteur max.
+- Constat : le logo de Test A contient 150 px de marges transparentes sur 406 — le
+  cadre du filigrane touchait la photo mais le dessin restait petit. Les marges
+  transparentes ou unies du logo sont désormais rognées EN MÉMOIRE au chargement
+  (`rognerMarges`, sharp `trim`, sortie PNG) : filigrane ET logo du bandeau en
+  profitent ; le fichier stocké n'est pas modifié ; échec ou image unie → logo
+  d'origine. Choix validé par l'utilisateur.
+- Dépendance : `sharp` déclaré dans `apps/api/package.json` (version déjà installée
+  dans le monorepo, 0.35.4 — aucun nouveau paquet téléchargé).
+
+### Tests
+- Mise en page : filigrane 205,5 pt, de x 8,5 jusqu'au bord de la photo ; +1 test
+  (logo 200 × 80 à marges transparentes → image intégrée 100 × 40, filigrane et
+  bandeau). API 898/898, `tsc` OK.
+- Exemple régénéré avec le logo réel de Test A et vérifié visuellement.
+
+### Statut
+Terminé.

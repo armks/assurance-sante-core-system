@@ -6,6 +6,7 @@ import {
 import { Test } from '@nestjs/testing';
 import { PNG } from 'pngjs';
 import jsQR from 'jsqr';
+import sharp from 'sharp';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -420,6 +421,58 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
       await expect(service.genererCarteAdherent(USER, 'adh-1')).resolves.toBeDefined();
     });
 
+    /** Chaînes de texte du PDF (WinAnsi encodé en hexadécimal par pdf-lib). */
+    const textesDuPdf = async () => {
+      const { texte } = await contenuPage(pdfTeleverse());
+      return [...texte.matchAll(/<([0-9A-Fa-f]+)> Tj/g)].map((m) => Buffer.from(m[1], 'hex').toString('latin1'));
+    };
+
+    it('bandeau : téléphone et e-mail de la société juste après « CARTE DE MEMBRE »', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT,
+        organisation: { nom: 'Assureur Test A', telephoneContact: '+225 27 20 00 00 00', emailContact: 'contact@assureur-a.ci' },
+      });
+      await service.genererCarteAdherent(USER, 'adh-1');
+      const chaines = await textesDuPdf();
+      const i = chaines.indexOf('CARTE DE MEMBRE');
+      expect(i).toBeGreaterThan(-1);
+      expect(chaines[i + 1]).toBe('·  Tél. +225 27 20 00 00 00  ·  contact@assureur-a.ci');
+    });
+
+    it('bandeau : seulement les coordonnées renseignées ; aucune → rien après « CARTE DE MEMBRE »', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT,
+        organisation: { nom: 'Assureur Test A', telephoneContact: null, emailContact: 'contact@assureur-a.ci' },
+      });
+      await service.genererCarteAdherent(USER, 'adh-1');
+      let chaines = await textesDuPdf();
+      expect(chaines[chaines.indexOf('CARTE DE MEMBRE') + 1]).toBe('·  contact@assureur-a.ci');
+
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT,
+        organisation: { nom: 'Assureur Test A', telephoneContact: '  ', emailContact: null },
+      });
+      fetchMock.mockClear(); // pdfTeleverse() lit le 1er téléversement : on repart de zéro
+      await service.genererCarteAdherent(USER, 'adh-1');
+      chaines = await textesDuPdf();
+      expect(chaines.join('|')).not.toMatch(/·|Tél\./);
+    });
+
+    it('bandeau : coordonnées trop longues → l’e-mail ENTIER seul, jamais une adresse tronquée', async () => {
+      // 98 caractères : la ligne complète (281 pt à 5 pt) ne tient pas dans les
+      // 243 pt disponibles, l'e-mail seul (220 pt) oui.
+      const email = 'service.relation.adherents.reseau-de-soins.cote-ivoire.abidjan@assureur-test-a-sante-collective.ci';
+      prisma.adherent.findFirst.mockResolvedValue({
+        ...ADHERENT,
+        organisation: { nom: 'Assureur Test A', telephoneContact: '+225 27 20 00 00 00', emailContact: email },
+      });
+      await service.genererCarteAdherent(USER, 'adh-1');
+      const chaines = await textesDuPdf();
+      const contact = chaines[chaines.indexOf('CARTE DE MEMBRE') + 1];
+      expect(contact).toBe(`·  ${email}`);
+      expect(contact).not.toContain('...');
+    });
+
     it('apostrophe typographique conservée (N’Guessan, JUSQU’AU) — jamais supprimée', async () => {
       prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT, prenom: 'Aya', nom: 'N’Guessan' });
       await service.genererCarteAdherent(USER, 'adh-1');
@@ -469,6 +522,33 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
         organisation: { nom: 'Assureur Test A', logoUrl },
       });
 
+    it('logo avec marges transparentes : rogné en mémoire avant le filigrane et le bandeau', async () => {
+      // 200 × 80 transparent, contenu opaque 100 × 40 à (30, 20) : 100 px de marges.
+      const logoAvecMarges = await sharp({
+        create: { width: 200, height: 80, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+      })
+        .composite([{
+          input: await sharp({ create: { width: 100, height: 40, channels: 4, background: { r: 40, g: 30, b: 20, alpha: 1 } } }).png().toBuffer(),
+          left: 30,
+          top: 20,
+        }])
+        .png()
+        .toBuffer();
+      adherentAvec(PHOTO, LOGO_URL);
+      servir({ photo: pngDe(100, 100), logo: logoAvecMarges });
+
+      await service.genererCarteAdherent(USER, 'adh-1');
+
+      const d = await dessinsImages(pdfTeleverse());
+      const logos = d.filter((i) => i.px === '100x40');
+      expect(logos).toHaveLength(2); // filigrane + bandeau, tous deux sur l'image rognée
+      expect(d.some((i) => i.px === '200x80')).toBe(false);
+      // Filigrane : la zone 8,5–214 (205,5 pt) est remplie par le CONTENU du logo.
+      const filigrane = logos.find((i) => i.opacite < 1)!;
+      expect(filigrane.w).toBeCloseTo(205.5, 5);
+      expect(filigrane.x + filigrane.w).toBeCloseTo(214, 5);
+    });
+
     it('logo + photo : photo CARRÉE 112 pt centrée verticalement, QR 52 pt centré en bas, logo en FILIGRANE et dans le BANDEAU', async () => {
       adherentAvec(PHOTO, LOGO_URL);
       servir({ photo: pngDe(100, 100), logo: pngDe(200, 80) });
@@ -495,16 +575,19 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
       expect(logoBandeau).toMatchObject({ w: 55, h: 22, x: 14, y: 183 });
       expect(logoBandeau.y).toBeGreaterThanOrEqual(174);
       expect(logoBandeau.y + logoBandeau.h).toBeLessThanOrEqual(214);
-      // Filigrane : centré dans la zone libre À GAUCHE de la photo (x 0–204),
-      // 90 % de sa largeur (183,6 pt, proportions conservées → 183,6 × 73,44),
-      // centré verticalement sous le bandeau (0–174), opacité 10 %.
-      expect(logo).toMatchObject({ w: 183.6, h: 73.44, opacite: 0.1 });
-      expect(logo.x).toBeCloseTo(10.2, 5);
-      expect(logo.y).toBeCloseTo(50.28, 5);
-      expect(logo.x + logo.w / 2).toBeCloseTo(102, 5);
+      // Filigrane : toute la zone libre À GAUCHE de la photo, de la marge de
+      // sécurité (8,5) jusqu'au bord de la photo (214) → 205,5 pt de large
+      // (proportions conservées → 205,5 × 82,2), centré verticalement sous le
+      // bandeau (0–174), opacité 10 %.
+      expect(logo).toMatchObject({ opacite: 0.1 });
+      expect(logo.w).toBeCloseTo(205.5, 5);
+      expect(logo.h).toBeCloseTo(82.2, 5);
+      expect(logo.x).toBeCloseTo(8.5, 5);
+      expect(logo.y).toBeCloseTo(45.9, 5);
       expect(logo.y + logo.h / 2).toBeCloseTo(87, 5);
-      // Jamais masqué par la photo (opaque) : il s'arrête avant son bord gauche.
-      expect(logo.x + logo.w).toBeLessThanOrEqual(photo.x);
+      // À la limite de la photo, jamais dessous (la photo opaque le masquerait).
+      expect(logo.x + logo.w).toBeCloseTo(photo.x, 5);
+      expect(logo.x + logo.w).toBeLessThanOrEqual(photo.x + 1e-9);
       // Dessiné EN PREMIER : tout le reste (photo, QR, texte) passe par-dessus.
       expect(d[0].px).toBe('200x80');
       const { texte } = await contenuPage(pdfTeleverse());

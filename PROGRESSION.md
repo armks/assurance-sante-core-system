@@ -6921,3 +6921,41 @@ Terminé.
 
 ### Statut
 Terminé.
+
+## 2026-10-01 — Audit des tableaux (DataTable) : filtres, recherche, tri, pagination — diagnostic, rien corrigé
+
+### Méthode
+- 72 DataTable (57 fichiers) analysés par le TypeChecker : chaque champ de recherche,
+  filtre et tri existe dans le type des lignes (0 champ inexistant).
+- Données créées par les flux API réels (dossier, actes, ordonnance, dispensation,
+  facturation, paiement, facture mensuelle, comptes et mouvements, réclamations,
+  demandes d'adhésion, événements, libellés accentués), 18 comptes (un par rôle) ;
+  pour chaque tableau, appel HTTP de son endpoint puis rejeu du code exact de
+  `data-table.tsx` sur la réponse réelle. 5 faux positifs écartés. Tout supprimé.
+
+### Constat d'architecture
+DataTable est entièrement côté client (filtres, recherche, tri, pagination sur des
+données chargées en une fois) : aucun critère n'est envoyé au serveur. Tri sur toutes
+les lignes filtrées avant pagination ; compteur et nombre de pages calculés sur les
+lignes filtrées. Seule recherche serveur : la recherche géolocalisée des écrans
+Établissements / Pharmacies (rayon, cible) — testée, correcte, combinaisons comprises.
+
+### Anomalies (à corriger)
+1. Recherche sensible aux accents sur les 35 recherches (« Societe » ne trouve pas
+   « Société ») — `toLowerCase().includes()` sans normalisation.
+2. Recherche par nom complet impossible (prénom et nom cherchés séparément) :
+   adhérents, mouvements de personnel, réclamations société.
+3. Listes tronquées par l'API sans indication (compteur « 50 / 50 » trompeur, anciens
+   éléments inaccessibles) : actes / ordonnances à examiner (200, recherche limitée),
+   dispensations pharmacie (100), écrans adhérent codes / ordonnances / dispensations /
+   factures (50), actions superadmin en attente (30).
+4. Filtre statut des adhérents sans « Sortie proposée » (PROPOSE_SORTANT).
+5. Filtre statut de la facturation du centre médical sans « Transféré ».
+
+### Fonctionne (vérifié en réel)
+Filtres individuels (valeurs API ⊂ options, hors 4 et 5), filtres combinés (ET exact),
+recherche insensible à la casse et sur les champs annoncés, tri des montants en
+nombres, pagination et compteur filtrés.
+
+### Statut
+Diagnostic terminé — aucune correction effectuée.

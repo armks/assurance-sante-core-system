@@ -12,10 +12,14 @@ import {
   Alerte,
   ChampZone,
   DataTable,
+  FiltresServeur,
   FormulaireModal,
+  PaginationServeur,
   StatutBadge,
   type ColonneTable,
+  type PageServeur,
 } from '@/components/dashboard/patterns';
+import { CATEGORIES_ACTE } from '@/lib/centre-medical';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -128,11 +132,20 @@ function TrancherContestation({
   );
 }
 
+/** État de la DERNIÈRE contestation d'un acte — filtre serveur `contestation`. */
+const OPTIONS_CONTESTATION = [
+  { valeur: 'SANS', libelle: 'Jamais contesté' },
+  { valeur: 'EN_COURS', libelle: 'Contestation en cours' },
+  { valeur: 'TRAITEE', libelle: 'Contestation tranchée' },
+];
+const OPTIONS_CATEGORIE = CATEGORIES_ACTE.map((c) => ({ valeur: c, libelle: c.replace(/_/g, ' ') }));
+
 export function MedecinConseilActesEcran({
   actes,
   contestations,
 }: {
-  actes: ActeRevue[];
+  /** Page d'actes renvoyée par l'API (pagination, recherche et filtres serveur). */
+  actes: PageServeur<ActeRevue>;
   contestations: ContestationActe[];
 }) {
   const router = useRouter();
@@ -146,10 +159,12 @@ export function MedecinConseilActesEcran({
   const enCours = contestations.filter((c) => ['OUVERT', 'JUSTIFICATION_RECUE'].includes(c.statut));
   const traitees = contestations.filter((c) => ['VALIDEE', 'REJETEE'].includes(c.statut));
 
+  // Colonnes NON triables : la liste est paginée côté serveur (ordre : du plus
+  // récent au plus ancien) — un tri local ne porterait que sur la page affichée.
   const colonnesActes: ColonneTable<ActeRevue>[] = [
-    { cle: 'patient', entete: 'Patient', triable: true },
-    { cle: 'etablissement', entete: 'Établissement', triable: true },
-    { cle: 'libelle', entete: 'Acte', triable: true },
+    { cle: 'patient', entete: 'Patient' },
+    { cle: 'etablissement', entete: 'Établissement' },
+    { cle: 'libelle', entete: 'Acte' },
     { cle: 'categorieActe', entete: 'Catégorie' },
     {
       cle: 'montantPrescrit',
@@ -161,8 +176,6 @@ export function MedecinConseilActesEcran({
     {
       cle: 'datePrescription',
       entete: 'Prescrit le',
-      triable: true,
-      valeur: (a) => a.datePrescription,
       rendu: (a) => dateFr(a.datePrescription),
     },
     {
@@ -185,15 +198,21 @@ export function MedecinConseilActesEcran({
         <CardHeader>
           <CardTitle className="text-base">Actes à examiner</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <FiltresServeur
+            recherche={{ placeholder: 'Patient, n° de traitement, acte, établissement…' }}
+            periode
+            libellePeriode="Prescrit"
+            selects={[
+              { cle: 'contestation', libelle: 'Contestation', options: OPTIONS_CONTESTATION },
+              { cle: 'categorie', libelle: 'Catégorie', options: OPTIONS_CATEGORIE },
+            ]}
+          />
           <DataTable
-            donnees={actes}
+            donnees={actes.items}
             cleLigne={(a) => a.id}
-            parPage={15}
-            recherche={{
-              placeholder: 'Patient, établissement, acte…',
-              champs: ['patient', 'etablissement', 'libelle', 'numeroTraitement'],
-            }}
+            parPage={0}
+            piedMasque
             colonnes={colonnesActes}
             actionLigne={(a) => (
               <div className="flex items-center gap-1">
@@ -203,8 +222,9 @@ export function MedecinConseilActesEcran({
                 {!a.contestation && <ContesterActe acte={a} onSucces={succes} />}
               </div>
             )}
-            vide="Aucun acte pour l’instant."
+            vide="Aucun acte ne correspond à ces critères."
           />
+          <PaginationServeur page={actes.page} pages={actes.pages} total={actes.total} limite={actes.limite} />
         </CardContent>
       </Card>
 

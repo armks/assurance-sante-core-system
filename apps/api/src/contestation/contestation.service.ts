@@ -10,10 +10,14 @@ import {
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
+import { bornesPage, bornesPeriode, conditionRecherche, versPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  ETATS_CONTESTATION_REVUE,
   OuvrirContestationActeDto,
   OuvrirContestationDto,
+  RevueActesQueryDto,
+  RevueQueryDto,
   TrancherContestationDto,
 } from './dto/contestation.dto';
 import {
@@ -71,12 +75,60 @@ export class ContestationService {
    * complet du patient (diagnostic, motif, historique des actes), déjà lisible
    * par ce rôle (`ROLES_LECTURE_DOSSIER_STAFF`, care-episode.types.ts).
    */
-  async listerOrdonnancesPourRevue(user: AuthenticatedUser) {
+  async listerOrdonnancesPourRevue(user: AuthenticatedUser, dto: RevueQueryDto = {}) {
     const ctx = await this.contexteAppelant(user);
     this.assertPharmacienConseil(ctx);
 
-    const ordonnances = await this.prisma.ordonnance.findMany({
-      where: { organisationId: ctx.organisationId, deletedAt: null },
+    // Pagination SERVEUR par ordonnance (remplace `take: 200`). Recherche sur
+    // patient, n° de traitement, établissement ET médicaments prescrits ; état
+    // de contestation : l'ordonnance est retenue si AU MOINS UNE de ses lignes
+    // est dans l'état demandé.
+    const { page, limite, offset } = bornesPage(dto);
+    const { debut, finExclue } = bornesPeriode(dto.du, dto.au);
+    const derniere = Prisma.sql`(SELECT c.statut FROM contestations_prescription c WHERE c.ligne_ordonnance_id = l.id ORDER BY c.created_at DESC LIMIT 1)`;
+    const conditions = Prisma.join(
+      [
+        Prisma.sql`o.deleted_at IS NULL`,
+        Prisma.sql`o.organisation_id = ${ctx.organisationId}::uuid`,
+        debut ? Prisma.sql`o.date_prescription >= ${debut}` : Prisma.sql`TRUE`,
+        finExclue ? Prisma.sql`o.date_prescription < ${finExclue}` : Prisma.sql`TRUE`,
+        dto.contestation
+          ? Prisma.sql`EXISTS (SELECT 1 FROM lignes_ordonnance l WHERE l.ordonnance_id = o.id AND ${this.conditionEtatContestation(derniere, dto.contestation)})`
+          : Prisma.sql`TRUE`,
+        conditionRecherche(dto.q, [
+          Prisma.sql`ad.prenom`, Prisma.sql`ad.nom`, Prisma.sql`b.prenom`, Prisma.sql`b.nom`,
+          Prisma.sql`d.numero_traitement`, Prisma.sql`e.nom`,
+          Prisma.sql`(SELECT string_agg(l.denomination_medicament, ' ') FROM lignes_ordonnance l WHERE l.ordonnance_id = o.id)`,
+        ]),
+      ],
+      ' AND ',
+    );
+    const lignesPage = await this.prisma.$queryRaw<{ id: string; total: number }[]>`
+      SELECT o.id::text AS id, (COUNT(*) OVER())::int AS total
+      FROM ordonnances o
+      JOIN dossiers_soins d ON d.id = o.dossier_soins_id
+      JOIN etablissements_sante e ON e.id = d.etablissement_id
+      LEFT JOIN adherents ad ON ad.id = d.adherent_id
+      LEFT JOIN beneficiaires b ON b.id = d.beneficiaire_id
+      WHERE ${conditions}
+      ORDER BY o.date_prescription DESC, o.id
+      LIMIT ${limite} OFFSET ${offset}`;
+    let total = lignesPage[0]?.total ?? 0;
+    if (!lignesPage.length && offset > 0) {
+      const [r] = await this.prisma.$queryRaw<{ n: number }[]>`
+        SELECT COUNT(*)::int AS n
+        FROM ordonnances o
+        JOIN dossiers_soins d ON d.id = o.dossier_soins_id
+        JOIN etablissements_sante e ON e.id = d.etablissement_id
+        LEFT JOIN adherents ad ON ad.id = d.adherent_id
+        LEFT JOIN beneficiaires b ON b.id = d.beneficiaire_id
+        WHERE ${conditions}`;
+      total = r?.n ?? 0;
+    }
+    const ids = lignesPage.map((l) => l.id);
+
+    const ordonnancesTrouvees = await this.prisma.ordonnance.findMany({
+      where: { id: { in: ids } },
       include: {
         dossier: {
           select: {
@@ -94,11 +146,11 @@ export class ContestationService {
           },
         },
       },
-      orderBy: { datePrescription: 'desc' },
-      take: 200,
     });
+    const parId = new Map(ordonnancesTrouvees.map((o) => [o.id, o]));
+    const ordonnances = ids.map((id) => parId.get(id)!).filter(Boolean);
 
-    return ordonnances.map((o) => ({
+    const items = ordonnances.map((o) => ({
       id: o.id,
       statut: o.statut,
       datePrescription: o.datePrescription,
@@ -122,6 +174,7 @@ export class ContestationService {
           : null,
       })),
     }));
+    return versPage(items, total, page, limite);
   }
 
   /**
@@ -395,16 +448,47 @@ export class ContestationService {
 
   /** Côté MÉDECIN CONSEIL : tous les actes récents de l'organisation, avec le
    * statut de contestation courant de chacun — alimente l'écran « Actes à examiner ». */
-  async listerActesPourRevue(user: AuthenticatedUser) {
+  async listerActesPourRevue(user: AuthenticatedUser, dto: RevueActesQueryDto = {}) {
     const ctx = await this.contexteAppelant(user);
     this.assertMedecinConseil(ctx);
 
+    // Pagination SERVEUR (remplace `take: 200` : au-delà, les actes anciens
+    // étaient inaccessibles, recherche comprise). Les filtres et la recherche
+    // sont appliqués en SQL AVANT la pagination ; total = résultats filtrés.
+    const { page, limite, offset } = bornesPage(dto);
+    const { debut, finExclue } = bornesPeriode(dto.du, dto.au);
+    const derniere = Prisma.sql`(SELECT c.statut FROM contestations_acte c WHERE c.acte_dossier_id = a.id ORDER BY c.created_at DESC LIMIT 1)`;
+    const conditions = Prisma.join(
+      [
+        Prisma.sql`a.deleted_at IS NULL`,
+        Prisma.sql`a.statut <> 'ANNULE'`,
+        Prisma.sql`d.organisation_id = ${ctx.organisationId}::uuid`,
+        debut ? Prisma.sql`a.date_prescription >= ${debut}` : Prisma.sql`TRUE`,
+        finExclue ? Prisma.sql`a.date_prescription < ${finExclue}` : Prisma.sql`TRUE`,
+        dto.categorie ? Prisma.sql`a.categorie_acte = ${dto.categorie}` : Prisma.sql`TRUE`,
+        this.conditionEtatContestation(derniere, dto.contestation),
+        conditionRecherche(dto.q, [
+          Prisma.sql`ad.prenom`, Prisma.sql`ad.nom`, Prisma.sql`b.prenom`, Prisma.sql`b.nom`,
+          Prisma.sql`d.numero_traitement`, Prisma.sql`e.nom`, Prisma.sql`a.libelle`, Prisma.sql`a.code_acte`,
+        ]),
+      ],
+      ' AND ',
+    );
+    const lignes = await this.prisma.$queryRaw<{ id: string; total: number }[]>`
+      SELECT a.id::text AS id, (COUNT(*) OVER())::int AS total
+      FROM actes_dossier a
+      JOIN dossiers_soins d ON d.id = a.dossier_soins_id
+      JOIN etablissements_sante e ON e.id = d.etablissement_id
+      LEFT JOIN adherents ad ON ad.id = d.adherent_id
+      LEFT JOIN beneficiaires b ON b.id = d.beneficiaire_id
+      WHERE ${conditions}
+      ORDER BY a.date_prescription DESC, a.id
+      LIMIT ${limite} OFFSET ${offset}`;
+    const total = lignes[0]?.total ?? (offset > 0 ? await this.compterActesRevue(conditions) : 0);
+    const ids = lignes.map((l) => l.id);
+
     const actes = await this.prisma.acteDossier.findMany({
-      where: {
-        deletedAt: null,
-        statut: { not: 'ANNULE' },
-        dossier: { organisationId: ctx.organisationId },
-      },
+      where: { id: { in: ids } },
       include: {
         dossier: {
           select: {
@@ -417,11 +501,10 @@ export class ContestationService {
         },
         contestations: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
-      orderBy: { datePrescription: 'desc' },
-      take: 200,
     });
+    const parId = new Map(actes.map((a) => [a.id, a]));
 
-    return actes.map((a) => ({
+    const items = ids.map((id) => parId.get(id)!).filter(Boolean).map((a) => ({
       id: a.id,
       categorieActe: a.categorieActe,
       libelle: a.libelle,
@@ -442,6 +525,35 @@ export class ContestationService {
         ? { id: a.contestations[0].id, statut: a.contestations[0].statut }
         : null,
     }));
+    return versPage(items, total, page, limite);
+  }
+
+  /** Total filtré quand la page demandée est au-delà de la dernière (0 ligne). */
+  private async compterActesRevue(conditions: Prisma.Sql): Promise<number> {
+    const [r] = await this.prisma.$queryRaw<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n
+      FROM actes_dossier a
+      JOIN dossiers_soins d ON d.id = a.dossier_soins_id
+      JOIN etablissements_sante e ON e.id = d.etablissement_id
+      LEFT JOIN adherents ad ON ad.id = d.adherent_id
+      LEFT JOIN beneficiaires b ON b.id = d.beneficiaire_id
+      WHERE ${conditions}`;
+    return r?.n ?? 0;
+  }
+
+  /**
+   * Filtre « état de contestation » sur la DERNIÈRE contestation (sous-requête
+   * `derniere`) : SANS = jamais contesté, EN_COURS = ouverte ou justification
+   * reçue, TRAITEE = validée ou rejetée.
+   */
+  private conditionEtatContestation(
+    derniere: Prisma.Sql,
+    etat?: (typeof ETATS_CONTESTATION_REVUE)[number],
+  ): Prisma.Sql {
+    if (etat === 'SANS') return Prisma.sql`${derniere} IS NULL`;
+    if (etat === 'EN_COURS') return Prisma.sql`${derniere} IN ('OUVERT', 'JUSTIFICATION_RECUE')`;
+    if (etat === 'TRAITEE') return Prisma.sql`${derniere} IN ('VALIDEE', 'REJETEE')`;
+    return Prisma.sql`TRUE`;
   }
 
   /**

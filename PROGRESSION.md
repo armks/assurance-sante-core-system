@@ -6978,3 +6978,45 @@ Diagnostic terminé — aucune correction effectuée.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-01 — Pagination serveur : actes et prescriptions à examiner (listes tronquées n° 1 et 2)
+
+### Constat démontré avant correction (HTTP réel)
+210 actes et 210 ordonnances créés par l'API, le plus ancien de chaque série daté du
+15/03/2025 : `actes-a-examiner` et `ordonnances-a-examiner` renvoyaient 200 lignes —
+l'« Échographie abdominale de contrôle (ancienne) » et l'« Amoxicilline 1 g (ancienne
+prescription) » étaient INVISIBLES et incontestables ; `?q=…&page=2` ignorés.
+
+### Correctif
+- Convention commune de pagination serveur (`api/src/common/pagination.ts`) :
+  `?page=` / `?limite=` (25 par défaut, 100 au plus), réponse
+  `{ items, total, page, limite, pages }`, total = résultats FILTRÉS ; `?q=` (chaque
+  mot dans au moins un champ, casse et accents ignorés), `?du=` / `?au=` (inclus).
+- Base — `prisma/sql/066_recherche_sans_accent.sql` (appliquée) : extension `unaccent`
+  (schéma `extensions`) + `public.sans_accent()` IMMUTABLE (apostrophes ’ → ').
+- `GET /contestation/actes-a-examiner` : recherche patient / n° de traitement /
+  établissement / acte / code, période de prescription, état de la DERNIÈRE
+  contestation (SANS / EN_COURS / TRAITEE), catégorie. `GET /contestation/
+  ordonnances-a-examiner` : idem par ordonnance (recherche aussi sur les médicaments,
+  état « au moins une ligne »). SQL paramétré (ids + total), détail via Prisma dans
+  l'ordre de la page ; page au-delà de la dernière → total recompté.
+- Web : briques `FiltresServeur` / `PaginationServeur` (patterns, filtres dans l'URL
+  → API, retour en page 1), `lib/liste-serveur.ts`, `DataTable` option `piedMasque`.
+  Écrans médecin conseil et pharmacien conseil branchés (colonnes non triables
+  localement : ordre serveur du plus récent au plus ancien).
+
+### Tests
+- Unitaires : `common/pagination.spec.ts` (+7 : bornes, pages, période, DTO, une
+  condition par mot, échappement LIKE, valeurs paramétrées) ; contestation (+2 :
+  LIMIT/OFFSET et ordre de la page conservé, total recompté hors limites ; 2 tests
+  adaptés au format paginé). API 907/907, `tsc` API et web OK.
+- HTTP réel (210 + 210) : total 210, 9 pages, parcours complet = 210 ids uniques,
+  l'acte ancien en dernière page ; « echographie », « ÉCHOGRAPHIE contrôle »,
+  « yao kouassi echographie », période 2025 → l'acte ancien ; « amoxicilline »,
+  « paracetamol 209 » → les ordonnances ; filtres combinés OK ; limite 500 → 400 ;
+  date invalide → 400 ; pharmacien conseil sur les actes → 403.
+- Navigateur : recherche « echographie » → l'acte du 15/03/2025 avec « Contester » ;
+  pied « 1–25 sur 210 — page 1/9 ». Volume de test supprimé.
+
+### Statut
+Terminé, commité et poussé.

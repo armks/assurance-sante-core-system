@@ -11,9 +11,12 @@ import {
 import {
   ChampZone,
   DataTable,
+  FiltresServeur,
   FormulaireModal,
+  PaginationServeur,
   StatutBadge,
   type ColonneTable,
+  type PageServeur,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -138,11 +141,19 @@ function TrancherContestation({
   );
 }
 
+/** Ordonnance retenue si AU MOINS UNE ligne est dans cet état (filtre serveur). */
+const OPTIONS_CONTESTATION = [
+  { valeur: 'SANS', libelle: 'Une ligne jamais contestée' },
+  { valeur: 'EN_COURS', libelle: 'Contestation en cours' },
+  { valeur: 'TRAITEE', libelle: 'Contestation tranchée' },
+];
+
 export function PharmacienConseilPrescriptionsEcran({
   ordonnances,
   contestations,
 }: {
-  ordonnances: OrdonnanceRevue[];
+  /** Page d'ordonnances renvoyée par l'API (pagination, recherche et filtres serveur). */
+  ordonnances: PageServeur<OrdonnanceRevue>;
   contestations: Contestation[];
 }) {
   const router = useRouter();
@@ -153,7 +164,7 @@ export function PharmacienConseilPrescriptionsEcran({
     router.refresh();
   }
 
-  const lignes: LigneAplatie[] = ordonnances.flatMap((o) =>
+  const lignes: LigneAplatie[] = ordonnances.items.flatMap((o) =>
     o.lignes.map((l) => ({
       ...l,
       ordonnanceId: o.id,
@@ -168,16 +179,16 @@ export function PharmacienConseilPrescriptionsEcran({
   const enCours = contestations.filter((c) => ['OUVERT', 'JUSTIFICATION_RECUE'].includes(c.statut));
   const traitees = contestations.filter((c) => ['VALIDEE', 'REJETEE'].includes(c.statut));
 
+  // Colonnes NON triables : liste paginée côté serveur (du plus récent au plus
+  // ancien) — un tri local ne porterait que sur la page affichée.
   const colonnesLignes: ColonneTable<LigneAplatie>[] = [
-    { cle: 'patient', entete: 'Patient', triable: true },
-    { cle: 'etablissement', entete: 'Établissement', triable: true },
-    { cle: 'denominationMedicament', entete: 'Médicament', triable: true },
+    { cle: 'patient', entete: 'Patient' },
+    { cle: 'etablissement', entete: 'Établissement' },
+    { cle: 'denominationMedicament', entete: 'Médicament' },
     { cle: 'quantitePrescrite', entete: 'Qté', aligneDroite: true },
     {
       cle: 'datePrescription',
       entete: 'Prescrit le',
-      triable: true,
-      valeur: (l) => l.datePrescription,
       rendu: (l) => dateFr(l.datePrescription),
     },
     {
@@ -218,15 +229,18 @@ export function PharmacienConseilPrescriptionsEcran({
         <CardHeader>
           <CardTitle className="text-base">Prescriptions à examiner</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <FiltresServeur
+            recherche={{ placeholder: 'Patient, n° de traitement, médicament, établissement…' }}
+            periode
+            libellePeriode="Prescrite"
+            selects={[{ cle: 'contestation', libelle: 'Contestation', options: OPTIONS_CONTESTATION }]}
+          />
           <DataTable
             donnees={lignes}
             cleLigne={(l) => l.id}
-            parPage={15}
-            recherche={{
-              placeholder: 'Patient, établissement, médicament…',
-              champs: ['patient', 'etablissement', 'denominationMedicament', 'numeroTraitement'],
-            }}
+            parPage={0}
+            piedMasque
             colonnes={colonnesLignes}
             actionLigne={(l) => (
               <div className="flex items-center gap-1">
@@ -240,7 +254,13 @@ export function PharmacienConseilPrescriptionsEcran({
                 )}
               </div>
             )}
-            vide="Aucune prescription pour l’instant."
+            vide="Aucune prescription ne correspond à ces critères."
+          />
+          <PaginationServeur
+            page={ordonnances.page}
+            pages={ordonnances.pages}
+            total={ordonnances.total}
+            limite={ordonnances.limite}
           />
         </CardContent>
       </Card>

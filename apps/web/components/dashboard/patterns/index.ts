@@ -4,6 +4,7 @@
  * (souscripteurs, produits, polices, cotisations, établissements, utilisateurs…).
  *
  *  - `DataTable`       — tableau générique : recherche, filtres select, tri, pagination, état vide, état de chargement
+ *  - `FiltresServeur` / `PaginationServeur` — listes longues paginées CÔTÉ SERVEUR (filtres dans l'URL → API)
  *  - `FormulaireModal` — wrapper de formulaire création/édition (drawer mobile-first ou modale), erreurs de validation listées
  *  - `Champ*`           — champs libellés (texte, nombre, select, zone, checkbox) pour ces formulaires
  *  - `StatutBadge`      — badge de statut coloré (tonalité déduite du jeton, surchargeable par `map`)
@@ -13,6 +14,12 @@
  * Doc et exemples : `./README.md`.
  */
 export { DataTable, type ColonneTable, type FiltreSelect } from './data-table';
+export {
+  FiltresServeur,
+  PaginationServeur,
+  type FiltreServeurSelect,
+  type PageServeur,
+} from './liste-serveur';
 export { FormulaireModal, type ResultatSoumission } from './formulaire-modal';
 export {
   Champ,

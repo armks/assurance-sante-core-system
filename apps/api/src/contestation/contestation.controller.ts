@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
   UseInterceptors,
   UploadedFiles,
@@ -18,6 +19,8 @@ import { ContestationService, type FichierTeleverse } from './contestation.servi
 import {
   OuvrirContestationActeDto,
   OuvrirContestationDto,
+  RevueActesQueryDto,
+  RevueQueryDto,
   TrancherContestationDto,
 } from './dto/contestation.dto';
 
@@ -33,8 +36,8 @@ export class ContestationController {
 
   /** Côté PHARMACIEN CONSEIL : « Prescriptions à examiner ». */
   @Get('ordonnances-a-examiner')
-  listerOrdonnancesPourRevue(@CurrentUser() user: AuthenticatedUser) {
-    return this.contestation.listerOrdonnancesPourRevue(user);
+  listerOrdonnancesPourRevue(@CurrentUser() user: AuthenticatedUser, @Query() dto: RevueQueryDto) {
+    return this.contestation.listerOrdonnancesPourRevue(user, dto);
   }
 
   /** Côté PHARMACIEN CONSEIL : « Contestations en cours ». Côté PHARMACIE : « Contestations reçues ». */
@@ -90,8 +93,8 @@ export class ContestationController {
 
   /** Côté MÉDECIN CONSEIL : « Actes à examiner ». */
   @Get('actes-a-examiner')
-  listerActesPourRevue(@CurrentUser() user: AuthenticatedUser) {
-    return this.contestation.listerActesPourRevue(user);
+  listerActesPourRevue(@CurrentUser() user: AuthenticatedUser, @Query() dto: RevueActesQueryDto) {
+    return this.contestation.listerActesPourRevue(user, dto);
   }
 
   /** Côté MÉDECIN CONSEIL : « Contestations en cours ». Côté ÉTABLISSEMENT : « Contestations reçues ». */

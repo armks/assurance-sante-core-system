@@ -80,6 +80,7 @@ describe('ContestationService', () => {
         update: jest.fn(),
       },
       $executeRaw: jest.fn().mockResolvedValue(1),
+      $queryRaw: jest.fn().mockResolvedValue([]),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     identity = { getMe: jest.fn() };
@@ -136,9 +137,11 @@ describe('ContestationService', () => {
         },
       ]);
 
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 'ord-1', total: 1 }]);
       const res = await service.listerOrdonnancesPourRevue(USER);
 
-      expect(res).toEqual([
+      expect(res).toMatchObject({ total: 1, page: 1, limite: 25, pages: 1 });
+      expect(res.items).toEqual([
         expect.objectContaining({
           id: 'ord-1',
           patient: 'Adjoua Konan',
@@ -460,9 +463,11 @@ describe('ContestationService', () => {
         },
       ]);
 
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 'acte-1', total: 1 }]);
       const res = await service.listerActesPourRevue(USER);
 
-      expect(res).toEqual([
+      expect(res).toMatchObject({ total: 1, page: 1, limite: 25, pages: 1 });
+      expect(res.items).toEqual([
         expect.objectContaining({
           id: 'acte-1',
           patient: 'Adjoua Konan',
@@ -476,6 +481,39 @@ describe('ContestationService', () => {
       identity.getMe.mockResolvedValue(pharmacienConseil());
       await expect(service.listerActesPourRevue(USER)).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.acteDossier.findMany).not.toHaveBeenCalled();
+    });
+
+    const acteMin = (id: string) => ({
+      id, categorieActe: 'CONSULTATION', libelle: id, codeActe: null, quantite: 1,
+      montantPrescrit: null, statut: 'REALISE', datePrescription: new Date('2026-01-01'),
+      dossier: { id: 'dos-1', numeroTraitement: 'TRT-1', etablissement: { nom: 'FARAH' }, adherent: null, beneficiaire: null },
+      contestations: [],
+    });
+
+    it('pagination serveur : LIMIT/OFFSET de la page demandée, ORDRE de la requête paginée conservé', async () => {
+      identity.getMe.mockResolvedValue(medecinConseil());
+      prisma.$queryRaw.mockResolvedValueOnce([{ id: 'acte-b', total: 230 }, { id: 'acte-a', total: 230 }]);
+      // Prisma rend le détail dans un ordre quelconque : l'ordre de la page doit primer.
+      prisma.acteDossier.findMany.mockResolvedValue([acteMin('acte-a'), acteMin('acte-b')]);
+
+      const res = await service.listerActesPourRevue(USER, { page: 3, limite: 50 });
+
+      expect(res).toMatchObject({ total: 230, page: 3, limite: 50, pages: 5 });
+      expect(res.items.map((a) => a.id)).toEqual(['acte-b', 'acte-a']);
+      const valeurs = prisma.$queryRaw.mock.calls[0].slice(1);
+      expect(valeurs).toEqual(expect.arrayContaining([50, 100])); // LIMIT 50 OFFSET 100
+      expect(prisma.acteDossier.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: ['acte-b', 'acte-a'] } } }),
+      );
+    });
+
+    it('page au-delà de la dernière : 0 élément mais total filtré RÉEL (recompté)', async () => {
+      identity.getMe.mockResolvedValue(medecinConseil());
+      prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ n: 42 }]);
+
+      const res = await service.listerActesPourRevue(USER, { page: 99, limite: 25 });
+
+      expect(res).toMatchObject({ items: [], total: 42, page: 99, pages: 2 });
     });
   });
 

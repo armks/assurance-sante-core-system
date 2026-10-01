@@ -64,6 +64,7 @@ export function DataTable<T extends object>({
   parPage = 10,
   vide = 'Aucune donnée.',
   tailleTexte = 'text-sm',
+  piedMasque = false,
 }: {
   colonnes: ColonneTable<T>[];
   donnees: T[];
@@ -79,6 +80,11 @@ export function DataTable<T extends object>({
   parPage?: number;
   vide?: React.ReactNode;
   tailleTexte?: string;
+  /**
+   * Masque le compteur / la pagination internes : pour une liste paginée CÔTÉ
+   * SERVEUR, où `PaginationServeur` affiche le vrai total filtré.
+   */
+  piedMasque?: boolean;
 }) {
   const [q, setQ] = useState('');
   const [valeursFiltres, setValeursFiltres] = useState<Record<string, string>>(
@@ -314,7 +320,7 @@ export function DataTable<T extends object>({
         </table>
       </div>
 
-      {!chargement && lignesFiltrees.length > 0 && (
+      {!piedMasque && !chargement && lignesFiltrees.length > 0 && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <span>
             {lignesFiltrees.length} / {donnees.length}

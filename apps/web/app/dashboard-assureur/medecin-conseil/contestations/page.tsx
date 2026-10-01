@@ -6,21 +6,30 @@ import {
   type ActeRevue,
   type ContestationActe,
 } from '@/components/dashboard/medecin-conseil-actes-ecran';
+import type { PageServeur } from '@/components/dashboard/patterns';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { PAGE_VIDE, requeteListe, type ParametresUrl } from '@/lib/liste-serveur';
 
 export const metadata: Metadata = { title: 'Contestations — Médecin Conseil' };
 
-export default async function ActesAExaminer() {
+export default async function ActesAExaminer({
+  searchParams,
+}: {
+  searchParams: Promise<ParametresUrl>;
+}) {
   const etat = await exigerIdentite('/dashboard-assureur/medecin-conseil');
   if (etat.kind !== 'ok') redirect('/dashboard');
 
+  // Pagination / recherche / filtres CÔTÉ SERVEUR : tout l'historique reste
+  // accessible (l'ancienne liste s'arrêtait aux 200 actes les plus récents).
+  const filtres = requeteListe(await searchParams, ['q', 'du', 'au', 'contestation', 'categorie']);
   const [resActes, resContestations] = await Promise.all([
-    apiFetch('/api/v1/contestation/actes-a-examiner'),
+    apiFetch(`/api/v1/contestation/actes-a-examiner${filtres}`),
     apiFetch('/api/v1/contestation/contestations-actes'),
   ]);
-  const actes: ActeRevue[] = resActes.ok ? await resActes.json() : [];
+  const actes: PageServeur<ActeRevue> = resActes.ok ? await resActes.json() : PAGE_VIDE;
   const contestations: ContestationActe[] = resContestations.ok ? await resContestations.json() : [];
   const erreur = resActes.ok
     ? resContestations.ok

@@ -135,9 +135,28 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       expect((res as any).code).toBeUndefined();
       expect(prisma.ligneFacturation.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ acteDossierId: 'acte-1', statut: 'A_PAYER', montantReclame: '25000.00' }),
+          data: expect.objectContaining({ acteDossierId: 'acte-1', statut: 'A_PAYER', montantReclame: '20000.00' }),
         }),
       );
+    });
+
+    it("chaque ligne réclame la PART ASSURANCE de son acte (jamais le montant total) — somme des lignes = montantAssurance", async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
+      prisma.garantie.findMany.mockResolvedValue([
+        { categorieActe: 'CONSULTATION', tauxCouverture: dec(80), plafondParActe: null },
+        { categorieActe: 'BIOLOGIE', tauxCouverture: dec(50), plafondParActe: dec(3000) },
+      ]);
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-1', { montantPrescrit: dec(15000) }),
+        acte('acte-2', { montantPrescrit: dec(10000), categorieActe: 'BIOLOGIE' }),
+      ]);
+
+      const res = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
+
+      const reclames = prisma.ligneFacturation.create.mock.calls.map((c: any) => c[0].data.montantReclame);
+      expect(reclames).toEqual(['12000.00', '3000.00']); // 80 % ; 50 % plafonné à 3 000
+      expect(res.montantAssurance).toBe('15000.00');
     });
 
     it('somme correctement PLUSIEURS actes sélectionnés (paiement partiel — 2 sur 3)', async () => {

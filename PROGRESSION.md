@@ -6618,3 +6618,34 @@ protection dépendait de l'appelant.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Correctif financier : la facture établissement ne réclame que la part assurance
+
+### Constat (rejeu HTTP de la chaîne anti-fraude, même jour)
+Acte de 15 000 F couvert à 80 % : le cycle de facturation affichait bien 12 000 F
+assurance / 3 000 F patient, mais la ligne de facturation réclamait 15 000 F et la
+facture mensuelle de l'établissement a fait payer 15 000 F à l'assureur — la part
+patient, déjà encaissée au guichet, était payée une seconde fois. La pharmacie
+(`pharmacy.service.ts:293`) ne facture déjà que la part assurance.
+
+### Correctif (`preauthorization.service.ts`, `genererFactureSelection`)
+- `montantReclame` de chaque ligne = part assurance de l'acte, calculée par
+  `calculerMontantsPourActes` (qui renvoie désormais `partsAssurance`, une par acte) —
+  même calcul que `factureDossier.montantAssurance` validé par l'adhérent ; la somme
+  des lignes est donc égale à ce montant.
+- Recherche de récurrence dans le module : `calculerSoldeRestantDu` (montant total des
+  actes non réglés) est volontairement le total — c'est le solde du dossier qui bloque
+  sa clôture, pas une réclamation à l'assureur ; la consolidation mensuelle et le
+  décochage d'une ligne contestée réutilisent `montantReclame` et deviennent justes
+  avec le correctif. Aucune autre occurrence.
+
+### Tests
+- Unitaires : l'attente qui figeait le bug (`montantReclame: '25000.00'` pour 80 %)
+  passe à 20 000 ; +1 test (80 % → 12 000 ; 50 % plafonné à 3 000 → 3 000 ; somme =
+  montantAssurance). API 858/858, `tsc` OK.
+- HTTP réel, même scénario : acte 15 000 F → ligne réclamée 12 000 F → facture
+  mensuelle établissement SOUMISE à 12 000 F → vérifiée, validée, payée → solde du
+  compte 1 000 000 − 12 000 = 988 000. Données et comptes de test supprimés.
+
+### Statut
+Terminé, commité et poussé.

@@ -1852,7 +1852,7 @@ export class PreauthorizationService {
       });
     }
 
-    const { montantTotal, montantAssurance, montantPatient } =
+    const { montantTotal, montantAssurance, montantPatient, partsAssurance } =
       await this.calculerMontantsPourActes(dossier.police.produitId, actesEligibles);
 
     const code = await this.genererCodeFacturationUnique();
@@ -1874,11 +1874,12 @@ export class PreauthorizationService {
         },
       });
 
-      for (const acte of actesEligibles) {
+      for (const [i, acte] of actesEligibles.entries()) {
         const ligneAPayer = acte.lignesFacturation.find((l) => l.statut === 'A_PAYER');
-        const montantReclame = new Decimal(acte.montantPrescrit?.toString() ?? '0')
-          .mul(acte.quantite)
-          .toFixed(2);
+        // L'établissement ne réclame à l'assureur que la PART ASSURANCE de l'acte
+        // (la part patient est encaissée au guichet) — même principe que la
+        // facture mensuelle pharmacie. Somme des lignes = montantAssurance.
+        const montantReclame = partsAssurance[i];
         if (ligneAPayer) {
           // Cycle abandonné réattaché — jamais de doublon pour le même acte.
           await tx.ligneFacturation.update({
@@ -2819,7 +2820,13 @@ export class PreauthorizationService {
   private async calculerMontantsPourActes(
     produitId: string,
     actes: { montantPrescrit: Prisma.Decimal | null; quantite: number; categorieActe: string }[],
-  ): Promise<{ montantTotal: string; montantAssurance: string; montantPatient: string }> {
+  ): Promise<{
+    montantTotal: string;
+    montantAssurance: string;
+    montantPatient: string;
+    /** Part assurance de chaque acte, dans l'ordre de `actes`. */
+    partsAssurance: string[];
+  }> {
     const garanties = await this.prisma.garantie.findMany({
       where: { produitId, deletedAt: null },
     });
@@ -2827,6 +2834,7 @@ export class PreauthorizationService {
 
     let total = new Decimal(0);
     let assurance = new Decimal(0);
+    const partsAssurance: string[] = [];
     for (const acte of actes) {
       const montant = new Decimal(acte.montantPrescrit?.toString() ?? '0').mul(
         acte.quantite,
@@ -2843,6 +2851,7 @@ export class PreauthorizationService {
         if (partAssurance.gt(plafond)) partAssurance = plafond;
       }
       assurance = assurance.add(partAssurance);
+      partsAssurance.push(partAssurance.toFixed(2));
     }
 
     const patient = total.sub(assurance);
@@ -2850,6 +2859,7 @@ export class PreauthorizationService {
       montantTotal: total.toFixed(2),
       montantAssurance: assurance.toFixed(2),
       montantPatient: patient.toFixed(2),
+      partsAssurance,
     };
   }
 

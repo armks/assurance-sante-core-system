@@ -1,4 +1,6 @@
+import { PeriodeQueryDto } from '../../common/pagination';
 import {
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -41,4 +43,31 @@ export class ValiderCodeConsultationDto {
 
   @IsOptional() @IsString() @MaxLength(500) diagnosticEntree?: string;
   @IsOptional() @IsString() @MaxLength(20) codeCim10?: string;
+}
+
+/**
+ * Listes de l'ADHÉRENT (codes de consultation / d'ordonnance, factures) :
+ * pagination serveur (remplace `take: 50` — l'historique au-delà était
+ * inaccessible), statut et période (date d'émission / de création).
+ */
+export const STATUTS_CODE_CONSULTATION = ['EMIS', 'CONFIRME_PATIENT', 'UTILISE_ETABLISSEMENT', 'EXPIRE', 'ANNULE'] as const;
+export const STATUTS_CODE_ORDONNANCE = ['EMIS', 'PRESENTE_PHARMACIE', 'UTILISE_PARTIEL', 'UTILISE_COMPLET', 'EXPIRE', 'ANNULE'] as const;
+export const STATUTS_FACTURE_DOSSIER = ['EMISE', 'EN_VALIDATION', 'VALIDEE', 'REGLEE', 'CONTESTEE'] as const;
+
+export class ListerMesCodesConsultationQueryDto extends PeriodeQueryDto {
+  @IsOptional()
+  @IsIn(STATUTS_CODE_CONSULTATION)
+  statut?: (typeof STATUTS_CODE_CONSULTATION)[number];
+}
+
+export class ListerMesCodesOrdonnanceQueryDto extends PeriodeQueryDto {
+  @IsOptional()
+  @IsIn(STATUTS_CODE_ORDONNANCE)
+  statut?: (typeof STATUTS_CODE_ORDONNANCE)[number];
+}
+
+export class ListerMesFacturesQueryDto extends PeriodeQueryDto {
+  @IsOptional()
+  @IsIn(STATUTS_FACTURE_DOSSIER)
+  statut?: (typeof STATUTS_FACTURE_DOSSIER)[number];
 }

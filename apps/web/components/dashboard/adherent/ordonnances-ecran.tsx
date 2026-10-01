@@ -1,6 +1,13 @@
 'use client';
 
-import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
+import {
+  DataTable,
+  FiltresServeur,
+  PaginationServeur,
+  StatutBadge,
+  type ColonneTable,
+  type PageServeur,
+} from '@/components/dashboard/patterns';
 
 export interface CodeOrdonnance {
   id: string;
@@ -25,7 +32,13 @@ const STATUTS_CODE_VISIBLE = ['EMIS', 'PRESENTE_PHARMACIE'];
 
 const dateHeureFr = (d: string) => new Date(d).toLocaleString('fr-FR');
 
-export function OrdonnancesEcran({ codes }: { codes: CodeOrdonnance[] }) {
+export function OrdonnancesEcran({
+  codes,
+}: {
+  /** Page renvoyée par l'API (pagination, statut et période côté serveur). */
+  codes: PageServeur<CodeOrdonnance>;
+}) {
+  // Liste paginée CÔTÉ SERVEUR (plus récentes d'abord) : pas de tri local.
   const colonnes: ColonneTable<CodeOrdonnance>[] = [
     {
       cle: 'code',
@@ -45,8 +58,6 @@ export function OrdonnancesEcran({ codes }: { codes: CodeOrdonnance[] }) {
     {
       cle: 'dateEmission',
       entete: 'Émis le',
-      triable: true,
-      valeur: (c) => c.dateEmission,
       rendu: (c) => dateHeureFr(c.dateEmission),
     },
     {
@@ -58,12 +69,27 @@ export function OrdonnancesEcran({ codes }: { codes: CodeOrdonnance[] }) {
   ];
 
   return (
-    <DataTable
-      donnees={codes}
-      cleLigne={(c) => c.id}
-      parPage={10}
-      colonnes={colonnes}
-      vide="Aucune ordonnance pour l’instant."
-    />
+    <div className="space-y-3">
+      <FiltresServeur
+        periode
+        libellePeriode="Émise"
+        selects={[
+          {
+            cle: 'statut',
+            libelle: 'Statut',
+            options: Object.entries(LIBELLE_STATUT).map(([valeur, libelle]) => ({ valeur, libelle })),
+          },
+        ]}
+      />
+      <DataTable
+        donnees={codes.items}
+        cleLigne={(c) => c.id}
+        parPage={0}
+        piedMasque
+        colonnes={colonnes}
+        vide="Aucune ordonnance ne correspond à ces critères."
+      />
+      <PaginationServeur page={codes.page} pages={codes.pages} total={codes.total} limite={codes.limite} />
+    </div>
   );
 }

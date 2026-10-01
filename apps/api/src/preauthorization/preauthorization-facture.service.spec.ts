@@ -74,6 +74,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       factureDossier: {
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),

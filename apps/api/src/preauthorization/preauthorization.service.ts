@@ -13,6 +13,7 @@ import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.util';
+import { bornesPage, filtrePeriode, versPage } from '../common/pagination';
 import { STATUTS_CONTESTATION_EN_LITIGE } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -37,6 +38,9 @@ import {
 } from './dto/ordonnance.dto';
 import {
   GenererCodeConsultationDto,
+  ListerMesCodesConsultationQueryDto,
+  ListerMesCodesOrdonnanceQueryDto,
+  ListerMesFacturesQueryDto,
   ValiderCodeConsultationDto,
 } from './dto/preauthorization.dto';
 import {
@@ -233,16 +237,29 @@ export class PreauthorizationService {
     return { id: codeId, statut: 'ANNULE' };
   }
 
-  async listerMesCodes(user: AuthenticatedUser) {
+  async listerMesCodes(user: AuthenticatedUser, dto: ListerMesCodesConsultationQueryDto = {}) {
     const ctx = await this.contexteAppelant(user);
+    const { page, limite, offset } = bornesPage(dto);
     if (!ctx.adherentId) {
-      return [];
+      return versPage([], 0, page, limite);
     }
-    return this.prisma.codeConsultation.findMany({
-      where: await this.filtreMoiEtMesBeneficiaires(ctx.adherentId),
-      orderBy: { dateEmission: 'desc' },
-      take: 50,
-    });
+    // Pagination SERVEUR (remplace `take: 50`) + statut + période d'émission.
+    const periode = filtrePeriode(dto.du, dto.au);
+    const where: Prisma.CodeConsultationWhereInput = {
+      ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)),
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(periode ? { dateEmission: periode } : {}),
+    };
+    const [total, items] = await Promise.all([
+      this.prisma.codeConsultation.count({ where }),
+      this.prisma.codeConsultation.findMany({
+        where,
+        orderBy: [{ dateEmission: 'desc' }, { id: 'asc' }],
+        skip: offset,
+        take: limite,
+      }),
+    ]);
+    return versPage(items, total, page, limite);
   }
 
   // --- Validation (établissement) → ouverture du dossier -----------
@@ -456,17 +473,29 @@ export class PreauthorizationService {
 
   /** Codes d'ordonnance de l'adhérent connecté — AVEC la valeur du code (les siens
    * et ceux émis pour ses bénéficiaires). */
-  async listerMesCodesOrdonnance(user: AuthenticatedUser) {
+  async listerMesCodesOrdonnance(user: AuthenticatedUser, dto: ListerMesCodesOrdonnanceQueryDto = {}) {
     const ctx = await this.contexteAppelant(user);
+    const { page, limite, offset } = bornesPage(dto);
     if (!ctx.adherentId) {
-      return [];
+      return versPage([], 0, page, limite);
     }
-    const codes = await this.prisma.codeOrdonnance.findMany({
-      where: await this.filtreMoiEtMesBeneficiaires(ctx.adherentId),
-      orderBy: { dateEmission: 'desc' },
-      take: 50,
-    });
-    return codes.map((c) => ({
+    // Pagination SERVEUR (remplace `take: 50`) + statut + période d'émission.
+    const periode = filtrePeriode(dto.du, dto.au);
+    const where: Prisma.CodeOrdonnanceWhereInput = {
+      ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)),
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(periode ? { dateEmission: periode } : {}),
+    };
+    const [total, codes] = await Promise.all([
+      this.prisma.codeOrdonnance.count({ where }),
+      this.prisma.codeOrdonnance.findMany({
+        where,
+        orderBy: [{ dateEmission: 'desc' }, { id: 'asc' }],
+        skip: offset,
+        take: limite,
+      }),
+    ]);
+    const items = codes.map((c) => ({
       id: c.id,
       ordonnanceId: c.ordonnanceId,
       code: c.code,
@@ -474,6 +503,7 @@ export class PreauthorizationService {
       dateEmission: c.dateEmission,
       dateExpiration: c.dateExpiration,
     }));
+    return versPage(items, total, page, limite);
   }
 
   /**
@@ -2037,18 +2067,31 @@ export class PreauthorizationService {
 
   /** Factures de l'adhérent connecté — AVEC le code + la synthèse chiffrée
    * (les siennes et celles de ses bénéficiaires). */
-  async listerMesFactures(user: AuthenticatedUser) {
+  async listerMesFactures(user: AuthenticatedUser, dto: ListerMesFacturesQueryDto = {}) {
     const ctx = await this.contexteAppelant(user);
+    const { page, limite, offset } = bornesPage(dto);
     if (!ctx.adherentId) {
-      return [];
+      return versPage([], 0, page, limite);
     }
-    const factures = await this.prisma.factureDossier.findMany({
-      where: { ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)), deletedAt: null },
-      include: { dossier: { select: { numeroTraitement: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
-    return factures.map((f) => ({
+    // Pagination SERVEUR (remplace `take: 50`) + statut + période de création.
+    const periode = filtrePeriode(dto.du, dto.au);
+    const where: Prisma.FactureDossierWhereInput = {
+      ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)),
+      deletedAt: null,
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(periode ? { createdAt: periode } : {}),
+    };
+    const [total, factures] = await Promise.all([
+      this.prisma.factureDossier.count({ where }),
+      this.prisma.factureDossier.findMany({
+        where,
+        include: { dossier: { select: { numeroTraitement: true } } },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
+        skip: offset,
+        take: limite,
+      }),
+    ]);
+    const items = factures.map((f) => ({
       id: f.id,
       ticketSoinsId: f.ticketSoinsId,
       numeroTraitement: f.dossier.numeroTraitement,
@@ -2058,7 +2101,9 @@ export class PreauthorizationService {
       montantTotal: f.montantTotal.toFixed(2),
       montantAssurance: f.montantAssurance.toFixed(2),
       montantPatient: f.montantPatient.toFixed(2),
+      createdAt: f.createdAt,
     }));
+    return versPage(items, total, page, limite);
   }
 
   /**

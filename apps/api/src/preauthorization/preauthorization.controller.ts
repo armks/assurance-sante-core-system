@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -31,6 +32,9 @@ import {
 } from './dto/ordonnance.dto';
 import {
   GenererCodeConsultationDto,
+  ListerMesCodesConsultationQueryDto,
+  ListerMesCodesOrdonnanceQueryDto,
+  ListerMesFacturesQueryDto,
   ValiderCodeConsultationDto,
 } from './dto/preauthorization.dto';
 import { PreauthorizationService } from './preauthorization.service';
@@ -56,8 +60,8 @@ export class PreauthorizationController {
   }
 
   @Get('codes-consultation')
-  listerMesCodes(@CurrentUser() user: AuthenticatedUser) {
-    return this.preauth.listerMesCodes(user);
+  listerMesCodes(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesCodesConsultationQueryDto) {
+    return this.preauth.listerMesCodes(user, dto);
   }
 
   @Post('codes-consultation/valider')
@@ -97,8 +101,8 @@ export class PreauthorizationController {
 
   /** Côté ADHÉRENT : ses codes d'ordonnance (avec la valeur du code). */
   @Get('codes-ordonnance')
-  mesCodesOrdonnance(@CurrentUser() user: AuthenticatedUser) {
-    return this.preauth.listerMesCodesOrdonnance(user);
+  mesCodesOrdonnance(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesCodesOrdonnanceQueryDto) {
+    return this.preauth.listerMesCodesOrdonnance(user, dto);
   }
 
   /** Côté PHARMACIE : historique des codes pris en charge par SA pharmacie. */
@@ -265,8 +269,8 @@ export class PreauthorizationController {
 
   /** Côté ADHÉRENT : ses factures, avec le code de facturation et la synthèse. */
   @Get('codes-facturation')
-  mesFactures(@CurrentUser() user: AuthenticatedUser) {
-    return this.preauth.listerMesFactures(user);
+  mesFactures(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesFacturesQueryDto) {
+    return this.preauth.listerMesFactures(user, dto);
   }
 
   /** Côté ADHÉRENT : valide le code de facturation (condition du règlement). */

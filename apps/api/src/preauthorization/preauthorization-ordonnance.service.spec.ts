@@ -53,6 +53,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
       ordonnance: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
       ligneOrdonnance: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       codeOrdonnance: {
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
@@ -149,7 +150,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
     ]);
 
     const res = await service.listerMesCodesOrdonnance(USER);
-    expect(res[0].code).toBe('AB23CD45');
+    expect(res.items[0].code).toBe('AB23CD45');
   });
 
   it('inclut les codes d’ordonnance émis pour SES bénéficiaires (couverture bénéficiaires)', async () => {

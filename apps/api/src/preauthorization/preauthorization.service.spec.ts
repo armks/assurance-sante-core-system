@@ -53,6 +53,7 @@ describe('PreauthorizationService — Code de Consultation', () => {
     prisma = {
       etablissementSante: { findFirst: jest.fn().mockResolvedValue({ id: 'etab-1', nom: 'Centre A' }) },
       codeConsultation: {
+        count: jest.fn().mockResolvedValue(0),
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
         findFirst: jest.fn(),
@@ -161,6 +162,23 @@ describe('PreauthorizationService — Code de Consultation', () => {
       service.genererCodeConsultation(USER, { ...dtoGen, beneficiaireId: 'ben-autre' }),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.codeConsultation.create).not.toHaveBeenCalled();
+  });
+
+  it('listerMesCodes : pagination serveur (skip/take), statut et période d’émission, total filtré', async () => {
+    identity.getMe.mockResolvedValue(identiteAdherent());
+    prisma.beneficiaire.findMany.mockResolvedValue([]);
+    prisma.codeConsultation.count.mockResolvedValue(61);
+
+    const res = await service.listerMesCodes(USER, { page: 2, limite: 25, statut: 'EXPIRE', du: '2025-03-01', au: '2025-03-31' });
+
+    const appel = prisma.codeConsultation.findMany.mock.calls[0][0];
+    expect(appel).toMatchObject({ skip: 25, take: 25 });
+    expect(appel.where).toMatchObject({
+      statut: 'EXPIRE',
+      dateEmission: { gte: new Date('2025-03-01T00:00:00.000Z'), lt: new Date('2025-04-01T00:00:00.000Z') },
+    });
+    expect(prisma.codeConsultation.count).toHaveBeenCalledWith({ where: appel.where });
+    expect(res).toMatchObject({ total: 61, page: 2, limite: 25, pages: 3 });
   });
 
   it('listerMesCodes inclut les codes émis pour SES bénéficiaires, pas seulement les siens', async () => {

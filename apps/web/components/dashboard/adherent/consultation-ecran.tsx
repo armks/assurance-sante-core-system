@@ -11,9 +11,12 @@ import type { CodeConsultationGenere } from '@/app/dashboard-adherent/consultati
 import {
   ChampSelect,
   DataTable,
+  FiltresServeur,
   FormulaireModal,
+  PaginationServeur,
   StatutBadge,
   type ColonneTable,
+  type PageServeur,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,7 +53,8 @@ export function ConsultationEcran({
 }: {
   etablissements: EtablissementOption[];
   policeId: string | null;
-  codes: CodeConsultation[];
+  /** Page renvoyée par l'API (pagination, statut et période côté serveur). */
+  codes: PageServeur<CodeConsultation>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -74,8 +78,6 @@ export function ConsultationEcran({
     {
       cle: 'dateEmission',
       entete: 'Émis le',
-      triable: true,
-      valeur: (c) => c.dateEmission,
       rendu: (c) => dateHeureFr(c.dateEmission),
     },
     {
@@ -133,10 +135,22 @@ export function ConsultationEcran({
         </FormulaireModal>
       </div>
 
+      <FiltresServeur
+        periode
+        libellePeriode="Émis"
+        selects={[
+          {
+            cle: 'statut',
+            libelle: 'Statut',
+            options: Object.entries(LIBELLE_STATUT).map(([valeur, libelle]) => ({ valeur, libelle })),
+          },
+        ]}
+      />
       <DataTable
-        donnees={codes}
+        donnees={codes.items}
         cleLigne={(c) => c.id}
-        parPage={10}
+        parPage={0}
+        piedMasque
         colonnes={colonnes}
         actionLigne={(c) =>
           c.statut === 'EMIS' ? (
@@ -155,8 +169,9 @@ export function ConsultationEcran({
             </Button>
           ) : null
         }
-        vide="Aucun code de consultation demandé pour l’instant."
+        vide="Aucun code de consultation ne correspond à ces critères."
       />
+      <PaginationServeur page={codes.page} pages={codes.pages} total={codes.total} limite={codes.limite} />
     </div>
   );
 }

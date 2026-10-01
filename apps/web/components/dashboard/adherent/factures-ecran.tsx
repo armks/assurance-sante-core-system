@@ -4,7 +4,14 @@ import { useRouter } from 'next/navigation';
 import { useTransition } from 'react';
 
 import { validerFacturation } from '@/app/dashboard-adherent/factures/actions';
-import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
+import {
+  DataTable,
+  FiltresServeur,
+  PaginationServeur,
+  StatutBadge,
+  type ColonneTable,
+  type PageServeur,
+} from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 
 export interface FactureAdherent {
@@ -17,6 +24,7 @@ export interface FactureAdherent {
   montantTotal: string;
   montantAssurance: string;
   montantPatient: string;
+  createdAt: string;
 }
 
 const LIBELLE_STATUT: Record<string, string> = {
@@ -29,12 +37,22 @@ const LIBELLE_STATUT: Record<string, string> = {
 
 const montant = (v: string) => `${Number(v).toLocaleString('fr-FR')} F`;
 
-export function FacturesEcran({ factures }: { factures: FactureAdherent[] }) {
+export function FacturesEcran({
+  factures,
+}: {
+  /** Page renvoyée par l'API (pagination, statut et période côté serveur). */
+  factures: PageServeur<FactureAdherent>;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
   const colonnes: ColonneTable<FactureAdherent>[] = [
     { cle: 'numeroTraitement', entete: 'Dossier' },
+    {
+      cle: 'createdAt',
+      entete: 'Émise le',
+      rendu: (f) => new Date(f.createdAt).toLocaleDateString('fr-FR'),
+    },
     {
       cle: 'montantTotal',
       entete: 'Montant total',
@@ -67,10 +85,23 @@ export function FacturesEcran({ factures }: { factures: FactureAdherent[] }) {
   ];
 
   return (
+    <div className="space-y-3">
+      <FiltresServeur
+        periode
+        libellePeriode="Émise"
+        selects={[
+          {
+            cle: 'statut',
+            libelle: 'Statut',
+            options: Object.entries(LIBELLE_STATUT).map(([valeur, libelle]) => ({ valeur, libelle })),
+          },
+        ]}
+      />
     <DataTable
-      donnees={factures}
+      donnees={factures.items}
       cleLigne={(f) => f.id}
-      parPage={10}
+      parPage={0}
+      piedMasque
       colonnes={colonnes}
       actionLigne={(f) =>
         f.codeValideParPatient ? null : (
@@ -88,7 +119,9 @@ export function FacturesEcran({ factures }: { factures: FactureAdherent[] }) {
           </Button>
         )
       }
-      vide="Aucune facture pour l’instant."
+      vide="Aucune facture ne correspond à ces critères."
     />
+      <PaginationServeur page={factures.page} pages={factures.pages} total={factures.total} limite={factures.limite} />
+    </div>
   );
 }

@@ -7048,3 +7048,29 @@ Terminé, commité et poussé.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-01 — Pagination serveur : codes de consultation, codes d'ordonnance, factures de l'adhérent (listes tronquées n° 5 à 7)
+
+### Correctif
+- `GET /preauthorization/codes-consultation`, `/codes-ordonnance`, `/codes-facturation`
+  (adhérent et ses bénéficiaires) : `take: 50` remplacé par la pagination serveur
+  (`page` / `limite`, total filtré) + statut (valeurs du schéma, sinon 400) + période
+  (émission / création). Les factures exposent désormais `createdAt` (ajout, rien de
+  retiré). Profil sans adhérent → page vide.
+- Web : pages Consultation / Ordonnances / Factures de l'adhérent lisent
+  `searchParams` ; écrans avec `FiltresServeur` (période + statut) et
+  `PaginationServeur`, colonne « Émise le » sur les factures.
+
+### Tests
+- Unitaires : +1 (skip/take, statut, période d'émission, `count` sur le même `where`) ;
+  tests existants adaptés au format paginé (mocks `count`). API 911/911.
+- HTTP réel : 110 éléments de chaque (le plus ancien au 15/03/2025) : total 110/111
+  (+ le code réel du parcours), parcours complet sans doublon, le plus ancien en
+  dernière page et par la période mars 2025 ; statut invalide → 400. Volume supprimé.
+
+### Listes n° 8 et 9
+Inchangées comme convenu : `codes-ordonnance/pharmacie` (aucun écran ne l'appelle) et
+actions superadmin en attente (vraie file d'attente filtrée côté serveur).
+
+### Statut
+Terminé, commité et poussé.

@@ -7,7 +7,9 @@ import {
   type EtablissementOption,
 } from '@/components/dashboard/adherent/consultation-ecran';
 import { PageTitre } from '@/components/page-titre';
+import type { PageServeur } from '@/components/dashboard/patterns';
 import { apiFetch, messageErreur } from '@/lib/api';
+import { PAGE_VIDE, requeteListe, type ParametresUrl } from '@/lib/liste-serveur';
 import { exigerIdentite } from '@/lib/identity';
 
 export const metadata: Metadata = { title: 'Consultation — Adhérent' };
@@ -16,7 +18,11 @@ interface AdherentPoliceOnly {
   police: { id: string } | null;
 }
 
-export default async function ConsultationPage() {
+export default async function ConsultationPage({
+  searchParams,
+}: {
+  searchParams: Promise<ParametresUrl>;
+}) {
   const etat = await exigerIdentite('/dashboard-adherent/consultation');
   if (etat.kind !== 'ok') redirect('/dashboard');
 
@@ -35,13 +41,13 @@ export default async function ConsultationPage() {
   const [resEtabs, resAdherent, resCodes] = await Promise.all([
     apiFetch('/api/v1/provider/etablissements?statut=ACTIF'),
     apiFetch(`/api/v1/member/adherents/${adherentId}`),
-    apiFetch('/api/v1/preauthorization/codes-consultation'),
+    apiFetch(`/api/v1/preauthorization/codes-consultation${requeteListe(await searchParams, ['du', 'au', 'statut'])}`),
   ]);
 
   const etablissements: EtablissementOption[] = resEtabs.ok ? await resEtabs.json() : [];
   const erreur = resEtabs.ok ? null : await messageErreur(resEtabs);
   const adherent: AdherentPoliceOnly | null = resAdherent.ok ? await resAdherent.json() : null;
-  const codes: CodeConsultation[] = resCodes.ok ? await resCodes.json() : [];
+  const codes: PageServeur<CodeConsultation> = resCodes.ok ? await resCodes.json() : PAGE_VIDE;
 
   return (
     <div className="space-y-8">

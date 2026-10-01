@@ -20,7 +20,11 @@ const CONTACT: DemandeVitrineDto = {
 
 describe('VitrineService — formulaires publics de la page d’accueil', () => {
   let service: VitrineService;
-  let prisma: { newsletterAbonne: { upsert: jest.Mock }; organisation: { findFirst: jest.Mock } };
+  let prisma: {
+    newsletterAbonne: { upsert: jest.Mock };
+    organisation: { findFirst: jest.Mock };
+    demandeAdhesion: { create: jest.Mock; update: jest.Mock };
+  };
   let email: { envoyerEmail: jest.Mock };
   let moduleStats: { obtenir: jest.Mock };
 
@@ -29,6 +33,10 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
     prisma = {
       newsletterAbonne: { upsert: jest.fn().mockResolvedValue({}) },
       organisation: { findFirst: jest.fn().mockResolvedValue(null) },
+      demandeAdhesion: {
+        create: jest.fn().mockResolvedValue({ id: 'dem-1' }),
+        update: jest.fn().mockResolvedValue({}),
+      },
     };
     email = { envoyerEmail: jest.fn().mockResolvedValue({ envoye: true, id: 'em_1' }) };
     moduleStats = { obtenir: jest.fn().mockResolvedValue({ arreteAu: '2026-09-29', seuilMinimum: 100, compteurs: {} }) };
@@ -113,6 +121,63 @@ describe('VitrineService — formulaires publics de la page d’accueil', () => 
   it('échec Resend → 503 (le visiteur sait que sa demande n’est pas partie)', async () => {
     email.envoyerEmail.mockResolvedValue({ envoye: false, erreur: 'boom' });
     await expect(service.envoyerDemande(CONTACT, '41.202.1.6')).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  // --- Adhésion : enregistrée en base AVANT l'e-mail --------------------------
+
+  const ADHESION: DemandeVitrineDto = { ...CONTACT, type: 'ADHESION', objet: 'Demande d’adhésion' };
+
+  it('Adhésion : enregistrée AVANT l’envoi (organisation vitrine depuis « / »), puis emailEnvoye = true', async () => {
+    process.env.VITRINE_ORGANISATION_ID = 'aaaaaaaa-0000-0000-0000-000000000001';
+    const res = await service.envoyerDemande(ADHESION, '41.202.5.1');
+
+    expect(res.ok).toBe(true);
+    expect(prisma.demandeAdhesion.create).toHaveBeenCalledWith({
+      data: {
+        organisationId: 'aaaaaaaa-0000-0000-0000-000000000001',
+        nomSociete: 'Coopérative des transporteurs d’Abobo',
+        nombreEstime: 240,
+        email: 'rh@coop-abobo.ci',
+        telephone: '+225 07 48 22 19 63',
+        objet: 'Demande d’adhésion',
+        message: 'Bonjour, nous souhaitons un devis.',
+      },
+      select: { id: true },
+    });
+    expect(prisma.demandeAdhesion.create.mock.invocationCallOrder[0]).toBeLessThan(
+      email.envoyerEmail.mock.invocationCallOrder[0],
+    );
+    expect(prisma.demandeAdhesion.update).toHaveBeenCalledWith({ where: { id: 'dem-1' }, data: { emailEnvoye: true } });
+    delete process.env.VITRINE_ORGANISATION_ID;
+  });
+
+  it('Adhésion depuis /{slug} : rattachée à la société de la page', async () => {
+    prisma.organisation.findFirst.mockResolvedValue(SOCIETE);
+    await service.envoyerDemande({ ...ADHESION, organisation: 'mutuelle-abidjan' }, '41.202.5.2');
+    expect(prisma.demandeAdhesion.create.mock.calls[0][0].data.organisationId).toBe(SOCIETE.id);
+  });
+
+  it('Adhésion + échec de l’e-mail : la demande est enregistrée → succès, emailEnvoye = false (jamais perdue)', async () => {
+    email.envoyerEmail.mockResolvedValue({ envoye: false, erreur: 'boom' });
+    const res = await service.envoyerDemande(ADHESION, '41.202.5.3');
+    expect(res.ok).toBe(true);
+    expect(prisma.demandeAdhesion.update).toHaveBeenCalledWith({ where: { id: 'dem-1' }, data: { emailEnvoye: false } });
+  });
+
+  it('Adhésion : base ET e-mail en échec → 503 (jamais un faux succès)', async () => {
+    prisma.demandeAdhesion.create.mockRejectedValue(new Error('base indisponible'));
+    email.envoyerEmail.mockResolvedValue({ envoye: false, erreur: 'boom' });
+    await expect(service.envoyerDemande(ADHESION, '41.202.5.4')).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('Contact / Devenir partenaire : rien n’est enregistré dans demandes_adhesion', async () => {
+    await service.envoyerDemande(CONTACT, '41.202.5.5');
+    expect(prisma.demandeAdhesion.create).not.toHaveBeenCalled();
+  });
+
+  it('pot de miel sur Adhésion : rien n’est enregistré', async () => {
+    await service.envoyerDemande({ ...ADHESION, siteWeb: 'x' }, '41.202.5.6');
+    expect(prisma.demandeAdhesion.create).not.toHaveBeenCalled();
   });
 
   // --- Page d'une société (/{slug}) ----------------------------------------

@@ -6749,3 +6749,50 @@ lors du rejeu HTTP de la chaîne anti-fraude).
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-09-30 — Demandes « Adhésion » enregistrées en base (jamais perdues si l'e-mail échoue)
+
+### Constat
+Le formulaire « Adhésion » de la page d'accueil ne faisait qu'envoyer un e-mail : en
+cas d'échec d'envoi, la demande était perdue (503 au visiteur, rien en base).
+
+### Réalisé
+- Base — `prisma/sql/064_demandes_adhesion.sql` (appliquée) : table `demandes_adhesion`
+  (id, organisation_id, nom_societe, nombre_estime, email, telephone, objet, message,
+  statut NOUVEAU/TRAITE, email_envoye, traite_par, traite_le, created_at, updated_at,
+  deleted_at) ; contraintes de statut, d'effectif et de cohérence traitement ; RLS
+  activée sans policy (seul NestJS y accède, comme `newsletter_abonnes`). Modèle
+  Prisma `DemandeAdhesion`.
+- API — `VitrineService.envoyerDemande` : une demande ADHESION est enregistrée AVANT
+  l'e-mail, rattachée à la société de la page (/{slug}) ou à l'organisation vitrine
+  (VITRINE_ORGANISATION_ID) depuis « / » ; `email_envoye` reflète ensuite le résultat.
+  E-mail en échec mais demande enregistrée → succès pour le visiteur (rien n'est
+  perdu) ; 503 seulement si l'enregistrement ET l'e-mail échouent. Contact et Devenir
+  partenaire inchangés ; le pot de miel n'enregistre rien.
+- API — `GET /vitrine/demandes-adhesion` et `POST /vitrine/demandes-adhesion/:id/traiter`
+  (`DemandesAdhesionService`) : ASSUREUR_INFORMATIQUE / ASSUREUR_EXPLOITATION (chaîne
+  de rôles), limités à leur organisation ; NOUVEAU → TRAITE définitif, audité
+  (`TRAITEMENT_DEMANDE_ADHESION`).
+- Web — écran « Demandes d'adhésion » (`/dashboard-assureur/informatique/demandes-adhesion`,
+  dans la navigation informatique(+adjoint) et exploitation(+conjointe)) : cartes
+  (reçues, à traiter, e-mail non envoyé), tableau avec recherche et filtre de statut,
+  contact cliquable, message, badge « Non envoyé », bouton « Marquer traitée ».
+
+### Tests
+- Unitaires : +6 (VitrineService : enregistrement avant l'e-mail, rattachement /{slug},
+  e-mail en échec → succès + emailEnvoye=false, base et e-mail en échec → 503, contact
+  non enregistré, pot de miel) et +11 (DemandesAdhesionService : listes informatique /
+  exploitation, 4 rôles refusés, traitement audité, autre organisation 404, déjà
+  traitée 409). API 891/891, `tsc` OK.
+- HTTP réel : adhésion depuis « / » → ligne organisation A, emailEnvoye=true ; depuis
+  /assureur-test-b avec un contact refusé par le bac à sable Resend (échec réel
+  « Invalid `to` field », contact restauré à null ensuite) → 201, ligne
+  emailEnvoye=false ; Contact → rien en base ; informatique et exploitation A ne voient
+  que la demande A, informatique B que la B ; comptable 403 ; anonyme 401 ; traitement
+  inter-sociétés 404, traitement 201, second 409, audit présent.
+- Navigateur (e2e.localhost) : formulaire Adhésion de /assureur-test-a envoyé → visible
+  « Nouvelle » dans l'écran de l'informatique → « Marquer traitée » → « Traitée le … ».
+  Données de test supprimées.
+
+### Statut
+Terminé, commité et poussé.

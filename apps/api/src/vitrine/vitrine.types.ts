@@ -6,6 +6,9 @@ export type TypeDemande = (typeof TYPES_DEMANDE)[number];
 
 export const CATEGORIES_PARTENAIRE = ['ETABLISSEMENT', 'PHARMACIE'] as const;
 
+/** Consultation des demandes « Adhésion » enregistrées (prisma/sql/064). */
+export const ROLES_DEMANDES_ADHESION = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION'] as const;
+
 export const LIBELLE_TYPE_DEMANDE: Record<TypeDemande, string> = {
   CONTACT: 'Demande de contact',
   PARTENAIRE: 'Candidature partenaire',

@@ -1923,3 +1923,28 @@ model Evenement {
 
   @@map("evenements")
 }
+
+/// Demandes du formulaire « Adhésion » de la page d'accueil — prisma/sql/064.
+/// Enregistrées AVANT l'envoi de l'e-mail (jamais perdues s'il échoue).
+/// `organisationId` / `traitePar` : clés étrangères SQL, sans relation Prisma
+/// (même principe que `Evenement`).
+model DemandeAdhesion {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String?   @map("organisation_id") @db.Uuid
+  nomSociete     String    @map("nom_societe")
+  nombreEstime   Int       @map("nombre_estime")
+  email          String
+  telephone      String
+  objet          String
+  message        String?
+  statut         String    @default("NOUVEAU") // NOUVEAU | TRAITE
+  emailEnvoye    Boolean?  @map("email_envoye")
+  traitePar      String?   @map("traite_par") @db.Uuid
+  traiteLe       DateTime? @map("traite_le") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([organisationId, statut, createdAt(sort: Desc)], map: "demandes_adhesion_organisation_idx")
+  @@map("demandes_adhesion")
+}

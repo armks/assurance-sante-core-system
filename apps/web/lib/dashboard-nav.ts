@@ -7,6 +7,7 @@ import {
   DoorOpen,
   FileText,
   HeartPulse,
+  Inbox,
   LayoutDashboard,
   LineChart,
   type LucideIcon,
@@ -421,6 +422,9 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
       href: `${INFORMATIQUE}/dossiers`,
       icon: Stethoscope,
     },
+    // Demandes du formulaire « Adhésion » (ROLES_DEMANDES_ADHESION =
+    // INFORMATIQUE + EXPLOITATION, vitrine.types.ts).
+    { label: 'Demandes d’adhésion', href: `${INFORMATIQUE}/demandes-adhesion`, icon: Inbox },
   ];
 }
 
@@ -500,6 +504,8 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
     ...(racineVueEnsemble === INFORMATIQUE
       ? [{ label: 'Événements', href: `${INFORMATIQUE}/evenements`, icon: CalendarDays }]
       : []),
+    // Demandes du formulaire « Adhésion » (ROLES_DEMANDES_ADHESION, vitrine.types.ts).
+    { label: 'Demandes d’adhésion', href: `${INFORMATIQUE}/demandes-adhesion`, icon: Inbox },
     // Création directe d'actes/médicaments (ROLE_PROPOSITION = ASSUREUR_INFORMATIQUE,
     // reference.types.ts) — homologation restant réservée au médecin conseil /
     // pharmacien conseil sur leurs propres écrans.

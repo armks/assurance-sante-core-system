@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { DemandesAdhesionController } from './demandes-adhesion.controller';
+import { DemandesAdhesionService } from './demandes-adhesion.service';
 import { EvenementsController } from './evenements.controller';
 import { EvenementsService } from './evenements.service';
 import { VitrineController } from './vitrine.controller';
@@ -15,7 +17,7 @@ import { VitrineService } from './vitrine.service';
  */
 @Module({
   imports: [IdentityModule],
-  controllers: [VitrineController, EvenementsController],
-  providers: [VitrineService, StatistiquesService, EvenementsService],
+  controllers: [VitrineController, EvenementsController, DemandesAdhesionController],
+  providers: [VitrineService, StatistiquesService, EvenementsService, DemandesAdhesionService],
 })
 export class VitrineModule {}

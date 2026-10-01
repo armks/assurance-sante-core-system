@@ -66,6 +66,10 @@ export class VitrineService {
       );
     }
 
+    // Adhésion : enregistrée AVANT l'e-mail, pour qu'elle ne soit jamais
+    // perdue s'il échoue (consultable par l'informatique / l'exploitation).
+    const demandeId = dto.type === 'ADHESION' ? await this.enregistrerAdhesion(dto, societe?.id) : null;
+
     const libelle = LIBELLE_TYPE_DEMANDE[dto.type];
     const resultat = await this.email.envoyerEmail(
       destinataire,
@@ -73,12 +77,50 @@ export class VitrineService {
       this.corpsDemande(dto, libelle, societe),
       { replyTo: dto.email },
     );
+    if (demandeId) {
+      await this.prisma.demandeAdhesion
+        .update({ where: { id: demandeId }, data: { emailEnvoye: resultat.envoye } })
+        .catch((err: unknown) =>
+          this.logger.error(`Demande d’adhésion ${demandeId} : suivi d’e-mail non enregistré (${String(err)}).`),
+        );
+    }
     if (!resultat.envoye) {
+      if (demandeId) {
+        // Déjà enregistrée : la demande n'est pas perdue, l'e-mail est un bonus.
+        this.logger.warn(`Demande d’adhésion ${demandeId} enregistrée, mais e-mail NON envoyé.`);
+        return { ok: true, message: MESSAGE_DEMANDE };
+      }
       throw new ServiceUnavailableException(
         'Votre demande n’a pas pu être transmise. Merci de réessayer dans quelques minutes.',
       );
     }
     return { ok: true, message: MESSAGE_DEMANDE };
+  }
+
+  /**
+   * Enregistre une demande d'adhésion — rattachée à la société de la page
+   * (/{slug}), sinon à l'organisation vitrine de la page commune. Un échec
+   * d'écriture n'empêche pas l'envoi de l'e-mail (renvoie alors null).
+   */
+  private async enregistrerAdhesion(dto: DemandeVitrineDto, organisationId?: string): Promise<string | null> {
+    try {
+      const d = await this.prisma.demandeAdhesion.create({
+        data: {
+          organisationId: organisationId ?? (process.env.VITRINE_ORGANISATION_ID?.trim() || null),
+          nomSociete: dto.structure,
+          nombreEstime: dto.effectif!,
+          email: dto.email,
+          telephone: dto.telephone,
+          objet: dto.objet,
+          message: dto.message || null,
+        },
+        select: { id: true },
+      });
+      return d.id;
+    } catch (err) {
+      this.logger.error(`Demande d’adhésion non enregistrée en base (${String(err)}) — envoi de l’e-mail seul.`);
+      return null;
+    }
   }
 
   /** Idempotent : une adresse déjà inscrite (ou désinscrite) est simplement

@@ -6959,3 +6959,22 @@ nombres, pagination et compteur filtrés.
 
 ### Statut
 Diagnostic terminé — aucune correction effectuée.
+
+## 2026-10-01 — Recherche des tableaux : insensible aux accents, nom complet sur plusieurs champs
+
+### Correctif (anomalies 1 et 2 de l'audit des tableaux)
+- `lib/recherche-texte.ts` (nouveau, fonctions pures) : `normaliserRecherche` (NFD sans
+  diacritiques, apostrophes typographiques, espaces insécables/multiples, minuscules) et
+  `correspondRecherche` : CHAQUE mot de la requête doit figurer dans au moins un champ.
+- `components/dashboard/patterns/data-table.tsx` : la recherche passe par
+  `correspondRecherche` — s'applique d'un coup aux 35 recherches de l'application.
+  « Societe » trouve « Société », « Kouassi Yao » / « Yao Kouassi » trouvent la personne
+  dont prénom et nom sont deux champs distincts.
+
+### Tests
+- 19 cas (tous les échecs de l'audit + cas négatifs, requête vide, valeurs nulles) : OK.
+- Navigateur (référentiel médical) : « acetylsalicylique » → « Acide acétylsalicylique »,
+  « specialiste » → « Consultation Spécialiste ». `tsc` web OK.
+
+### Statut
+Terminé, commité et poussé.

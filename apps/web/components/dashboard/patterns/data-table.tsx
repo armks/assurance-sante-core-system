@@ -13,6 +13,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { correspondRecherche } from '@/lib/recherche-texte';
 import { cn } from '@/lib/utils';
 
 const CLASSE_SELECT =
@@ -98,12 +99,12 @@ export function DataTable<T extends object>({
     let out = donnees;
 
     if (recherche && q.trim()) {
-      const t = q.toLowerCase().trim();
+      // Insensible à la casse et aux accents ; chaque mot doit figurer dans au
+      // moins un champ (« prénom nom » trouve la personne).
       out = out.filter((row) =>
-        recherche.champs.some((champ) =>
-          String(lire(row, champ) ?? '')
-            .toLowerCase()
-            .includes(t),
+        correspondRecherche(
+          recherche.champs.map((champ) => lire(row, champ)),
+          q,
         ),
       );
     }

@@ -12,6 +12,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import {
+  adjudicationClientDeTest,
+  reponseSimulation,
+} from '../adjudication-client/adjudication-client.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -30,6 +35,12 @@ function personnelCentre(role = 'CENTRE_MEDICAL_MEDECIN', etab = 'etab-1') {
 }
 
 const ACTE = { categorieActe: 'CONSULTATION' as const, libelle: 'Consultation généraliste', quantite: 1 };
+
+/** Microservice d'adjudication factice (simulation : 80 % par défaut). */
+let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+beforeEach(() => {
+  adjudication = adjudicationClientDeTest();
+});
 
 describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
   let service: PreauthorizationService;
@@ -58,6 +69,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: AdjudicationClientService, useValue: adjudication },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
@@ -240,82 +252,70 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       expect(prisma.referentielActe.findFirst).not.toHaveBeenCalled();
     });
 
-    it('avec tarif conventionné INFÉRIEUR au montant facturé → plafonne la base de calcul', async () => {
+    // Part assurance calculée par le microservice (ADR-005) : tarif conventionné,
+    // franchise, taux, plafonds. Ici : ce qui est transmis, et l'exploitation
+    // de la réponse (part patient = montant facturé − part couverte).
+    it('transmet le code d’acte, l’établissement et le patient au microservice ; reprend la part couverte', async () => {
       prisma.garantie.findFirst.mockResolvedValue({
+        id: 'g-cons',
         tauxCouverture: '80',
         ticketModerateur: '20',
         plafondParActe: null,
       });
-      prisma.referentielActe.findFirst.mockResolvedValue({ id: 'ref-1' });
-      prisma.tarifConventionne.findFirst.mockResolvedValue({
-        tarifConvention: '6000.00',
-      });
+      adjudication.simuler.mockResolvedValueOnce(reponseSimulation(4800)); // tarif 6000 × 80 %
 
       await service.ajouterActe(USER, 'tkt-1', {
         ...ACTE_AVEC_MONTANT,
         codeActe: 'CONS-GEN',
       });
 
-      expect(prisma.tarifConventionne.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            referentielActeId: 'ref-1',
-            etablissementId: 'etab-1',
-          }),
-        }),
-      );
-      // Base plafonnée à 6000 (au lieu des 10000 facturés) × 80 % = 4800.
+      expect(adjudication.simuler.mock.calls[0][0]).toMatchObject({
+        etablissement_id: 'etab-1',
+        lignes: [{ garantie_id: 'g-cons', montant: '10000.00', code_acte: 'CONS-GEN', acte_dossier_id: null }],
+      });
+      expect(prisma.tarifConventionne.findFirst).not.toHaveBeenCalled();
       expect(prisma.acteDossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             montantSimuleAssurance: '4800.00',
-            montantSimulePatient: '1200.00',
-            ticketModerateurSimule: '1200.00',
+            montantSimulePatient: '5200.00',
+            ticketModerateurSimule: '2000.00',
           }),
         }),
       );
     });
 
-    it('avec tarif conventionné SUPÉRIEUR au montant facturé → garde le montant facturé (jamais de majoration)', async () => {
+    it('plafond annuel / par acte appliqués par le microservice : la part réduite est reprise telle quelle', async () => {
       prisma.garantie.findFirst.mockResolvedValue({
-        tauxCouverture: '80',
-        ticketModerateur: '20',
-        plafondParActe: null,
-      });
-      prisma.referentielActe.findFirst.mockResolvedValue({ id: 'ref-1' });
-      prisma.tarifConventionne.findFirst.mockResolvedValue({
-        tarifConvention: '50000.00',
-      });
-
-      await service.ajouterActe(USER, 'tkt-1', {
-        ...ACTE_AVEC_MONTANT,
-        codeActe: 'CONS-GEN',
-      });
-
-      // Base reste 10000 (le montant facturé, plus petit que le tarif conventionné) × 80 % = 8000.
-      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ montantSimuleAssurance: '8000.00' }),
-        }),
-      );
-    });
-
-    it('applique le plafond par acte de la garantie sur le montant simulé assurance', async () => {
-      prisma.garantie.findFirst.mockResolvedValue({
+        id: 'g-cons',
         tauxCouverture: '80',
         ticketModerateur: '20',
         plafondParActe: '3000.00',
       });
+      adjudication.simuler.mockResolvedValueOnce(reponseSimulation(3000));
 
       await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
 
-      // 80 % de 10000 = 8000, plafonné à 3000.
       expect(prisma.acteDossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             montantSimuleAssurance: '3000.00',
             montantSimulePatient: '7000.00',
           }),
+        }),
+      );
+    });
+
+    it('microservice indisponible : l’acte est quand même ajouté, sans montants simulés', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'g-cons', tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      adjudication.simuler.mockRejectedValueOnce(new Error('timeout'));
+
+      const res = await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
+
+      expect(res.categorieCouverte).toBe(true);
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ montantSimuleAssurance: null, montantSimulePatient: null }),
         }),
       );
     });
@@ -819,7 +819,11 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       categorieActe: 'IMAGERIE',
       codeActe: 'IMG-01',
       montantPrescrit: 10000,
-      dossier: { organisationId: 'org-1', etablissementId: 'etab-origine', police: { produitId: 'prod-1' } },
+      dossier: {
+        organisationId: 'org-1', etablissementId: 'etab-origine',
+        policeId: 'pol-1', adherentId: 'adh-1', beneficiaireId: null,
+        police: { produitId: 'prod-1' },
+      },
     });
 
     beforeEach(() => {
@@ -827,19 +831,14 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       prisma.acteDossier.findFirst.mockResolvedValue(acteAvecCode());
       prisma.acteDossier.update = jest.fn().mockResolvedValue({});
       prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1' });
-      prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
-      prisma.referentielActe.findFirst.mockResolvedValue({ id: 'ref-1' });
-      // Le tarif conventionné n'existe que pour l'établissement EXÉCUTANT —
-      // preuve que c'est bien lui qui est utilisé, pas l'origine.
-      prisma.tarifConventionne.findFirst.mockImplementation(({ where }: any) =>
-        where.etablissementId === 'etab-exec'
-          ? Promise.resolve({ tarifConvention: '4000' })
-          : Promise.resolve(null),
-      );
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'g-img', tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
     });
 
-    it('approuve en réorientant → tarif recherché pour l’établissement EXÉCUTANT, pas l’origine', async () => {
+    // Le tarif conventionné est appliqué par le microservice (ADR-005) pour
+    // l'établissement transmis : ici, on vérifie QUEL établissement est transmis.
+    it('approuve en réorientant → le microservice calcule pour l’établissement EXÉCUTANT, pas l’origine', async () => {
       prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'etab-exec' });
+      adjudication.simuler.mockResolvedValueOnce(reponseSimulation(3200)); // tarif 4000 × 80 %
 
       await service.traiterParExploitation(USER, 'acte-1', {
         decision: 'APPROUVE',
@@ -847,7 +846,12 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
         motif: 'Réorienté vers un plateau technique disponible plus tôt.',
       });
 
-      // Tarif conventionné plafonne à 4000 (au lieu de 10000) × 80 % = 3200.00.
+      expect(adjudication.simuler.mock.calls[0][0]).toMatchObject({
+        etablissement_id: 'etab-exec',
+        police_id: 'pol-1',
+        adherent_id: 'adh-1',
+        lignes: [{ garantie_id: 'g-img', montant: '10000.00', code_acte: 'IMG-01' }],
+      });
       expect(prisma.acteDossier.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -856,31 +860,21 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
           }),
         }),
       );
-      expect(prisma.tarifConventionne.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ etablissementId: 'etab-exec' }),
-        }),
-      );
     });
 
-    it('sans réorientation, le tarif reste recherché pour l’établissement d’ORIGINE (pas de tarif → base pleine)', async () => {
+    it('sans réorientation, le calcul reste fait pour l’établissement d’ORIGINE', async () => {
       await service.traiterParExploitation(USER, 'acte-1', {
         decision: 'APPROUVE',
         motif: 'Approuvé sans réorientation.',
       });
 
-      // Pas de tarif pour 'etab-origine' dans ce mock → base = montantPrescrit plein (10000) × 80 % = 8000.00.
+      expect(adjudication.simuler.mock.calls[0][0].etablissement_id).toBe('etab-origine');
       expect(prisma.acteDossier.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             etablissementExecutionId: null,
             montantSimuleAssurance: '8000.00',
           }),
-        }),
-      );
-      expect(prisma.tarifConventionne.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ etablissementId: 'etab-origine' }),
         }),
       );
     });

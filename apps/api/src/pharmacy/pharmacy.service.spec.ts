@@ -13,6 +13,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PharmacyService } from './pharmacy.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import {
+  adjudicationClientDeTest,
+  reponseSimulation,
+} from '../adjudication-client/adjudication-client.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -62,6 +67,12 @@ function adherent(adherentId = 'adh-1') {
 
 const dec = (n: number) => ({ toFixed: (d = 2) => n.toFixed(d), toString: () => String(n) });
 
+/** Microservice d'adjudication factice (simulation : 80 % par défaut). */
+let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+beforeEach(() => {
+  adjudication = adjudicationClientDeTest();
+});
+
 describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', () => {
   let service: PharmacyService;
   let prisma: any;
@@ -110,6 +121,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: AdjudicationClientService, useValue: adjudication },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PharmacyService,
         { provide: PrismaService, useValue: prisma },
@@ -229,16 +241,56 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       expect(res.montantPatient).toBe('10000.00');
     });
 
-    it('applique le plafond par acte de la garantie sur le montant assurance', async () => {
-      prisma.garantie.findFirst.mockResolvedValue({
-        tauxCouverture: dec(80), plafondParActe: dec(3000),
-      });
+    // Part assurance calculée par le microservice (ADR-005) : la dispensation est
+    // UN acte, comme la réclamation adjugée au paiement (plafonds, franchise).
+    it('envoie le TOTAL de la dispensation au microservice comme un seul acte, reprend la part couverte', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'g-pharma', tauxCouverture: dec(80), plafondParActe: dec(3000) });
+      adjudication.simuler.mockResolvedValueOnce(reponseSimulation(3000)); // 8000 plafonné à 3000
 
       const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
 
-      // 80 % de 10000 = 8000, plafonné à 3000.
+      expect(adjudication.simuler.mock.calls[0][0]).toMatchObject({
+        adherent_id: 'adh-1',
+        beneficiaire_id: null,
+        lignes: [{ garantie_id: 'g-pharma', montant: '10000.00' }],
+      });
       expect(res.montantAssurance).toBe('3000.00');
       expect(res.montantPatient).toBe('7000.00');
+    });
+
+    it('plusieurs médicaments : part couverte répartie au prorata, reliquat d’arrondi sur la dernière ligne', async () => {
+      prisma.ligneOrdonnance.findMany.mockResolvedValue([
+        { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+        { id: 'ligne-2', ordonnanceId: 'ord-1', denominationMedicament: 'Amoxicilline', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+        { id: 'ligne-3', ordonnanceId: 'ord-1', denominationMedicament: 'Ibuprofene', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+      ]);
+      prisma.stockMedicamentPharmacie.findMany.mockResolvedValue([
+        { denominationMedicament: 'Paracetamol', prixPharmacie: dec(1000), disponible: true },
+        { denominationMedicament: 'Amoxicilline', prixPharmacie: dec(1000), disponible: true },
+        { denominationMedicament: 'Ibuprofene', prixPharmacie: dec(1000), disponible: true },
+      ]);
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'g-pharma', tauxCouverture: dec(80), plafondParActe: null });
+      adjudication.simuler.mockResolvedValueOnce(reponseSimulation(1000)); // plafond annuel presque atteint
+
+      await service.preparerDispensation(USER, 'ord-1', [
+        { ligneOrdonnanceId: 'ligne-1' }, { ligneOrdonnanceId: 'ligne-2' }, { ligneOrdonnanceId: 'ligne-3' },
+      ]);
+
+      expect(adjudication.simuler.mock.calls[0][0].lignes).toHaveLength(1);
+      expect(adjudication.simuler.mock.calls[0][0].lignes[0].montant).toBe('3000.00');
+      const lignes = prisma.ligneDispensation.createMany.mock.calls[0][0].data;
+      expect(lignes.map((l: any) => l.montantAssurance)).toEqual(['333.33', '333.33', '333.34']);
+      expect(lignes.map((l: any) => l.montantPatient)).toEqual(['666.67', '666.67', '666.66']);
+    });
+
+    it('microservice indisponible → 503, aucune dispensation créée', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'g-pharma', tauxCouverture: dec(80), plafondParActe: null });
+      adjudication.simuler.mockRejectedValueOnce(new Error('timeout'));
+
+      await expect(
+        service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+      expect(prisma.dispensationPharmacie.create).not.toHaveBeenCalled();
     });
 
     it('la garantie est cherchée avec la catégorie PHARMACIE, pas CONSULTATION', async () => {

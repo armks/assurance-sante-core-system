@@ -12,6 +12,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import { adjudicationClientDeTest } from '../adjudication-client/adjudication-client.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -48,6 +50,12 @@ const comptableAssureur = () => profil('ASSUREUR_COMPTABLE');
 /** Prisma Decimal-like : suffit d'avoir toFixed / toString pour le service. */
 const dec = (n: number) => ({ toFixed: (d = 2) => n.toFixed(d), toString: () => String(n) });
 
+/** Microservice d'adjudication factice (simulation : 80 % par défaut). */
+let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+beforeEach(() => {
+  adjudication = adjudicationClientDeTest();
+});
+
 describe('PreauthorizationService — Consolidation mensuelle des factures établissement', () => {
   let service: PreauthorizationService;
   let prisma: any;
@@ -77,6 +85,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: AdjudicationClientService, useValue: adjudication },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },

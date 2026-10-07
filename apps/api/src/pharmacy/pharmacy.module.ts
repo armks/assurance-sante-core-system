@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AdjudicationClientModule } from '../adjudication-client/adjudication-client.module';
 import { ClaimsModule } from '../claims/claims.module';
 import { IdentityModule } from '../identity/identity.module';
 import { PharmacyController } from './pharmacy.controller';
@@ -13,7 +14,7 @@ import { PharmacyService } from './pharmacy.service';
  * (remboursement pharmacie, même mécanisme que l'établissement).
  */
 @Module({
-  imports: [IdentityModule, ClaimsModule],
+  imports: [IdentityModule, ClaimsModule, AdjudicationClientModule],
   controllers: [PharmacyController],
   providers: [PharmacyService],
   exports: [PharmacyService],

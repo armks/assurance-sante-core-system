@@ -12,6 +12,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import { adjudicationClientDeTest } from '../adjudication-client/adjudication-client.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -44,6 +46,12 @@ function pharmacien(pharm = 'pharm-1') {
 const DANS_7J = new Date(Date.now() + 7 * 86400 * 1000);
 const LIGNES = [{ medicament: 'Amoxicilline', dosage: '500 mg', posologie: '1 gél. x3/j, 7 j' }];
 
+/** Microservice d'adjudication factice (simulation : 80 % par défaut). */
+let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+beforeEach(() => {
+  adjudication = adjudicationClientDeTest();
+});
+
 describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
   let service: PreauthorizationService;
   let prisma: any;
@@ -71,6 +79,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: AdjudicationClientService, useValue: adjudication },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },

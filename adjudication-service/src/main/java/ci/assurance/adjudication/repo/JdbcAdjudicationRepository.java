@@ -3,6 +3,8 @@ package ci.assurance.adjudication.repo;
 import ci.assurance.adjudication.domain.Adjudicateur;
 import ci.assurance.adjudication.domain.AdjudicationRepository;
 import ci.assurance.adjudication.domain.ContexteAdjudication;
+import ci.assurance.adjudication.domain.GarantieApplicable;
+import ci.assurance.adjudication.domain.PoliceApplicable;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -137,13 +139,18 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
   }
 
   @Override
-  public BigDecimal sommeRemboursementsAnnee(
-      UUID adherentId, UUID beneficiaireId, UUID garantieId) {
+  public BigDecimal sommeConsommeeAnnee(
+      UUID adherentId, UUID beneficiaireId, UUID garantieId, java.util.Collection<UUID> actesExclus) {
     // Cumul par PERSONNE assurée (un bénéficiaire a adherent_id NULL) ET par
-    // GARANTIE : auparavant, les remboursements de toutes les garanties de
-    // l'année étaient additionnés puis comparés au plafond de la seule garantie
-    // de la réclamation — une consultation consommait le plafond de
-    // l'hospitalisation.
+    // GARANTIE, de TOUT ce que l'assureur prend en charge dans l'année :
+    //  - les remboursements adjugés (réclamations, dont les dispensations) ;
+    //  - la part assurance des lignes de facturation tiers payant
+    //    (`lignes_facturation.montant_reclame`, actes facturés au centre), hors
+    //    lignes reportées pour litige (`reportee_mois_suivant`). La garantie d'une
+    //    ligne est celle du produit de la police pour la catégorie de l'acte —
+    //    même appariement que la facture (une seule garantie active par catégorie).
+    // Un acte facturé en tiers payant ne peut plus faire l'objet d'une
+    // réclamation (refus côté NestJS) : pas de double comptage.
     final String colonne;
     final UUID personne;
     if (adherentId != null) {
@@ -158,18 +165,113 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
     BigDecimal somme =
         jdbc.queryForObject(
             """
-            SELECT COALESCE(SUM(rb.montant_rembourse), 0)
-            FROM remboursements rb
-            JOIN reclamations  rc ON rc.id = rb.reclamation_id
-            WHERE rc.%s = ?
-              AND rc.garantie_id = ?
-              AND rb.created_at >= date_trunc('year', now())
+            SELECT
+              (SELECT COALESCE(SUM(rb.montant_rembourse), 0)
+                 FROM remboursements rb
+                 JOIN reclamations  rc ON rc.id = rb.reclamation_id
+                WHERE rc.%1$s = ?
+                  AND rc.garantie_id = ?
+                  AND rb.created_at >= date_trunc('year', now()))
+              +
+              (SELECT COALESCE(SUM(lf.montant_reclame), 0)
+                 FROM lignes_facturation lf
+                 JOIN actes_dossier  ad ON ad.id = lf.acte_dossier_id AND ad.deleted_at IS NULL
+                 JOIN dossiers_soins ds ON ds.id = ad.dossier_soins_id
+                 JOIN polices        p  ON p.id = ds.police_id
+                 JOIN garanties      g  ON g.produit_id = p.produit_id
+                                       AND g.categorie_acte = ad.categorie_acte
+                                       AND g.deleted_at IS NULL
+                WHERE ds.%1$s = ?
+                  AND g.id = ?
+                  AND lf.reportee_mois_suivant = false
+                  AND lf.acte_dossier_id::text <> ALL (string_to_array(?, ','))
+                  AND lf.created_at >= date_trunc('year', now()))
             """
                 .formatted(colonne),
             BigDecimal.class,
             personne,
-            garantieId);
+            garantieId,
+            personne,
+            garantieId,
+            actesExclus == null
+                ? ""
+                : String.join(",", actesExclus.stream().map(UUID::toString).toList()));
     return somme == null ? BigDecimal.ZERO : somme;
+  }
+
+  @Override
+  public Optional<GarantieApplicable> chargerGarantie(UUID garantieId) {
+    return jdbc
+        .query(
+            """
+            SELECT id, produit_id, taux_couverture, plafond_par_acte, plafond_annuel,
+                   franchise, ticket_moderateur, delai_carence_jours, reseau_soins
+            FROM garanties WHERE id = ? AND deleted_at IS NULL
+            """,
+            (rs, n) -> new GarantieApplicable(
+                uuid(rs, "id"),
+                uuid(rs, "produit_id"),
+                rs.getBigDecimal("taux_couverture"),
+                rs.getBigDecimal("plafond_par_acte"),
+                rs.getBigDecimal("plafond_annuel"),
+                rs.getBigDecimal("franchise"),
+                rs.getBigDecimal("ticket_moderateur"),
+                (Integer) rs.getObject("delai_carence_jours"),
+                rs.getString("reseau_soins")),
+            garantieId)
+        .stream()
+        .findFirst();
+  }
+
+  @Override
+  public Optional<PoliceApplicable> chargerPolice(UUID policeId) {
+    return jdbc
+        .query(
+            """
+            SELECT id, organisation_id, produit_id, statut, date_debut, date_fin
+            FROM polices WHERE id = ? AND deleted_at IS NULL
+            """,
+            (rs, n) -> new PoliceApplicable(
+                uuid(rs, "id"),
+                uuid(rs, "organisation_id"),
+                uuid(rs, "produit_id"),
+                rs.getString("statut"),
+                localDate(rs, "date_debut"),
+                localDate(rs, "date_fin")),
+            policeId)
+        .stream()
+        .findFirst();
+  }
+
+  @Override
+  public BigDecimal tarifConvention(UUID etablissementId, String codeActe, LocalDate date) {
+    if (etablissementId == null || codeActe == null || codeActe.isBlank()) {
+      return null;
+    }
+    // Même lien que SQL_CONTEXTE : code d'acte → referentiel_actes → tarif de
+    // l'établissement valable à la date.
+    return jdbc
+        .query(
+            """
+            SELECT tc.tarif_convention
+            FROM referentiel_actes ra
+            JOIN tarifs_conventionnes tc
+              ON tc.referentiel_acte_id = ra.id
+             AND tc.etablissement_id = ?
+             AND tc.deleted_at IS NULL
+             AND tc.date_debut <= ?
+             AND (tc.date_fin IS NULL OR tc.date_fin >= ?)
+            WHERE ra.code = ? AND ra.deleted_at IS NULL
+            LIMIT 1
+            """,
+            (rs, n) -> rs.getBigDecimal("tarif_convention"),
+            etablissementId,
+            date,
+            date,
+            codeActe)
+        .stream()
+        .findFirst()
+        .orElse(null);
   }
 
   @Override

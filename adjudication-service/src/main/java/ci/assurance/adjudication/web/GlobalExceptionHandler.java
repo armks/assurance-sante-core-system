@@ -1,5 +1,6 @@
 package ci.assurance.adjudication.web;
 
+import ci.assurance.adjudication.domain.AdjudicationExceptions.DemandeInvalide;
 import ci.assurance.adjudication.domain.AdjudicationExceptions.Doublon;
 import ci.assurance.adjudication.domain.AdjudicationExceptions.MauvaisStatut;
 import ci.assurance.adjudication.domain.AdjudicationExceptions.ReclamationIntrouvable;
@@ -17,6 +18,11 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(ReclamationIntrouvable.class)
   public ResponseEntity<Map<String, Object>> introuvable(ReclamationIntrouvable e) {
     return corps(HttpStatus.NOT_FOUND, e.getMessage());
+  }
+
+  @ExceptionHandler(DemandeInvalide.class)
+  public ResponseEntity<Map<String, Object>> invalide(DemandeInvalide e) {
+    return corps(HttpStatus.BAD_REQUEST, e.getMessage());
   }
 
   @ExceptionHandler({MauvaisStatut.class, Doublon.class})

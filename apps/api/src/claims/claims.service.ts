@@ -20,7 +20,7 @@ import {
   AdjudicationInjoignableError,
   AdjudicationRefusError,
   type DecisionAdjudication,
-} from './adjudication-client.service';
+} from '../adjudication-client/adjudication-client.service';
 import {
   SoumettreReclamationDto,
   ValiderManuellementDto,
@@ -93,6 +93,20 @@ export class ClaimsService {
     if (!dossier || dossier.organisationId !== ctx.organisationId) {
       // 404 plutôt que 403 : ne pas révéler un dossier d'une autre organisation
       throw new NotFoundException('Dossier de soins introuvable.');
+    }
+
+    // Acte déjà facturé en tiers payant : l'assureur le règle par la facture de
+    // l'établissement, et sa part assurance consomme déjà le plafond annuel
+    // (cumul du microservice, ADR-005) — une réclamation le paierait / le
+    // compterait deux fois.
+    const factureTiersPayant = await this.prisma.ligneFacturation.findFirst({
+      where: { acteDossierId: acte.id },
+      select: { id: true },
+    });
+    if (factureTiersPayant) {
+      throw new ConflictException(
+        "Acte déjà facturé en tiers payant par l'établissement : la part assurance est réglée par la facture, pas par une réclamation.",
+      );
     }
 
     // Garantie = celle du produit pour la CATÉGORIE de l'acte (référentiel

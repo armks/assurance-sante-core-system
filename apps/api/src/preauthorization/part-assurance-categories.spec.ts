@@ -1,3 +1,4 @@
+import { ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
@@ -8,6 +9,11 @@ import {
   categoriesActeServiceDeTest,
 } from '../reference/categories-acte.testing';
 import { PreauthorizationService } from './preauthorization.service';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import {
+  adjudicationClientDeTest,
+  reponseSimulation,
+} from '../adjudication-client/adjudication-client.testing';
 
 /**
  * Part assurance / part patient PAR CATÉGORIE D'ACTE — référentiel unique
@@ -53,6 +59,12 @@ const COMPORTEMENTS: Record<
 
 const TYPES_RECLAMATION = ['SOIN', 'PHARMACIE', 'HOSPITALISATION', 'OPTIQUE', 'DENTAIRE', 'ANALYSES', 'IMAGERIE', 'AUTRE'];
 const ROLES_REVUE = ['ASSUREUR_MEDECIN_CONSEIL', 'ASSUREUR_EXPLOITATION'];
+
+/** Microservice d'adjudication factice (simulation : 80 % par défaut). */
+let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+beforeEach(() => {
+  adjudication = adjudicationClientDeTest();
+});
 
 describe('Référentiel des catégories d’acte (migration 067)', () => {
   const categories = categoriesActeDeLaMigration();
@@ -104,6 +116,7 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
     };
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: AdjudicationClientService, useValue: adjudication },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: {} },
@@ -114,17 +127,28 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
     service = moduleRef.get(PreauthorizationService);
   });
 
+  const CONTEXTE = { policeId: 'pol-1', adherentId: 'adh-1', beneficiaireId: null, etablissementId: 'etab-1' };
+
+  // Les montants d'une catégorie COUVERTE sont calculés par le microservice Java
+  // (ADR-005 ; mêmes exemples vérifiés à l'euro près par SimulationServiceTest,
+  // et de bout en bout par le test HTTP réel). Ici : ce que le core envoie, et
+  // comment il exploite la réponse ; la règle « non couvert » reste locale.
   for (const [categorie, attendu] of Object.entries(COMPORTEMENTS)) {
     it(`${categorie} — ${attendu.montant} F → assurance ${attendu.assurance} / patient ${attendu.patient} (${attendu.exemple})`, async () => {
+      adjudication.simuler.mockImplementation(async (d) =>
+        reponseSimulation(...d.lignes.map(() => Number(attendu.assurance))),
+      );
+
       // facture (calculerMontantsPourActes)
-      const facture = await (service as any).calculerMontantsPourActes('prod-1', [
-        { montantPrescrit: String(attendu.montant), quantite: 1, categorieActe: categorie },
+      const facture = await (service as any).calculerMontantsPourActes(CONTEXTE, 'prod-1', [
+        { id: 'acte-1', montantPrescrit: String(attendu.montant), quantite: 1, categorieActe: categorie,
+          codeActe: null, dateRealisation: new Date('2026-06-15'), datePrescription: new Date('2026-06-14') },
       ]);
       expect(facture.montantAssurance).toBe(attendu.assurance);
       expect(facture.montantPatient).toBe(attendu.patient);
 
       // simulation à l'ajout de l'acte — mêmes montants, couverture annoncée
-      const simulation = await (service as any).simulerMontantActe('org-1', 'etab-1', 'prod-1', {
+      const simulation = await (service as any).simulerMontantActe(CONTEXTE, 'prod-1', {
         categorieActe: categorie,
         montantPrescrit: attendu.montant,
         quantite: 1,
@@ -132,20 +156,65 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
       expect(simulation.categorieCouverte).toBe(attendu.couverte);
       expect(simulation.montants.montantSimuleAssurance).toBe(attendu.assurance);
       expect(simulation.montants.montantSimulePatient).toBe(attendu.patient);
+
+      if (attendu.couverte) {
+        // la garantie de la catégorie et le montant BRUT partent au microservice
+        expect(adjudication.simuler).toHaveBeenCalledTimes(2);
+        const facturee = adjudication.simuler.mock.calls[0][0];
+        expect(facturee).toMatchObject({
+          police_id: 'pol-1', adherent_id: 'adh-1', beneficiaire_id: null, etablissement_id: 'etab-1',
+        });
+        expect(facturee.lignes).toEqual([
+          { garantie_id: `g-${categorie}`, montant: `${attendu.montant}.00`, code_acte: null,
+            acte_dossier_id: 'acte-1', date_soins: '2026-06-15' },
+        ]);
+      } else {
+        // non couvert : 0, sans appel au microservice
+        expect(adjudication.simuler).not.toHaveBeenCalled();
+      }
     });
   }
 
-  it('dossier mixte : seules les catégories couvertes réduisent la part patient', async () => {
-    const r = await (service as any).calculerMontantsPourActes('prod-1', [
-      { montantPrescrit: '10000', quantite: 1, categorieActe: 'CONSULTATION' },
-      { montantPrescrit: '15000', quantite: 1, categorieActe: 'ACTE_TECHNIQUE' },
-      { montantPrescrit: '60000', quantite: 1, categorieActe: 'ANALYSES' },
+  it('dossier mixte : seules les catégories couvertes partent au microservice, dans l’ordre', async () => {
+    adjudication.simuler.mockResolvedValueOnce(reponseSimulation(8000, 40000));
+    const r = await (service as any).calculerMontantsPourActes(CONTEXTE, 'prod-1', [
+      { id: 'a1', montantPrescrit: '10000', quantite: 1, categorieActe: 'CONSULTATION', codeActe: null, dateRealisation: null, datePrescription: new Date('2026-06-15') },
+      { id: 'a2', montantPrescrit: '15000', quantite: 1, categorieActe: 'ACTE_TECHNIQUE', codeActe: null, dateRealisation: null, datePrescription: new Date('2026-06-15') },
+      { id: 'a3', montantPrescrit: '60000', quantite: 1, categorieActe: 'ANALYSES', codeActe: 'CI-NFS', dateRealisation: null, datePrescription: new Date('2026-06-15') },
     ]);
+    expect(adjudication.simuler.mock.calls[0][0].lignes.map((l: any) => l.acte_dossier_id)).toEqual(['a1', 'a3']);
+    expect(adjudication.simuler.mock.calls[0][0].lignes[1].code_acte).toBe('CI-NFS');
     expect(r).toEqual({
       montantTotal: '85000.00',
       montantAssurance: '48000.00',
       montantPatient: '37000.00',
       partsAssurance: ['8000.00', '0.00', '40000.00'],
     });
+  });
+
+  it('microservice indisponible : facture refusée (503), aucun montant inventé', async () => {
+    adjudication.simuler.mockRejectedValueOnce(new Error('timeout'));
+    await expect(
+      (service as any).calculerMontantsPourActes(CONTEXTE, 'prod-1', [
+        { id: 'a1', montantPrescrit: '10000', quantite: 1, categorieActe: 'CONSULTATION', codeActe: null, dateRealisation: null, datePrescription: new Date() },
+      ]),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('microservice indisponible : la simulation (indicative) renvoie la couverture sans montants', async () => {
+    adjudication.simuler.mockRejectedValueOnce(new Error('timeout'));
+    const s = await (service as any).simulerMontantActe(CONTEXTE, 'prod-1', {
+      categorieActe: 'CONSULTATION', montantPrescrit: 10000, quantite: 1,
+    });
+    expect(s).toEqual({ categorieCouverte: true, montants: null });
+  });
+
+  it('bénéficiaire : la demande porte sur le bénéficiaire, jamais sur le titulaire', async () => {
+    await (service as any).simulerMontantActe(
+      { policeId: 'pol-1', adherentId: null, beneficiaireId: 'ben-1', etablissementId: 'etab-1' },
+      'prod-1',
+      { categorieActe: 'CONSULTATION', montantPrescrit: 10000, quantite: 1 },
+    );
+    expect(adjudication.simuler.mock.calls[0][0]).toMatchObject({ adherent_id: null, beneficiaire_id: 'ben-1' });
   });
 });

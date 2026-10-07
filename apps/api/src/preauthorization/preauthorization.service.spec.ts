@@ -11,6 +11,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import { adjudicationClientDeTest } from '../adjudication-client/adjudication-client.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -41,6 +43,12 @@ function identiteEtablissement(
 
 const DANS_48H = new Date(Date.now() + 48 * 3600 * 1000);
 const HIER = new Date(Date.now() - 3600 * 1000);
+
+/** Microservice d'adjudication factice (simulation : 80 % par défaut). */
+let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+beforeEach(() => {
+  adjudication = adjudicationClientDeTest();
+});
 
 describe('PreauthorizationService — Code de Consultation', () => {
   let service: PreauthorizationService;
@@ -77,6 +85,7 @@ describe('PreauthorizationService — Code de Consultation', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: AdjudicationClientService, useValue: adjudication },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },

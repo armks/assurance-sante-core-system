@@ -6,8 +6,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { ClaimsService } from '../claims/claims.service';
@@ -63,6 +65,7 @@ export class PharmacyService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly claims: ClaimsService,
+    private readonly adjudication: AdjudicationClientService,
   ) {}
 
   // --- Recherche par carte -----------------------------------------
@@ -218,6 +221,7 @@ export class PharmacyService {
           select: {
             adherentId: true,
             beneficiaireId: true,
+            policeId: true,
             police: { select: { produitId: true } },
           },
         },
@@ -265,15 +269,6 @@ export class PharmacyService {
     });
     const parDenomination = new Map(stock.map((s) => [s.denominationMedicament, s]));
 
-    // Règle « non couvert » (prisma/sql/067) : produit sans garantie PHARMACIE →
-    // part assurance 0, le patient paie tout (plus de taux par défaut de 80 %).
-    const taux = garantiePharmacie
-      ? new Decimal(garantiePharmacie.tauxCouverture.toString())
-      : new Decimal(0);
-    const plafondParActe = garantiePharmacie?.plafondParActe
-      ? new Decimal(garantiePharmacie.plafondParActe.toString())
-      : null;
-
     const detail: {
       ligne: (typeof lignes)[number];
       quantite: number;
@@ -293,14 +288,60 @@ export class PharmacyService {
       const quantite = choix.quantite ?? ligne.quantitePrescrite;
       const prixUnitaire = new Decimal(s.prixPharmacie.toString());
       const montantLigne = prixUnitaire.mul(quantite);
-      let montantAssurance = montantLigne.mul(taux).div(100).toDecimalPlaces(2);
-      if (plafondParActe && montantAssurance.gt(plafondParActe)) {
-        montantAssurance = plafondParActe;
-      }
-      const montantPatient = montantLigne.sub(montantAssurance);
-      detail.push({ ligne, quantite, prixUnitaire, montantLigne, montantAssurance, montantPatient });
+      detail.push({
+        ligne, quantite, prixUnitaire, montantLigne,
+        montantAssurance: new Decimal(0),
+        montantPatient: montantLigne,
+      });
     }
     const montantTotal = detail.reduce((acc, d) => acc.add(d.montantLigne), new Decimal(0));
+
+    // Part assurance CALCULÉE PAR LE MICROSERVICE JAVA (ADR-005) : la dispensation
+    // est UN acte (franchise, taux, plafond par acte, plafond annuel restant) —
+    // exactement comme la réclamation adjugée au paiement. Sans garantie PHARMACIE :
+    // non couvert (prisma/sql/067), part assurance 0 sans appel au microservice.
+    if (garantiePharmacie && montantTotal.gt(0)) {
+      let couvert: Decimal;
+      try {
+        const r = await this.adjudication.simuler({
+          police_id: ordonnance.dossier.policeId,
+          adherent_id: ordonnance.dossier.adherentId,
+          beneficiaire_id: ordonnance.dossier.adherentId ? null : ordonnance.dossier.beneficiaireId,
+          etablissement_id: null,
+          date_reference: null,
+          lignes: [
+            {
+              garantie_id: garantiePharmacie.id,
+              montant: montantTotal.toFixed(2),
+              code_acte: null,
+              acte_dossier_id: null,
+              date_soins: null,
+            },
+          ],
+        });
+        couvert = new Decimal(String(r.lignes[0].montant_couvert));
+      } catch (err) {
+        this.logger.error(
+          `Calcul de la part assurance indisponible : ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw new ServiceUnavailableException(
+          "Calcul de la part assurance indisponible (microservice d'adjudication) — réessayez dans un instant.",
+        );
+      }
+      // Répartition de la part assurance au prorata des lignes (arrondi au
+      // centime, reliquat sur la dernière) : chaque ligne garde sa part pour la
+      // facture mensuelle de la pharmacie.
+      let reste = couvert;
+      detail.forEach((d, i) => {
+        const part =
+          i === detail.length - 1
+            ? reste
+            : couvert.mul(d.montantLigne).div(montantTotal).toDecimalPlaces(2);
+        d.montantAssurance = part;
+        d.montantPatient = d.montantLigne.sub(part);
+        reste = reste.sub(part);
+      });
+    }
 
     const code = await this.genererCodeUnique();
 

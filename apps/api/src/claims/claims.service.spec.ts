@@ -14,7 +14,7 @@ import {
   AdjudicationInjoignableError,
   AdjudicationRefusError,
   type DecisionAdjudication,
-} from './adjudication-client.service';
+} from '../adjudication-client/adjudication-client.service';
 import { ClaimsService } from './claims.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
@@ -76,6 +76,8 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
       },
       dossierSoins: { findFirst: jest.fn().mockResolvedValue(DOSSIER) },
       police: { findFirst: jest.fn().mockResolvedValue({ produitId: 'prod-1' }) },
+      // aucune ligne de facturation tiers payant pour l'acte, par défaut
+      ligneFacturation: { findFirst: jest.fn().mockResolvedValue(null) },
       // garantie du produit pour la catégorie de l'acte (≠ planCouvertureId)
       garantie: { findFirst: jest.fn().mockResolvedValue({ id: 'gar-consultation' }) },
       reclamation: {
@@ -178,6 +180,19 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
     expect(adjudication.evaluer).not.toHaveBeenCalled();
     expect(res.adjudication).toBeNull();
     expect(res.reclamation.codesRejet).toEqual(['E011']);
+  });
+
+  it('acte déjà facturé en tiers payant → 409 : pas de réclamation (ni double paiement, ni double cumul du plafond)', async () => {
+    prisma.ligneFacturation.findFirst.mockResolvedValue({ id: 'lf-1' });
+
+    await expect(service.soumettre(USER, { acteDossierId: 'acte-1' })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prisma.ligneFacturation.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { acteDossierId: 'acte-1' } }),
+    );
+    expect(prisma.reclamation.create).not.toHaveBeenCalled();
+    expect(adjudication.evaluer).not.toHaveBeenCalled();
   });
 
   it('catégorie non couverte déjà réclamée → 409 (idempotence), rien recréé', async () => {

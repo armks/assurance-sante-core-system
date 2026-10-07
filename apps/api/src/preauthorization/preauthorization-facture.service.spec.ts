@@ -11,6 +11,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import {
+  adjudicationClientDeTest,
+  reponseSimulation,
+} from '../adjudication-client/adjudication-client.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -48,12 +53,21 @@ function acte(id: string, extra: Record<string, unknown> = {}) {
     montantPrescrit: dec(10000),
     quantite: 1,
     categorieActe: 'CONSULTATION',
+    codeActe: null,
+    datePrescription: new Date('2026-09-01T10:00:00Z'),
+    dateRealisation: new Date('2026-09-01T11:00:00Z'),
     statut: 'REALISE',
     statutPreautorisation: 'NON_REQUISE',
     lignesFacturation: [],
     ...extra,
   };
 }
+
+/** Microservice d'adjudication factice (simulation : 80 % par défaut). */
+let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+beforeEach(() => {
+  adjudication = adjudicationClientDeTest();
+});
 
 describe('PreauthorizationService — Facturation par sélection d’actes (paiement partiel)', () => {
   let service: PreauthorizationService;
@@ -91,6 +105,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: AdjudicationClientService, useValue: adjudication },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
@@ -282,11 +297,16 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         acte('acte-1', { montantPrescrit: dec(15000) }),
         acte('acte-2', { montantPrescrit: dec(10000), categorieActe: 'ANALYSES' }),
       ]);
+      // calcul du microservice (ADR-005) : 80 % ; 50 % plafonné à 3 000
+      adjudication.simuler.mockResolvedValueOnce(reponseSimulation(12000, 3000));
 
       const res = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
 
+      // montants BRUTS envoyés, dans l'ordre des actes
+      expect(adjudication.simuler.mock.calls[0][0].lignes.map((l: any) => [l.acte_dossier_id, l.montant]))
+        .toEqual([['acte-1', '15000.00'], ['acte-2', '10000.00']]);
       const reclames = prisma.ligneFacturation.create.mock.calls.map((c: any) => c[0].data.montantReclame);
-      expect(reclames).toEqual(['12000.00', '3000.00']); // 80 % ; 50 % plafonné à 3 000
+      expect(reclames).toEqual(['12000.00', '3000.00']);
       expect(res.montantAssurance).toBe('15000.00');
     });
 

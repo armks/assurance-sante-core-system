@@ -72,7 +72,8 @@ public class AdjudicationService {
             : ctx.beneficiaireId() != null ? ctx.beneficiaireId() : ctx.policeId();
     repo.verrouillerPourPlafond(cleVerrou);
     final java.math.BigDecimal dejaRembourse =
-        repo.sommeRemboursementsAnnee(ctx.adherentId(), ctx.beneficiaireId(), ctx.garantieId());
+        repo.sommeConsommeeAnnee(
+            ctx.adherentId(), ctx.beneficiaireId(), ctx.garantieId(), java.util.List.of());
 
     // 4) calcul
     final LocalDate dateReference =

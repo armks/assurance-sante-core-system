@@ -7,9 +7,14 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
+import {
+  AdjudicationClientService,
+  type DemandeSimulation,
+} from '../adjudication-client/adjudication-client.service';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.util';
@@ -73,6 +78,14 @@ import {
 
 type Db = PrismaService | Prisma.TransactionClient;
 
+/** Ce que le microservice doit savoir d'un dossier pour calculer une part assurance. */
+interface ContexteFinancierActe {
+  policeId: string;
+  adherentId: string | null;
+  beneficiaireId: string | null;
+  etablissementId: string;
+}
+
 /**
  * PreauthorizationService — Code de Consultation (1er des 4 codes anti-fraude,
  * v8 §2).
@@ -95,6 +108,7 @@ export class PreauthorizationService {
     private readonly identity: IdentityService,
     private readonly careEpisode: CareEpisodeService,
     private readonly categoriesActe: CategoriesActeService,
+    private readonly adjudication: AdjudicationClientService,
   ) {}
 
   // --- Génération (adhérent) ---------------------------------------
@@ -1014,8 +1028,12 @@ export class PreauthorizationService {
     // sans garantie dans le produit : annoncée NON COUVERTE dès maintenant
     // (part assurance 0, patient 100 %) — règle « non couvert », prisma/sql/067.
     const { categorieCouverte, montants: simulation } = await this.simulerMontantActe(
-      ctx.organisationId,
-      ticket.dossier.etablissementId,
+      {
+        policeId: ticket.dossier.policeId,
+        adherentId: ticket.dossier.adherentId,
+        beneficiaireId: ticket.dossier.beneficiaireId,
+        etablissementId: ticket.dossier.etablissementId,
+      },
       ticket.dossier.police.produitId,
       dto,
     );
@@ -1111,17 +1129,19 @@ export class PreauthorizationService {
   }
 
   /**
-   * Simulation INDICATIVE du remboursement au moment de l'ajout d'un acte —
-   * tarif conventionné (s'il existe pour l'établissement/l'acte) plafonnant
-   * le montant facturé, puis taux de couverture de la garantie applicable.
-   * Reste indicative : le calcul définitif de l'adjudication (microservice
-   * Java, `Adjudicateur.calculer`) garde le dernier mot (franchise, plafond
-   * ANNUEL restant, verrouillage transactionnel — rien de tout cela n'est
-   * répliqué ici). `categorieCouverte` dit si le produit du patient a une
-   * garantie pour la catégorie : sinon l'acte n'est PAS pris en charge (règle
-   * « non couvert », prisma/sql/067) — part assurance 0, patient 100 %.
-   * `montants` vaut `null` si aucun montant facturé n'est fourni. Ne bloque
-   * jamais l'ajout de l'acte lui-même.
+   * Simulation INDICATIVE de la part assurance au moment de l'ajout d'un acte,
+   * CALCULÉE PAR LE MICROSERVICE JAVA (`POST /adjudication/simuler`, ADR-005) :
+   * tarif conventionné, éligibilité de la police, franchise, taux, plafond par
+   * acte et plafond ANNUEL restant — mêmes règles et même cumul que la facture
+   * et l'adjudication ; aucun calcul financier ici. `categorieCouverte` dit si
+   * le produit du patient a une garantie pour la catégorie : sinon l'acte n'est
+   * PAS pris en charge (règle « non couvert », prisma/sql/067) — part assurance
+   * 0, patient 100 %, sans appel au microservice. `montants` vaut `null` si aucun
+   * montant facturé n'est fourni, ou si le microservice est indisponible (la
+   * simulation reste indicative et ne bloque jamais l'ajout de l'acte).
+   *
+   * Le ticket modérateur affiché reste un simple pourcentage du montant facturé
+   * (information, n'entre pas dans la part assurance).
    *
    * `ticketModerateurOverride` : surcharge `garanties.ticketModerateur` pour
    * CE calcul précis — utilisé lors du recalcul après approbation par
@@ -1130,8 +1150,7 @@ export class PreauthorizationService {
    * du dossier).
    */
   private async simulerMontantActe(
-    organisationId: string,
-    etablissementId: string,
+    contexte: ContexteFinancierActe,
     produitId: string,
     dto: Pick<AjouterActeDto, 'categorieActe' | 'codeActe' | 'montantPrescrit' | 'quantite'>,
     ticketModerateurOverride?: string,
@@ -1164,48 +1183,33 @@ export class PreauthorizationService {
       };
     }
 
-    // Tarif conventionné établissement × acte, s'il existe (même lien que
-    // JdbcAdjudicationRepository.SQL_CONTEXTE : codeActe -> referentiel_actes.code
-    // -> tarifs_conventionnes). Plafonne le montant facturé, ne l'augmente jamais.
-    let montantBase = montantFacture;
-    if (dto.codeActe) {
-      const acteReferentiel = await this.prisma.referentielActe.findFirst({
-        where: { code: dto.codeActe, organisationId, deletedAt: null },
-        select: { id: true },
-      });
-      if (acteReferentiel) {
-        const maintenant = new Date();
-        const tarif = await this.prisma.tarifConventionne.findFirst({
-          where: {
-            referentielActeId: acteReferentiel.id,
-            etablissementId,
-            deletedAt: null,
-            dateDebut: { lte: maintenant },
-            OR: [{ dateFin: null }, { dateFin: { gte: maintenant } }],
+    let montantSimuleAssurance: Decimal;
+    try {
+      const resultat = await this.adjudication.simuler(
+        this.demandeSimulation(contexte, [
+          {
+            garantie_id: garantie.id,
+            montant: montantFacture.toFixed(2),
+            code_acte: dto.codeActe ?? null,
+            acte_dossier_id: null,
+            date_soins: null,
           },
-        });
-        if (tarif) {
-          montantBase = Decimal.min(
-            montantFacture,
-            new Decimal(tarif.tarifConvention.toString()),
-          );
-        }
-      }
+        ]),
+      );
+      montantSimuleAssurance = new Decimal(String(resultat.lignes[0].montant_couvert));
+    } catch (err) {
+      this.logger.warn(
+        `Simulation de la part assurance indisponible (microservice d'adjudication) : ${
+          err instanceof Error ? err.message : String(err)
+        } — acte enregistré sans montants simulés.`,
+      );
+      return { categorieCouverte: true, montants: null };
     }
-
-    const taux = new Decimal(garantie.tauxCouverture.toString());
-    let montantSimuleAssurance = montantBase.mul(taux).div(100).toDecimalPlaces(2);
-    if (garantie.plafondParActe) {
-      const plafond = new Decimal(garantie.plafondParActe.toString());
-      if (montantSimuleAssurance.gt(plafond)) {
-        montantSimuleAssurance = plafond;
-      }
-    }
-    const montantSimulePatient = montantBase.sub(montantSimuleAssurance);
+    const montantSimulePatient = montantFacture.sub(montantSimuleAssurance);
     const ticketModPct = new Decimal(
       ticketModerateurOverride ?? garantie.ticketModerateur?.toString() ?? '0',
     );
-    const ticketModerateurSimule = montantBase
+    const ticketModerateurSimule = montantFacture
       .mul(ticketModPct)
       .div(100)
       .toDecimalPlaces(2);
@@ -1439,7 +1443,13 @@ export class PreauthorizationService {
       categorieActe: string;
       codeActe: string | null;
       montantPrescrit: Prisma.Decimal | null;
-      dossier: { etablissementId: string; police: { produitId: string } };
+      dossier: {
+        etablissementId: string;
+        policeId: string;
+        adherentId: string | null;
+        beneficiaireId: string | null;
+        police: { produitId: string };
+      };
     },
     params: {
       decision: 'APPROUVE' | 'REFUSE';
@@ -1472,8 +1482,12 @@ export class PreauthorizationService {
         // celui d'origine du dossier.
         simulation = (
           await this.simulerMontantActe(
-            ctx.organisationId,
-            params.etablissementExecutionId ?? acte.dossier.etablissementId,
+            {
+              policeId: acte.dossier.policeId,
+              adherentId: acte.dossier.adherentId,
+              beneficiaireId: acte.dossier.beneficiaireId,
+              etablissementId: params.etablissementExecutionId ?? acte.dossier.etablissementId,
+            },
             acte.dossier.police.produitId,
             {
               categorieActe: acte.categorieActe,
@@ -1575,6 +1589,9 @@ export class PreauthorizationService {
           select: {
             organisationId: true,
             etablissementId: true,
+            policeId: true,
+            adherentId: true,
+            beneficiaireId: true,
             police: { select: { produitId: true } },
           },
         },
@@ -2003,7 +2020,16 @@ export class PreauthorizationService {
     }
 
     const { montantTotal, montantAssurance, montantPatient, partsAssurance } =
-      await this.calculerMontantsPourActes(dossier.police.produitId, actesEligibles);
+      await this.calculerMontantsPourActes(
+        {
+          policeId: dossier.policeId,
+          adherentId: dossier.adherentId,
+          beneficiaireId: dossier.beneficiaireId,
+          etablissementId: dossier.etablissementId,
+        },
+        dossier.police.produitId,
+        actesEligibles,
+      );
 
     const code = await this.genererCodeFacturationUnique();
 
@@ -2984,12 +3010,26 @@ export class PreauthorizationService {
    * Montants (total / part assurance / part patient) pour un ENSEMBLE d'actes
    * déjà résolu comme facturable par l'appelant (`genererFactureSelection` a
    * déjà écarté les actes en attente/refusés de pré-autorisation et ceux déjà
-   * réglés) — pure fonction de calcul, réutilisable pour n'importe quelle
-   * sélection.
+   * réglés). La part assurance est CALCULÉE PAR LE MICROSERVICE JAVA
+   * (`POST /adjudication/simuler`, ADR-005) — tarif conventionné, éligibilité,
+   * franchise, taux, plafond par acte, plafond annuel consommé ligne après
+   * ligne — ; ici seulement l'appariement acte ↔ garantie et la règle « non
+   * couvert » (aucune garantie pour la catégorie → 0, prisma/sql/067).
+   * Microservice indisponible → 503 : aucune facture émise sans le calcul
+   * officiel.
    */
   private async calculerMontantsPourActes(
+    contexte: ContexteFinancierActe,
     produitId: string,
-    actes: { montantPrescrit: Prisma.Decimal | null; quantite: number; categorieActe: string }[],
+    actes: {
+      id: string;
+      montantPrescrit: Prisma.Decimal | null;
+      quantite: number;
+      categorieActe: string;
+      codeActe: string | null;
+      dateRealisation: Date | null;
+      datePrescription: Date;
+    }[],
   ): Promise<{
     montantTotal: string;
     montantAssurance: string;
@@ -3000,43 +3040,69 @@ export class PreauthorizationService {
     const garanties = await this.prisma.garantie.findMany({
       where: { produitId, deletedAt: null },
     });
+    // une seule garantie active par (produit, catégorie) : index unique, prisma/sql/067
     const parCategorie = new Map(garanties.map((g) => [g.categorieActe, g]));
 
-    let total = new Decimal(0);
-    let assurance = new Decimal(0);
-    const partsAssurance: string[] = [];
-    for (const acte of actes) {
-      const montant = new Decimal(acte.montantPrescrit?.toString() ?? '0').mul(
-        acte.quantite,
-      );
-      total = total.add(montant);
+    const montants = actes.map((a) =>
+      new Decimal(a.montantPrescrit?.toString() ?? '0').mul(a.quantite),
+    );
+    const parts = actes.map(() => new Decimal(0));
+    const couverts = actes
+      .map((a, i) => ({ i, a, garantie: parCategorie.get(a.categorieActe) }))
+      .filter((x) => x.garantie !== undefined);
 
-      // Règle « non couvert » (prisma/sql/067) : sans garantie pour la
-      // catégorie dans le produit, la part assurance est 0 — plus de taux
-      // par défaut. L'index unique (produit, catégorie) garantit une seule
-      // garantie candidate.
-      const g = parCategorie.get(acte.categorieActe);
-      let partAssurance = new Decimal(0);
-      if (g) {
-        partAssurance = montant
-          .mul(new Decimal(g.tauxCouverture.toString()))
-          .div(100)
-          .toDecimalPlaces(2);
-        if (g.plafondParActe) {
-          const plafond = new Decimal(g.plafondParActe.toString());
-          if (partAssurance.gt(plafond)) partAssurance = plafond;
-        }
+    if (couverts.length > 0) {
+      let resultat;
+      try {
+        resultat = await this.adjudication.simuler(
+          this.demandeSimulation(
+            contexte,
+            couverts.map(({ i, a, garantie }) => ({
+              garantie_id: garantie!.id,
+              montant: montants[i].toFixed(2),
+              code_acte: a.codeActe,
+              acte_dossier_id: a.id,
+              date_soins: (a.dateRealisation ?? a.datePrescription).toISOString().slice(0, 10),
+            })),
+          ),
+        );
+      } catch (err) {
+        this.logger.error(
+          `Calcul de la part assurance indisponible : ${err instanceof Error ? err.message : String(err)}`,
+        );
+        throw new ServiceUnavailableException(
+          "Calcul de la part assurance indisponible (microservice d'adjudication) — réessayez dans un instant.",
+        );
       }
-      assurance = assurance.add(partAssurance);
-      partsAssurance.push(partAssurance.toFixed(2));
+      couverts.forEach(({ i }, k) => {
+        parts[i] = new Decimal(String(resultat.lignes[k].montant_couvert));
+      });
     }
 
+    const total = montants.reduce((s, m) => s.add(m), new Decimal(0));
+    const assurance = parts.reduce((s, p) => s.add(p), new Decimal(0));
+    const partsAssurance = parts.map((p) => p.toFixed(2));
     const patient = total.sub(assurance);
     return {
       montantTotal: total.toFixed(2),
       montantAssurance: assurance.toFixed(2),
       montantPatient: patient.toFixed(2),
       partsAssurance,
+    };
+  }
+
+  /** Demande de simulation au microservice pour un patient (titulaire OU bénéficiaire). */
+  private demandeSimulation(
+    contexte: ContexteFinancierActe,
+    lignes: DemandeSimulation['lignes'],
+  ): DemandeSimulation {
+    return {
+      police_id: contexte.policeId,
+      adherent_id: contexte.adherentId,
+      beneficiaire_id: contexte.adherentId ? null : contexte.beneficiaireId,
+      etablissement_id: contexte.etablissementId,
+      date_reference: null,
+      lignes,
     };
   }
 

@@ -7409,3 +7409,51 @@ Une franchise sur la garantie PHARMACIE serait déduite par le Java mais pas au 
 
 ### Statut
 Terminé — commit à valider.
+
+## 2026-10-07 — Le microservice Java calcule toute part assurance (ADR-005)
+
+### Décisions (arbitrées par l'utilisateur)
+« Le Java calcule tout » ; le plafond annuel est consommé par tout ce que l'assureur
+paie (remboursements + tiers payant).
+
+### Java (`adjudication-service`)
+- `POST /api/v1/adjudication/simuler` + `SimulationService` : calcul sans écriture par
+  `Adjudicateur.calculer` (tarif conventionné, éligibilité, franchise, taux, plafonds),
+  lignes évaluées dans l'ordre avec cumul courant, date des soins par ligne, garantie
+  contrôlée contre le produit de la police (400 sinon).
+- `sommeConsommeeAnnee` (ex-`sommeRemboursementsAnnee`) : remboursements + part
+  assurance des lignes de facturation tiers payant, par personne et garantie, actes de
+  la demande exclus. Utilisé par l'adjudication ET la simulation.
+
+### Base
+- `prisma/sql/068_svc_adjudication_cumul_tiers_payant.sql` (appliquée) : grants colonne
+  sur `lignes_facturation`, `actes_dossier`, `dossiers_soins`. ADR-003 re-relevé et
+  complété (034 / 035 manquaient).
+
+### NestJS
+- Module `adjudication-client` (client sorti de `claims/`) : `evaluer` + `simuler`.
+- Simulation à l'ajout / au recalcul d'un acte, facture tiers payant, comptoir
+  pharmacie : part assurance demandée au Java ; plus aucun calcul (taux, plafond, tarif)
+  dans NestJS. « Non couvert » reste local (0 sans appel). Facture / comptoir : 503 si le
+  microservice est indisponible ; simulation : acte enregistré sans montants.
+- Pharmacie : la dispensation est un seul acte (comme sa réclamation), part couverte
+  répartie au prorata des lignes.
+- Réclamation d'un acte déjà facturé en tiers payant → 409.
+
+### Tests
+- JUnit 45/45 (+19) : `SimulationServiceTest` — 9 catégories couvertes chiffrées,
+  franchise, plafond annuel consommé ligne à ligne (7 200 / 7 200 / 5 600), cumul de base,
+  garanties indépendantes, actes exclus du cumul, date de soins par ligne, police
+  inactive, tarif conventionné, garantie d'un autre produit, personne ambiguë.
+- API 952/952 (`--runInBand`) : tests convertis en tests de délégation (demande envoyée,
+  exploitation de la réponse, non couvert sans appel, 503 / tolérance), répartition
+  pharmacie au prorata, refus de réclamation d'un acte facturé.
+- HTTP réel 8/8 (NestJS → Java) : CONSULTATION 80 %, franchise 1 000, plafond annuel
+  20 000 — simulation 7 200 / 2 800 (avant 8 000) ; facture de 3 actes 30 000 →
+  assurance 20 000 (7 200, 7 200, 5 600 ; avant 24 000) ; acte suivant simulé à 0 et sa
+  réclamation REJETE E006 (cumul tiers payant) ; réclamation d'un acte facturé → 409 ;
+  comptoir PHARMACIE 80 %, franchise 500 : 20 000 → 15 600 / 4 400 (avant 16 000).
+  Données supprimées en ordre inverse des dépendances, 0 ligne et 0 compte Auth.
+
+### Statut
+Terminé — commit à valider.

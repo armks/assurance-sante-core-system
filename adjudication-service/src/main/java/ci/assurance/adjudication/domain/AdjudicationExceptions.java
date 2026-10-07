@@ -26,6 +26,13 @@ public final class AdjudicationExceptions {
     }
   }
 
+  /** 400 — demande de simulation incohérente (police / garantie inconnue ou d'un autre produit). */
+  public static class DemandeInvalide extends RuntimeException {
+    public DemandeInvalide(String message) {
+      super(message);
+    }
+  }
+
   /** 409 — un remboursement existe déjà pour cette réclamation. */
   public static class Doublon extends RuntimeException {
     public Doublon(UUID id) {

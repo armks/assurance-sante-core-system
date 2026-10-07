@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { CareEpisodeModule } from '../care-episode/care-episode.module';
+import { AdjudicationClientModule } from '../adjudication-client/adjudication-client.module';
 import { IdentityModule } from '../identity/identity.module';
 import { ReferenceModule } from '../reference/reference.module';
 import { PreauthorizationController } from './preauthorization.controller';
@@ -11,7 +12,7 @@ import { PreauthorizationService } from './preauthorization.service';
  * d'un dossier de soins — d'où la dépendance à `CareEpisodeModule`.
  */
 @Module({
-  imports: [IdentityModule, CareEpisodeModule, ReferenceModule],
+  imports: [IdentityModule, CareEpisodeModule, ReferenceModule, AdjudicationClientModule],
   controllers: [PreauthorizationController],
   providers: [PreauthorizationService],
   exports: [PreauthorizationService],

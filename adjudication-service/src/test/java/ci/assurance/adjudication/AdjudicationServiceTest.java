@@ -81,7 +81,7 @@ class AdjudicationServiceTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
-    when(repo.sommeRemboursementsAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID))
+    when(repo.sommeConsommeeAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of()))
         .thenReturn(new BigDecimal("0.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
@@ -110,7 +110,7 @@ class AdjudicationServiceTest {
         JeuDeDonneesReference.contexte(new BigDecimal("25000.00"), "RESILIEE");
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
-    when(repo.sommeRemboursementsAnnee(any(), any(), any())).thenReturn(new BigDecimal("0.00"));
+    when(repo.sommeConsommeeAnnee(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
     when(repo.majStatut(ID, "REJETE")).thenReturn(1);
@@ -129,7 +129,7 @@ class AdjudicationServiceTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
-    when(repo.sommeRemboursementsAnnee(any(), any(), any())).thenReturn(new BigDecimal("0.00"));
+    when(repo.sommeConsommeeAnnee(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
     when(repo.majStatut(any(), any())).thenReturn(0);
@@ -147,7 +147,7 @@ class AdjudicationServiceTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.beneficiaireActif(new BigDecimal("25000.00"));
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
-    when(repo.sommeRemboursementsAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID))
+    when(repo.sommeConsommeeAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of()))
         .thenReturn(new BigDecimal("0.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
@@ -158,7 +158,7 @@ class AdjudicationServiceTest {
     assertThat(res.montantRembourse()).isEqualByComparingTo("18400.00");
     assertThat(res.plafondRestantApres()).isEqualByComparingTo("81600.00");
     verify(repo).verrouillerPourPlafond(JeuDeDonneesReference.BENEFICIAIRE_ID);
-    verify(repo).sommeRemboursementsAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID);
+    verify(repo).sommeConsommeeAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of());
     verify(repo, never()).verrouillerPourPlafond(JeuDeDonneesReference.POLICE_ID);
   }
 
@@ -168,7 +168,7 @@ class AdjudicationServiceTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.beneficiaireActif(new BigDecimal("25000.00"));
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
-    when(repo.sommeRemboursementsAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID))
+    when(repo.sommeConsommeeAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of()))
         .thenReturn(new BigDecimal("90000.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
@@ -191,7 +191,7 @@ class AdjudicationServiceTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.beneficiaireActif(new BigDecimal("25000.00"));
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
-    when(repo.sommeRemboursementsAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID))
+    when(repo.sommeConsommeeAnnee(null, JeuDeDonneesReference.BENEFICIAIRE_ID, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of()))
         .thenReturn(new BigDecimal("100000.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
@@ -210,7 +210,7 @@ class AdjudicationServiceTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
-    when(repo.sommeRemboursementsAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID))
+    when(repo.sommeConsommeeAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of()))
         .thenReturn(new BigDecimal("0.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
@@ -219,7 +219,7 @@ class AdjudicationServiceTest {
     service.evaluer(ID);
 
     verify(repo).verrouillerPourPlafond(JeuDeDonneesReference.ADHERENT_ID);
-    verify(repo).sommeRemboursementsAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID);
+    verify(repo).sommeConsommeeAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of());
   }
 
   // --- Plafond annuel PAR GARANTIE ---
@@ -233,10 +233,10 @@ class AdjudicationServiceTest {
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
     // toute autre garantie de l'adhérent : plafond (100000.00) déjà consommé…
-    when(repo.sommeRemboursementsAnnee(eq(JeuDeDonneesReference.ADHERENT_ID), org.mockito.ArgumentMatchers.isNull(), any()))
+    when(repo.sommeConsommeeAnnee(eq(JeuDeDonneesReference.ADHERENT_ID), org.mockito.ArgumentMatchers.isNull(), any(), any()))
         .thenReturn(new BigDecimal("100000.00"));
     // … mais rien sur la garantie de CETTE réclamation
-    when(repo.sommeRemboursementsAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID))
+    when(repo.sommeConsommeeAnnee(JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of()))
         .thenReturn(new BigDecimal("0.00"));
     when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(UUID.randomUUID());
@@ -247,8 +247,8 @@ class AdjudicationServiceTest {
     assertThat(res.decision()).isEqualTo("AUTO_ADJUDIQUE");
     assertThat(res.montantRembourse()).isEqualByComparingTo("18400.00");
     assertThat(res.plafondRestantApres()).isEqualByComparingTo("81600.00");
-    verify(repo).sommeRemboursementsAnnee(
-        JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID);
+    verify(repo).sommeConsommeeAnnee(
+        JeuDeDonneesReference.ADHERENT_ID, null, JeuDeDonneesReference.GARANTIE_ID, java.util.List.of());
   }
 
   private static ContexteAdjudication avecStatut(ContexteAdjudication c, String statut) {

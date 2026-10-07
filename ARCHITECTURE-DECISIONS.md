@@ -146,8 +146,11 @@ l'état réel est une source d'erreur.
 
 **L'état ci-dessous est la source de vérité.** Il a été relevé en base le
 2026-09-10 (`pg_class.relacl` / `pg_attribute.attacl` / `pg_proc.proacl` /
-`pg_roles`). Toute modification future doit être répercutée ici dans la même PR
-que la migration SQL.
+`pg_roles`), puis **re-relevé le 2026-10-07** (`information_schema.role_table_grants`
+/ `column_privileges`) : ajout des grants des migrations 034 / 035 (tarif
+conventionné), qui manquaient ici, et de 068 (cumul tiers payant, ADR-005).
+Toute modification future doit être répercutée ici dans la même PR que la
+migration SQL.
 
 #### Attributs du rôle
 
@@ -177,6 +180,7 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `medicaments` | `SELECT` |
 | `polices` | `SELECT` |
 | `referentiel_actes` | `SELECT` |
+| `tarifs_conventionnes` | `SELECT` *(034)* |
 | `remboursements` | `INSERT` |
 
 #### Tables — privilèges au niveau colonne (aucun privilège table associé)
@@ -186,6 +190,9 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `reclamations` | `SELECT` | `id`, `organisation_id`, `dossier_soins_id`, `acte_dossier_id`, `adherent_id`, `beneficiaire_id`, `police_id`, `garantie_id`, `montant`, `type_reclamation`, `statut`, `created_at`, `deleted_at` *(13 colonnes)* |
 | `reclamations` | `UPDATE` | `statut` *(uniquement)* |
 | `remboursements` | `SELECT` | `id`, `reclamation_id`, `montant_rembourse`, `created_at` *(4 colonnes)* |
+| `dossiers_soins` | `SELECT` | `id`, `etablissement_id` *(034)* ; `adherent_id`, `beneficiaire_id`, `police_id` *(068)* |
+| `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* |
+| `lignes_facturation` | `SELECT` | `id`, `acte_dossier_id`, `montant_reclame`, `reportee_mois_suivant`, `created_at` *(068)* |
 
 > `SELECT(id)` sur `remboursements` est requis par `INSERT … RETURNING id`
 > (le `RETURNING` est évalué comme un `SELECT` sur les colonnes renvoyées).
@@ -205,8 +212,10 @@ n'a donc **pas** besoin d'`INSERT` sur `audit_log` ni de `SELECT` sur `profils`.
 - Aucun `DELETE`, nulle part.
 - Aucun `UPDATE` autre que `reclamations.statut` — en particulier **pas** sur
   `polices` (cf. ADR-001), `garanties`, `remboursements`.
-- Aucun accès à `profils`, `audit_log`, `dossiers_soins`, `actes_dossier`,
-  `tickets_soins`, `factures_dossier`, `souscripteurs`, `parametres_plateforme`.
+- Aucun accès à `profils`, `audit_log`, `tickets_soins`, `factures_dossier`,
+  `souscripteurs`, `parametres_plateforme` ; sur `dossiers_soins`,
+  `actes_dossier` et `lignes_facturation`, uniquement les colonnes listées
+  ci-dessus (aucune donnée médicale : ni motif, ni diagnostic, ni libellé d'acte).
 - Aucun `SELECT *` sur `reclamations` / `remboursements` — colonnes figées
   ci-dessus uniquement. Ajouter une colonne à l'une de ces tables ne l'expose
   PAS automatiquement au service.
@@ -281,3 +290,67 @@ la catégorie de l'acte.
 - Le rôle de revue est désormais lu dans le référentiel depuis la catégorie de
   l'acte (PHARMACIE pour une dispensation) : MATERNITE passe de AUTRE (revue
   exploitation) à HOSPITALISATION (revue médecin conseil).
+
+---
+
+## ADR-005 — Le microservice Java calcule TOUTE part assurance ; le plafond annuel est consommé par tout ce que l'assureur paie
+
+**Date :** 2026-10-07 — **Statut :** acceptée — **Migration :** `prisma/sql/068_svc_adjudication_cumul_tiers_payant.sql`
+
+### Contexte
+
+Deux calculs de la part assurance coexistaient. NestJS calculait la facture
+tiers payant, la simulation à l'ajout d'un acte et le comptoir pharmacie (taux
+et plafond par acte seulement) ; le microservice Java adjugeait les réclamations
+(tarif conventionné, éligibilité, franchise, taux, plafonds par acte ET annuel).
+Une franchise ou un plafond annuel n'était donc jamais appliqué au patient au
+centre ni au comptoir, et la pharmacie appliquait le plafond par acte ligne à
+ligne alors que la réclamation le faisait sur le total. Par ailleurs, le cumul
+annuel du Java ne comptait que les remboursements : les actes facturés en tiers
+payant n'entamaient jamais le plafond. Le skill du projet place tout calcul
+financier dans le microservice Java.
+
+### Décision
+
+1. **Une seule implémentation des règles financières : le Java.** Nouvel
+   endpoint `POST /api/v1/adjudication/simuler` (même JWT de service) : calcul
+   SANS écriture ni verrou, par `Adjudicateur.calculer` — exactement la règle de
+   l'adjudication. Les lignes sont évaluées dans l'ordre ; chaque ligne consomme
+   le plafond annuel de sa garantie pour les suivantes (actes d'une même facture).
+2. **NestJS ne calcule plus aucune part assurance** ; il appelle ce service via
+   le module `adjudication-client` (sorti de `claims/`) pour :
+   - la simulation à l'ajout / au recalcul d'un acte (indicative : microservice
+     indisponible → acte enregistré sans montants simulés) ;
+   - la facture tiers payant d'un dossier (microservice indisponible → 503,
+     aucune facture émise) ;
+   - le comptoir pharmacie : la dispensation est UN acte, comme la réclamation
+     adjugée au paiement ; la part couverte est répartie au prorata des lignes
+     (reliquat d'arrondi sur la dernière) ; indisponible → 503.
+   Restent dans NestJS : l'appariement acte ↔ garantie par catégorie et la règle
+   « non couvert » (ADR-004 : pas de garantie → 0, sans appel), et le ticket
+   modérateur affiché (simple pourcentage informatif).
+3. **Cumul du plafond annuel = tout ce que l'assureur prend en charge** (une
+   seule définition, `sommeConsommeeAnnee`, utilisée par l'adjudication et la
+   simulation) : remboursements adjugés + part assurance des lignes de
+   facturation tiers payant (`lignes_facturation.montant_reclame`, hors lignes
+   reportées pour litige), par personne et par garantie (garantie d'une ligne =
+   celle du produit pour la catégorie de l'acte). Les actes de la demande sont
+   exclus du cumul (une ligne orpheline réattachée ne compte pas deux fois).
+4. **Un acte facturé en tiers payant ne peut plus faire l'objet d'une
+   réclamation** (409) : il serait payé et compté deux fois.
+
+### Conséquences
+
+- Part patient d'une simulation = montant facturé − part couverte (comme la
+  facture) ; auparavant, avec un tarif conventionné, la simulation calculait la
+  part patient sur le tarif.
+- Le microservice devient nécessaire pour facturer et pour préparer une
+  dispensation (503 sinon) ; la simulation reste tolérante.
+- Grants `svc_adjudication` étendus (068) à des colonnes non médicales de
+  `lignes_facturation`, `actes_dossier`, `dossiers_soins` — ADR-003 mis à jour
+  (il omettait aussi 034 / 035).
+- Concurrence : la simulation ne verrouille pas ; deux factures simultanées pour
+  la même personne et la même garantie pourraient chacune voir le même plafond
+  restant. L'adjudication d'une réclamation reste, elle, sous verrou.
+- Le seuil de revue manuelle (E010) et le passage en revue sur plafond (E006)
+  n'ont pas d'effet sur une facture : seule la part couverte est reprise.

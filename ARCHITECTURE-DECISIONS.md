@@ -149,7 +149,7 @@ l'état réel est une source d'erreur.
 `pg_roles`), puis **re-relevé le 2026-10-07** (`information_schema.role_table_grants`
 / `column_privileges`) : ajout des grants des migrations 034 / 035 (tarif
 conventionné), qui manquaient ici, et de 068 (cumul tiers payant, ADR-005),
-puis 069 (plafond double, ADR-006) et 070 (date des soins, amendement d'ADR-006) — vérifiés en base le même jour.
+puis 069 (plafond double, ADR-006), 070 et 071 (date des soins, amendements d'ADR-006) — vérifiés en base le même jour.
 Toute modification future doit être répercutée ici dans la même PR que la
 migration SQL.
 
@@ -195,7 +195,7 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* ; `date_realisation`, `date_prescription` *(070 — date des soins)* |
 | `lignes_facturation` | `SELECT` | `id`, `acte_dossier_id`, `montant_reclame`, `reportee_mois_suivant`, `created_at` *(068)* |
 | `beneficiaires` | `SELECT` | `id`, `adherent_id`, `deleted_at` *(069 — rattachement au titulaire, clé de famille)* |
-| `produits` | `SELECT` | `id`, `periode_cumul_plafond` *(069 — période de cumul des plafonds)* |
+| `produits` | `SELECT` | `id`, `periode_cumul_plafond` *(069 — période de cumul des plafonds)* ; `delai_declaration_jours` *(071 — délai de déclaration après la fin de la police)* |
 | `dispensations_pharmacie` | `SELECT` | `id`, `date_paiement`, `date_preparation` *(070 — date des soins d'une dispensation)* |
 
 > `SELECT(id)` sur `remboursements` est requis par `INSERT … RETURNING id`
@@ -478,3 +478,50 @@ Migration : `prisma/sql/070_svc_adjudication_date_soins.sql`.
 - **Non modifié (à arbitrer)** : l'éligibilité de la police (E001) et le tarif
   conventionné d'une réclamation restent appréciés à la date de la RÉCLAMATION ;
   la facture et la simulation utilisent déjà la date des soins.
+
+### Amendement du 2026-10-07 — éligibilité et tarif conventionné à la DATE DES SOINS
+
+Migrations : `prisma/sql/071_produits_delai_declaration.sql`,
+`prisma/sql/072_tarifs_conventionnes_historique.sql`.
+
+- **Avant** : une réclamation était jugée à la date de la RÉCLAMATION (police ACTIVE ce
+  jour-là, tarif en vigueur ce jour-là), alors que la facture utilisait déjà la date
+  des soins : des soins reçus pendant la couverture, réclamés après la fin de la police,
+  étaient rejetés ; une réclamation tardive prenait le tarif du jour ; deux chemins
+  pouvaient diverger sur les mêmes soins.
+- **Règle unique** (`EligibiliteSoins.java`, appelée par l'adjudication ET la
+  simulation de facture), appréciée à la date des soins (acte : réalisation, à défaut
+  prescription ; dispensation : délivrance, à défaut préparation ; à défaut la
+  réclamation), dans l'ordre :
+  1. soins postérieurs à la date de déclaration (réclamation, ou jour de la facture)
+     → **E013** ;
+  2. soins antérieurs au début de la police → **E012** ;
+  3. soins après la fin de la police, ou police qui ne couvrait pas (suspendue, devis,
+     en souscription, terminée sans date de fin connue) → **E001** ; une police
+     résiliée / non renouvelée / renouvelée AVEC sa date de fin couvre les soins
+     jusqu'à cette date ;
+  4. déclaration plus de `produits.delai_declaration_jours` jours après la fin de la
+     police → **E014** (pas de délai tant que la police court).
+- **Délai de déclaration paramétrable par produit** : **90 jours par défaut** (3 mois,
+  délai de forclusion usuel d'une demande de remboursement), appliqué aussi aux
+  produits existants — ils refusaient jusqu'ici tout soin déclaré après la fin ; 0 =
+  aucun délai. Formulaires produit (création, modification) et nouvelle version.
+- **Tarif conventionné en vigueur à la date des soins** (réclamation : même expression
+  de date que le cumul ; facture : date de chaque acte). Ce n'était applicable qu'avec
+  un **historique des tarifs** : un seul tarif non supprimé par (établissement |
+  pharmacie, acte) était permis et l'application imposait de le MODIFIER en place.
+  Désormais (072) plusieurs tarifs successifs sont permis, sans chevauchement de
+  période (contrainte d'exclusion `btree_gist` ; 409 explicite à la création ou à la
+  modification) : changer de tarif = fixer la date de fin de l'ancien, puis créer le
+  nouveau.
+- **Facture** : un acte non couvert à la date des soins est EXCLU de la facture avec un
+  motif et un message daté (ex. « déclaration hors délai — ces soins pouvaient être
+  déclarés jusqu'au 28/09/2026 (fin de la police le 30/06/2026 + 90 jours) »), au lieu
+  d'être facturé avec une part assurance nulle ; aucun acte restant → 409, rien n'est
+  créé. Réclamation : REJETE avec le code (libellés E012–E014 côté API et web).
+- **Garde-fous** : la saisie refusait déjà de marquer réalisé un acte daté dans le
+  futur (400) ; E013 couvre toute donnée incohérente qui passerait outre.
+- Vérifié par un test qui passe chaque cas par les deux chemins (même décision, mêmes
+  codes, même montant) et en HTTP réel sur des actes jumeaux, avec contre-épreuve sur la
+  version précédente (9 contrôles sur 13 en échec, dont 4 divergences réclamation /
+  facture).

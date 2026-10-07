@@ -71,6 +71,7 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         g.produit_id AS produit_id,
         COALESCE(r.adherent_id, b.adherent_id) AS titulaire_id,
         pr.periode_cumul_plafond AS periode_cumul,
+        pr.delai_declaration_jours AS delai_declaration_jours,
         -- date des soins (prisma/sql/070) : acte réalisé / prescrit, dispensation
         -- délivrée / préparée, à défaut la réclamation — en UTC (Côte d'Ivoire, UTC+0)
         (COALESCE(ad.date_realisation, ad.date_prescription,
@@ -89,8 +90,14 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         ON tc.etablissement_id = ds.etablissement_id
         AND tc.referentiel_acte_id = ra.id
         AND tc.deleted_at IS NULL
-        AND tc.date_debut <= r.created_at::date
-        AND (tc.date_fin IS NULL OR tc.date_fin >= r.created_at::date)
+        -- tarif EN VIGUEUR À LA DATE DES SOINS (même expression que date_soins)
+        AND tc.date_debut <= (COALESCE(ad.date_realisation, ad.date_prescription,
+                                       dp.date_paiement, dp.date_preparation, r.created_at)
+                                AT TIME ZONE 'UTC')::date
+        AND (tc.date_fin IS NULL
+             OR tc.date_fin >= (COALESCE(ad.date_realisation, ad.date_prescription,
+                                         dp.date_paiement, dp.date_preparation, r.created_at)
+                                  AT TIME ZONE 'UTC')::date)
       WHERE r.id = ? AND r.deleted_at IS NULL
       """;
 
@@ -124,7 +131,8 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
           uuid(rs, "produit_id"),
           uuid(rs, "titulaire_id"),
           rs.getString("periode_cumul"),
-          localDate(rs, "date_soins"));
+          localDate(rs, "date_soins"),
+          (Integer) rs.getObject("delai_declaration_jours"));
 
   @Override
   public Optional<ContexteAdjudication> chargerContexte(UUID reclamationId) {
@@ -359,7 +367,7 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         .query(
             """
             SELECT p.id, p.organisation_id, p.produit_id, p.statut, p.date_debut, p.date_fin,
-                   pr.periode_cumul_plafond
+                   pr.periode_cumul_plafond, pr.delai_declaration_jours
             FROM polices p
             JOIN produits pr ON pr.id = p.produit_id
             WHERE p.id = ? AND p.deleted_at IS NULL
@@ -371,7 +379,8 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
                 rs.getString("statut"),
                 localDate(rs, "date_debut"),
                 localDate(rs, "date_fin"),
-                rs.getString("periode_cumul_plafond")),
+                rs.getString("periode_cumul_plafond"),
+                (Integer) rs.getObject("delai_declaration_jours")),
             policeId)
         .stream()
         .findFirst();

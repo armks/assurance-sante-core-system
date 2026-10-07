@@ -15,8 +15,11 @@ import java.util.List;
  *
  * <p>Règles (v3 §4, tarif conventionné v3 §5) :
  * <ol>
- *   <li>police non ACTIVE / hors période → REJETE (E001), 0 ;</li>
- *   <li>tarif conventionné établissement × acte, s'il existe : montant réclamé
+ *   <li>soin non couvert par la police À LA DATE DES SOINS ({@link EligibiliteSoins} :
+ *       soins futurs E013, avant le début E012, après la fin ou police qui ne couvrait
+ *       pas E001, déclaration hors délai après la fin E014) → REJETE, 0 ;</li>
+ *   <li>tarif conventionné établissement × acte EN VIGUEUR À LA DATE DES SOINS, s'il
+ *       existe : montant réclamé
  *       plafonné à min(montant_facture, tarif_convention) — AVANT tout autre
  *       calcul. Absence de tarif négocié (cas le plus courant) → montant
  *       facturé utilisé tel quel, comportement rétrocompatible ;</li>
@@ -50,6 +53,8 @@ public class Adjudicateur {
   }
 
   /**
+   * @param dateDeclaration date de la réclamation, ou jour de la facture / simulation ;
+   *     la date des soins est {@code ctx.dateSoins()} (à défaut, la date de déclaration)
    * @param dejaPersonne déjà pris en charge sur la période pour la PERSONNE et la garantie
    * @param dejaFamille déjà pris en charge sur la période pour la FAMILLE (titulaire + ses
    *     bénéficiaires) et la garantie ; ignoré sans plafond famille
@@ -58,7 +63,7 @@ public class Adjudicateur {
       ContexteAdjudication ctx,
       BigDecimal dejaPersonne,
       BigDecimal dejaFamille,
-      LocalDate dateReference) {
+      LocalDate dateDeclaration) {
 
     final BigDecimal dejaP = normaliser(dejaPersonne, BigDecimal.ZERO);
     final BigDecimal dejaF = normaliser(dejaFamille, BigDecimal.ZERO);
@@ -81,10 +86,14 @@ public class Adjudicateur {
             restant(plafondPersonne, dejaP, BigDecimal.ZERO),
             restant(plafondFamille, dejaF, BigDecimal.ZERO));
 
-    // 1) éligibilité police
-    if (!policeActive(ctx, dateReference)) {
-      return new Resultat(
-          Decision.REJETE, zero(), List.of(CodesRejet.POLICE_INACTIVE), plafondRestantAvant);
+    // 1) éligibilité à la DATE DES SOINS — même règle pour la réclamation et la facture
+    final LocalDate dateSoins = ctx.dateSoins() != null ? ctx.dateSoins() : dateDeclaration;
+    final String motif =
+        EligibiliteSoins.motifRejet(
+            ctx.policeStatut(), ctx.policeDebut(), ctx.policeFin(),
+            ctx.delaiDeclarationJours(), dateSoins, dateDeclaration);
+    if (motif != null) {
+      return new Resultat(Decision.REJETE, zero(), List.of(motif), plafondRestantAvant);
     }
 
     // 2) franchise
@@ -132,19 +141,6 @@ public class Adjudicateur {
     }
 
     return new Resultat(decision, montantRembourse, List.copyOf(codes), plafondRestantApres);
-  }
-
-  private static boolean policeActive(ContexteAdjudication ctx, LocalDate dateReference) {
-    if (!"ACTIVE".equals(ctx.policeStatut())) {
-      return false;
-    }
-    if (ctx.policeDebut() != null && dateReference.isBefore(ctx.policeDebut())) {
-      return false;
-    }
-    if (ctx.policeFin() != null && dateReference.isAfter(ctx.policeFin())) {
-      return false;
-    }
-    return true;
   }
 
   /** Restant d'un plafond après {@code deja + montant} (plancher 0) ; null si pas de plafond. */

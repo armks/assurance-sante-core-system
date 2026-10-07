@@ -92,6 +92,42 @@ interface ContexteFinancierActe {
 }
 
 /**
+ * Codes d'INÉLIGIBILITÉ À LA DATE DES SOINS renvoyés par le microservice (même règle
+ * que la réclamation, ADR-006 amendement) → motif d'exclusion d'un acte de la facture.
+ */
+const MOTIF_INELIGIBILITE: Record<string, string> = {
+  E001: 'POLICE_NE_COUVRE_PAS_LA_DATE',
+  E012: 'SOINS_AVANT_DEBUT_POLICE',
+  E013: 'SOINS_FUTURS',
+  E014: 'DECLARATION_HORS_DELAI',
+};
+
+const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('/');
+
+/** Message clair, daté, pour un acte exclu de la facture car non couvert à la date des soins. */
+function messageIneligibilite(
+  code: string,
+  acte: { libelle: string; dateRealisation: Date | null; datePrescription: Date },
+  police: { dateDebut: Date | null; dateFin: Date | null },
+  delaiDeclarationJours: number,
+): string {
+  const tete = `Acte « ${acte.libelle} » du ${jjmmaaaa(acte.dateRealisation ?? acte.datePrescription)} :`;
+  switch (code) {
+    case 'E012':
+      return `${tete} soins antérieurs au début de la police${police.dateDebut ? ` (${jjmmaaaa(police.dateDebut)})` : ''}.`;
+    case 'E013':
+      return `${tete} la date des soins est postérieure à aujourd'hui.`;
+    case 'E014': {
+      const fin = police.dateFin!;
+      const limite = new Date(fin.getTime() + delaiDeclarationJours * 86_400_000);
+      return `${tete} déclaration hors délai — ces soins pouvaient être déclarés jusqu'au ${jjmmaaaa(limite)} (fin de la police le ${jjmmaaaa(fin)} + ${delaiDeclarationJours} jours).`;
+    }
+    default:
+      return `${tete} la police ne couvrait pas cette date (suspendue, pas encore en vigueur, ou soins après sa fin${police.dateFin ? ` le ${jjmmaaaa(police.dateFin)}` : ''}).`;
+  }
+}
+
+/**
  * PreauthorizationService — Code de Consultation (1er des 4 codes anti-fraude,
  * v8 §2).
  *
@@ -2007,7 +2043,8 @@ export class PreauthorizationService {
             : enLitige.has(a.id)
               ? 'EN_LITIGE'
               : null;
-    const exclusions = actesDemandes
+    // `message` : précision datée pour les actes non couverts à la date des soins
+    const exclusions: { acteId: string; motif: string; message?: string }[] = actesDemandes
       .map((a) => ({ acteId: a.id, motif: motifExclusion(a) }))
       .filter((x): x is { acteId: string; motif: string } => x.motif !== null);
     const actesEligibles = actesDemandes.filter((a) => motifExclusion(a) === null);
@@ -2030,14 +2067,14 @@ export class PreauthorizationService {
     // le produit a un plafond famille (ADR-005, ADR-006) : sans lui, deux factures
     // simultanées liraient le même plafond annuel restant (le cumul ne voit que
     // les lignes COMMITÉES) et le dépasseraient ensemble.
-    const facture = await this.prisma.$transaction(async (tx) => {
+    const resultat = await this.prisma.$transaction(async (tx) => {
       await verrouillerPlafond(tx, {
         adherentId: dossier.adherentId,
         beneficiaireId: dossier.beneficiaireId,
         policeId: dossier.policeId,
         produitId: dossier.police.produitId,
       });
-      const { montantTotal, montantAssurance, montantPatient, partsAssurance } =
+      const calcul =
         await this.calculerMontantsPourActes(
           {
             policeId: dossier.policeId,
@@ -2048,6 +2085,51 @@ export class PreauthorizationService {
           dossier.police.produitId,
           actesEligibles,
         );
+
+      // Actes non couverts par la police À LA DATE DES SOINS (même règle que la
+      // réclamation : soins avant le début / après la fin, soins futurs, déclaration
+      // hors délai) : EXCLUS de la facture avec un motif explicite — jamais facturés
+      // avec une part assurance nulle.
+      const delai = calcul.codesIneligibilite.includes('E014')
+        ? ((
+            await tx.produit.findUnique({
+              where: { id: dossier.police.produitId },
+              select: { delaiDeclarationJours: true },
+            })
+          )?.delaiDeclarationJours ?? 90)
+        : 90;
+      calcul.codesIneligibilite.forEach((codeRejet, i) => {
+        if (!codeRejet) return;
+        const a = actesEligibles[i];
+        exclusions.push({
+          acteId: a.id,
+          motif: MOTIF_INELIGIBILITE[codeRejet],
+          message: messageIneligibilite(codeRejet, a, dossier.police, delai),
+        });
+        acteIdsExclus.push(a.id);
+      });
+      const retenus = actesEligibles
+        .map((acte, i) => ({ acte, i }))
+        .filter(({ i }) => !calcul.codesIneligibilite[i]);
+      if (retenus.length === 0) {
+        throw new ConflictException({
+          message:
+            "Aucun des actes sélectionnés n'est facturable à l'assurance. " +
+            exclusions
+              .map((e) => ('message' in e ? e.message : null))
+              .filter(Boolean)
+              .join(' '),
+          acteIdsExclus,
+          exclusions,
+        });
+      }
+      const somme = (valeurs: string[]) =>
+        valeurs.reduce((s, v) => s.add(v), new Decimal(0));
+      const total = somme(retenus.map(({ i }) => calcul.montantsActes[i]));
+      const assurance = somme(retenus.map(({ i }) => calcul.partsAssurance[i]));
+      const montantTotal = total.toFixed(2);
+      const montantAssurance = assurance.toFixed(2);
+      const montantPatient = total.sub(assurance).toFixed(2);
 
       const f = await tx.factureDossier.create({
         data: {
@@ -2065,12 +2147,12 @@ export class PreauthorizationService {
         },
       });
 
-      for (const [i, acte] of actesEligibles.entries()) {
+      for (const { acte, i } of retenus) {
         const ligneAPayer = acte.lignesFacturation.find((l) => l.statut === 'A_PAYER');
         // L'établissement ne réclame à l'assureur que la PART ASSURANCE de l'acte
         // (la part patient est encaissée au guichet) — même principe que la
         // facture mensuelle pharmacie. Somme des lignes = montantAssurance.
-        const montantReclame = partsAssurance[i];
+        const montantReclame = calcul.partsAssurance[i];
         if (ligneAPayer) {
           // Cycle abandonné réattaché — jamais de doublon pour le même acte.
           await tx.ligneFacturation.update({
@@ -2097,26 +2179,31 @@ export class PreauthorizationService {
         f.id,
         {
           dossierSoinsId,
-          acteIdsInclus: actesEligibles.map((a) => a.id),
+          acteIdsInclus: retenus.map(({ acte }) => acte.id),
           acteIdsExclus,
           montantTotal,
           montantPatient,
         },
         'factures_dossier',
       );
-      return f;
+      return { f, acteIdsInclus: retenus.map(({ acte }) => acte.id) };
       // l'appel au microservice se fait verrou tenu : délai au-delà de son timeout
     }, { timeout: DELAI_TRANSACTION_FACTURE_MS });
 
     // Réponse à l'ASSUREUR : montants, PAS le code (transmis à l'adhérent —
     // dashboard dès maintenant, e-mail/SMS à raccorder séparément).
+    const { f: facture, acteIdsInclus } = resultat;
+    const precisions = exclusions
+      .map((e) => ('message' in e ? e.message : null))
+      .filter(Boolean)
+      .join(' ');
     return {
       factureId: facture.id,
       statut: facture.statut,
       montantTotal: facture.montantTotal.toFixed(2),
       montantAssurance: facture.montantAssurance.toFixed(2),
       montantPatient: facture.montantPatient.toFixed(2),
-      acteIdsInclus: actesEligibles.map((a) => a.id),
+      acteIdsInclus,
       acteIdsExclus,
       exclusions,
       message:
@@ -2124,7 +2211,8 @@ export class PreauthorizationService {
           ? "Facture générée pour les actes sélectionnés facturables. Le code de facturation a été transmis à l'adhérent pour validation. " +
             `${acteIdsExclus.length} acte(s) sélectionné(s) exclu(s)` +
             (nbNonRealises > 0 ? `, dont ${nbNonRealises} non marqué(s) « réalisé »` : '') +
-            ' (non réalisé, en attente/refusé de pré-autorisation, déjà réglé, ou en litige).'
+            ' (non réalisé, en attente/refusé de pré-autorisation, déjà réglé, en litige, ou non couvert par la police à la date des soins).' +
+            (precisions ? ` ${precisions}` : '')
           : "Facture générée pour les actes sélectionnés. Le code de facturation a été transmis à l'adhérent pour validation.",
     };
   }
@@ -3050,8 +3138,15 @@ export class PreauthorizationService {
     montantTotal: string;
     montantAssurance: string;
     montantPatient: string;
+    /** Montant (prescrit × quantité) de chaque acte, dans l'ordre de `actes`. */
+    montantsActes: string[];
     /** Part assurance de chaque acte, dans l'ordre de `actes`. */
     partsAssurance: string[];
+    /**
+     * Code d'INÉLIGIBILITÉ À LA DATE DES SOINS de chaque acte (E001, E012, E013,
+     * E014 — même règle que la réclamation, appliquée par le microservice), ou null.
+     */
+    codesIneligibilite: (string | null)[];
   }> {
     const garanties = await this.prisma.garantie.findMany({
       where: { produitId, deletedAt: null },
@@ -3063,6 +3158,7 @@ export class PreauthorizationService {
       new Decimal(a.montantPrescrit?.toString() ?? '0').mul(a.quantite),
     );
     const parts = actes.map(() => new Decimal(0));
+    const codesIneligibilite: (string | null)[] = actes.map(() => null);
     const couverts = actes
       .map((a, i) => ({ i, a, garantie: parCategorie.get(a.categorieActe) }))
       .filter((x) => x.garantie !== undefined);
@@ -3092,6 +3188,8 @@ export class PreauthorizationService {
       }
       couverts.forEach(({ i }, k) => {
         parts[i] = new Decimal(String(resultat.lignes[k].montant_couvert));
+        codesIneligibilite[i] =
+          (resultat.lignes[k].codes_rejet ?? []).find((c) => c in MOTIF_INELIGIBILITE) ?? null;
       });
     }
 
@@ -3103,7 +3201,9 @@ export class PreauthorizationService {
       montantTotal: total.toFixed(2),
       montantAssurance: assurance.toFixed(2),
       montantPatient: patient.toFixed(2),
+      montantsActes: montants.map((m) => m.toFixed(2)),
       partsAssurance,
+      codesIneligibilite,
     };
   }
 

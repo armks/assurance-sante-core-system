@@ -7632,3 +7632,46 @@ appréciés à la date de la réclamation (la facture utilise déjà la date des
 
 ### Statut
 Terminé — commit et push.
+
+## 2026-10-07 — Éligibilité et tarif conventionné à la date des soins (amendement ADR-006)
+
+### Avant
+La réclamation était jugée à la date de la réclamation (police ACTIVE ce jour-là, tarif du
+jour) ; la facture utilisait la date des soins. Soins pendant la couverture réclamés après la
+fin → rejet E001 ; réclamation tardive → tarif du jour ; divergences réclamation / facture.
+
+### Correctif
+- Java : `EligibiliteSoins` (fonction pure, règle UNIQUE de l'adjudication et de la
+  simulation) — soins futurs E013, avant le début E012, après la fin ou police qui ne couvrait
+  pas E001, déclaration hors délai après la fin E014 ; police terminée AVEC date de fin :
+  couvre jusqu'à cette date. Tarif conventionné joint sur la date des soins. Simulation :
+  horloge injectable (date de déclaration = jour de la facture).
+- `prisma/sql/071` : `produits.delai_declaration_jours` (défaut **90 jours**, 0 = aucun),
+  lu par `svc_adjudication`.
+- `prisma/sql/072` : historique des tarifs conventionnés — périodes successives sans
+  chevauchement (contrainte d'exclusion) au lieu d'un seul tarif modifié en place ;
+  `ProviderService` : 409 explicite sur chevauchement (création, modification).
+- NestJS : acte non couvert à la date des soins EXCLU de la facture (motif + message daté),
+  409 si aucun acte restant ; libellés E012–E014 ; délai dans les DTO produit (création,
+  modification, nouvelle version).
+- Web : champ « Délai de déclaration après la fin du contrat » (création, modification,
+  détail produit), libellés des codes, aide de l'écran des tarifs.
+
+### Tests
+- JUnit 89/89 (+11) : `EligibiliteDateSoinsTest` — 10 cas passés par la réclamation ET la
+  facture, résultats identiques (dans le délai, dernier jour, lendemain hors délai, délai 0,
+  avant le début, futur, après la fin, police suspendue, cas nominal) + tarif de la date des
+  soins (15 000 → 10 400 et non 22 000).
+- API 978/978 (+5) : exclusion E012 avec message daté, message E014 avec la date limite,
+  409 si tout est exclu, chevauchement de tarifs refusé, tarif successif accepté ; web 0 erreur.
+- HTTP réel 13/13 (actes jumeaux : l'un réclamé, l'autre facturé) : soins du 20/08 sous une
+  police résiliée au 31/08 → 15 000 des deux côtés ; fin au 30/06 (limite 28/09) → E014 et
+  409 « jusqu'au 28/09/2026 » ; tarif 8 000 jusqu'au 31/08 puis 12 000 → 8 000 des deux côtés ;
+  soins avant le début → E012 et 409 ; soins futurs → 400 à la saisie, E013 et 409.
+  Contre-épreuve sur la version précédente du microservice : 9 contrôles en échec (E001 au
+  lieu du remboursement, tarif 12 000, soins avant le début et futurs acceptés, divergences).
+  Données supprimées en ordre inverse des dépendances, 0 ligne et 0 compte Auth ; script
+  supprimé.
+
+### Statut
+Terminé — commit et push.

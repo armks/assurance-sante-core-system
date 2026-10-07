@@ -77,7 +77,8 @@ public final class JeuDeDonneesReference {
         PRODUIT_ID,
         ADHERENT_ID, // titulaire de la famille
         "ANNEE_CIVILE",
-        DATE_SOINS);
+        DATE_SOINS,
+        90); // délai de déclaration après la fin de la police
   }
 
   public static ContexteAdjudication actif(BigDecimal montantReclame) {
@@ -108,7 +109,7 @@ public final class JeuDeDonneesReference {
         c.policeStatut(), c.policeDebut(), c.policeFin(),
         c.etablissementId(), c.tarifConvention(),
         c.produitId(), ADHERENT_ID /* titulaire du bénéficiaire */, c.periodeCumul(),
-        c.dateSoins());
+        c.dateSoins(), c.delaiDeclarationJours());
   }
 
   /** Copie de {@code c} avec ses deux plafonds annuels (chacun nullable = absent). */
@@ -122,6 +123,22 @@ public final class JeuDeDonneesReference {
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
         c.etablissementId(), c.tarifConvention(),
-        c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins());
+        c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins(),
+        c.delaiDeclarationJours());
+  }
+
+  /** Copie de {@code c} dont les soins ont eu lieu le {@code dateSoins}. */
+  public static ContexteAdjudication avecDateSoins(ContexteAdjudication c, LocalDate dateSoins) {
+    return new ContexteAdjudication(
+        c.id(), c.organisationId(), c.dossierSoinsId(), c.acteDossierId(),
+        c.adherentId(), c.beneficiaireId(), c.policeId(), c.garantieId(),
+        c.montant(), c.typeReclamation(), c.statut(), c.createdAt(),
+        c.tauxCouverturePct(), c.plafondParActe(), c.plafondAnnuelPersonne(),
+        c.plafondAnnuelFamille(), c.franchise(),
+        c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
+        c.policeStatut(), c.policeDebut(), c.policeFin(),
+        c.etablissementId(), c.tarifConvention(),
+        c.produitId(), c.titulaireId(), c.periodeCumul(), dateSoins,
+        c.delaiDeclarationJours());
   }
 }

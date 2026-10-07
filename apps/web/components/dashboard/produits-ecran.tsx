@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { creerProduit } from '@/app/dashboard-assureur/informatique/produits/actions';
 import {
   CarteResume,
+  ChampNombre,
   ChampSelect,
   ChampTexte,
   DataTable,
@@ -16,7 +17,12 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
-import { AIDE_PERIODE_CUMUL, OPTIONS_PERIODE_CUMUL } from '@/lib/plafonds';
+import {
+  AIDE_DELAI_DECLARATION,
+  AIDE_PERIODE_CUMUL,
+  DELAI_DECLARATION_DEFAUT_JOURS,
+  OPTIONS_PERIODE_CUMUL,
+} from '@/lib/plafonds';
 
 export interface Produit {
   id: string;
@@ -122,6 +128,7 @@ export function ProduitsEcran({ produits }: { produits: Produit[] }) {
               creerProduit({
                 nom: String(fd.get('nom') ?? ''),
                 periodeCumulPlafond: String(fd.get('periodeCumulPlafond') ?? 'ANNEE_POLICE'),
+                delaiDeclarationJours: Number(fd.get('delaiDeclarationJours') ?? DELAI_DECLARATION_DEFAUT_JOURS),
               })
             }
             onSucces={() => router.refresh()}
@@ -139,6 +146,16 @@ export function ProduitsEcran({ produits }: { produits: Produit[] }) {
               aide={AIDE_PERIODE_CUMUL}
               defaultValue="ANNEE_POLICE"
               options={OPTIONS_PERIODE_CUMUL}
+            />
+            <ChampNombre
+              name="delaiDeclarationJours"
+              label="Délai de déclaration après la fin du contrat (jours)"
+              required
+              min={0}
+              max={3650}
+              step={1}
+              aide={AIDE_DELAI_DECLARATION}
+              defaultValue={DELAI_DECLARATION_DEFAUT_JOURS}
             />
           </FormulaireModal>
         }

@@ -8,7 +8,10 @@ public final class CodesRejet {
 
   private CodesRejet() {}
 
-  /** Police non active à la date de soin (suspendue, résiliée, hors période). */
+  /**
+   * Police ne couvrant pas la date des soins : soins après sa date de fin, ou police
+   * suspendue / pas encore en vigueur / terminée sans date de fin connue.
+   */
   public static final String POLICE_INACTIVE = "E001";
 
   /** Plafond annuel de la garantie atteint ou dépassé pour cet adhérent. */
@@ -16,4 +19,15 @@ public final class CodesRejet {
 
   /** Montant élevé — au-dessus du seuil d'adjudication automatique. */
   public static final String MONTANT_ELEVE = "E010";
+
+  // --- Date des soins (ADR-006, amendement : éligibilité à la date des soins) ---
+
+  /** Soins antérieurs à la date de début de la police. */
+  public static final String SOINS_AVANT_DEBUT_POLICE = "E012";
+
+  /** Date des soins postérieure à la date de déclaration (réclamation / facture). */
+  public static final String SOINS_FUTURS = "E013";
+
+  /** Déclaration au-delà du délai suivant la fin de la police ({@code produits.delai_declaration_jours}). */
+  public static final String DECLARATION_HORS_DELAI = "E014";
 }

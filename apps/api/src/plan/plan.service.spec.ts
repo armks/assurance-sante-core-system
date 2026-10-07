@@ -131,9 +131,12 @@ describe('PlanService', () => {
     prisma.produit.aggregate.mockResolvedValue({ _max: { version: null } });
     prisma.produit.create.mockResolvedValue({ id: 'p1' });
 
-    await service.creerProduit(USER, { nom: 'Civile', periodeCumulPlafond: 'ANNEE_CIVILE' });
+    await service.creerProduit(USER, { nom: 'Civile', periodeCumulPlafond: 'ANNEE_CIVILE', delaiDeclarationJours: 30 });
 
-    expect(prisma.produit.create.mock.calls[0][0].data.periodeCumulPlafond).toBe('ANNEE_CIVILE');
+    expect(prisma.produit.create.mock.calls[0][0].data).toMatchObject({
+      periodeCumulPlafond: 'ANNEE_CIVILE',
+      delaiDeclarationJours: 30,
+    });
   });
 
   it('modifierGarantie : null RETIRE un plafond annuel (passage du plafond par personne au plafond famille)', async () => {
@@ -328,6 +331,7 @@ describe('PlanService', () => {
         version: 1,
         statut: 'PUBLIE',
         periodeCumulPlafond: 'ANNEE_CIVILE',
+        delaiDeclarationJours: 30,
       }) // source
       .mockResolvedValueOnce(null) // pas de BROUILLON existant
       .mockResolvedValueOnce({
@@ -365,6 +369,7 @@ describe('PlanService', () => {
         statut: 'BROUILLON',
         // la période de cumul de la source est conservée (pas le défaut ANNEE_POLICE)
         periodeCumulPlafond: 'ANNEE_CIVILE',
+        delaiDeclarationJours: 30, // délai de déclaration conservé aussi
       },
     });
     expect(prisma.garantie.create).toHaveBeenCalledWith({

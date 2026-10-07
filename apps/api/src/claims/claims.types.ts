@@ -103,13 +103,16 @@ export const CATEGORIE_ACTE_DISPENSATION = 'PHARMACIE';
 
 /**
  * Libellés des codes de rejet / de mise en revue (nomenclature v3 §4 / v8,
- * plage E001–E010 ; seuls E001, E006, E010 sont émis par l'adjudicateur actuel).
+ * E001, E006, E010 et E012–E014 émis par l'adjudicateur ; E011 par le core).
  */
 export const LIBELLE_CODE_REJET: Record<string, string> = {
-  E001: 'Police non active à la date des soins (suspendue, résiliée ou hors période)',
+  E001: 'La police ne couvrait pas la date des soins (suspendue, pas encore en vigueur, ou soins après sa fin)',
   E006: 'Plafond annuel de la garantie atteint ou dépassé pour cet adhérent',
   E010: "Montant remboursé au-dessus du seuil d'adjudication automatique",
   E011: "Catégorie d'acte non couverte par le produit",
+  E012: 'Soins antérieurs à la date de début de la police',
+  E013: 'Date des soins postérieure à la date de déclaration (soins dans le futur)',
+  E014: 'Soins déclarés après le délai suivant la fin de la police',
   ADJ_ECHEC:
     "Échec temporaire de l'appel au microservice d'adjudication — réclamation à re-soumettre",
   REJET_MANUEL: 'Rejet prononcé après revue manuelle',

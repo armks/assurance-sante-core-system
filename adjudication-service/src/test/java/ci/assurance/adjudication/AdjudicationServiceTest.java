@@ -110,10 +110,10 @@ class AdjudicationServiceTest {
   }
 
   @Test
-  @DisplayName("Police inactive : REJETE E001, insère un remboursement à 0.00, statut REJETE")
+  @DisplayName("Police SUSPENDUE (à la date des soins) : REJETE E001, insère un remboursement à 0.00, statut REJETE")
   void policeInactive() {
     ContexteAdjudication ctx =
-        JeuDeDonneesReference.contexte(new BigDecimal("25000.00"), "RESILIEE");
+        JeuDeDonneesReference.contexte(new BigDecimal("25000.00"), "SUSPENDUE");
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(ctx));
     when(repo.remboursementExiste(ID)).thenReturn(false);
     when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
@@ -307,7 +307,8 @@ class AdjudicationServiceTest {
             b1.ticketModerateurPct(), b1.delaiCarenceJours(), b1.reseauSoins(),
             b1.policeStatut(), b1.policeDebut(), b1.policeFin(),
             b1.etablissementId(), b1.tarifConvention(),
-            b1.produitId(), JeuDeDonneesReference.ADHERENT_ID, b1.periodeCumul(), b1.dateSoins());
+            b1.produitId(), JeuDeDonneesReference.ADHERENT_ID, b1.periodeCumul(), b1.dateSoins(),
+            b1.delaiDeclarationJours());
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(b1), Optional.of(b2));
     when(repo.produitAPlafondFamille(JeuDeDonneesReference.PRODUIT_ID)).thenReturn(true);
     when(repo.sommeConsommeeFamille(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
@@ -346,6 +347,7 @@ class AdjudicationServiceTest {
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
         c.etablissementId(), c.tarifConvention(),
-        c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins());
+        c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins(),
+        c.delaiDeclarationJours());
   }
 }

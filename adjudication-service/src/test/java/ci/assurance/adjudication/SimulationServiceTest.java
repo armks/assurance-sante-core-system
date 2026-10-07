@@ -53,10 +53,12 @@ class SimulationServiceTest {
   @BeforeEach
   void init() {
     repo = mock(AdjudicationRepository.class);
-    service = new SimulationService(repo);
+    // facture établie le 20/06/2026 (horloge fixe : test indépendant du jour d'exécution)
+    service = new SimulationService(repo, java.time.Clock.fixed(
+        java.time.Instant.parse("2026-06-20T12:00:00Z"), ZoneOffset.UTC));
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
         new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE",
-            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), "ANNEE_CIVILE")));
+            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), "ANNEE_CIVILE", 90)));
     when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
     when(repo.sommeConsommeeFamille(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
     when(repo.titulaireDe(ADHERENT, null)).thenReturn(ADHERENT);
@@ -154,7 +156,7 @@ class SimulationServiceTest {
   void dateDeSoinsParLigne() {
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
         new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE",
-            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31), "ANNEE_CIVILE")));
+            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31), "ANNEE_CIVILE", 90)));
     UUID g = garantie("80", null, null, null);
     ResultatLigne r = service.simuler(new Demande(POLICE, ADHERENT, null, ETAB, DATE,
         List.of(new Ligne(g, new BigDecimal("10000"), null, null, LocalDate.of(2026, 5, 2))))).get(0);
@@ -179,7 +181,7 @@ class SimulationServiceTest {
   @DisplayName("Police non active → REJETE E001, 0.00")
   void policeInactive() {
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
-        new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "SUSPENDUE", null, null, "ANNEE_CIVILE")));
+        new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "SUSPENDUE", null, null, "ANNEE_CIVILE", 90)));
     UUID g = garantie("80", null, null, null);
     ResultatLigne r = simuler(new Ligne(g, new BigDecimal("10000"), null)).get(0);
     assertThat(r.decision()).isEqualTo(Decision.REJETE);

@@ -35,10 +35,13 @@ export const TON_STATUT_RECLAMATION: Record<
 };
 
 export const LIBELLE_CODE_REJET: Record<string, string> = {
-  E001: 'Police non active à la date des soins (suspendue, résiliée ou hors période)',
+  E001: 'La police ne couvrait pas la date des soins (suspendue, pas encore en vigueur, ou soins après sa fin)',
   E006: 'Plafond annuel de la garantie atteint ou dépassé pour cet adhérent',
   E010: "Montant remboursé au-dessus du seuil d'adjudication automatique",
   E011: "Catégorie d'acte non couverte par le produit (aucune garantie)",
+  E012: 'Soins antérieurs à la date de début de la police',
+  E013: 'Date des soins postérieure à la date de déclaration (soins dans le futur)',
+  E014: 'Soins déclarés après le délai suivant la fin de la police',
   ADJ_ECHEC:
     "Échec temporaire de l'appel au microservice d'adjudication — à re-soumettre",
   REJET_MANUEL: 'Rejet prononcé après revue manuelle',

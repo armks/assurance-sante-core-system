@@ -460,6 +460,9 @@ model Produit {
   /// Période de cumul des plafonds annuels (prisma/sql/069) : ANNEE_POLICE (défaut,
   /// anniversaire de la police) | ANNEE_CIVILE. Produits antérieurs à 069 : ANNEE_CIVILE.
   periodeCumulPlafond String @default("ANNEE_POLICE") @map("periode_cumul_plafond")
+  /// Jours après la fin de la police pendant lesquels des soins reçus pendant la
+  /// couverture peuvent encore être déclarés (prisma/sql/071). Défaut 90 ; 0 = aucun.
+  delaiDeclarationJours Int @default(90) @map("delai_declaration_jours")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)

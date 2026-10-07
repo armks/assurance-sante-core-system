@@ -23,6 +23,12 @@ export const AIDE_PLAFOND_PERSONNE =
 export const AIDE_PLAFOND_FAMILLE =
   'Montant maximal pris en charge dans l’année pour TOUTE la famille réunie (titulaire et tous ses bénéficiaires). Si les deux plafonds sont renseignés, le premier atteint s’applique. Laisser vide : pas de limite familiale.';
 
+/** Délai de déclaration après la fin de la police (prisma/sql/071) — valeur par défaut. */
+export const DELAI_DECLARATION_DEFAUT_JOURS = 90;
+
+export const AIDE_DELAI_DECLARATION =
+  'Nombre de jours après la fin du contrat pendant lesquels des soins reçus PENDANT la couverture peuvent encore être déclarés (réclamation ou facture). Au-delà, ils sont refusés. 90 jours par défaut ; 0 = aucun délai.';
+
 /** `JJ/MM/AAAA` d'une date `YYYY-MM-DD` (sans décalage de fuseau). */
 export function dateCourte(iso: string): string {
   const [a, m, j] = iso.slice(0, 10).split('-');

@@ -79,9 +79,12 @@ class AdjudicateurTest {
   }
 
   @Test
-  @DisplayName("Cas police hors période : soin après date_fin → REJETE E001")
+  @DisplayName("Cas police hors période : SOINS du 05/01/2027, après la fin (31/12/2026) → REJETE E001")
   void casPoliceHorsPeriode() {
-    ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));
+    // l'éligibilité porte sur la DATE DES SOINS (la date de déclaration seule ne suffit plus)
+    ContexteAdjudication ctx =
+        JeuDeDonneesReference.avecDateSoins(
+            JeuDeDonneesReference.actif(new BigDecimal("25000.00")), LocalDate.of(2027, 1, 5));
 
     Adjudicateur.Resultat r =
         adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, LocalDate.of(2027, 1, 5));
@@ -109,7 +112,8 @@ class AdjudicateurTest {
             base.ticketModerateurPct(), base.delaiCarenceJours(), base.reseauSoins(),
             base.policeStatut(), base.policeDebut(), base.policeFin(),
             base.etablissementId(), base.tarifConvention(),
-            base.produitId(), base.titulaireId(), base.periodeCumul(), base.dateSoins());
+            base.produitId(), base.titulaireId(), base.periodeCumul(), base.dateSoins(),
+            base.delaiDeclarationJours());
 
     Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, DATE_SOIN);
 

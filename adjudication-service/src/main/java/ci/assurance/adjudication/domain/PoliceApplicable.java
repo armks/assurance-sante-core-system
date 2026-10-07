@@ -14,5 +14,7 @@ public record PoliceApplicable(
     String statut,
     LocalDate debut,
     LocalDate fin,
-    String periodeCumul) {
+    String periodeCumul,
+    /** Délai de déclaration après la fin de la police (prisma/sql/071). */
+    Integer delaiDeclarationJours) {
 }

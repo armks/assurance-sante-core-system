@@ -70,6 +70,10 @@ export class PlanService {
           statut: 'BROUILLON',
           // absent → défaut base ANNEE_POLICE (prisma/sql/069)
           ...(dto.periodeCumulPlafond ? { periodeCumulPlafond: dto.periodeCumulPlafond } : {}),
+          // absent → défaut base 90 jours (prisma/sql/071)
+          ...(dto.delaiDeclarationJours !== undefined
+            ? { delaiDeclarationJours: dto.delaiDeclarationJours }
+            : {}),
         },
       });
       for (const g of dto.garanties ?? []) {
@@ -262,6 +266,7 @@ export class PlanService {
           // la nouvelle version garde la période de cumul de la source (sinon un
           // produit en année civile basculerait en silence sur le défaut année de police)
           periodeCumulPlafond: source.periodeCumulPlafond,
+          delaiDeclarationJours: source.delaiDeclarationJours,
         },
       });
       for (const g of garantiesSource) {

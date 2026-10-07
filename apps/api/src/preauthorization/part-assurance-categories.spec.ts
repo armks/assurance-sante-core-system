@@ -188,7 +188,10 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
       montantTotal: '85000.00',
       montantAssurance: '48000.00',
       montantPatient: '37000.00',
+      montantsActes: ['10000.00', '15000.00', '60000.00'],
       partsAssurance: ['8000.00', '0.00', '40000.00'],
+      // aucun acte non couvert à la date des soins (catégorie non couverte ≠ inéligibilité)
+      codesIneligibilite: [null, null, null],
     });
   });
 

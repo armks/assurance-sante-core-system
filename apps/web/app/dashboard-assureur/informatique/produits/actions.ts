@@ -11,12 +11,16 @@ const CIBLE = '/dashboard-assureur/informatique/produits';
 export async function creerProduit(input: {
   nom: string;
   periodeCumulPlafond?: string;
+  delaiDeclarationJours?: number;
 }): Promise<ResultatSoumission> {
   const res = await apiFetch('/api/v1/plan/produits', {
     method: 'POST',
     body: JSON.stringify({
       nom: input.nom,
       ...(input.periodeCumulPlafond ? { periodeCumulPlafond: input.periodeCumulPlafond } : {}),
+      ...(input.delaiDeclarationJours !== undefined && !Number.isNaN(input.delaiDeclarationJours)
+        ? { delaiDeclarationJours: input.delaiDeclarationJours }
+        : {}),
     }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
@@ -26,16 +30,20 @@ export async function creerProduit(input: {
 }
 
 /**
- * Modifie un produit BROUILLON (409 sinon côté API) : son nom et la période de cumul
- * de ses plafonds annuels.
+ * Modifie un produit BROUILLON (409 sinon côté API) : son nom, la période de cumul de
+ * ses plafonds annuels et le délai de déclaration après la fin de la police.
  */
 export async function modifierProduit(
   produitId: string,
-  input: { nom: string; periodeCumulPlafond: string },
+  input: { nom: string; periodeCumulPlafond: string; delaiDeclarationJours: number },
 ): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/plan/produits/${produitId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ nom: input.nom, periodeCumulPlafond: input.periodeCumulPlafond }),
+    body: JSON.stringify({
+      nom: input.nom,
+      periodeCumulPlafond: input.periodeCumulPlafond,
+      delaiDeclarationJours: input.delaiDeclarationJours,
+    }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(`${CIBLE}/${produitId}`);

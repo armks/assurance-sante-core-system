@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
@@ -433,20 +433,57 @@ describe('ProviderService', () => {
     expect(prisma.tarifConventionne.create).not.toHaveBeenCalled();
   });
 
-  it('creerTarif : refuse (409) un doublon — un tarif existe déjà pour ce couple établissement/acte', async () => {
+  it('creerTarif : refuse (409) un tarif dont la période CHEVAUCHE un tarif en vigueur — message avec la marche à suivre', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
     prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
     prisma.referentielActe.findFirst.mockResolvedValue({ id: 'acte-1', libelle: 'Consultation généraliste' });
-    prisma.tarifConventionne.findFirst.mockResolvedValue({ id: 't-existant' });
+    prisma.tarifConventionne.findFirst.mockResolvedValue({
+      id: 't-existant',
+      dateDebut: new Date('2026-01-01'),
+      dateFin: null,
+    });
 
-    await expect(
-      service.creerTarif(USER, 'etablissement', 'e1', {
+    const err = await service
+      .creerTarif(USER, 'etablissement', 'e1', {
         referentielActeId: 'acte-1',
         tarifConvention: 15000,
-        dateDebut: '2026-01-01',
+        dateDebut: '2026-09-01',
+      })
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.message).toContain('déjà en vigueur sur cette période (du 01/01/2026, sans date de fin)');
+    expect(err.message).toContain("fixez la date de fin de l'ancien");
+    // recherche d'un chevauchement : [01/09/2026, ∞[ contre les tarifs non supprimés du couple
+    expect(prisma.tarifConventionne.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          referentielActeId: 'acte-1',
+          etablissementId: 'e1',
+          deletedAt: null,
+          OR: [{ dateFin: null }, { dateFin: { gte: new Date('2026-09-01') } }],
+        }),
       }),
-    ).rejects.toThrow('existe déjà');
+    );
     expect(prisma.tarifConventionne.create).not.toHaveBeenCalled();
+  });
+
+  it("creerTarif : ACCEPTE un tarif SUCCESSIF (l'ancien se termine la veille) — historique conservé", async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.referentielActe.findFirst.mockResolvedValue({ id: 'acte-1', libelle: 'Consultation généraliste' });
+    prisma.tarifConventionne.findFirst
+      .mockResolvedValueOnce(null) // l'ancien (fin 31/08) ne chevauche pas
+      .mockResolvedValueOnce({ id: 't-nouveau', referentielActe: { code: 'C01', libelle: 'Consultation généraliste' } }); // chargerTarif
+    prisma.tarifConventionne.create.mockResolvedValue({ id: 't-nouveau' });
+
+    await service.creerTarif(USER, 'etablissement', 'e1', {
+      referentielActeId: 'acte-1',
+      tarifConvention: 12000,
+      dateDebut: '2026-09-01',
+    });
+
+    expect(prisma.tarifConventionne.create).toHaveBeenCalled();
   });
 
   it('creerTarif : refuse un rôle non ASSUREUR_INFORMATIQUE', async () => {

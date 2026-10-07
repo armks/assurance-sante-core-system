@@ -93,11 +93,12 @@ public class AdjudicationService {
             ? java.math.BigDecimal.ZERO
             : repo.sommeConsommeeFamille(ctx.titulaireId(), ctx.garantieId(), java.util.List.of(), periode);
 
-    // 4) calcul
-    final LocalDate dateReference =
+    // 4) calcul — la réclamation est déclarée le jour de sa création ; éligibilité et
+    //    tarif sont appréciés à la date des soins (ctx.dateSoins)
+    final LocalDate dateDeclaration =
         ctx.createdAt().atZone(ZoneOffset.UTC).toLocalDate();
     final Adjudicateur.Resultat r =
-        adjudicateur.calculer(ctx, dejaPersonne, dejaFamille, dateReference);
+        adjudicateur.calculer(ctx, dejaPersonne, dejaFamille, dateDeclaration);
 
     final long dureeMs = (System.nanoTime() - debutNs) / 1_000_000L;
 

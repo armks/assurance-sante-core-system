@@ -34,7 +34,7 @@ class PlafondsServiceTest {
   void etat() {
     AdjudicationRepository repo = mock(AdjudicationRepository.class);
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(new PoliceApplicable(
-        POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE", LocalDate.of(2025, 3, 1), null, "ANNEE_POLICE")));
+        POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE", LocalDate.of(2025, 3, 1), null, "ANNEE_POLICE", 90)));
     when(repo.garantiesAvecPlafondAnnuel(PRODUIT)).thenReturn(List.of(new GarantieApplicable(
         G, PRODUIT, "CONSULTATION", new BigDecimal("80"), null,
         new BigDecimal("30000.00"), new BigDecimal("50000.00"), null, null, 0, "TOUT_RESEAU")));

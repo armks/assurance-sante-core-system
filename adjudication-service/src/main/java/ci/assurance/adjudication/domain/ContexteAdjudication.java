@@ -56,7 +56,12 @@ public record ContexteAdjudication(
      * prescription ; délivrance de la dispensation, à défaut sa préparation ; à défaut la
      * date de la réclamation. C'est elle qui choisit la période de cumul des plafonds.
      */
-    LocalDate dateSoins) {
+    LocalDate dateSoins,
+    /**
+     * Délai (jours) entre la fin de la police et la déclaration, au-delà duquel le soin
+     * est refusé ({@code produits.delai_declaration_jours}, prisma/sql/071).
+     */
+    Integer delaiDeclarationJours) {
 
   /** Personne soignée : l'adhérent, sinon le bénéficiaire, sinon (cas non attendu) la police. */
   public UUID clePersonne() {

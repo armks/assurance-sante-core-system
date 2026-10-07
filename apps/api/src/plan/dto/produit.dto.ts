@@ -2,6 +2,9 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsIn,
+  IsInt,
+  Max,
+  Min,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -23,6 +26,16 @@ export class CreateProduitDto {
   @IsOptional()
   @IsIn(PERIODES_CUMUL_PLAFOND)
   periodeCumulPlafond?: (typeof PERIODES_CUMUL_PLAFOND)[number];
+
+  /**
+   * Jours après la fin de la police pendant lesquels des soins reçus pendant la
+   * couverture peuvent encore être déclarés (défaut base : 90 ; 0 = aucun délai).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(3650)
+  delaiDeclarationJours?: number;
 
   /** Garanties initiales (optionnel — on peut aussi les ajouter ensuite). */
   @IsOptional()
@@ -46,4 +59,14 @@ export class UpdateProduitDto {
   @IsOptional()
   @IsIn(PERIODES_CUMUL_PLAFOND)
   periodeCumulPlafond?: (typeof PERIODES_CUMUL_PLAFOND)[number];
+
+  /**
+   * Jours après la fin de la police pendant lesquels des soins reçus pendant la
+   * couverture peuvent encore être déclarés (défaut base : 90 ; 0 = aucun délai).
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(3650)
+  delaiDeclarationJours?: number;
 }

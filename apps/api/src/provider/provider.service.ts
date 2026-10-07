@@ -791,20 +791,16 @@ export class ProviderService {
       throw new NotFoundException('Acte introuvable dans votre organisation.');
     }
 
-    const existant = await this.prisma.tarifConventionne.findFirst({
-      where: {
-        referentielActeId: dto.referentielActeId,
-        deletedAt: null,
-        ...(cible === 'etablissement'
-          ? { etablissementId: id }
-          : { pharmacieId: id }),
-      },
-    });
-    if (existant) {
-      throw new ConflictException(
-        `Un tarif conventionné existe déjà pour « ${acte.libelle} » — modifiez-le plutôt que d'en créer un second.`,
-      );
-    }
+    // Historique (prisma/sql/072) : plusieurs tarifs successifs pour un même acte,
+    // jamais sur des périodes qui se chevauchent.
+    await this.assertSansChevauchement(
+      cible,
+      id,
+      dto.referentielActeId,
+      acte.libelle,
+      new Date(dto.dateDebut),
+      dto.dateFin ? new Date(dto.dateFin) : null,
+    );
 
     const tarif = await this.prisma.$transaction(async (tx) => {
       const t = await tx.tarifConventionne.create({
@@ -871,7 +867,22 @@ export class ProviderService {
   ) {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
-    await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+    const actuel = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+    if (dto.dateDebut !== undefined || dto.dateFin !== undefined) {
+      const acte = await this.prisma.referentielActe.findUnique({
+        where: { id: actuel.referentielActeId },
+        select: { libelle: true },
+      });
+      await this.assertSansChevauchement(
+        cible,
+        id,
+        actuel.referentielActeId,
+        acte?.libelle ?? 'cet acte',
+        dto.dateDebut !== undefined ? new Date(dto.dateDebut) : actuel.dateDebut,
+        dto.dateFin !== undefined ? (dto.dateFin ? new Date(dto.dateFin) : null) : actuel.dateFin,
+        tarifId,
+      );
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.tarifConventionne.update({
@@ -938,6 +949,42 @@ export class ProviderService {
       throw new NotFoundException('Tarif conventionné introuvable.');
     }
     return t;
+  }
+
+  /**
+   * Un même acte peut avoir plusieurs tarifs SUCCESSIFS (historique, prisma/sql/072 :
+   * le tarif applicable est celui en vigueur à la date des soins) mais jamais deux
+   * tarifs valables le même jour. 409 explicite plutôt que l'erreur de la contrainte.
+   */
+  private async assertSansChevauchement(
+    cible: 'etablissement' | 'pharmacie',
+    cibleId: string,
+    referentielActeId: string,
+    libelleActe: string,
+    debut: Date,
+    fin: Date | null,
+    exclureTarifId?: string,
+  ): Promise<void> {
+    const conflit = await this.prisma.tarifConventionne.findFirst({
+      where: {
+        referentielActeId,
+        deletedAt: null,
+        ...(cible === 'etablissement' ? { etablissementId: cibleId } : { pharmacieId: cibleId }),
+        ...(exclureTarifId ? { id: { not: exclureTarifId } } : {}),
+        // [debut, fin] ∩ [t.dateDebut, t.dateFin] ≠ ∅ (fin nulle = sans fin)
+        ...(fin ? { dateDebut: { lte: fin } } : {}),
+        OR: [{ dateFin: null }, { dateFin: { gte: debut } }],
+      },
+      orderBy: { dateDebut: 'asc' },
+    });
+    if (conflit) {
+      const jj = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('/');
+      throw new ConflictException(
+        `Un tarif conventionné de « ${libelleActe} » est déjà en vigueur sur cette période ` +
+          `(du ${jj(conflit.dateDebut)}${conflit.dateFin ? ` au ${jj(conflit.dateFin)}` : ', sans date de fin'}). ` +
+          "Pour changer de tarif, fixez la date de fin de l'ancien (la veille du nouveau), puis créez le nouveau : l'historique est conservé et chaque soin est remboursé au tarif en vigueur à sa date.",
+      );
+    }
   }
 
   private async chargerTarifDansPerimetre(

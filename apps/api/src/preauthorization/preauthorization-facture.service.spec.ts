@@ -54,6 +54,7 @@ const dec = (n: number) => ({ toFixed: (d = 2) => n.toFixed(d), toString: () => 
 function acte(id: string, extra: Record<string, unknown> = {}) {
   return {
     id,
+    libelle: `Consultation ${id}`,
     montantPrescrit: dec(10000),
     quantite: 1,
     categorieActe: 'CONSULTATION',
@@ -107,6 +108,8 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn().mockResolvedValue(null),
       },
+      // délai de déclaration après la fin de la police (message E014)
+      produit: { findUnique: jest.fn().mockResolvedValue({ delaiDeclarationJours: 90 }) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -412,6 +415,86 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       expect(err).toBeInstanceOf(ServiceUnavailableException);
       expect(err.message).toBe(MESSAGES_INDISPONIBILITE.facturation);
       expect(err.message).not.toMatch(/microservice|ECONNREFUSED|8899|HTTP/i);
+      expect(prisma.factureDossier.create).not.toHaveBeenCalled();
+    });
+
+    // --- Éligibilité à la DATE DES SOINS (même règle que la réclamation) ---
+    const ligne = (montant: number, codes: string[] = []) => ({
+      decision: codes.length ? ('REJETE' as const) : ('AUTO_ADJUDIQUE' as const),
+      montant_couvert: codes.length ? 0 : montant,
+      plafond_restant_apres: null,
+      codes_rejet: codes,
+    });
+    const policeResiliee = {
+      produitId: 'prod-1',
+      dateDebut: new Date('2025-03-01T00:00:00Z'),
+      dateFin: new Date('2026-02-28T00:00:00Z'),
+    };
+
+    it('acte aux soins ANTÉRIEURS au début de la police (E012) : EXCLU avec un message daté, la facture porte sur l’autre acte', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1', police: policeResiliee }));
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-1', { montantPrescrit: dec(10000), dateRealisation: new Date('2025-02-20T10:00:00Z') }),
+        acte('acte-2', { montantPrescrit: dec(5000), dateRealisation: new Date('2025-04-02T10:00:00Z') }),
+      ]);
+      adjudication.simuler.mockResolvedValueOnce({ lignes: [ligne(10000, ['E012']), ligne(4000)] });
+
+      const res = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
+
+      expect(res.acteIdsInclus).toEqual(['acte-2']);
+      expect(res.montantTotal).toBe('5000.00'); // l'acte exclu n'est pas facturé
+      expect(res.montantAssurance).toBe('4000.00');
+      expect(res.exclusions).toEqual([
+        {
+          acteId: 'acte-1',
+          motif: 'SOINS_AVANT_DEBUT_POLICE',
+          message: 'Acte « Consultation acte-1 » du 20/02/2025 : soins antérieurs au début de la police (01/03/2025).',
+        },
+      ]);
+      expect(res.message).toContain('soins antérieurs au début de la police (01/03/2025)');
+      expect(prisma.ligneFacturation.create).toHaveBeenCalledTimes(1);
+      expect(prisma.ligneFacturation.create.mock.calls[0][0].data.acteDossierId).toBe('acte-2');
+    });
+
+    it('déclaration HORS DÉLAI après la fin de la police (E014) : message avec la date limite (fin + délai du produit)', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1', police: policeResiliee }));
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-1', { dateRealisation: new Date('2026-02-10T10:00:00Z') }),
+        acte('acte-2', { dateRealisation: new Date('2026-02-11T10:00:00Z') }),
+      ]);
+      adjudication.simuler.mockResolvedValueOnce({ lignes: [ligne(10000, ['E014']), ligne(8000)] });
+
+      const res: any = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
+
+      expect(prisma.produit.findUnique).toHaveBeenCalledWith({
+        where: { id: 'prod-1' },
+        select: { delaiDeclarationJours: true },
+      });
+      expect(res.exclusions[0]).toMatchObject({ motif: 'DECLARATION_HORS_DELAI' });
+      expect(res.exclusions[0].message).toBe(
+        'Acte « Consultation acte-1 » du 10/02/2026 : déclaration hors délai — ces soins pouvaient être déclarés jusqu’au 29/05/2026 (fin de la police le 28/02/2026 + 90 jours).'.replace('’', "'"),
+      );
+    });
+
+    it('TOUS les actes non couverts à la date des soins (E013, E001) → 409 avec les motifs, aucune facture', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1', police: policeResiliee }));
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-1', { dateRealisation: new Date('2026-03-05T10:00:00Z') }),
+        acte('acte-2', { dateRealisation: new Date('2026-12-01T10:00:00Z') }),
+      ]);
+      adjudication.simuler.mockResolvedValueOnce({ lignes: [ligne(10000, ['E001']), ligne(10000, ['E013'])] });
+
+      const err = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] }).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ConflictException);
+      const corps = err.getResponse();
+      expect(corps.message).toContain("Aucun des actes sélectionnés n'est facturable à l'assurance.");
+      expect(corps.message).toContain('soins après sa fin le 28/02/2026');
+      expect(corps.message).toContain("la date des soins est postérieure à aujourd'hui");
+      expect(corps.exclusions.map((e: any) => e.motif)).toEqual(['POLICE_NE_COUVRE_PAS_LA_DATE', 'SOINS_FUTURS']);
       expect(prisma.factureDossier.create).not.toHaveBeenCalled();
     });
 

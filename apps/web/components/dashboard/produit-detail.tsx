@@ -29,7 +29,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCategoriesActe } from '@/components/categories-acte';
 import {
+  AIDE_DELAI_DECLARATION,
   AIDE_PERIODE_CUMUL,
+  DELAI_DECLARATION_DEFAUT_JOURS,
   AIDE_PLAFOND_FAMILLE,
   AIDE_PLAFOND_PERSONNE,
   LIBELLE_PERIODE_CUMUL,
@@ -60,6 +62,8 @@ export interface ProduitAvecGaranties {
   createdAt: string;
   /** Période de cumul des plafonds annuels (prisma/sql/069). */
   periodeCumulPlafond: PeriodeCumulPlafond;
+  /** Délai de déclaration après la fin de la police, en jours (prisma/sql/071). */
+  delaiDeclarationJours: number;
   garanties: Garantie[];
   /** Catégories actives du référentiel sans garantie (calculé par l'API) :
    * à confirmer « non couvertes » avant publication. */
@@ -346,6 +350,7 @@ export function ProduitDetail({
                 modifierProduit(produit.id, {
                   nom: String(fd.get('nom') ?? ''),
                   periodeCumulPlafond: String(fd.get('periodeCumulPlafond') ?? 'ANNEE_POLICE'),
+                  delaiDeclarationJours: Number(fd.get('delaiDeclarationJours') ?? DELAI_DECLARATION_DEFAUT_JOURS),
                 })
               }
               onSucces={() => router.refresh()}
@@ -364,6 +369,16 @@ export function ProduitDetail({
                 defaultValue={produit.periodeCumulPlafond}
                 options={OPTIONS_PERIODE_CUMUL}
               />
+              <ChampNombre
+                name="delaiDeclarationJours"
+                label="Délai de déclaration après la fin du contrat (jours)"
+                required
+                min={0}
+                max={3650}
+                step={1}
+                aide={AIDE_DELAI_DECLARATION}
+                defaultValue={produit.delaiDeclarationJours ?? DELAI_DECLARATION_DEFAUT_JOURS}
+              />
             </FormulaireModal>
           )}
         </CardHeader>
@@ -377,6 +392,9 @@ export function ProduitDetail({
           <Ligne label="Version">v{produit.version}</Ligne>
           <Ligne label="Période des plafonds annuels">
             {LIBELLE_PERIODE_CUMUL[produit.periodeCumulPlafond] ?? produit.periodeCumulPlafond}
+          </Ligne>
+          <Ligne label="Délai de déclaration après la fin du contrat">
+            {produit.delaiDeclarationJours ?? DELAI_DECLARATION_DEFAUT_JOURS} jours
           </Ligne>
           <Ligne label="Garanties">{produit.garanties.length}</Ligne>
           {!brouillon && (

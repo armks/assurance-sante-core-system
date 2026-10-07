@@ -2,6 +2,7 @@ package ci.assurance.adjudication.domain;
 
 import ci.assurance.adjudication.domain.AdjudicationExceptions.DemandeInvalide;
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -9,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,9 +64,17 @@ public class SimulationService {
 
   private final AdjudicationRepository repo;
   private final Adjudicateur adjudicateur = new Adjudicateur();
+  /** Horloge : la facture est déclarée « aujourd'hui » (injectable pour les tests). */
+  private final Clock horloge;
 
+  @Autowired
   public SimulationService(AdjudicationRepository repo) {
+    this(repo, Clock.systemUTC());
+  }
+
+  public SimulationService(AdjudicationRepository repo, Clock horloge) {
     this.repo = repo;
+    this.horloge = horloge;
   }
 
   @Transactional(readOnly = true)
@@ -78,8 +88,10 @@ public class SimulationService {
     final PoliceApplicable police =
         repo.chargerPolice(d.policeId())
             .orElseThrow(() -> new DemandeInvalide("Police introuvable : " + d.policeId()));
-    final LocalDate dateDemande =
-        d.dateReference() != null ? d.dateReference() : LocalDate.now(ZoneOffset.UTC);
+    // la facture (ou la simulation) est déclarée aujourd'hui : bornes « soins futurs »
+    // et « délai après la fin de la police », exactement comme une réclamation
+    final LocalDate aujourdhui = LocalDate.now(horloge);
+    final LocalDate dateDemande = d.dateReference() != null ? d.dateReference() : aujourdhui;
     final List<UUID> actesExclus =
         d.lignes().stream().map(Ligne::acteDossierId).filter(java.util.Objects::nonNull).toList();
 
@@ -131,9 +143,11 @@ public class SimulationService {
               g.ticketModerateurPct(), g.delaiCarenceJours(), g.reseauSoins(),
               police.statut(), police.debut(), police.fin(),
               d.etablissementId(), repo.tarifConvention(d.etablissementId(), l.codeActe(), date),
-              g.produitId(), titulaire, police.periodeCumul(), date);
+              g.produitId(), titulaire, police.periodeCumul(), date,
+              police.delaiDeclarationJours());
 
-      final Adjudicateur.Resultat r = adjudicateur.calculer(ctx, dejaPersonne, dejaFamille, date);
+      final Adjudicateur.Resultat r =
+          adjudicateur.calculer(ctx, dejaPersonne, dejaFamille, aujourdhui);
       cumulPersonne.put(cle, dejaPersonne.add(r.montantRembourse()));
       cumulFamille.put(cle, dejaFamille.add(r.montantRembourse()));
       resultats.add(

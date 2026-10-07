@@ -93,7 +93,7 @@ export function TarifsConventionnesPanneau({
         actesDisponibles.length === 0 ? undefined : (
           <FormulaireModal
             titre="Ajouter un tarif conventionné"
-            description="Le montant facturé pour cet acte sera plafonné à ce tarif lors de l'adjudication."
+            description="Le montant facturé pour cet acte sera plafonné au tarif EN VIGUEUR À LA DATE DES SOINS. Pour changer de tarif, fixez d'abord la date de fin de l'ancien (la veille), puis ajoutez le nouveau : l'historique est conservé."
             declencheurLabel="Ajouter un tarif"
             libelleSoumettre="Ajouter"
             onSoumettre={async (fd) =>

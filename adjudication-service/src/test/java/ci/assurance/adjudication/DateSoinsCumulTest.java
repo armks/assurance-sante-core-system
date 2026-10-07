@@ -58,7 +58,7 @@ class DateSoinsCumulTest {
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), debutPolice, null,
         c.etablissementId(), c.tarifConvention(),
-        c.produitId(), c.titulaireId(), mode, dateSoins);
+        c.produitId(), c.titulaireId(), mode, dateSoins, 90);
   }
 
   /** Adjudique : la période des soins attendue a déjà 25 000 consommés, toute autre 0. */
@@ -156,7 +156,7 @@ class DateSoinsCumulTest {
     UUID adherent = UUID.randomUUID();
     UUID g = UUID.randomUUID();
     when(repo.chargerPolice(police)).thenReturn(Optional.of(new PoliceApplicable(
-        police, UUID.randomUUID(), produit, "ACTIVE", LocalDate.of(2025, 3, 1), null, "ANNEE_POLICE")));
+        police, UUID.randomUUID(), produit, "ACTIVE", LocalDate.of(2025, 3, 1), null, "ANNEE_POLICE", 90)));
     when(repo.chargerGarantie(g)).thenReturn(Optional.of(new GarantieApplicable(
         g, produit, "CONSULTATION", new BigDecimal("100"), null, new BigDecimal("30000.00"), null,
         null, null, 0, "TOUT_RESEAU")));
@@ -165,7 +165,9 @@ class DateSoinsCumulTest {
     when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(BigDecimal.ZERO);
     when(repo.sommeConsommeePersonne(any(), any(), any(), any(), eq(ancienne))).thenReturn(DEJA_CONSOMME);
 
-    List<ResultatLigne> r = new SimulationService(repo).simuler(new Demande(
+    // facture établie le 10/03/2026 (horloge fixe : test indépendant du jour d'exécution)
+    List<ResultatLigne> r = new SimulationService(repo, java.time.Clock.fixed(
+        java.time.Instant.parse("2026-03-10T12:00:00Z"), ZoneOffset.UTC)).simuler(new Demande(
         police, adherent, null, null, LocalDate.of(2026, 3, 10), List.of(
             new Ligne(g, new BigDecimal("10000"), null, null, LocalDate.of(2026, 2, 25)),
             new Ligne(g, new BigDecimal("10000"), null, null, LocalDate.of(2026, 3, 5)),

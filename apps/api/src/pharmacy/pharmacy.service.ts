@@ -1,5 +1,6 @@
 import { randomInt } from 'node:crypto';
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -9,7 +10,10 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import {
+  AdjudicationClientService,
+  MESSAGES_INDISPONIBILITE,
+} from '../adjudication-client/adjudication-client.service';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { ClaimsService } from '../claims/claims.service';
@@ -325,7 +329,7 @@ export class PharmacyService {
           `Calcul de la part assurance indisponible : ${err instanceof Error ? err.message : String(err)}`,
         );
         throw new ServiceUnavailableException(
-          "Calcul de la part assurance indisponible (microservice d'adjudication) — réessayez dans un instant.",
+          MESSAGES_INDISPONIBILITE.dispensation,
         );
       }
       // Répartition de la part assurance au prorata des lignes (arrondi au
@@ -766,7 +770,8 @@ export class PharmacyService {
 
     let reclamation: { id: string; statut: string } | null = null;
     if (garantiePharmacie && montantAssurance.gt(0)) {
-      const resultat = await this.claims.soumettreDepuisDispensation(
+      const resultat = await this.claims
+        .soumettreDepuisDispensation(
         { userId: ctx.userId, organisationId: ctx.organisationId },
         {
           dispensationId: maj.id,
@@ -781,7 +786,20 @@ export class PharmacyService {
           // (déjà multipliée par le taux) faisait appliquer le taux deux fois.
           montant: maj.montantTotal.toFixed(2),
         },
-      );
+      )
+        .catch((err: unknown) => {
+          // Paiement acquis, réclamation laissée SOUMISE (reprise par l'assureur) :
+          // le pharmacien n'a rien à refaire — message dédié, sans détail technique.
+          if (
+            err instanceof ServiceUnavailableException ||
+            err instanceof BadGatewayException
+          ) {
+            throw new ServiceUnavailableException(
+              MESSAGES_INDISPONIBILITE.paiementDispensation,
+            );
+          }
+          throw err;
+        });
       reclamation = {
         id: resultat.reclamation.id,
         statut: resultat.reclamation.statut,

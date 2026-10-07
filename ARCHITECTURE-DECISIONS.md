@@ -354,3 +354,25 @@ financier dans le microservice Java.
   restant. L'adjudication d'une réclamation reste, elle, sous verrou.
 - Le seuil de revue manuelle (E010) et le passage en revue sur plafond (E006)
   n'ont pas d'effet sur une facture : seule la part couverte est reprise.
+
+### Amendement du 2026-10-07 — verrou des factures et supervision
+
+- **Concurrence résolue** (remplace la limite ci-dessus) : la facture tiers payant
+  calcule ET écrit dans une seule transaction, après
+  `pg_advisory_xact_lock(hashtextextended(<personne>, 0))` — MÊME clé que
+  l'adjudication Java (adhérent, sinon bénéficiaire, sinon police ;
+  `adjudication-client/verrou-plafond.ts`). Factures et adjudications d'une même
+  personne sont donc sérialisées : chacune lit le cumul après le commit de la
+  précédente. L'appel au microservice se fait verrou tenu (le microservice ne
+  verrouille pas en simulation : pas d'interblocage) ; délai de transaction =
+  timeout de l'appel + 18 s. Vérifié en HTTP réel : deux factures simultanées de
+  14 400 chacune sous un plafond de 20 000 → 14 400 puis 5 600 (28 800 sans verrou).
+  La simulation à l'ajout d'un acte reste indicative et sans verrou.
+- **Indisponibilité** : messages présentés aux utilisateurs centralisés
+  (`MESSAGES_INDISPONIBILITE`) — ce qui s'est passé et quoi faire, sans détail
+  technique (conservé dans les logs et l'audit). Au paiement d'une dispensation,
+  le pharmacien apprend que le paiement est acquis et que la réclamation sera
+  reprise par l'assureur.
+- **Supervision** : sondes `/healthz` (vivacité) et `/readyz` (base joignable) du
+  microservice, `GET /api/v1/sante` côté API, état affiché au superadmin ; health
+  checks ECS / ALB décrits dans la doc de déploiement (§3.5).

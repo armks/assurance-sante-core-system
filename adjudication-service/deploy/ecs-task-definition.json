@@ -1,0 +1,38 @@
+{
+  "family": "adjudication-service",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::<compte>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "adjudication-service",
+      "image": "<compte>.dkr.ecr.<region>.amazonaws.com/adjudication-service:latest",
+      "essential": true,
+      "portMappings": [{ "containerPort": 8081, "protocol": "tcp" }],
+      "environment": [{ "name": "PORT", "value": "8081" }],
+      "secrets": [
+        { "name": "JDBC_URL", "valueFrom": "arn:aws:secretsmanager:<region>:<compte>:secret:adjudication/jdbc:JDBC_URL::" },
+        { "name": "JDBC_USER", "valueFrom": "arn:aws:secretsmanager:<region>:<compte>:secret:adjudication/jdbc:JDBC_USER::" },
+        { "name": "JDBC_PASSWORD", "valueFrom": "arn:aws:secretsmanager:<region>:<compte>:secret:adjudication/jdbc:JDBC_PASSWORD::" },
+        { "name": "SERVICE_JWT_SECRET", "valueFrom": "arn:aws:secretsmanager:<region>:<compte>:secret:adjudication/service-jwt" }
+      ],
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget -qO- http://localhost:8081/healthz || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/adjudication-service",
+          "awslogs-region": "<region>",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

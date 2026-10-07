@@ -7457,3 +7457,77 @@ paie (remboursements + tiers payant).
 
 ### Statut
 Terminé — commit à valider.
+
+## 2026-10-07 — Vérification de santé du microservice Java
+
+Suite d'ADR-005 : le microservice d'adjudication est indispensable (facture tiers payant,
+comptoir pharmacie, réclamations) — son état est désormais surveillé.
+
+### Java
+- `GET /readyz` (non authentifié) : le service répond ET joint Postgres (`SELECT 1`) → 200,
+  sinon 503 avec le seul type d'erreur (jamais l'URL JDBC). `/healthz` reste une sonde de
+  vivacité sans dépendance à la base (HEALTHCHECK du conteneur).
+
+### NestJS
+- `AdjudicationClientService.verifierSante()` : appel de `/readyz` (timeout 3 s,
+  `ADJUDICATION_SANTE_TIMEOUT_MS`), ne lève jamais → `UP` / `DOWN` / `INJOIGNABLE`.
+- Module `sante/` : `GET /api/v1/sante` (non authentifié, sans donnée métier) — API, base de
+  l'API, microservice ; 200 si tout répond, 503 `DEGRADE` sinon. Chaque changement d'état
+  d'un composant est journalisé (ERROR si dégradé).
+- Santé système superadmin : champ `plateforme`.
+
+### Web
+- `/superadmin/sante-systeme` : carte « État de la plateforme » (API, base, microservice +
+  latence) et bandeau d'alerte si dégradée, indiquant les fonctions bloquées.
+
+### Tests
+- JUnit 48/48 (+3), API 960/960 (+8 : sonde UP / 503 / connexion refusée / timeout, état
+  agrégé, santé système), typecheck API et web 0 erreur.
+- Réel : microservice arrêté → `/api/v1/sante` 503 `INJOIGNABLE` ; relancé → 200 `UP` ;
+  `/simuler` sans jeton reste 401 ; page superadmin rendue avec un compte temporaire
+  (supprimé, 0 restant).
+
+### Statut
+Terminé — commit à valider.
+
+## 2026-10-07 — Supervision du microservice (suite) et verrou des factures
+
+### Indisponibilité : messages clairs
+- `MESSAGES_INDISPONIBILITE` (adjudication-client) : facturation, dispensation, paiement de
+  dispensation, réclamation — en français, sans détail technique (gardé dans logs et audit).
+  Les anciens messages exposaient « microservice d'adjudication », le timeout, `HTTP 500 — …`.
+- Paiement d'une dispensation dont la réclamation échoue : « paiement bien enregistré… reprise
+  par l'assureur, aucune action de votre part ».
+- Web (`lib/api.ts`) : repli en français pour une 502/503/504 sans message (répartiteur de
+  charge, proxy) au lieu du `statusText` anglais.
+
+### Déploiement
+- `adjudication-service/deploy/ecs-task-definition.json` : modèle de Task Definition Fargate
+  (`healthCheck` sur `/healthz`, secrets Secrets Manager, logs CloudWatch).
+- Doc de déploiement (`04-deploiement-aws-v13.md` §3.5) : vivacité ECS `/healthz`,
+  target group ALB `/readyz`, moniteur externe + alarmes sur `/api/v1/sante`.
+
+### Concurrence (ADR-005, amendement)
+- Facture tiers payant : calcul + écriture dans une transaction, après
+  `pg_advisory_xact_lock` sur la personne — même clé que l'adjudication Java
+  (`adjudication-client/verrou-plafond.ts`).
+
+### Corrections
+- `carte.service.spec` : délai de 30 s propre au fichier (vrais PDF générés, 0,4–1 s seuls,
+  plus de 5 s quand la suite sature les cœurs).
+- Web : `.next/types` exclu du typage (`exclude`, Next réajoute l'`include` à chaque
+  démarrage) — types périmés d'un ancien `next build` ; `.next/dev/types` reste vérifié.
+
+### Tests
+- API 963/963 (3 exécutions dont 2 en parallèle, plus d'échec aléatoire), web 0 erreur sans
+  filtrage, JUnit 48/48. Nouveaux : verrou posé avant l'appel au microservice (adhérent,
+  bénéficiaire), délai de transaction, messages exacts sans détail technique (facture,
+  dispensation, paiement, réclamation 503/502).
+- HTTP réel, Java arrêté puis relancé : `/sante` 503 `INJOIGNABLE` → 200 `UP` ; facture et
+  dispensation → 503 avec message clair, aucune ligne créée ; deux factures simultanées
+  (2 × 14 400 sous un plafond de 20 000) → 14 400 + 5 600 = 20 000. Contre-épreuve sans
+  verrou : 14 400 + 14 400 = 28 800 (test en échec, comme attendu). Données supprimées en
+  ordre inverse des dépendances, 0 ligne et 0 compte Auth restants ; script supprimé.
+
+### Statut
+Terminé — commit et push.

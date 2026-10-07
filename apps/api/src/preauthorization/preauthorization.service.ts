@@ -13,8 +13,13 @@ import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import {
   AdjudicationClientService,
+  MESSAGES_INDISPONIBILITE,
   type DemandeSimulation,
 } from '../adjudication-client/adjudication-client.service';
+import {
+  DELAI_TRANSACTION_FACTURE_MS,
+  verrouillerPlafondPersonne,
+} from '../adjudication-client/verrou-plafond';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.util';
@@ -2019,21 +2024,25 @@ export class PreauthorizationService {
       });
     }
 
-    const { montantTotal, montantAssurance, montantPatient, partsAssurance } =
-      await this.calculerMontantsPourActes(
-        {
-          policeId: dossier.policeId,
-          adherentId: dossier.adherentId,
-          beneficiaireId: dossier.beneficiaireId,
-          etablissementId: dossier.etablissementId,
-        },
-        dossier.police.produitId,
-        actesEligibles,
-      );
-
     const code = await this.genererCodeFacturationUnique();
 
+    // Calcul ET écriture sous verrou de la personne assurée (ADR-005) : sans lui,
+    // deux factures simultanées liraient le même plafond annuel restant (le
+    // cumul ne voit que les lignes COMMITÉES) et le dépasseraient ensemble.
     const facture = await this.prisma.$transaction(async (tx) => {
+      await verrouillerPlafondPersonne(tx, dossier);
+      const { montantTotal, montantAssurance, montantPatient, partsAssurance } =
+        await this.calculerMontantsPourActes(
+          {
+            policeId: dossier.policeId,
+            adherentId: dossier.adherentId,
+            beneficiaireId: dossier.beneficiaireId,
+            etablissementId: dossier.etablissementId,
+          },
+          dossier.police.produitId,
+          actesEligibles,
+        );
+
       const f = await tx.factureDossier.create({
         data: {
           organisationId: ctx.organisationId,
@@ -2090,7 +2099,8 @@ export class PreauthorizationService {
         'factures_dossier',
       );
       return f;
-    });
+      // l'appel au microservice se fait verrou tenu : délai au-delà de son timeout
+    }, { timeout: DELAI_TRANSACTION_FACTURE_MS });
 
     // Réponse à l'ASSUREUR : montants, PAS le code (transmis à l'adhérent —
     // dashboard dès maintenant, e-mail/SMS à raccorder séparément).
@@ -3071,7 +3081,7 @@ export class PreauthorizationService {
           `Calcul de la part assurance indisponible : ${err instanceof Error ? err.message : String(err)}`,
         );
         throw new ServiceUnavailableException(
-          "Calcul de la part assurance indisponible (microservice d'adjudication) — réessayez dans un instant.",
+          MESSAGES_INDISPONIBILITE.facturation,
         );
       }
       couverts.forEach(({ i }, k) => {

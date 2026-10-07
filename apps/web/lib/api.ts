@@ -43,14 +43,25 @@ export async function apiFetchPublic(
   return fetch(`${API_URL}${path}`, { ...init, headers, cache: 'no-store' });
 }
 
+/**
+ * Message de repli quand la réponse n'en porte pas (proxy, répartiteur de charge,
+ * service arrêté) : jamais le `statusText` technique anglais (« Service Unavailable »).
+ */
+function messageRepli(res: Response): string {
+  if ([502, 503, 504].includes(res.status)) {
+    return 'Service momentanément indisponible. Réessayez dans quelques minutes.';
+  }
+  return `Une erreur est survenue (code ${res.status}).`;
+}
+
 /** Extrait un message d'erreur lisible d'une réponse NestJS. */
 export async function messageErreur(res: Response): Promise<string> {
   try {
     const body = (await res.json()) as { message?: string | string[] };
     if (Array.isArray(body.message)) return body.message.join(' ');
-    return body.message ?? res.statusText;
+    return body.message ?? messageRepli(res);
   } catch {
-    return res.statusText || `Erreur ${res.status}`;
+    return messageRepli(res);
   }
 }
 
@@ -73,8 +84,8 @@ export async function detailErreur(
         erreurs: body.message,
       };
     }
-    return { error: body.message ?? body.error ?? res.statusText, erreurs: [] };
+    return { error: body.message ?? messageRepli(res), erreurs: [] };
   } catch {
-    return { error: res.statusText || `Erreur ${res.status}`, erreurs: [] };
+    return { error: messageRepli(res), erreurs: [] };
   }
 }

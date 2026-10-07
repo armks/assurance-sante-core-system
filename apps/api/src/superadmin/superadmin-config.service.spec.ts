@@ -6,6 +6,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SuperadminConfigService } from './superadmin-config.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { SanteService } from '../sante/sante.service';
+
+const PLATEFORME = {
+  statut: 'DEGRADE' as const,
+  api: { statut: 'UP' as const, baseDeDonnees: 'UP' as const },
+  adjudication: { statut: 'INJOIGNABLE' as const, latenceMs: null, baseDeDonnees: 'INCONNU' as const, detail: 'connexion impossible' },
+  horodatage: '2026-10-07T00:00:00.000Z',
+};
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -64,6 +72,7 @@ describe('SuperadminConfigService', () => {
         SuperadminConfigService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
+        { provide: SanteService, useValue: { etat: jest.fn().mockResolvedValue(PLATEFORME) } },
       ],
     }).compile();
     service = moduleRef.get(SuperadminConfigService);
@@ -130,6 +139,8 @@ describe('SuperadminConfigService', () => {
     const o1 = res.organisations.find((o) => o.id === 'o1')!;
     expect(o1.quotaDepasse).toBe(true);
     expect(o1.adherentsRattaches).toBe(5);
+    // état de la plateforme (API, base, microservice d'adjudication) inclus
+    expect(res.plateforme).toEqual(PLATEFORME);
   });
 
   it('creerActeNational : superadmin, statut par défaut HOMOLOGUE', async () => {

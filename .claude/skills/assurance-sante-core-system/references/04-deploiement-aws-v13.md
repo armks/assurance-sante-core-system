@@ -74,6 +74,36 @@ l'argent en continu.
 
 ---
 
+### 3.5 Health checks (ajout du 2026-10-07)
+
+Depuis ADR-005, le microservice est **indispensable** : sans lui, aucune facture tiers payant,
+aucune dispensation en pharmacie et aucune adjudication de réclamation (l'API répond 503 avec
+un message en français). Trois niveaux de contrôle, chacun avec son rôle :
+
+| Niveau | Où | Sonde | Effet si elle échoue |
+|---|---|---|---|
+| Vivacité du conteneur | Task Definition ECS, `healthCheck` | `GET /healthz` (ne dépend **pas** de la base) | ECS remplace la tâche |
+| Disponibilité de la tâche | Target group de l'ALB interne | `GET /readyz` → 200 (joint Postgres en `svc_adjudication`), 503 sinon | l'ALB retire la tâche de la rotation, sans la tuer |
+| Supervision de bout en bout | Moniteur externe (Route 53 health check, CloudWatch Synthetics…) | `GET /api/v1/sante` de l'API NestJS → 200 `UP`, 503 `DEGRADE` | alerte à l'équipe (SNS / e-mail) |
+
+- **Pourquoi deux sondes côté Java.** Une coupure de la base ne doit pas faire redémarrer les
+  conteneurs en boucle (ils n'y peuvent rien) : la vivacité (`/healthz`) ne teste que le
+  processus, la disponibilité (`/readyz`) teste aussi la base.
+- **Task Definition** : modèle versionné dans `adjudication-service/deploy/ecs-task-definition.json`
+  (`healthCheck` = `wget -qO- http://localhost:8081/healthz`, intervalle 30 s, 3 essais,
+  `startPeriod` 60 s pour laisser démarrer la JVM ; secrets lus dans Secrets Manager).
+  Le `HEALTHCHECK` du Dockerfile n'est **pas** utilisé par ECS : c'est ce `healthCheck` qui compte.
+- **Target group** : protocole HTTP, chemin `/readyz`, codes de succès `200`, intervalle 15 s,
+  timeout 5 s, seuils sain 2 / non sain 2.
+- **Alarme CloudWatch** sur la métrique `UnHealthyHostCount` du target group (> 0 pendant
+  2 minutes) **et** sur le moniteur externe de `/api/v1/sante` — c'est ce dernier qui prévient
+  avant les utilisateurs, car il vérifie aussi que l'API joint bien le microservice (réseau,
+  security groups, `ADJUDICATION_SERVICE_URL`).
+- Côté API, le délai de la sonde est réglable (`ADJUDICATION_SANTE_TIMEOUT_MS`, 3 s par défaut).
+  L'état est aussi affiché au superadmin (écran « Santé système »).
+- Les sondes sont non authentifiées et n'exposent aucune donnée métier ni secret (seulement le
+  type d'erreur) ; les routes `/api/v1/adjudication/**` restent protégées par le JWT de service.
+
 ## 4. Étape 3 — Sécuriser la communication entre les composants
 
 ```

@@ -160,6 +160,12 @@ const ADHERENT = {
   ],
 };
 
+// Chaque test produit un VRAI PDF (pdf-lib + QR + sharp) puis le relit : 0,4 à 1 s
+// seul, mais plusieurs secondes quand la suite complète sature les cœurs en
+// parallèle — le délai par défaut de Jest (5 s) faisait échouer ces tests au
+// hasard. Délai propre à ce fichier : un vrai blocage ailleurs reste détecté à 5 s.
+jest.setTimeout(30_000);
+
 describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
   let service: MemberCarteService;
   let prisma: any;

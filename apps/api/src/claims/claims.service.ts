@@ -19,6 +19,7 @@ import {
   AdjudicationClientService,
   AdjudicationInjoignableError,
   AdjudicationRefusError,
+  MESSAGES_INDISPONIBILITE,
   type DecisionAdjudication,
 } from '../adjudication-client/adjudication-client.service';
 import {
@@ -448,7 +449,7 @@ export class ClaimsService {
         { erreur: detail, statutConstate: actuelle.statut },
       );
       return new ServiceUnavailableException(
-        `L'appel d'adjudication a échoué (${detail}), mais la réclamation est déjà « ${actuelle.statut} » — vérifiez le remboursement avant de relancer.`,
+        `Le calcul de la prise en charge n'a pas confirmé sa réponse, mais la réclamation est déjà « ${actuelle.statut} » : vérifiez le remboursement avant de relancer.`,
       );
     }
 
@@ -469,12 +470,8 @@ export class ClaimsService {
     );
 
     return err instanceof AdjudicationInjoignableError
-      ? new ServiceUnavailableException(
-          `Service d'adjudication indisponible : ${detail}. Réclamation remise à « SOUMISE » pour une nouvelle tentative.`,
-        )
-      : new BadGatewayException(
-          `Le service d'adjudication a renvoyé une erreur : ${detail}. Réclamation remise à « SOUMISE » pour une nouvelle tentative.`,
-        );
+      ? new ServiceUnavailableException(MESSAGES_INDISPONIBILITE.reclamation)
+      : new BadGatewayException(MESSAGES_INDISPONIBILITE.reclamationErreur);
   }
 
   async listerReclamations(

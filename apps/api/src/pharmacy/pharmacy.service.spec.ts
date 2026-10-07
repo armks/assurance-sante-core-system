@@ -13,7 +13,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PharmacyService } from './pharmacy.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
-import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import {
+  AdjudicationClientService,
+  MESSAGES_INDISPONIBILITE,
+} from '../adjudication-client/adjudication-client.service';
 import {
   adjudicationClientDeTest,
   reponseSimulation,
@@ -287,9 +290,13 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       prisma.garantie.findFirst.mockResolvedValue({ id: 'g-pharma', tauxCouverture: dec(80), plafondParActe: null });
       adjudication.simuler.mockRejectedValueOnce(new Error('timeout'));
 
-      await expect(
-        service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]),
-      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+      const err = await service
+        .preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }])
+        .catch((e) => e);
+      expect(err).toBeInstanceOf(ServiceUnavailableException);
+      // message clair pour le pharmacien, jamais de détail technique
+      expect(err.message).toBe(MESSAGES_INDISPONIBILITE.dispensation);
+      expect(err.message).not.toMatch(/microservice|timeout|HTTP/i);
       expect(prisma.dispensationPharmacie.create).not.toHaveBeenCalled();
     });
 
@@ -628,12 +635,13 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
 
     it('le paiement reste acquis même si la soumission à l’adjudication échoue', async () => {
       claims.soumettreDepuisDispensation.mockRejectedValue(
-        new ServiceUnavailableException("Service d'adjudication indisponible"),
+        new ServiceUnavailableException(MESSAGES_INDISPONIBILITE.reclamation),
       );
 
-      await expect(
-        service.confirmerPaiementDispensation(USER, 'disp-1'),
-      ).rejects.toBeInstanceOf(ServiceUnavailableException);
+      const err = await service.confirmerPaiementDispensation(USER, 'disp-1').catch((e) => e);
+      expect(err).toBeInstanceOf(ServiceUnavailableException);
+      // le pharmacien apprend que le paiement est acquis et qu'il n'a rien à refaire
+      expect(err.message).toBe(MESSAGES_INDISPONIBILITE.paiementDispensation);
 
       // Le paiement (verrouillage des lignes + statut PAYEE) a déjà été committé
       // AVANT l'appel à l'adjudication — il n'est jamais annulé après coup.

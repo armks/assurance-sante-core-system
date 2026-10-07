@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -11,7 +12,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
-import { AdjudicationClientService } from '../adjudication-client/adjudication-client.service';
+import {
+  AdjudicationClientService,
+  MESSAGES_INDISPONIBILITE,
+} from '../adjudication-client/adjudication-client.service';
 import {
   adjudicationClientDeTest,
   reponseSimulation,
@@ -308,6 +312,56 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       const reclames = prisma.ligneFacturation.create.mock.calls.map((c: any) => c[0].data.montantReclame);
       expect(reclames).toEqual(['12000.00', '3000.00']);
       expect(res.montantAssurance).toBe('15000.00');
+    });
+
+    // --- Concurrence : verrou de la personne assurée (même clé que le Java) ---
+    const appelsVerrou = () =>
+      prisma.$executeRaw.mock.calls.filter((c: any) =>
+        Array.isArray(c[0]) && c[0].join('?').includes('pg_advisory_xact_lock'),
+      );
+
+    it('pose le verrou de l’ADHÉRENT dans la transaction, AVANT de demander le calcul au microservice', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1' }));
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { montantPrescrit: dec(10000) })]);
+
+      await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+
+      const verrous = appelsVerrou();
+      expect(verrous).toHaveLength(1);
+      expect(verrous[0][0].join('?')).toBe('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))');
+      expect(verrous[0][1]).toBe(ADH);
+      const ordreVerrou = prisma.$executeRaw.mock.invocationCallOrder[prisma.$executeRaw.mock.calls.indexOf(verrous[0])];
+      expect(ordreVerrou).toBeLessThan(adjudication.simuler.mock.invocationCallOrder[0]);
+      // la transaction couvre l'appel HTTP : délai supérieur au timeout du microservice
+      expect(prisma.$transaction.mock.calls[0][1]).toEqual({ timeout: expect.any(Number) });
+      expect(prisma.$transaction.mock.calls[0][1].timeout).toBeGreaterThan(12_000);
+    });
+
+    it('dossier d’un BÉNÉFICIAIRE : verrou sur le bénéficiaire (clé du Java)', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(
+        dossier({ adherentId: null, beneficiaireId: 'benef-1', policeId: 'pol-1' }),
+      );
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { montantPrescrit: dec(10000) })]);
+
+      await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+
+      expect(appelsVerrou()[0][1]).toBe('benef-1');
+    });
+
+    it('microservice indisponible → 503 avec un message clair en français, sans détail technique ; aucune facture', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1' }));
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { montantPrescrit: dec(10000) })]);
+      adjudication.simuler.mockRejectedValueOnce(new Error('fetch failed: ECONNREFUSED 127.0.0.1:8899'));
+
+      const err = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] }).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ServiceUnavailableException);
+      expect(err.message).toBe(MESSAGES_INDISPONIBILITE.facturation);
+      expect(err.message).not.toMatch(/microservice|ECONNREFUSED|8899|HTTP/i);
+      expect(prisma.factureDossier.create).not.toHaveBeenCalled();
     });
 
     it('somme correctement PLUSIEURS actes sélectionnés (paiement partiel — 2 sur 3)', async () => {

@@ -10,6 +10,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
+import { SanteService } from '../sante/sante.service';
 import {
   CreerActeNationalDto,
   CreerMedicamentNationalDto,
@@ -38,6 +39,7 @@ export class SuperadminConfigService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly categoriesActe: CategoriesActeService,
+    private readonly sante: SanteService,
   ) {}
 
   // --- 1. Paramètres plateforme -------------------------------------
@@ -164,6 +166,8 @@ export class SuperadminConfigService {
 
     return {
       genereLe: new Date().toISOString(),
+      // API, base et microservice d'adjudication (indispensable depuis ADR-005)
+      plateforme: await this.sante.etat(),
       resume: {
         totalOrganisations: organisations.length,
         totalAdherentsRattaches: lignes.reduce(

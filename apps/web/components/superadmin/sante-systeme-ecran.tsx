@@ -3,6 +3,7 @@
 import { Activity, Building2, TriangleAlert, Users } from 'lucide-react';
 
 import {
+  Alerte,
   CarteResume,
   DataTable,
   GrilleCartes,
@@ -34,8 +35,22 @@ interface OrgSante {
   quotaDepasse: boolean;
   derniereActivite: string | null;
 }
+/** État de la plateforme (API `GET /api/v1/sante`, inclus dans la santé système). */
+export interface SantePlateforme {
+  statut: 'UP' | 'DEGRADE';
+  api: { statut: 'UP'; baseDeDonnees: 'UP' | 'DOWN' };
+  adjudication: {
+    statut: 'UP' | 'DOWN' | 'INJOIGNABLE';
+    latenceMs: number | null;
+    baseDeDonnees: 'UP' | 'DOWN' | 'INCONNU';
+    detail: string | null;
+  };
+  horodatage: string;
+}
+
 export interface SanteSysteme {
   genereLe: string;
+  plateforme: SantePlateforme;
   resume: {
     totalOrganisations: number;
     totalAdherentsRattaches: number;
@@ -119,6 +134,8 @@ export function SanteSystemeEcran({ sante }: { sante: SanteSysteme }) {
 
   return (
     <div className="space-y-6">
+      <EtatPlateforme plateforme={sante.plateforme} />
+
       <GrilleCartes>
         <CarteResume
           libelle="Organisations"
@@ -200,5 +217,61 @@ function Repartition({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+const LIBELLE_ETAT: Record<string, string> = {
+  UP: 'Opérationnel',
+  DOWN: 'Indisponible',
+  INJOIGNABLE: 'Injoignable',
+  INCONNU: 'Inconnu',
+};
+const TON_ETAT: Record<string, 'succes' | 'danger' | 'neutre'> = {
+  UP: 'succes',
+  DOWN: 'danger',
+  INJOIGNABLE: 'danger',
+  INCONNU: 'neutre',
+};
+
+/**
+ * Composants de la plateforme. Le microservice d'adjudication est indispensable
+ * (ADR-005) : sans lui, aucune facture tiers payant ni dispensation.
+ */
+function EtatPlateforme({ plateforme }: { plateforme: SantePlateforme }) {
+  const { api, adjudication } = plateforme;
+  return (
+    <div className="space-y-3">
+      {plateforme.statut !== 'UP' && (
+        <Alerte ton="erreur" titre="Plateforme dégradée" annonce="polie">
+          {adjudication.statut !== 'UP'
+            ? 'Le microservice d’adjudication ne répond pas : la facturation tiers payant, le comptoir pharmacie et l’adjudication des réclamations sont bloqués.'
+            : 'La base de données de l’API ne répond pas.'}
+        </Alerte>
+      )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">État de la plateforme</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-3">
+          <div className="space-y-1">
+            <p className="text-muted-foreground">API</p>
+            <StatutBadge statut={api.statut} map={TON_ETAT} libelles={LIBELLE_ETAT} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-muted-foreground">Base de données</p>
+            <StatutBadge statut={api.baseDeDonnees} map={TON_ETAT} libelles={LIBELLE_ETAT} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-muted-foreground">Microservice d’adjudication</p>
+            <StatutBadge statut={adjudication.statut} map={TON_ETAT} libelles={LIBELLE_ETAT} />
+            <p className="text-xs text-muted-foreground">
+              {adjudication.statut === 'UP'
+                ? `${adjudication.latenceMs} ms`
+                : (adjudication.detail ?? '—')}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

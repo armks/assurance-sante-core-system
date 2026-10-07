@@ -44,6 +44,36 @@ export interface ResultatSimulation {
   }[];
 }
 
+/**
+ * Messages présentés aux utilisateurs quand le calcul de la prise en charge
+ * (microservice) est indisponible : ce qui s'est passé et quoi faire, JAMAIS de
+ * détail technique — celui-ci reste dans les logs et l'audit.
+ */
+export const MESSAGES_INDISPONIBILITE = {
+  facturation:
+    "Le calcul de la prise en charge par l'assurance est momentanément indisponible : la facture n'a pas été émise. Réessayez dans quelques minutes.",
+  dispensation:
+    "Le calcul de la prise en charge par l'assurance est momentanément indisponible : la dispensation n'a pas été préparée. Réessayez dans quelques minutes.",
+  paiementDispensation:
+    "Le paiement est bien enregistré. La demande de remboursement à l'assurance n'a pas pu être traitée pour le moment : elle reste en attente et sera reprise par l'assureur. Aucune action n'est nécessaire de votre part.",
+  reclamation:
+    "Le calcul de la prise en charge par l'assurance est momentanément indisponible. La réclamation est remise en attente : réessayez dans quelques minutes.",
+  reclamationErreur:
+    "Le calcul de la prise en charge n'a pas pu aboutir. La réclamation est remise en attente : réessayez, et contactez le support si le problème persiste.",
+} as const;
+
+/**
+ * État du microservice : `UP` (répond et joint sa base), `DOWN` (répond mais
+ * n'est pas prêt, ex. base injoignable), `INJOIGNABLE` (aucune réponse).
+ * `detail` ne contient jamais d'URL ni de secret.
+ */
+export interface SanteAdjudication {
+  statut: 'UP' | 'DOWN' | 'INJOIGNABLE';
+  latenceMs: number | null;
+  baseDeDonnees: 'UP' | 'DOWN' | 'INCONNU';
+  detail: string | null;
+}
+
 /** Le microservice n'a pas répondu (réseau coupé, timeout, DNS…). */
 export class AdjudicationInjoignableError extends Error {
   constructor(cause: string) {
@@ -82,6 +112,9 @@ export class AdjudicationClientService {
   private readonly timeoutMs = Number(
     process.env.ADJUDICATION_TIMEOUT_MS ?? 12_000,
   );
+  private readonly timeoutSanteMs = Number(
+    process.env.ADJUDICATION_SANTE_TIMEOUT_MS ?? 3_000,
+  );
 
   /** Appelle `POST /api/v1/adjudication/{reclamationId}/evaluer`. */
   async evaluer(reclamationId: string): Promise<DecisionAdjudication> {
@@ -97,6 +130,49 @@ export class AdjudicationClientService {
    */
   async simuler(demande: DemandeSimulation): Promise<ResultatSimulation> {
     return this.appeler<ResultatSimulation>('/api/v1/adjudication/simuler', demande);
+  }
+
+  /**
+   * Disponibilité du microservice (`GET /readyz`, non authentifié) : il répond ET
+   * joint sa base. Ne lève jamais : renvoie un état exploitable par la
+   * supervision (`GET /api/v1/sante`, santé système superadmin). Timeout court.
+   */
+  async verifierSante(): Promise<SanteAdjudication> {
+    const debut = Date.now();
+    const controleur = new AbortController();
+    const minuteur = setTimeout(() => controleur.abort(), this.timeoutSanteMs);
+    try {
+      const reponse = await fetch(`${this.baseUrl}/readyz`, {
+        signal: controleur.signal,
+      });
+      const latenceMs = Date.now() - debut;
+      const corps = (await reponse.json().catch(() => null)) as {
+        status?: string;
+        database?: string;
+        detail?: string;
+      } | null;
+      if (reponse.ok && corps?.status === 'UP') {
+        return { statut: 'UP', latenceMs, baseDeDonnees: 'UP', detail: null };
+      }
+      return {
+        statut: 'DOWN',
+        latenceMs,
+        baseDeDonnees: corps?.database === 'UP' ? 'UP' : 'DOWN',
+        detail: corps?.detail ?? `HTTP ${reponse.status}`,
+      };
+    } catch (e) {
+      return {
+        statut: 'INJOIGNABLE',
+        latenceMs: null,
+        baseDeDonnees: 'INCONNU',
+        detail:
+          e instanceof Error && e.name === 'AbortError'
+            ? `timeout après ${this.timeoutSanteMs} ms`
+            : 'connexion impossible',
+      };
+    } finally {
+      clearTimeout(minuteur);
+    }
   }
 
   private async appeler<T>(chemin: string, corps?: unknown): Promise<T> {

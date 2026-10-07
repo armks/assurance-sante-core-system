@@ -13,6 +13,7 @@ import {
   AdjudicationClientService,
   AdjudicationInjoignableError,
   AdjudicationRefusError,
+  MESSAGES_INDISPONIBILITE,
   type DecisionAdjudication,
 } from '../adjudication-client/adjudication-client.service';
 import { ClaimsService } from './claims.service';
@@ -238,9 +239,11 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
       new AdjudicationInjoignableError('timeout après 12000 ms'),
     );
 
-    await expect(
-      service.soumettre(USER, { acteDossierId: 'acte-1' }),
-    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    const err = await service.soumettre(USER, { acteDossierId: 'acte-1' }).catch((e) => e);
+    expect(err).toBeInstanceOf(ServiceUnavailableException);
+    // détail technique dans l'audit et les logs, jamais dans le message
+    expect(err.message).toBe(MESSAGES_INDISPONIBILITE.reclamation);
+    expect(err.message).not.toMatch(/timeout|12000|microservice/i);
 
     expect(prisma.reclamation.updateMany).toHaveBeenLastCalledWith({
       where: { id: 'rec-1', statut: 'EN_ADJUDICATION', deletedAt: null },
@@ -260,9 +263,10 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
       new AdjudicationRefusError(500, 'Internal Server Error'),
     );
 
-    await expect(
-      service.soumettre(USER, { acteDossierId: 'acte-1' }),
-    ).rejects.toBeInstanceOf(BadGatewayException);
+    const err = await service.soumettre(USER, { acteDossierId: 'acte-1' }).catch((e) => e);
+    expect(err).toBeInstanceOf(BadGatewayException);
+    expect(err.message).toBe(MESSAGES_INDISPONIBILITE.reclamationErreur);
+    expect(err.message).not.toMatch(/500|Internal Server Error|HTTP/);
   });
 
   it('échec de transport mais la réclamation a déjà avancé → pas de retour à SOUMISE', async () => {

@@ -38,6 +38,7 @@ export const LIBELLE_CODE_REJET: Record<string, string> = {
   E001: 'Police non active à la date des soins (suspendue, résiliée ou hors période)',
   E006: 'Plafond annuel de la garantie atteint ou dépassé pour cet adhérent',
   E010: "Montant remboursé au-dessus du seuil d'adjudication automatique",
+  E011: "Catégorie d'acte non couverte par le produit (aucune garantie)",
   ADJ_ECHEC:
     "Échec temporaire de l'appel au microservice d'adjudication — à re-soumettre",
   REJET_MANUEL: 'Rejet prononcé après revue manuelle',
@@ -47,35 +48,20 @@ export function libelleCodeRejet(code: string): string {
   return LIBELLE_CODE_REJET[code] ?? `Code ${code}`;
 }
 
-const TYPES_RECLAMATION_MEDICAUX = [
-  'SOIN',
-  'PHARMACIE',
-  'HOSPITALISATION',
-  'OPTIQUE',
-  'DENTAIRE',
-  'ANALYSES',
-  'IMAGERIE',
-];
-
 export const ROLE_REVUE_MEDICALE = 'ASSUREUR_MEDECIN_CONSEIL';
 export const ROLE_REVUE_FINANCIERE = 'ASSUREUR_EXPLOITATION';
 export const ROLE_REVUE_SUPERVISION = 'ASSUREUR_DIRECTION';
 
-/** Rôle requis pour traiter la revue manuelle d'une réclamation de ce type. */
-export function roleRevuePour(typeReclamation: string): string {
-  return TYPES_RECLAMATION_MEDICAUX.includes(typeReclamation)
-    ? ROLE_REVUE_MEDICALE
-    : ROLE_REVUE_FINANCIERE;
-}
-
-/** L'utilisateur (roleChain) peut-il traiter la revue manuelle de cette réclamation ? */
+/**
+ * L'utilisateur (roleChain) peut-il traiter la revue manuelle de cette
+ * réclamation ? `roleRevue` est fourni par l'API (référentiel
+ * `categories_acte.role_revue`, prisma/sql/067) — le web ne redéfinit plus la
+ * règle catégorie/type → rôle.
+ */
 export function peutTraiterRevue(
   roleChain: string[] | undefined,
-  typeReclamation: string,
+  roleRevue: string,
 ): boolean {
   const rc = roleChain ?? [];
-  return (
-    rc.includes(roleRevuePour(typeReclamation)) ||
-    rc.includes(ROLE_REVUE_SUPERVISION)
-  );
+  return rc.includes(roleRevue) || rc.includes(ROLE_REVUE_SUPERVISION);
 }

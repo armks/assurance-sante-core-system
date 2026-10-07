@@ -12,6 +12,7 @@ import {
   marquerActeRealise,
 } from '@/app/dashboard-centre-medical/medecin/actions';
 import {
+  Alerte,
   ChampNombre,
   ChampSelect,
   ChampTexte,
@@ -24,7 +25,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
-  CATEGORIES_ACTE,
   LIBELLE_PREAUTORISATION,
   ROLES_GESTION_DOSSIER,
   ROLES_ORDONNANCE_DELEGUEE,
@@ -39,10 +39,7 @@ import {
   LIBELLE_STATUT_DOSSIER,
   LIBELLE_STATUT_TICKET,
 } from '@/lib/dossier-soins';
-import {
-  libelleCategorieActe,
-  optionsCategorieActe,
-} from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 interface Consultation {
   id: string;
@@ -146,7 +143,10 @@ export function DossierDetail({
   roleChain: string[];
   actesDisponibles: { id: string; code: string; libelle: string }[];
 }) {
+  const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
+  /** Retour du dernier ajout d'acte (annonce « catégorie non couverte »). */
+  const [avisActe, setAvisActe] = useState<string | null>(null);
 
   const ouvert = dossier.statut === 'OUVERT';
   const cloturable = ouvert || dossier.statut === 'SUSPENDU';
@@ -244,6 +244,14 @@ export function DossierDetail({
 
   return (
     <div className="space-y-6">
+      {avisActe && (
+        <Alerte
+          ton={avisActe.includes('NON COUVERTE') ? 'avertissement' : 'succes'}
+          annonce="polie"
+        >
+          {avisActe}
+        </Alerte>
+      )}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Informations</CardTitle>
@@ -396,14 +404,17 @@ export function DossierDetail({
                           m && m !== '' ? Number(m) : undefined,
                       });
                     }}
-                    onSucces={() => router.refresh()}
+                    onSucces={(message) => {
+                      setAvisActe(message ?? null);
+                      router.refresh();
+                    }}
                   >
                     <ChampSelect
                       name="categorieActe"
                       label="Catégorie"
                       required
                       placeholder="Choisir…"
-                      options={optionsCategorieActe(CATEGORIES_ACTE)}
+                      options={optionsCategories()}
                     />
                     <ChampTexte
                       name="libelle"

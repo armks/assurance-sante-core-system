@@ -39,7 +39,6 @@ import {
   ROLE_COMPTABLE_FACTURE_MENSUELLE,
   ROLE_PHARMACIEN_SEUL,
   STATUTS_DISPENSATION_MODIFIABLE,
-  TAUX_COUVERTURE_DEFAUT,
 } from './pharmacy.types';
 
 type Db = PrismaService | Prisma.TransactionClient;
@@ -266,9 +265,11 @@ export class PharmacyService {
     });
     const parDenomination = new Map(stock.map((s) => [s.denominationMedicament, s]));
 
-    const taux = new Decimal(
-      garantiePharmacie?.tauxCouverture?.toString() ?? String(TAUX_COUVERTURE_DEFAUT),
-    );
+    // Règle « non couvert » (prisma/sql/067) : produit sans garantie PHARMACIE →
+    // part assurance 0, le patient paie tout (plus de taux par défaut de 80 %).
+    const taux = garantiePharmacie
+      ? new Decimal(garantiePharmacie.tauxCouverture.toString())
+      : new Decimal(0);
     const plafondParActe = garantiePharmacie?.plafondParActe
       ? new Decimal(garantiePharmacie.plafondParActe.toString())
       : null;

@@ -42,20 +42,11 @@ export const DECISIONS_REVUE_MANUELLE = ['APPROUVE', 'REJETE'] as const;
 export type DecisionRevueManuelle = (typeof DECISIONS_REVUE_MANUELLE)[number];
 
 /**
- * Types de réclamation à contenu médical → revue par `ASSUREUR_MEDECIN_CONSEIL`.
- * Les autres (`AUTRE`) → `ASSUREUR_EXPLOITATION`. `ASSUREUR_DIRECTION` peut traiter
- * les deux (rôle de supervision, `peut_valider`).
+ * Rôle de revue manuelle : lu dans le référentiel `categories_acte.role_revue`
+ * (prisma/sql/067) depuis la catégorie de la source — plus de table type →
+ * rôle ici. `ASSUREUR_DIRECTION` peut traiter toutes les revues (supervision).
+ * `ROLE_REVUE_FINANCIERE` sert de repli si la catégorie est introuvable.
  */
-export const TYPES_RECLAMATION_MEDICAUX = [
-  'SOIN',
-  'PHARMACIE',
-  'HOSPITALISATION',
-  'OPTIQUE',
-  'DENTAIRE',
-  'ANALYSES',
-  'IMAGERIE',
-] as const;
-
 export const ROLE_REVUE_MEDICALE = 'ASSUREUR_MEDECIN_CONSEIL';
 export const ROLE_REVUE_FINANCIERE = 'ASSUREUR_EXPLOITATION';
 export const ROLE_REVUE_SUPERVISION = 'ASSUREUR_DIRECTION';
@@ -103,6 +94,13 @@ export const ROLES_SOCIETE_CLAIMS = [
 /** Code ajouté à `codes_rejet` quand un rejet est prononcé après revue manuelle. */
 export const CODE_REJET_MANUEL = 'REJET_MANUEL';
 
+/** Rejet posé par NestJS, sans adjudication : la catégorie de l'acte n'a pas
+ * de garantie dans le produit (règle « non couvert », prisma/sql/067). */
+export const CODE_REJET_CATEGORIE_NON_COUVERTE = 'E011';
+
+/** Catégorie (référentiel `categories_acte`) d'une réclamation issue d'une dispensation. */
+export const CATEGORIE_ACTE_DISPENSATION = 'PHARMACIE';
+
 /**
  * Libellés des codes de rejet / de mise en revue (nomenclature v3 §4 / v8,
  * plage E001–E010 ; seuls E001, E006, E010 sont émis par l'adjudicateur actuel).
@@ -111,23 +109,10 @@ export const LIBELLE_CODE_REJET: Record<string, string> = {
   E001: 'Police non active à la date des soins (suspendue, résiliée ou hors période)',
   E006: 'Plafond annuel de la garantie atteint ou dépassé pour cet adhérent',
   E010: "Montant remboursé au-dessus du seuil d'adjudication automatique",
+  E011: "Catégorie d'acte non couverte par le produit",
   ADJ_ECHEC:
     "Échec temporaire de l'appel au microservice d'adjudication — réclamation à re-soumettre",
   REJET_MANUEL: 'Rejet prononcé après revue manuelle',
-};
-
-/** Correspondance catégorie d'acte → type de réclamation (défaut : AUTRE). */
-export const CATEGORIE_VERS_TYPE: Record<string, TypeReclamation> = {
-  CONSULTATION: 'SOIN',
-  SOINS_INFIRMIERS: 'SOIN',
-  HOSPITALISATION: 'HOSPITALISATION',
-  PHARMACIE: 'PHARMACIE',
-  MEDICAMENT: 'PHARMACIE',
-  OPTIQUE: 'OPTIQUE',
-  DENTAIRE: 'DENTAIRE',
-  ANALYSES: 'ANALYSES',
-  ANALYSES_LABORATOIRE: 'ANALYSES',
-  IMAGERIE: 'IMAGERIE',
 };
 
 export interface ContexteAppelant {

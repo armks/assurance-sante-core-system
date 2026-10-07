@@ -9,6 +9,7 @@ import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
 import {
   CreerActeNationalDto,
   CreerMedicamentNationalDto,
@@ -36,6 +37,7 @@ export class SuperadminConfigService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly categoriesActe: CategoriesActeService,
   ) {}
 
   // --- 1. Paramètres plateforme -------------------------------------
@@ -202,12 +204,14 @@ export class SuperadminConfigService {
         `Un acte national de code « ${dto.code} » existe déjà.`,
       );
     }
+    // code ou libellé du référentiel unique des catégories (prisma/sql/067)
+    const categorie = await this.categoriesActe.normaliser(dto.categorie);
     return this.prisma.$transaction(async (tx) => {
       const acte = await tx.referentielNationalActe.create({
         data: {
           code: dto.code,
           libelle: dto.libelle,
-          categorie: dto.categorie ?? null,
+          categorie,
           versionNomenclature: dto.versionNomenclature ?? null,
           statut: dto.statut ?? 'HOMOLOGUE',
         },

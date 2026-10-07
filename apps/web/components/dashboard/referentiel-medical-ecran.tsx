@@ -9,16 +9,15 @@ import {
 } from '@/app/dashboard-assureur/reference-actions';
 import {
   Alerte,
+  ChampSelect,
   ChampTexte,
   DataTable,
   FormulaireModal,
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
-import {
-  LIBELLE_STATUT_HOMOLOGATION,
-  libelleCategorieActe,
-} from '@/lib/referentiel';
+import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface ActeReferentiel {
   id: string;
@@ -48,6 +47,7 @@ export function ReferentielMedicalEcran({
    * rôles — droit exclusif côté API (ROLE_PROPOSITION). */
   peutProposer: boolean;
 }) {
+  const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -135,7 +135,12 @@ export function ReferentielMedicalEcran({
                   required
                   maxLength={300}
                 />
-                <ChampTexte name="categorie" label="Catégorie" maxLength={120} />
+                <ChampSelect
+                  name="categorie"
+                  label="Catégorie"
+                  placeholder="Choisir…"
+                  options={optionsCategories()}
+                />
               </FormulaireModal>
             ) : undefined
           }

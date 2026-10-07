@@ -8,7 +8,7 @@ import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboar
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatutActe } from './statut-acte';
-import { libelleCategorieActe } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface ActeDuMois {
   id: string;
@@ -69,6 +69,7 @@ export function FactureMensuelleEtablissementEcran({
   actesDuMois: ActeDuMois[];
   factures: FactureMensuelleEtablissement[];
 }) {
+  const { libelle: libelleCategorieActe } = useCategoriesActe();
   const router = useRouter();
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
   const [pending, start] = useTransition();

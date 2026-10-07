@@ -18,14 +18,13 @@ import {
   TON_STATUT_RECLAMATION,
   libelleCodeRejet,
   peutTraiterRevue,
-  roleRevuePour,
 } from '@/lib/reclamations';
 import type { Reclamation } from './reclamations-liste';
 import {
   LIBELLE_STATUT_DOSSIER,
   LIBELLE_STATUT_TICKET,
 } from '@/lib/dossier-soins';
-import { libelleCategorieActe } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 interface DossierResume {
   id: string;
@@ -65,12 +64,13 @@ export function ReclamationDetail({
   dossier: DossierResume | null;
   roleChain: string[];
 }) {
+  const { libelle: libelleCategorieActe } = useCategoriesActe();
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
 
   const r = reclamation.remboursement;
   const enRevue = reclamation.statut === 'REVUE_MANUELLE';
-  const autoriseRevue = peutTraiterRevue(roleChain, reclamation.typeReclamation);
+  const autoriseRevue = peutTraiterRevue(roleChain, reclamation.roleRevue);
 
   return (
     <div className="space-y-6">
@@ -142,18 +142,34 @@ export function ReclamationDetail({
               )}
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              Pas encore d’adjudication (statut {LIBELLE_STATUT_RECLAMATION[reclamation.statut] ?? reclamation.statut}).
-            </p>
+            reclamation.codesRejet && reclamation.codesRejet.length > 0 ? (
+              // Rejet posé avant adjudication (E011 : catégorie non couverte —
+              // aucune garantie, le microservice n'est pas appelé).
+              <div className="rounded-md border bg-muted/30 p-3">
+                <p className="mb-1 text-xs font-medium uppercase text-muted-foreground">
+                  {LIBELLE_STATUT_RECLAMATION[reclamation.statut] ?? reclamation.statut} sans
+                  adjudication — remboursement 0
+                </p>
+                <ul className="space-y-1 text-sm">
+                  {reclamation.codesRejet.map((c) => (
+                    <li key={c}>
+                      <span className="font-mono">{c}</span> — {libelleCodeRejet(c)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Pas encore d’adjudication (statut {LIBELLE_STATUT_RECLAMATION[reclamation.statut] ?? reclamation.statut}).
+              </p>
+            )
           )}
 
           {enRevue && autoriseRevue && (
             <FormulaireModal
               titre="Traiter la réclamation"
               mode="center"
-              description={`Décision de revue manuelle (réservée à ${roleRevuePour(
-                reclamation.typeReclamation,
-              )}).`}
+              description={`Décision de revue manuelle (réservée à ${reclamation.roleRevue}).`}
               declencheur={<Button size="sm">Traiter la revue manuelle</Button>}
               libelleSoumettre="Enregistrer la décision"
               onSoumettre={async (fd) => {
@@ -199,7 +215,7 @@ export function ReclamationDetail({
           )}
           {enRevue && !autoriseRevue && (
             <p className="text-sm text-muted-foreground">
-              Revue manuelle réservée à {roleRevuePour(reclamation.typeReclamation)}.
+              Revue manuelle réservée à {reclamation.roleRevue}.
             </p>
           )}
         </CardContent>

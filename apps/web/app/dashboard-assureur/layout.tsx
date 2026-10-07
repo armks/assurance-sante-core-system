@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard/shell';
 import { EcranMessage } from '@/components/ecran-message';
 import { exigerIdentite } from '@/lib/identity';
+import { CategoriesActeProvider } from '@/components/categories-acte';
+import { chargerCategoriesActe } from '@/lib/categories-acte';
 
 /**
  * Layout partagé de toutes les routes /dashboard-assureur/*. Charge l'identité,
@@ -51,7 +53,9 @@ export default async function DashboardAssureurLayout({
       peutValider={permissions.peutValider}
       dashboardRoute={permissions.dashboardRoute}
     >
-      {children}
+      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+        {children}
+      </CategoriesActeProvider>
     </DashboardShell>
   );
 }

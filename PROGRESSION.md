@@ -7257,3 +7257,67 @@ garantie (le formulaire produit propose `ANALYSES_LABORATOIRE`, `SOINS_INFIRMIER
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-07 — Référentiel unique des catégories d'acte et règle « non couvert » (ADR-004)
+
+### Base
+- `prisma/sql/067_categories_acte.sql` (appliquée, d'abord essayée avec ROLLBACK) :
+  table `categories_acte` (12 catégories, type de réclamation, rôle de revue, actif,
+  RLS lecture) ; conversions BIOLOGIE / ANALYSES_LABORATOIRE → ANALYSES,
+  TRANSPORT_SANITAIRE → TRANSPORT ; `referentiel_actes.categorie` normalisée
+  (« Consultation » → CONSULTATION) ; garde-fous (échec explicite si valeur hors
+  référentiel, doublon ou taux manquant) ; clés étrangères depuis `garanties`,
+  `actes_dossier`, `referentiel_actes`, `referentiel_national_actes` ; index unique
+  partiel (produit, catégorie) ; `taux_couverture` NOT NULL ;
+  `produits.categories_non_couvertes` ; `reclamations.garantie_id` NULL autorisé
+  uniquement pour un rejet E011. État vérifié avant : 4 garanties, 0 acte, 0 réclamation.
+
+### API
+- `CategoriesActeService` (module reference, cache 60 s) + `GET /reference/categories-acte`.
+  Supprimés : `CATEGORIES_ACTE`, `CATEGORIE_VERS_TYPE`, `TYPES_RECLAMATION_MEDICAUX`,
+  les deux `TAUX_COUVERTURE_DEFAUT`.
+- Garanties : catégorie validée contre le référentiel (plus de texte libre), taux
+  obligatoire, doublon de catégorie → 409. Actes : catégorie validée (ancien code → 400).
+  Référentiels d'actes (organisation, catalogue national, import Excel) : code ou
+  libellé normalisé, inconnu → 400 / erreur de ligne.
+- Règle « non couvert » : facture et simulation à 0 % sans garantie ; l'ajout d'acte
+  renvoie `categorieCouverte` ; pharmacie sans garantie PHARMACIE → part assurance 0
+  (seule modification pharmacie, décidée avec l'utilisateur).
+- Publication : catégories sans garantie à confirmer (`categoriesNonCouvertes`),
+  sinon 400 avec la liste ; fiche produit : `categoriesSansGarantie`.
+- Réclamations d'acte : garantie de la catégorie de l'acte (plus `planCouvertureId`),
+  type depuis le référentiel ; sans garantie → REJETE E011, garantie NULL, sans
+  appel au microservice. `roleRevue` (référentiel) exposé sur les réclamations.
+
+### Web
+- `CategoriesActeProvider` chargé par les layouts (adhérent, assureur, centre médical,
+  société, superadmin) + `useCategoriesActe()` ; 11 écrans et 4 listes branchés dessus
+  (`lib/referentiel.ts` ne garde qu'un repli d'affichage).
+- Produit : taux obligatoire ; publication dans une modale qui exige de cocher chaque
+  catégorie non couverte ; fiche publiée : « Catégories non couvertes ».
+- Dossier (médecin) : bandeau « catégorie NON COUVERTE … » à l'ajout de l'acte.
+- Réclamations : rôle de revue lu dans l'API, libellé E011, codes affichés pour un
+  rejet sans adjudication. Référentiel médical et catalogue national : catégorie en liste.
+
+### Tests
+- Unitaires : `part-assurance-categories.spec.ts` — un cas chiffré par catégorie (12,
+  exemples de l'analyse : ANALYSES 60 000 → 40 000 / 20 000, TRANSPORT 80 000 →
+  25 000 / 55 000, MATERNITE 400 000 → 300 000 / 100 000, ACTE_TECHNIQUE 15 000 →
+  0 / 15 000…) vérifié sur la facture ET la simulation, et un test qui échoue si une
+  catégorie de la migration n'a pas de comportement défini ; + publication, garanties,
+  réclamations (garantie par catégorie, E011, idempotence, rôle de revue), pharmacie.
+  Les tests lisent le référentiel dans la migration 067 (`categories-acte.testing.ts`).
+  API 946/946 (+27, exécution `--runInBand` ; `carte.service.spec` dépasse son délai
+  sous charge parallèle, 30/30 seul). Typage API et web : 0 erreur.
+- HTTP réel : 26/26 — référentiel, garanties (BIOLOGIE 400, sans taux 400, doublon
+  409), publication (400 avec liste, partielle, puis PUBLIE), actes (simulation par
+  catégorie, ACTE_TECHNIQUE non couvert), facture 555 000 → 365 000 / 190 000,
+  réclamations (E011 sans remboursement, 409, garantie ANALYSES et adjudication Java
+  40 000, TRANSPORT 25 000 revue exploitation).
+- Navigateur : 8/8 — modale de publication (cases obligatoires), fiche publiée, liste
+  des catégories du formulaire d'acte, bandeau « non couvert ».
+- Scripts : suppression en ordre inverse des dépendances, 0 ligne et 0 compte Auth
+  vérifiés à chaque exécution (y compris celles interrompues).
+
+### Statut
+Terminé, commité et poussé.

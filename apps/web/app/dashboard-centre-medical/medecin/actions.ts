@@ -57,6 +57,18 @@ export async function ajouterActe(
   );
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(cible(dossierId));
+  // Règle « non couvert » : l'API annonce, dès l'ajout, si la catégorie de
+  // l'acte a une garantie dans le produit du patient.
+  const acte = (await res.json().catch(() => null)) as
+    | { categorieCouverte?: boolean }
+    | null;
+  if (acte?.categorieCouverte === false) {
+    return {
+      ok: true,
+      message:
+        'Acte ajouté — catégorie NON COUVERTE par le produit du patient : aucune prise en charge, le patient paiera l’intégralité de cet acte.',
+    };
+  }
   return { ok: true, message: 'Acte ajouté au ticket de soins.' };
 }
 

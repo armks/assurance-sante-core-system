@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { ReferenceModule } from '../reference/reference.module';
 import { PlanController } from './plan.controller';
 import { PlanService } from './plan.service';
 
@@ -8,7 +9,7 @@ import { PlanService } from './plan.service';
  * produits d'assurance versionnés et de leurs garanties.
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, ReferenceModule],
   controllers: [PlanController],
   providers: [PlanService],
   exports: [PlanService],

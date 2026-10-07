@@ -12,7 +12,7 @@ import {
   TON_STATUT_BENEFICIAIRE,
 } from '@/lib/member';
 import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
-import { libelleCategorieActe } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface GarantieAdherent {
   id: string;
@@ -96,6 +96,7 @@ export function AdherentVueEnsemble({
   photoAdherentUrl?: string | null;
   photosParBeneficiaire?: Record<string, string | null>;
 }) {
+  const { libelle: libelleCategorieActe } = useCategoriesActe();
   const beneficiaires = adherent.beneficiaires ?? [];
   const police = adherent.police;
   const enCours = reclamations.filter((r) => RECLAMATIONS_EN_COURS.includes(r.statut));

@@ -20,7 +20,6 @@ import {
   TON_STATUT_RECLAMATION,
   libelleCodeRejet,
   peutTraiterRevue,
-  roleRevuePour,
 } from '@/lib/reclamations';
 import type { Reclamation } from './reclamations-liste';
 
@@ -97,7 +96,7 @@ export function RevueManuelleFile({
         recherche={{ placeholder: 'N°, type…', champs: ['id', 'typeReclamation'] }}
         colonnes={colonnes}
         actionLigne={(r) => {
-          const autorise = peutTraiterRevue(roleChain, r.typeReclamation);
+          const autorise = peutTraiterRevue(roleChain, r.roleRevue);
           return (
             <div className="flex items-center gap-1">
               {baseDetail && (
@@ -109,9 +108,7 @@ export function RevueManuelleFile({
                 <FormulaireModal
                   titre="Traiter la réclamation"
                   mode="center"
-                  description={`Décision de revue manuelle (réservée à ${roleRevuePour(
-                    r.typeReclamation,
-                  )}). Montant calculé par l'adjudication : ${montant(
+                  description={`Décision de revue manuelle (réservée à ${r.roleRevue}). Montant calculé par l'adjudication : ${montant(
                     r.remboursement?.montantRembourse ?? null,
                   )}.`}
                   declencheur={<Button size="xs">Traiter</Button>}
@@ -170,9 +167,9 @@ export function RevueManuelleFile({
               ) : (
                 <span
                   className="text-xs text-muted-foreground"
-                  title={`Réservé à ${roleRevuePour(r.typeReclamation)}`}
+                  title={`Réservé à ${r.roleRevue}`}
                 >
-                  {roleRevuePour(r.typeReclamation) === 'ASSUREUR_MEDECIN_CONSEIL'
+                  {r.roleRevue === 'ASSUREUR_MEDECIN_CONSEIL'
                     ? 'revue médecin-conseil'
                     : 'revue exploitation'}
                 </span>

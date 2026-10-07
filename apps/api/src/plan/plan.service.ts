@@ -10,7 +10,12 @@ import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateGarantieDto, UpdateGarantieDto } from './dto/garantie.dto';
+import { CategoriesActeService } from '../reference/categories-acte.service';
+import {
+  CreateGarantieDto,
+  PublierProduitDto,
+  UpdateGarantieDto,
+} from './dto/garantie.dto';
 import { CreateProduitDto, UpdateProduitDto } from './dto/produit.dto';
 import { ContexteAppelant, ROLES_GESTION_PLAN } from './plan.types';
 
@@ -36,6 +41,7 @@ export class PlanService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly categoriesActe: CategoriesActeService,
   ) {}
 
   // --- Produits ----------------------------------------------------------
@@ -136,7 +142,14 @@ export class PlanService {
     return this.chargerProduit(ctx.organisationId, id);
   }
 
-  async publier(user: AuthenticatedUser, id: string) {
+  /**
+   * BROUILLON → PUBLIE. Règle « non couvert » (prisma/sql/067) : un acte dont
+   * la catégorie n'a pas de garantie dans le produit n'est PAS pris en charge
+   * (part assurance 0). Chaque catégorie active sans garantie doit donc être
+   * confirmée explicitement par l'assureur (`categoriesNonCouvertes`) — sinon
+   * 400 avec la liste à confirmer, ou à couvrir en créant la garantie.
+   */
+  async publier(user: AuthenticatedUser, id: string, dto: PublierProduitDto = {}) {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const produit = await this.assertProduitDansPerimetre(ctx.organisationId, id);
@@ -146,23 +159,50 @@ export class PlanService {
       );
     }
 
-    const nbGaranties = await this.prisma.garantie.count({
+    const garanties = await this.prisma.garantie.findMany({
       where: { produitId: id, deletedAt: null },
+      select: { categorieActe: true },
     });
-    if (nbGaranties === 0) {
+    if (garanties.length === 0) {
       throw new BadRequestException(
         'Impossible de publier un produit sans aucune garantie.',
       );
     }
 
+    const couvertes = new Set(garanties.map((g) => g.categorieActe));
+    const sansGarantie = (await this.categoriesActe.actives())
+      .map((c) => c.code)
+      .filter((code) => !couvertes.has(code));
+    const confirmees = [...new Set(dto.categoriesNonCouvertes ?? [])];
+    for (const code of confirmees) {
+      await this.categoriesActe.exigerActive(code);
+      if (couvertes.has(code)) {
+        throw new BadRequestException(
+          `La catégorie ${code} a une garantie dans ce produit : elle ne peut pas être confirmée « non couverte ».`,
+        );
+      }
+    }
+    const aConfirmer = sansGarantie.filter((code) => !confirmees.includes(code));
+    if (aConfirmer.length > 0) {
+      throw new BadRequestException({
+        message: `Catégories d'acte sans garantie : ${aConfirmer.join(', ')}. Confirmez-les comme non couvertes (le patient paiera l'intégralité de ces actes) ou créez la garantie correspondante.`,
+        categoriesSansGarantie: aConfirmer,
+      });
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.produit.update({
         where: { id },
-        data: { statut: 'PUBLIE', datePublication: new Date() },
+        data: {
+          statut: 'PUBLIE',
+          datePublication: new Date(),
+          categoriesNonCouvertes: sansGarantie,
+        },
       });
       await this.audit(tx, ctx.userId, 'PUBLICATION_PRODUIT', id, {
         version: produit.version,
-        garanties: nbGaranties,
+        garanties: garanties.length,
+        categoriesNonCouvertes: sansGarantie,
       });
     });
     return this.chargerProduit(ctx.organisationId, id);
@@ -261,6 +301,8 @@ export class PlanService {
       produitId,
     );
     this.assertBrouillon(produit, 'Ajout de garantie');
+    await this.categoriesActe.exigerActive(dto.categorieActe);
+    await this.assertCategorieLibre(produitId, dto.categorieActe);
 
     return this.prisma.$transaction(async (tx) => {
       const garantie = await tx.garantie.create({
@@ -298,6 +340,10 @@ export class PlanService {
     });
     if (!garantie) {
       throw new NotFoundException('Garantie introuvable.');
+    }
+    if (dto.categorieActe !== undefined && dto.categorieActe !== garantie.categorieActe) {
+      await this.categoriesActe.exigerActive(dto.categorieActe);
+      await this.assertCategorieLibre(produitId, dto.categorieActe);
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -395,6 +441,20 @@ export class PlanService {
     }
   }
 
+  /** Une seule garantie active par (produit, catégorie) — même règle que
+   * l'index unique partiel `garanties_produit_categorie_unique` (prisma/sql/067). */
+  private async assertCategorieLibre(produitId: string, categorieActe: string) {
+    const existante = await this.prisma.garantie.findFirst({
+      where: { produitId, categorieActe, deletedAt: null },
+      select: { id: true },
+    });
+    if (existante) {
+      throw new ConflictException(
+        `Ce produit a déjà une garantie pour la catégorie ${categorieActe}.`,
+      );
+    }
+  }
+
   private async prochaineVersion(
     organisationId: string,
     nom: string,
@@ -414,7 +474,7 @@ export class PlanService {
     return {
       produitId,
       categorieActe: dto.categorieActe,
-      tauxCouverture: dto.tauxCouverture ?? null,
+      tauxCouverture: dto.tauxCouverture,
       plafondParActe: dto.plafondParActe ?? null,
       plafondAnnuel: dto.plafondAnnuel ?? null,
       franchise: dto.franchise ?? null,
@@ -456,7 +516,13 @@ export class PlanService {
     if (!produit) {
       throw new NotFoundException('Produit introuvable.');
     }
-    return produit;
+    // Catégories actives sans garantie : à confirmer « non couvertes » avant
+    // publication (BROUILLON), ou effectivement non couvertes (PUBLIE).
+    const couvertes = new Set(produit.garanties.map((g) => g.categorieActe));
+    const categoriesSansGarantie = (await this.categoriesActe.actives())
+      .map((c) => c.code)
+      .filter((code) => !couvertes.has(code));
+    return { ...produit, categoriesSansGarantie };
   }
 
   private async assertProduitDansPerimetre(organisationId: string, id: string) {

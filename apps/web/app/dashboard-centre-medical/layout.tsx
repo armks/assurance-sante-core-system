@@ -4,6 +4,8 @@ import { DashboardShell } from '@/components/dashboard/shell';
 import { EcranMessage } from '@/components/ecran-message';
 import { ROUTE_CENTRE_MEDICAL } from '@/lib/centre-medical';
 import { exigerIdentite } from '@/lib/identity';
+import { CategoriesActeProvider } from '@/components/categories-acte';
+import { chargerCategoriesActe } from '@/lib/categories-acte';
 
 /**
  * Layout partagé du dashboard « centre médical » (parcours de soins côté
@@ -62,7 +64,9 @@ export default async function DashboardCentreMedicalLayout({
       peutValider={permissions.peutValider}
       dashboardRoute={ROUTE_CENTRE_MEDICAL}
     >
-      {children}
+      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+        {children}
+      </CategoriesActeProvider>
     </DashboardShell>
   );
 }

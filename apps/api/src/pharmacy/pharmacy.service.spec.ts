@@ -11,6 +11,8 @@ import { ClaimsService } from '../claims/claims.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PharmacyService } from './pharmacy.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
+import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -108,6 +110,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PharmacyService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
@@ -217,13 +220,13 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       );
     });
 
-    it('sans garantie PHARMACIE → applique le taux par défaut (80%)', async () => {
+    it('sans garantie PHARMACIE → NON COUVERT : assurance 0, le patient paie tout (plus de 80 % par défaut)', async () => {
       prisma.garantie.findFirst.mockResolvedValue(null);
 
       const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
 
-      expect(res.montantAssurance).toBe('8000.00');
-      expect(res.montantPatient).toBe('2000.00');
+      expect(res.montantAssurance).toBe('0.00');
+      expect(res.montantPatient).toBe('10000.00');
     });
 
     it('applique le plafond par acte de la garantie sur le montant assurance', async () => {

@@ -19,13 +19,9 @@ import {
   type ColonneTable,
   type PageServeur,
 } from '@/components/dashboard/patterns';
-import { CATEGORIES_ACTE } from '@/lib/centre-medical';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  libelleCategorieActe,
-  optionsCategorieActe,
-} from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface ActeRevue {
   id: string;
@@ -142,8 +138,6 @@ const OPTIONS_CONTESTATION = [
   { valeur: 'EN_COURS', libelle: 'Contestation en cours' },
   { valeur: 'TRAITEE', libelle: 'Contestation tranchée' },
 ];
-const OPTIONS_CATEGORIE = optionsCategorieActe(CATEGORIES_ACTE);
-
 export function MedecinConseilActesEcran({
   actes,
   contestations,
@@ -152,6 +146,7 @@ export function MedecinConseilActesEcran({
   actes: PageServeur<ActeRevue>;
   contestations: ContestationActe[];
 }) {
+  const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
 
@@ -214,7 +209,7 @@ export function MedecinConseilActesEcran({
             libellePeriode="Prescrit"
             selects={[
               { cle: 'contestation', libelle: 'Contestation', options: OPTIONS_CONTESTATION },
-              { cle: 'categorie', libelle: 'Catégorie', options: OPTIONS_CATEGORIE },
+              { cle: 'categorie', libelle: 'Catégorie', options: optionsCategories() },
             ]}
           />
           <DataTable

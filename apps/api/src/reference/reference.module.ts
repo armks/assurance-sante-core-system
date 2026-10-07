@@ -1,17 +1,20 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { CategoriesActeService } from './categories-acte.service';
 import { ReferenceController } from './reference.controller';
 import { ReferenceService } from './reference.service';
 
 /**
  * Module `reference/` — un domaine métier strict (v18 §4) : référentiels
  * médicaux (actes + médicaments) et gouvernance d'homologation PROPOSE →
- * HOMOLOGUE → SUSPENDU/RETIRE (v8 §10, PROMPT 16).
+ * HOMOLOGUE → SUSPENDU/RETIRE (v8 §10, PROMPT 16), et référentiel unique des
+ * catégories d'acte (`CategoriesActeService`, prisma/sql/067) utilisé par les
+ * modules plan, preauthorization, claims et superadmin.
  */
 @Module({
   imports: [IdentityModule],
   controllers: [ReferenceController],
-  providers: [ReferenceService],
-  exports: [ReferenceService],
+  providers: [ReferenceService, CategoriesActeService],
+  exports: [ReferenceService, CategoriesActeService],
 })
 export class ReferenceModule {}

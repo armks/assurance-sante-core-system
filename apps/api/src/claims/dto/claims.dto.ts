@@ -8,24 +8,18 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-import { DECISIONS_REVUE_MANUELLE, TYPES_RECLAMATION } from '../claims.types';
+import { DECISIONS_REVUE_MANUELLE } from '../claims.types';
 
 /**
  * Soumission d'une réclamation à l'adjudication. La réclamation est construite à
- * partir de l'acte de dossier ; `garantieId` / `montant` ne servent qu'en
- * secours si le dossier n'a pas de plan de couverture / l'acte pas de montant.
+ * partir de l'acte de dossier : la garantie est celle du produit pour la
+ * CATÉGORIE de l'acte, le type de réclamation vient du référentiel
+ * `categories_acte` (prisma/sql/067) — ni l'un ni l'autre n'est fourni par le
+ * client. `montant` ne sert qu'en secours si l'acte n'a pas de montant.
  */
 export class SoumettreReclamationDto {
   @IsUUID()
   acteDossierId!: string;
-
-  @IsOptional()
-  @IsIn(TYPES_RECLAMATION)
-  typeReclamation?: (typeof TYPES_RECLAMATION)[number];
-
-  @IsOptional()
-  @IsUUID()
-  garantieId?: string;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

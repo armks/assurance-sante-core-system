@@ -15,10 +15,8 @@ import {
 } from '@/app/dashboard-assureur/reference-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  LIBELLE_STATUT_HOMOLOGATION,
-  libelleCategorieActe,
-} from '@/lib/referentiel';
+import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface ActeRef {
   id: string;
@@ -73,6 +71,7 @@ export function HomologationPanneau({
   actes?: ActeRef[];
   medicaments?: MedicamentRef[];
 }) {
+  const { libelle: libelleCategorieActe } = useCategoriesActe();
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatReference | null>(null);
   const run = (fn: () => Promise<ResultatReference>) =>

@@ -86,17 +86,23 @@ export async function supprimerGarantie(
   return { ok: true };
 }
 
-/** Publie le produit — verrouille produit + garanties (immuable). */
+/**
+ * Publie le produit — verrouille produit + garanties (immuable). Les catégories
+ * d'acte sans garantie doivent être confirmées « non couvertes »
+ * (`categoriesNonCouvertes`) : l'API refuse (400) tant qu'il en manque une.
+ */
 export async function publierProduit(
   produitId: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+  categoriesNonCouvertes: string[],
+): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/plan/produits/${produitId}/publier`, {
     method: 'POST',
+    body: JSON.stringify({ categoriesNonCouvertes }),
   });
-  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(`${CIBLE}/${produitId}`);
   revalidatePath(CIBLE);
-  return { ok: true };
+  return { ok: true, message: 'Produit publié.' };
 }
 
 /** Archive le produit (quel que soit son statut, sauf déjà ARCHIVE — 409 sinon). */

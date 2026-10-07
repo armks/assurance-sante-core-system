@@ -17,6 +17,7 @@ import { bornesPage, filtrePeriode, versPage } from '../common/pagination';
 import { STATUTS_CONTESTATION_EN_LITIGE } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
 import {
   AjouterActeDto,
   AutoriserRepetitionConsultationDto,
@@ -65,7 +66,6 @@ import {
   ROLES_TRAITEMENT_EXPLOITATION,
   STATUTS_ACTE_FACTURABLES,
   STATUTS_PREAUTORISATION_NON_FACTURABLES,
-  TAUX_COUVERTURE_DEFAUT,
   TYPE_VISITE_ANTI_REPETITION,
   TYPES_VISITE_FREQUENCE_CONSULTATION,
   TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE,
@@ -94,6 +94,7 @@ export class PreauthorizationService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly careEpisode: CareEpisodeService,
+    private readonly categoriesActe: CategoriesActeService,
   ) {}
 
   // --- Génération (adhérent) ---------------------------------------
@@ -859,6 +860,8 @@ export class PreauthorizationService {
         "Rôle insuffisant pour ajouter un acte à un ticket de soins.",
       );
     }
+    // Catégorie du référentiel unique, existante et active (prisma/sql/067).
+    await this.categoriesActe.exigerActive(dto.categorieActe);
     const estCentreMedical = ctx.roleChain.some((r) =>
       (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r),
     );
@@ -1007,9 +1010,10 @@ export class PreauthorizationService {
     }
 
     // Simulation INDICATIVE (v3 §5 étendu) — lecture seule, avant la
-    // transaction d'écriture. Ne bloque jamais l'ajout de l'acte : une
-    // absence de tarif/garantie renvoie simplement `null` (rien à simuler).
-    const simulation = await this.simulerMontantActe(
+    // transaction d'écriture. Ne bloque jamais l'ajout de l'acte. Catégorie
+    // sans garantie dans le produit : annoncée NON COUVERTE dès maintenant
+    // (part assurance 0, patient 100 %) — règle « non couvert », prisma/sql/067.
+    const { categorieCouverte, montants: simulation } = await this.simulerMontantActe(
       ctx.organisationId,
       ticket.dossier.etablissementId,
       ticket.dossier.police.produitId,
@@ -1059,6 +1063,7 @@ export class PreauthorizationService {
           ticketSoinsId: ticket.id,
           dossierSoinsId: ticket.dossierSoinsId,
           categorie: dto.categorieActe,
+          categorieCouverte,
           simulation: simulation ?? null,
           statutPreautorisation,
           autorisationRepetitionId,
@@ -1101,7 +1106,8 @@ export class PreauthorizationService {
       return acte.id;
     });
 
-    return this.prisma.acteDossier.findUnique({ where: { id } });
+    const acte = await this.prisma.acteDossier.findUnique({ where: { id } });
+    return { ...acte, categorieCouverte };
   }
 
   /**
@@ -1111,9 +1117,11 @@ export class PreauthorizationService {
    * Reste indicative : le calcul définitif de l'adjudication (microservice
    * Java, `Adjudicateur.calculer`) garde le dernier mot (franchise, plafond
    * ANNUEL restant, verrouillage transactionnel — rien de tout cela n'est
-   * répliqué ici). Renvoie `null` si aucun montant facturé n'est fourni, ou
-   * si aucune garantie ne correspond à la catégorie d'acte du produit du
-   * patient (rien à simuler) — ne bloque jamais l'ajout de l'acte lui-même.
+   * répliqué ici). `categorieCouverte` dit si le produit du patient a une
+   * garantie pour la catégorie : sinon l'acte n'est PAS pris en charge (règle
+   * « non couvert », prisma/sql/067) — part assurance 0, patient 100 %.
+   * `montants` vaut `null` si aucun montant facturé n'est fourni. Ne bloque
+   * jamais l'ajout de l'acte lui-même.
    *
    * `ticketModerateurOverride` : surcharge `garanties.ticketModerateur` pour
    * CE calcul précis — utilisé lors du recalcul après approbation par
@@ -1128,22 +1136,33 @@ export class PreauthorizationService {
     dto: Pick<AjouterActeDto, 'categorieActe' | 'codeActe' | 'montantPrescrit' | 'quantite'>,
     ticketModerateurOverride?: string,
   ): Promise<{
-    montantSimuleAssurance: string;
-    montantSimulePatient: string;
-    ticketModerateurSimule: string;
-  } | null> {
-    if (dto.montantPrescrit === undefined) {
-      return null;
-    }
-
+    categorieCouverte: boolean;
+    montants: {
+      montantSimuleAssurance: string;
+      montantSimulePatient: string;
+      ticketModerateurSimule: string;
+    } | null;
+  }> {
     const garantie = await this.prisma.garantie.findFirst({
       where: { produitId, categorieActe: dto.categorieActe, deletedAt: null },
     });
-    if (!garantie) {
-      return null;
+    if (dto.montantPrescrit === undefined) {
+      return { categorieCouverte: garantie !== null, montants: null };
     }
 
     const montantFacture = new Decimal(dto.montantPrescrit).mul(dto.quantite ?? 1);
+    if (!garantie) {
+      // Non couvert : le patient paie le montant facturé, comme sur la facture
+      // (`calculerMontantsPourActes`).
+      return {
+        categorieCouverte: false,
+        montants: {
+          montantSimuleAssurance: '0.00',
+          montantSimulePatient: montantFacture.toFixed(2),
+          ticketModerateurSimule: '0.00',
+        },
+      };
+    }
 
     // Tarif conventionné établissement × acte, s'il existe (même lien que
     // JdbcAdjudicationRepository.SQL_CONTEXTE : codeActe -> referentiel_actes.code
@@ -1174,9 +1193,7 @@ export class PreauthorizationService {
       }
     }
 
-    const taux = new Decimal(
-      garantie.tauxCouverture?.toString() ?? String(TAUX_COUVERTURE_DEFAUT),
-    );
+    const taux = new Decimal(garantie.tauxCouverture.toString());
     let montantSimuleAssurance = montantBase.mul(taux).div(100).toDecimalPlaces(2);
     if (garantie.plafondParActe) {
       const plafond = new Decimal(garantie.plafondParActe.toString());
@@ -1194,9 +1211,12 @@ export class PreauthorizationService {
       .toDecimalPlaces(2);
 
     return {
-      montantSimuleAssurance: montantSimuleAssurance.toFixed(2),
-      montantSimulePatient: montantSimulePatient.toFixed(2),
-      ticketModerateurSimule: ticketModerateurSimule.toFixed(2),
+      categorieCouverte: true,
+      montants: {
+        montantSimuleAssurance: montantSimuleAssurance.toFixed(2),
+        montantSimulePatient: montantSimulePatient.toFixed(2),
+        ticketModerateurSimule: ticketModerateurSimule.toFixed(2),
+      },
     };
   }
 
@@ -1450,20 +1470,22 @@ export class PreauthorizationService {
         // Orientation (v3 §5 complément) : le tarif conventionné se recherche
         // pour l'établissement EXÉCUTANT une fois renseigné, plus jamais
         // celui d'origine du dossier.
-        simulation = await this.simulerMontantActe(
-          ctx.organisationId,
-          params.etablissementExecutionId ?? acte.dossier.etablissementId,
-          acte.dossier.police.produitId,
-          {
-            categorieActe: acte.categorieActe as AjouterActeDto['categorieActe'],
-            codeActe: acte.codeActe ?? undefined,
-            montantPrescrit: Number(acte.montantPrescrit.toString()),
-            quantite: params.quantiteApprouvee ?? acte.quantite,
-          },
-          params.ticketModerateurAjuste !== undefined
-            ? params.ticketModerateurAjuste.toFixed(2)
-            : undefined,
-        );
+        simulation = (
+          await this.simulerMontantActe(
+            ctx.organisationId,
+            params.etablissementExecutionId ?? acte.dossier.etablissementId,
+            acte.dossier.police.produitId,
+            {
+              categorieActe: acte.categorieActe,
+              codeActe: acte.codeActe ?? undefined,
+              montantPrescrit: Number(acte.montantPrescrit.toString()),
+              quantite: params.quantiteApprouvee ?? acte.quantite,
+            },
+            params.ticketModerateurAjuste !== undefined
+              ? params.ticketModerateurAjuste.toFixed(2)
+              : undefined,
+          )
+        ).montants;
       }
     }
 
@@ -2989,14 +3011,21 @@ export class PreauthorizationService {
       );
       total = total.add(montant);
 
+      // Règle « non couvert » (prisma/sql/067) : sans garantie pour la
+      // catégorie dans le produit, la part assurance est 0 — plus de taux
+      // par défaut. L'index unique (produit, catégorie) garantit une seule
+      // garantie candidate.
       const g = parCategorie.get(acte.categorieActe);
-      const taux = new Decimal(
-        g?.tauxCouverture?.toString() ?? String(TAUX_COUVERTURE_DEFAUT),
-      );
-      let partAssurance = montant.mul(taux).div(100).toDecimalPlaces(2);
-      if (g?.plafondParActe) {
-        const plafond = new Decimal(g.plafondParActe.toString());
-        if (partAssurance.gt(plafond)) partAssurance = plafond;
+      let partAssurance = new Decimal(0);
+      if (g) {
+        partAssurance = montant
+          .mul(new Decimal(g.tauxCouverture.toString()))
+          .div(100)
+          .toDecimalPlaces(2);
+        if (g.plafondParActe) {
+          const plafond = new Decimal(g.plafondParActe.toString());
+          if (partAssurance.gt(plafond)) partAssurance = plafond;
+        }
       }
       assurance = assurance.add(partAssurance);
       partsAssurance.push(partAssurance.toFixed(2));

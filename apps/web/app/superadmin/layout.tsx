@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { EcranMessage } from '@/components/ecran-message';
 import { SuperadminShell } from '@/components/superadmin/shell';
 import { exigerIdentite } from '@/lib/identity';
+import { CategoriesActeProvider } from '@/components/categories-acte';
+import { chargerCategoriesActe } from '@/lib/categories-acte';
 
 export const metadata: Metadata = {
   title: 'Super administration',
@@ -45,5 +47,11 @@ export default async function SuperadminLayout({
     redirect('/dashboard');
   }
 
-  return <SuperadminShell email={etat.email}>{children}</SuperadminShell>;
+  return (
+    <SuperadminShell email={etat.email}>
+      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+        {children}
+      </CategoriesActeProvider>
+    </SuperadminShell>
+  );
 }

@@ -7,20 +7,24 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
   MinLength,
 } from 'class-validator';
+import { FORMAT_CODE_CATEGORIE } from '../../reference/categories-acte.service';
 import {
-  CATEGORIES_ACTE,
   DECISIONS_EXPLOITATION_PREAUTORISATION,
   TYPES_VISITE_FREQUENCE_CONSULTATION,
 } from '../preauthorization.types';
 
 export class AjouterActeDto {
-  @IsIn(CATEGORIES_ACTE)
-  categorieActe!: (typeof CATEGORIES_ACTE)[number];
+  /** Code du référentiel `categories_acte` (prisma/sql/067) — existence et
+   * statut actif vérifiés par `PreauthorizationService.ajouterActe`. */
+  @IsString()
+  @Matches(FORMAT_CODE_CATEGORIE, { message: 'categorieActe doit être un code de catégorie (ex. CONSULTATION).' })
+  categorieActe!: string;
 
   @IsString()
   @IsNotEmpty()

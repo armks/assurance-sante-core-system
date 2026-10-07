@@ -15,6 +15,7 @@ import {
   type GarantieInput,
 } from '@/app/dashboard-assureur/informatique/produits/actions';
 import {
+  ChampCheckbox,
   ChampNombre,
   ChampSelect,
   ChampTexte,
@@ -26,11 +27,7 @@ import {
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  CATEGORIES_GARANTIE,
-  libelleCategorieActe,
-  optionsCategorieActe,
-} from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 interface Garantie {
   id: string;
@@ -53,6 +50,11 @@ export interface ProduitAvecGaranties {
   datePublication: string | null;
   createdAt: string;
   garanties: Garantie[];
+  /** Catégories actives du référentiel sans garantie (calculé par l'API) :
+   * à confirmer « non couvertes » avant publication. */
+  categoriesSansGarantie: string[];
+  /** Catégories confirmées non couvertes à la publication. */
+  categoriesNonCouvertes: string[];
 }
 
 const LIBELLE_RESEAU: Record<string, string> = {
@@ -68,6 +70,7 @@ const LIBELLE_STATUT: Record<string, string> = {
 
 /** Champs communs au formulaire d'ajout/modification d'une garantie. */
 function ChampsGarantie({ defaut }: { defaut?: Garantie }) {
+  const { options: optionsCategories } = useCategoriesActe();
   return (
     <>
       <ChampSelect
@@ -76,7 +79,7 @@ function ChampsGarantie({ defaut }: { defaut?: Garantie }) {
         required
         placeholder="Choisir une catégorie…"
         defaultValue={defaut?.categorieActe}
-        options={optionsCategorieActe(CATEGORIES_GARANTIE)}
+        options={optionsCategories()}
       />
       <ChampNombre
         name="tauxCouverture"
@@ -84,6 +87,8 @@ function ChampsGarantie({ defaut }: { defaut?: Garantie }) {
         min={0}
         max={100}
         step="0.01"
+        required
+        aide="Obligatoire : une catégorie sans garantie n’est pas couverte (le patient paie tout)."
         defaultValue={defaut?.tauxCouverture ?? undefined}
       />
       <ChampNombre
@@ -180,6 +185,7 @@ export function ProduitDetail({
    * garanties). */
   peutGererPlan?: boolean;
 }) {
+  const { libelle: libelleCategorieActe } = useCategoriesActe();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -253,14 +259,6 @@ export function ProduitDetail({
         ),
     },
   ];
-
-  const publier = () =>
-    start(async () => {
-      setErreur(null);
-      const r = await publierProduit(produit.id);
-      if (r.ok) router.refresh();
-      else setErreur(r.error);
-    });
 
   const nouvelleVersion = () =>
     start(async () => {
@@ -338,6 +336,13 @@ export function ProduitDetail({
           </Ligne>
           <Ligne label="Version">v{produit.version}</Ligne>
           <Ligne label="Garanties">{produit.garanties.length}</Ligne>
+          {!brouillon && (
+            <Ligne label="Catégories non couvertes">
+              {produit.categoriesNonCouvertes.length > 0
+                ? produit.categoriesNonCouvertes.map(libelleCategorieActe).join(', ')
+                : 'Aucune'}
+            </Ligne>
+          )}
           <Ligne label="Créé le">
             {new Date(produit.createdAt).toLocaleDateString('fr-FR')}
           </Ligne>
@@ -429,9 +434,36 @@ export function ProduitDetail({
       <div className="flex flex-wrap items-center gap-3 border-t pt-4">
         {brouillon && peutGererPlan && (
           <>
-            <Button disabled={pending || sansGarantie} onClick={publier}>
-              Publier le produit
-            </Button>
+            <FormulaireModal
+              titre="Publier le produit"
+              mode="center"
+              description={
+                produit.categoriesSansGarantie.length > 0
+                  ? 'Ces catégories d’acte n’ont pas de garantie dans ce produit. Une fois publié, leurs actes ne seront PAS pris en charge : le patient en paiera l’intégralité. Cochez chacune pour confirmer, ou fermez et ajoutez la garantie correspondante.'
+                  : 'Toutes les catégories d’acte ont une garantie. La version publiée devient immuable.'
+              }
+              declencheur={
+                <Button disabled={pending || sansGarantie}>Publier le produit</Button>
+              }
+              libelleSoumettre="Publier"
+              onSoumettre={async (fd) =>
+                publierProduit(
+                  produit.id,
+                  fd.getAll('categorieNonCouverte').map(String),
+                )
+              }
+              onSucces={() => router.refresh()}
+            >
+              {produit.categoriesSansGarantie.map((code) => (
+                <ChampCheckbox
+                  key={code}
+                  name="categorieNonCouverte"
+                  value={code}
+                  required
+                  label={`${libelleCategorieActe(code)} — non couverte`}
+                />
+              ))}
+            </FormulaireModal>
             {sansGarantie && (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Info className="size-3.5" />

@@ -17,6 +17,7 @@ import {
   ProposerActeDto,
   ProposerMedicamentDto,
 } from './dto/reference.dto';
+import { CategoriesActeService } from './categories-acte.service';
 import { ReferenceService } from './reference.service';
 
 /**
@@ -28,7 +29,20 @@ import { ReferenceService } from './reference.service';
 @Controller('reference')
 @UseGuards(SupabaseAuthGuard)
 export class ReferenceController {
-  constructor(private readonly reference: ReferenceService) {}
+  constructor(
+    private readonly reference: ReferenceService,
+    private readonly categoriesActe: CategoriesActeService,
+  ) {}
+
+  /**
+   * Référentiel unique des catégories d'acte (libellé, type de réclamation,
+   * rôle de revue, actif) — tout compte authentifié, sans condition
+   * d'organisation : donnée de référence non sensible (prisma/sql/067).
+   */
+  @Get('categories-acte')
+  listerCategoriesActe() {
+    return this.categoriesActe.lister();
+  }
 
   // --- Catalogue national partagé (v1 §10.4, PROMPT 23) --------
 

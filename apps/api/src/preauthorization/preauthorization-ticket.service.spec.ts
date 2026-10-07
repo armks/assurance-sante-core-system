@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
@@ -9,6 +10,8 @@ import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
+import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -55,6 +58,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
@@ -166,8 +170,9 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       prisma.acteDossier.findUnique.mockResolvedValue({ id: 'acte-1' });
     });
 
-    it('sans montantPrescrit → aucune simulation (null sur les 3 colonnes)', async () => {
-      await service.ajouterActe(USER, 'tkt-1', ACTE);
+    it('sans montantPrescrit → aucun montant simulé, mais la couverture de la catégorie est annoncée', async () => {
+      prisma.garantie.findFirst.mockResolvedValue(null);
+      const res = await service.ajouterActe(USER, 'tkt-1', ACTE);
       expect(prisma.acteDossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -177,21 +182,29 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
           }),
         }),
       );
-      expect(prisma.garantie.findFirst).not.toHaveBeenCalled();
+      expect(res.categorieCouverte).toBe(false);
     });
 
-    it('sans garantie correspondant à la catégorie d’acte → aucune simulation', async () => {
+    it('sans garantie pour la catégorie → NON COUVERT annoncé dès l’ajout : assurance 0, patient 100 %', async () => {
       prisma.garantie.findFirst.mockResolvedValue(null);
-      await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
+      const res = await service.ajouterActe(USER, 'tkt-1', ACTE_AVEC_MONTANT);
       expect(prisma.acteDossier.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            montantSimuleAssurance: null,
-            montantSimulePatient: null,
-            ticketModerateurSimule: null,
+            montantSimuleAssurance: '0.00',
+            montantSimulePatient: '10000.00',
+            ticketModerateurSimule: '0.00',
           }),
         }),
       );
+      expect(res.categorieCouverte).toBe(false);
+    });
+
+    it('catégorie absente du référentiel (ancien code BIOLOGIE) → 400, aucun acte créé', async () => {
+      await expect(
+        service.ajouterActe(USER, 'tkt-1', { ...ACTE, categorieActe: 'BIOLOGIE' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.acteDossier.create).not.toHaveBeenCalled();
     });
 
     it('sans tarif conventionné → simule sur le montant facturé', async () => {
@@ -444,7 +457,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       },
     });
     const ACTE_ANALYSE = {
-      categorieActe: 'BIOLOGIE' as const,
+      categorieActe: 'ANALYSES' as const,
       libelle: 'Bilan sanguin complet',
       codeActe: 'BIO-01',
       quantite: 1,
@@ -903,7 +916,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL',
       quantite: 1,
       libelle: 'Bilan sanguin',
-      categorieActe: 'BIOLOGIE',
+      categorieActe: 'ANALYSES',
       codeActe: null,
       montantPrescrit: null,
       dossier: { organisationId: 'org-1', etablissementId: 'etab-1', police: { produitId: 'prod-1' } },

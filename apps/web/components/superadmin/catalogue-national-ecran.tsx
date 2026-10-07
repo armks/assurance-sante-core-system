@@ -23,10 +23,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
 import { Stethoscope, Pill } from 'lucide-react';
-import {
-  LIBELLE_STATUT_HOMOLOGATION,
-  libelleCategorieActe,
-} from '@/lib/referentiel';
+import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface ActeNational {
   id: string;
@@ -55,6 +53,7 @@ export function CatalogueNationalEcran({
   medicaments: MedicamentNational[];
   imports: ImportCatalogueResume[];
 }) {
+  const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -151,7 +150,12 @@ export function CatalogueNationalEcran({
               >
                 <ChampTexte name="code" label="Code" required placeholder="CI-CONS-GEN" />
                 <ChampTexte name="libelle" label="Libellé" required />
-                <ChampTexte name="categorie" label="Catégorie" placeholder="CONSULTATION" />
+                <ChampSelect
+                  name="categorie"
+                  label="Catégorie"
+                  placeholder="Choisir…"
+                  options={optionsCategories()}
+                />
                 <ChampTexte
                   name="versionNomenclature"
                   label="Version de nomenclature"

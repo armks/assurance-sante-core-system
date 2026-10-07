@@ -427,6 +427,25 @@ model RegleProvisioning {
   @@map("regles_provisioning")
 }
 
+/// categories_acte — référentiel UNIQUE des catégories d'acte (prisma/sql/067) :
+/// garanties, actes de dossier, référentiels d'actes, type de réclamation et
+/// rôle de revue manuelle. Lecture seule hors migration.
+model CategorieActe {
+  code            String     @id
+  libelle         String
+  typeReclamation String     @map("type_reclamation") // SOIN | PHARMACIE | HOSPITALISATION | OPTIQUE | DENTAIRE | ANALYSES | IMAGERIE | AUTRE
+  roleRevue       String     @map("role_revue") // FK sous_roles.code
+  actif           Boolean    @default(true)
+  ordre           Int        @default(0)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  garanties Garantie[]
+  actes     ActeDossier[]
+
+  @@map("categories_acte")
+}
+
 /// produits — formule d'assurance VERSIONNÉE (v9 phase 2.1 / v3 §2). prisma/sql/004.
 model Produit {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -435,6 +454,9 @@ model Produit {
   version         Int       @default(1)
   statut          String    @default("BROUILLON") // BROUILLON | PUBLIE | ARCHIVE
   datePublication DateTime? @map("date_publication") @db.Timestamptz(6)
+  /// Catégories d'acte confirmées NON COUVERTES par l'assureur à la publication
+  /// (aucune garantie) — prisma/sql/067. Codes de `categories_acte`.
+  categoriesNonCouvertes String[] @default([]) @map("categories_non_couvertes")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -456,8 +478,8 @@ model Produit {
 model Garantie {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   produitId         String    @map("produit_id") @db.Uuid
-  categorieActe     String    @map("categorie_acte")
-  tauxCouverture    Decimal?  @map("taux_couverture") @db.Decimal(5, 2)
+  categorieActe     String    @map("categorie_acte") // FK categories_acte.code (prisma/sql/067)
+  tauxCouverture    Decimal   @map("taux_couverture") @db.Decimal(5, 2) // obligatoire depuis prisma/sql/067
   plafondParActe    Decimal?  @map("plafond_par_acte") @db.Decimal(14, 2)
   plafondAnnuel     Decimal?  @map("plafond_annuel") @db.Decimal(14, 2)
   franchise         Decimal?  @db.Decimal(14, 2)
@@ -470,8 +492,11 @@ model Garantie {
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   produit       Produit        @relation(fields: [produitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  categorie     CategorieActe  @relation(fields: [categorieActe], references: [code], onDelete: NoAction, onUpdate: NoAction)
   dossiersSoins DossierSoins[]
 
+  // + index unique partiel (produit_id, categorie_acte) WHERE deleted_at IS NULL
+  //   (garanties_produit_categorie_unique, prisma/sql/067 — non exprimable ici)
   @@index([produitId])
   @@map("garanties")
 }
@@ -1393,6 +1418,7 @@ model ActeDossier {
 
   dossier      DossierSoins         @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   ticket       TicketSoins          @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  categorie    CategorieActe        @relation(fields: [categorieActe], references: [code], onDelete: NoAction, onUpdate: NoAction)
   consultation ConsultationDossier? @relation(fields: [consultationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   prescripteur Profil?              @relation(fields: [medecinPrescripteurId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   etablissementExecution EtablissementSante? @relation("ActeEtablissementExecution", fields: [etablissementExecutionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1855,7 +1881,9 @@ model Reclamation {
   adherentId      String?   @map("adherent_id") @db.Uuid
   beneficiaireId  String?   @map("beneficiaire_id") @db.Uuid
   policeId        String    @map("police_id") @db.Uuid
-  garantieId      String    @map("garantie_id") @db.Uuid
+  /// NULL uniquement pour un rejet E011 « catégorie non couverte par le
+  /// produit » (contrainte reclamations_garantie_ou_non_couverte, prisma/sql/067).
+  garantieId      String?   @map("garantie_id") @db.Uuid
   montant         Decimal   @db.Decimal(14, 2)
   typeReclamation String    @map("type_reclamation") // SOIN | PHARMACIE | HOSPITALISATION | OPTIQUE | DENTAIRE | ANALYSES | IMAGERIE | AUTRE
   statut          String    @default("SOUMISE") // SOUMISE | EN_ADJUDICATION | AUTO_ADJUDIQUE | REVUE_MANUELLE | REJETE | PAYEE

@@ -48,11 +48,9 @@ export const LONGUEUR_CODE = 8;
 export const CATEGORIE_ACTE_PHARMACIE = 'PHARMACIE';
 
 /**
- * Taux de couverture par défaut si aucune garantie PHARMACIE ne matche le
- * produit du patient — dupliqué depuis `preauthorization.types` (un module =
- * un domaine métier strict, règle transverse du skill).
+ * Plus de taux par défaut : un produit sans garantie PHARMACIE ne couvre pas la
+ * dispensation (part assurance 0) — règle « non couvert », prisma/sql/067.
  */
-export const TAUX_COUVERTURE_DEFAUT = 80;
 
 /**
  * Rôles autorisés à soumettre la facture mensuelle d'une pharmacie — jamais

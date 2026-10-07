@@ -34,6 +34,9 @@ export interface Reclamation {
   beneficiaireId: string | null;
   dossierSoinsId: string;
   remboursement: Remboursement | null;
+  /** Rôle de revue manuelle, fourni par l'API depuis le référentiel des
+   * catégories d'acte (prisma/sql/067). */
+  roleRevue: string;
 }
 
 const dateFr = (d: string | null) =>

@@ -14,7 +14,11 @@ import {
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { CreateGarantieDto, UpdateGarantieDto } from './dto/garantie.dto';
+import {
+  CreateGarantieDto,
+  PublierProduitDto,
+  UpdateGarantieDto,
+} from './dto/garantie.dto';
 import { CreateProduitDto, UpdateProduitDto } from './dto/produit.dto';
 import { PlanService } from './plan.service';
 
@@ -67,8 +71,9 @@ export class PlanController {
   publier(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PublierProduitDto,
   ) {
-    return this.plan.publier(user, id);
+    return this.plan.publier(user, id, dto);
   }
 
   @Post(':id/archiver')

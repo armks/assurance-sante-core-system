@@ -13,7 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
-import { libelleCategorieActe } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface Garantie {
   id: string;
@@ -93,6 +93,7 @@ export function AssureeEcran({
   garanties: Record<string, ProduitAvecGaranties>;
   cotisations: CotisationAssuree[];
 }) {
+  const { libelle: libelleCategorieActe } = useCategoriesActe();
   const policeActive = polices.find((p) => p.statut === 'ACTIVE') ?? polices[0];
   const enRetard = cotisations.filter((c) => c.statut === 'EN_RETARD');
   const resteAPayer = cotisations

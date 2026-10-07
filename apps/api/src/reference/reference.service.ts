@@ -10,6 +10,7 @@ import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesActeService } from './categories-acte.service';
 import {
   HomologuerMedicamentDto,
   ProposerActeDto,
@@ -48,6 +49,7 @@ export class ReferenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly categoriesActe: CategoriesActeService,
   ) {}
 
   // --- Actes -------------------------------------------------------
@@ -56,6 +58,8 @@ export class ReferenceService {
     const ctx = await this.contexteAppelant(user);
     this.assertRole(ctx, ROLE_PROPOSITION, 'proposer un acte');
     await this.assertCodeActeLibre(dto.code);
+    // code ou libellé du référentiel unique (prisma/sql/067), jamais du texte libre
+    const categorie = await this.categoriesActe.normaliser(dto.categorie);
 
     const id = await this.prisma.$transaction(async (tx) => {
       const acte = await tx.referentielActe.create({
@@ -63,7 +67,7 @@ export class ReferenceService {
           organisationId: ctx.organisationId,
           code: dto.code,
           libelle: dto.libelle,
-          categorie: dto.categorie ?? null,
+          categorie,
           versionNomenclature: dto.versionNomenclature ?? null,
           statut: 'PROPOSE',
         },

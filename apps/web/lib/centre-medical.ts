@@ -48,20 +48,6 @@ export function aUnRole(roleChain: string[] | undefined, roles: string[]): boole
   return (roleChain ?? []).some((r) => roles.includes(r));
 }
 
-/** Catégories d'acte acceptées par l'API (`CATEGORIES_ACTE`). */
-export const CATEGORIES_ACTE = [
-  'CONSULTATION',
-  'HOSPITALISATION',
-  'PHARMACIE',
-  'OPTIQUE',
-  'DENTAIRE',
-  'IMAGERIE',
-  'BIOLOGIE',
-  'ACTE_TECHNIQUE',
-  'TRANSPORT',
-  'AUTRE',
-];
-
 /** member : `ROLE_RECHERCHE_CARTE` — réservé exclusivement à l'accueil du centre médical. */
 export const ROLE_RECHERCHE_CARTE = 'CENTRE_MEDICAL_ACCUEIL';
 

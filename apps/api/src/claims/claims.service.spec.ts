@@ -16,6 +16,8 @@ import {
   type DecisionAdjudication,
 } from './adjudication-client.service';
 import { ClaimsService } from './claims.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
+import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -68,8 +70,14 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
 
   beforeEach(async () => {
     prisma = {
-      acteDossier: { findFirst: jest.fn().mockResolvedValue(ACTE) },
+      acteDossier: {
+        findFirst: jest.fn().mockResolvedValue(ACTE),
+        findMany: jest.fn().mockResolvedValue([{ id: 'acte-1', categorieActe: 'CONSULTATION' }]),
+      },
       dossierSoins: { findFirst: jest.fn().mockResolvedValue(DOSSIER) },
+      police: { findFirst: jest.fn().mockResolvedValue({ produitId: 'prod-1' }) },
+      // garantie du produit pour la catégorie de l'acte (≠ planCouvertureId)
+      garantie: { findFirst: jest.fn().mockResolvedValue({ id: 'gar-consultation' }) },
       reclamation: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
@@ -89,6 +97,7 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         ClaimsService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
@@ -120,6 +129,68 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
     expect(res.adjudication).toEqual(DECISION);
   });
 
+  it('garantie = celle du produit pour la CATÉGORIE de l’acte, jamais planCouvertureId ; type depuis le référentiel', async () => {
+    prisma.acteDossier.findFirst.mockResolvedValue({ ...ACTE, categorieActe: 'MATERNITE' });
+    prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-maternite' });
+    prisma.reclamation.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'rec-1', statut: 'AUTO_ADJUDIQUE', codesRejet: [] });
+    prisma.reclamation.create.mockResolvedValue({ id: 'rec-1', statut: 'SOUMISE' });
+    prisma.reclamation.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.soumettre(USER, { acteDossierId: 'acte-1' });
+
+    expect(prisma.garantie.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { produitId: 'prod-1', categorieActe: 'MATERNITE', deletedAt: null },
+      }),
+    );
+    expect(prisma.reclamation.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          garantieId: 'gar-maternite', // et non DOSSIER.planCouvertureId ('gar-1')
+          typeReclamation: 'HOSPITALISATION', // categories_acte.type_reclamation de MATERNITE
+        }),
+      }),
+    );
+  });
+
+  it('catégorie sans garantie dans le produit → réclamation REJETE E011, garantie NULL, AUCUN appel au microservice', async () => {
+    prisma.acteDossier.findFirst.mockResolvedValue({ ...ACTE, categorieActe: 'ACTE_TECHNIQUE' });
+    prisma.garantie.findFirst.mockResolvedValue(null);
+    prisma.reclamation.findFirst
+      .mockResolvedValueOnce(null) // aucune réclamation existante pour l'acte
+      .mockResolvedValueOnce({ id: 'rec-nc', statut: 'REJETE', codesRejet: ['E011'], acteDossierId: 'acte-1' });
+    prisma.reclamation.create.mockResolvedValue({ id: 'rec-nc' });
+
+    const res = await service.soumettre(USER, { acteDossierId: 'acte-1' });
+
+    expect(prisma.reclamation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        acteDossierId: 'acte-1',
+        garantieId: null,
+        statut: 'REJETE',
+        codesRejet: ['E011'],
+        montant: '15000.00',
+        typeReclamation: 'SOIN',
+      }),
+    });
+    expect(adjudication.evaluer).not.toHaveBeenCalled();
+    expect(res.adjudication).toBeNull();
+    expect(res.reclamation.codesRejet).toEqual(['E011']);
+  });
+
+  it('catégorie non couverte déjà réclamée → 409 (idempotence), rien recréé', async () => {
+    prisma.acteDossier.findFirst.mockResolvedValue({ ...ACTE, categorieActe: 'ACTE_TECHNIQUE' });
+    prisma.garantie.findFirst.mockResolvedValue(null);
+    prisma.reclamation.findFirst.mockResolvedValueOnce({ id: 'rec-nc', statut: 'REJETE' });
+
+    await expect(service.soumettre(USER, { acteDossierId: 'acte-1' })).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+    expect(prisma.reclamation.create).not.toHaveBeenCalled();
+  });
+
   it('décision REJETE avec codes_rejet : les codes sont persistés', async () => {
     adjudication.evaluer.mockResolvedValue({
       ...DECISION,
@@ -138,7 +209,7 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
       where: { id: 'rec-1' },
       data: { statut: 'REJETE', codesRejet: ['E001'] },
     });
-    expect(res.adjudication.decision).toBe('REJETE');
+    expect(res.adjudication?.decision).toBe('REJETE');
   });
 
   it('microservice INJOIGNABLE → réclamation remise à SOUMISE + 503', async () => {
@@ -219,6 +290,7 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
 
   const REVUE = {
     id: 'rec-1',
+    acteDossierId: 'acte-1', // CONSULTATION → revue ASSUREUR_MEDECIN_CONSEIL (référentiel)
     statut: 'REVUE_MANUELLE',
     typeReclamation: 'SOIN',
     codesRejet: ['E010'],
@@ -296,8 +368,19 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
     expect(prisma.reclamation.update).not.toHaveBeenCalled();
   });
 
-  it('exploitation traite une réclamation non médicale (type AUTRE)', async () => {
+  it('rôle de revue lu dans le référentiel : acte TRANSPORT → le médecin conseil est refusé (403)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+    prisma.acteDossier.findMany.mockResolvedValue([{ id: 'acte-1', categorieActe: 'TRANSPORT' }]);
+    prisma.reclamation.findFirst.mockResolvedValueOnce({ ...REVUE, typeReclamation: 'AUTRE' });
+
+    await expect(
+      service.validerManuellement(USER, 'rec-1', { decision: 'APPROUVE', motif: 'Frais de transport' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('exploitation traite une réclamation non médicale (acte TRANSPORT)', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.acteDossier.findMany.mockResolvedValue([{ id: 'acte-1', categorieActe: 'TRANSPORT' }]);
     prisma.reclamation.findFirst
       .mockResolvedValueOnce({ ...REVUE, typeReclamation: 'AUTRE' })
       .mockResolvedValueOnce({ ...REVUE, typeReclamation: 'AUTRE', statut: 'AUTO_ADJUDIQUE' });
@@ -342,6 +425,7 @@ describe('ClaimsService — autorisation de lecture (listerReclamations / obteni
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         ClaimsService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },

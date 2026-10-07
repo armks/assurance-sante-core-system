@@ -5,6 +5,8 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CatalogueImportService } from './catalogue-import.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
+import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -83,6 +85,7 @@ describe('CatalogueImportService', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         CatalogueImportService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },

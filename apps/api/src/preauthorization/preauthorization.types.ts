@@ -49,18 +49,8 @@ export const ROLES_PHARMACIE = [
 export const STATUTS_TICKET_SOINS = ['OUVERT', 'CLOTURE', 'ANNULE'] as const;
 export type StatutTicketSoins = (typeof STATUTS_TICKET_SOINS)[number];
 
-export const CATEGORIES_ACTE = [
-  'CONSULTATION',
-  'HOSPITALISATION',
-  'PHARMACIE',
-  'OPTIQUE',
-  'DENTAIRE',
-  'IMAGERIE',
-  'BIOLOGIE',
-  'ACTE_TECHNIQUE',
-  'TRANSPORT',
-  'AUTRE',
-] as const;
+// Catégories d'acte : référentiel unique `categories_acte` (prisma/sql/067),
+// lu via `CategoriesActeService` (module reference) — plus de liste ici.
 
 /** Rôles autorisés à ajouter un acte à un ticket de soins. */
 export const ROLES_AJOUT_ACTE = [
@@ -191,7 +181,7 @@ export const ROLE_VALIDATION_PREAUTORISATION = 'ASSUREUR_MEDECIN_CONSEIL';
  * Règle anti-répétition (14 jours) — appliquée uniquement aux actes ajoutés
  * dans un dossier dont le `typeVisite` est ANALYSES_EXAMENS_MEDICAUX (même
  * valeur que `TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE`, pas une
- * `categorieActe` : celles-ci restent BIOLOGIE/IMAGERIE/etc.), et seulement
+ * `categorieActe` : celles-ci restent ANALYSES/IMAGERIE/etc.), et seulement
  * s'ils portent un `codeActe` (rien à comparer sinon — le même code désigne
  * toujours le même `referentiel_acte_id`). Seul ASSUREUR_MEDECIN_CONSEIL peut
  * débloquer, au cas par cas (`autoriserRepetition`), jamais l'exploitation
@@ -265,8 +255,11 @@ export const DECISIONS_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT = [
 export type DecisionVerificationFactureMensuelleEtablissement =
   (typeof DECISIONS_VERIFICATION_FACTURE_MENSUELLE_ETABLISSEMENT)[number];
 
-/** Taux de couverture par défaut si aucune garantie ne matche la catégorie d'acte. */
-export const TAUX_COUVERTURE_DEFAUT = 80;
+/**
+ * Plus de taux par défaut : une catégorie sans garantie dans le produit n'est
+ * PAS couverte (part assurance 0, patient 100 %) — règle « non couvert »,
+ * prisma/sql/067 et ARCHITECTURE-DECISIONS.md.
+ */
 
 /**
  * Alphabet du code : majuscules + chiffres, sans caractères ambigus

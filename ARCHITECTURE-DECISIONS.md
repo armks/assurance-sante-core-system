@@ -218,3 +218,66 @@ n'a donc **pas** besoin d'`INSERT` sur `audit_log` ni de `SELECT` sur `profils`.
 - Sur un environnement neuf : rejouer `prisma/sql/018` → `021` dans l'ordre
   reconstitue exactement cet état ; en cas de doute, ce tableau prime et un
   `REVOKE ALL … ; GRANT …` conforme à cette section remet le rôle d'aplomb.
+
+---
+
+## ADR-004 — Référentiel unique des catégories d'acte et règle « non couvert »
+
+**Date :** 2026-10-07 — **Statut :** acceptée — **Migration :** `prisma/sql/067_categories_acte.sql`
+
+### Contexte
+
+Trois vocabulaires de catégories coexistaient : actes (`CATEGORIES_ACTE`, API),
+garanties (liste du formulaire produit, texte libre côté API) et type de
+réclamation (`CATEGORIE_VERS_TYPE`). La part assurance apparie un acte à la
+garantie de même catégorie par code exact : BIOLOGIE, ACTE_TECHNIQUE et
+TRANSPORT ne trouvaient jamais de garantie et recevaient un taux par défaut de
+80 % codé en dur (deux définitions, préautorisation et pharmacie), y compris pour
+une catégorie que le produit excluait. Les garanties MATERNITE / SOINS_INFIRMIERS
+n'étaient jamais utilisées. En parallèle, une réclamation d'acte était adjugée
+avec la garantie CONSULTATION du dossier (`planCouvertureId`), quelle que soit
+la catégorie de l'acte.
+
+### Décision
+
+1. **Une table `categories_acte`** (code, libellé, type de réclamation, rôle de
+   revue, actif) est la seule source : validation des garanties et des actes (clés
+   étrangères + `CategoriesActeService`), type de réclamation, rôle de revue
+   manuelle, libellés et listes du web (`GET /reference/categories-acte`,
+   `useCategoriesActe()`). Liste : CONSULTATION, HOSPITALISATION, MATERNITE,
+   PHARMACIE, ANALYSES, IMAGERIE, OPTIQUE, DENTAIRE, ACTE_TECHNIQUE,
+   SOINS_INFIRMIERS, TRANSPORT, AUTRE. Fusions : BIOLOGIE et
+   ANALYSES_LABORATOIRE → ANALYSES ; TRANSPORT_SANITAIRE → TRANSPORT.
+2. **Une seule garantie active par (produit, catégorie)** — index unique partiel
+   `garanties_produit_categorie_unique`.
+3. **Règle « non couvert »** : une catégorie sans garantie dans le produit n'est
+   pas prise en charge — part assurance 0, le patient paie tout. Plus de taux par
+   défaut : `garanties.taux_couverture` est obligatoire (NOT NULL), les deux
+   constantes de 80 % sont supprimées (y compris en pharmacie, sur décision du
+   2026-10-07). La simulation l'annonce dès l'ajout de l'acte
+   (`categorieCouverte: false`).
+4. **Publication** : BROUILLON → PUBLIE exige que chaque catégorie active sans
+   garantie soit confirmée « non couverte » par l'assureur
+   (`produits.categories_non_couvertes`), sinon 400 avec la liste.
+5. **Réclamation d'un acte** : garantie = celle du produit pour la catégorie de
+   l'acte. `planCouvertureId` reste réservé à l'éligibilité et à la carence de la
+   consultation. Sans garantie : réclamation créée REJETE avec le code **E011**
+   « catégorie d'acte non couverte par le produit », `garantie_id` NULL
+   (contrainte `reclamations_garantie_ou_non_couverte`), **sans appel au
+   microservice** d'adjudication.
+
+### Conséquences
+
+- Ajouter une catégorie = une ligne dans `categories_acte` (migration) ; le test
+  `part-assurance-categories.spec.ts` échoue tant que son comportement chiffré
+  n'est pas défini (il lit la liste dans la migration 067).
+- Un produit publié avant 067 n'a pas de `categories_non_couvertes` confirmées :
+  la règle « non couvert » s'y applique quand même.
+- Une catégorie ajoutée après la publication d'un produit y est non couverte.
+- Inchangés (hors périmètre, décision du 2026-10-07) : la répartition des calculs
+  NestJS / Java, le plafond annuel, le reste du flux pharmacie. `svc_adjudication`
+  (ADR-003) : aucun grant modifié ; une réclamation E011 n'atteint jamais le
+  service. `TAUX_DEFAUT_PCT = 100` côté Java devient inatteignable (taux NOT NULL).
+- Le rôle de revue est désormais lu dans le référentiel depuis la catégorie de
+  l'acte (PHARMACIE pour une dispensation) : MATERNITE passe de AUTRE (revue
+  exploitation) à HOSPITALISATION (revue médecin conseil).

@@ -10,6 +10,8 @@ import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
+import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -75,6 +77,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },

@@ -23,7 +23,7 @@ import {
   LIBELLE_STATUT_TICKET,
   TON_STATUT_FACTURE_DOSSIER,
 } from '@/lib/dossier-soins';
-import { libelleCategorieActe } from '@/lib/referentiel';
+import { useCategoriesActe } from '@/components/categories-acte';
 
 interface LigneFacturationActe {
   id: string;
@@ -116,6 +116,7 @@ export function TicketDetail({
   dossier: DossierFacturation;
   peutFacturer: boolean;
 }) {
+  const { libelle: libelleCategorieActe } = useCategoriesActe();
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);

@@ -9,6 +9,8 @@ import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
+import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -89,6 +91,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
@@ -210,7 +213,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       prisma.factureDossier.create.mockImplementation(({ data }: any) => acteCreeParDefaut(data));
       prisma.garantie.findMany.mockResolvedValue([
         { categorieActe: 'CONSULTATION', tauxCouverture: dec(80), plafondParActe: null },
-        { categorieActe: 'BIOLOGIE', tauxCouverture: dec(80), plafondParActe: null },
+        { categorieActe: 'ANALYSES', tauxCouverture: dec(80), plafondParActe: null },
       ]);
     });
 
@@ -273,11 +276,11 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
       prisma.garantie.findMany.mockResolvedValue([
         { categorieActe: 'CONSULTATION', tauxCouverture: dec(80), plafondParActe: null },
-        { categorieActe: 'BIOLOGIE', tauxCouverture: dec(50), plafondParActe: dec(3000) },
+        { categorieActe: 'ANALYSES', tauxCouverture: dec(50), plafondParActe: dec(3000) },
       ]);
       prisma.acteDossier.findMany.mockResolvedValue([
         acte('acte-1', { montantPrescrit: dec(15000) }),
-        acte('acte-2', { montantPrescrit: dec(10000), categorieActe: 'BIOLOGIE' }),
+        acte('acte-2', { montantPrescrit: dec(10000), categorieActe: 'ANALYSES' }),
       ]);
 
       const res = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
@@ -309,7 +312,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
       prisma.acteDossier.findMany.mockResolvedValue([
         acte('acte-ok', { montantPrescrit: dec(10000) }),
-        acte('acte-attente', { montantPrescrit: dec(50000), categorieActe: 'BIOLOGIE', statutPreautorisation: 'EN_ATTENTE_EXPLOITATION' }),
+        acte('acte-attente', { montantPrescrit: dec(50000), categorieActe: 'ANALYSES', statutPreautorisation: 'EN_ATTENTE_EXPLOITATION' }),
       ]);
 
       const res = await service.genererFactureSelection(USER, 'dos-1', {
@@ -326,7 +329,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
       prisma.acteDossier.findMany.mockResolvedValue([
         acte('acte-ok', { montantPrescrit: dec(10000) }),
-        acte('acte-conteste', { montantPrescrit: dec(50000), categorieActe: 'BIOLOGIE' }),
+        acte('acte-conteste', { montantPrescrit: dec(50000), categorieActe: 'ANALYSES' }),
       ]);
       prisma.contestationActe.findMany.mockResolvedValue([{ acteDossierId: 'acte-conteste' }]);
 

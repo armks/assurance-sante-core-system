@@ -4,6 +4,8 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReferenceService } from './reference.service';
+import { CategoriesActeService } from './categories-acte.service';
+import { categoriesActeServiceDeTest } from './categories-acte.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -50,6 +52,7 @@ describe('ReferenceService — gouvernance d’homologation', () => {
 
     const moduleRef = await Test.createTestingModule({
       providers: [
+        { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         ReferenceService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },

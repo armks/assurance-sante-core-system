@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard/shell';
 import { EcranMessage } from '@/components/ecran-message';
 import { exigerIdentite } from '@/lib/identity';
+import { CategoriesActeProvider } from '@/components/categories-acte';
+import { chargerCategoriesActe } from '@/lib/categories-acte';
 
 const ROUTE_ADHERENT = '/dashboard-adherent';
 
@@ -53,7 +55,9 @@ export default async function DashboardAdherentLayout({
       peutValider={permissions.peutValider}
       dashboardRoute={permissions.dashboardRoute ?? ROUTE_ADHERENT}
     >
-      {children}
+      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+        {children}
+      </CategoriesActeProvider>
     </DashboardShell>
   );
 }

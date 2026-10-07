@@ -12,6 +12,7 @@ import ExcelJS from 'exceljs';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
 import { ROLE_SUPERADMIN } from './superadmin.types';
 
 /** Forme minimale d'un fichier téléversé (multer, mémoire) — même convention
@@ -121,6 +122,7 @@ export class CatalogueImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly categoriesActe: CategoriesActeService,
   ) {}
 
   private async assertSuperadmin(user: AuthenticatedUser): Promise<{ userId: string }> {
@@ -407,8 +409,15 @@ export class CatalogueImportService {
       const erreurs: string[] = [];
       if (!code) erreurs.push('code manquant');
       if (!libelle) erreurs.push('libellé manquant');
+      // code ou libellé du référentiel unique des catégories (prisma/sql/067)
+      let categorieCode: string | null = null;
+      try {
+        categorieCode = await this.categoriesActe.normaliser(categorie);
+      } catch {
+        erreurs.push(`catégorie inconnue (${categorie})`);
+      }
 
-      candidats.push({ ligne: n, donnees, code, libelle, categorie: categorie || null, erreurs });
+      candidats.push({ ligne: n, donnees, code, libelle, categorie: categorieCode, erreurs });
     }
 
     // Doublon de code DANS le fichier — toutes les lignes concernées en erreur.

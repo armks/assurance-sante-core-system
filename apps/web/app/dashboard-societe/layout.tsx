@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { DashboardShell } from '@/components/dashboard/shell';
 import { EcranMessage } from '@/components/ecran-message';
 import { exigerIdentite } from '@/lib/identity';
+import { CategoriesActeProvider } from '@/components/categories-acte';
+import { chargerCategoriesActe } from '@/lib/categories-acte';
 
 const ROUTE_SOCIETE = '/dashboard-societe';
 
@@ -56,7 +58,9 @@ export default async function DashboardSocieteLayout({
       peutValider={permissions.peutValider}
       dashboardRoute={permissions.dashboardRoute ?? ROUTE_SOCIETE}
     >
-      {children}
+      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+        {children}
+      </CategoriesActeProvider>
     </DashboardShell>
   );
 }

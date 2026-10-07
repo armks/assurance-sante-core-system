@@ -14,6 +14,7 @@ import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { CategoriesActeService } from '../reference/categories-acte.service';
 import {
   AdjudicationClientService,
   AdjudicationInjoignableError,
@@ -25,18 +26,17 @@ import {
   ValiderManuellementDto,
 } from './dto/claims.dto';
 import {
-  CATEGORIE_VERS_TYPE,
+  CATEGORIE_ACTE_DISPENSATION,
+  CODE_REJET_CATEGORIE_NON_COUVERTE,
   CODE_REJET_MANUEL,
   ContexteAppelant,
   ROLE_REVUE_FINANCIERE,
-  ROLE_REVUE_MEDICALE,
   ROLE_REVUE_SUPERVISION,
   ROLES_ADHERENT_CLAIMS,
   ROLES_GESTION_CLAIMS,
   ROLES_LECTURE_CLAIMS,
   ROLES_SOCIETE_CLAIMS,
   type TypeReclamation,
-  TYPES_RECLAMATION_MEDICAUX,
 } from './claims.types';
 
 /** Source d'une réclamation — exactement l'une des deux (v3 §5 étendu, prisma/sql/040). */
@@ -73,6 +73,7 @@ export class ClaimsService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly adjudication: AdjudicationClientService,
+    private readonly categoriesActe: CategoriesActeService,
   ) {}
 
   async soumettre(user: AuthenticatedUser, dto: SoumettreReclamationDto) {
@@ -94,12 +95,30 @@ export class ClaimsService {
       throw new NotFoundException('Dossier de soins introuvable.');
     }
 
-    const garantieId = dossier.planCouvertureId ?? dto.garantieId ?? null;
-    if (!garantieId) {
-      throw new BadRequestException(
-        "Le dossier n'a pas de plan de couverture : précisez `garantieId`.",
+    // Garantie = celle du produit pour la CATÉGORIE de l'acte (référentiel
+    // unique, prisma/sql/067). `dossier.planCouvertureId` (garantie
+    // CONSULTATION) reste réservé à l'éligibilité et au délai de carence de la
+    // consultation : il ne sert plus au calcul d'un acte d'une autre catégorie.
+    const categorie = await this.categoriesActe.parCode(acte.categorieActe);
+    if (!categorie) {
+      throw new ConflictException(
+        `Catégorie d'acte absente du référentiel : ${acte.categorieActe}.`,
       );
     }
+    const police = await this.prisma.police.findFirst({
+      where: { id: dossier.policeId },
+      select: { produitId: true },
+    });
+    const garantie = police
+      ? await this.prisma.garantie.findFirst({
+          where: {
+            produitId: police.produitId,
+            categorieActe: acte.categorieActe,
+            deletedAt: null,
+          },
+          select: { id: true },
+        })
+      : null;
 
     const montant =
       dto.montant ??
@@ -109,26 +128,94 @@ export class ClaimsService {
             .toNumber()
         : 0);
 
-    const typeReclamation =
-      dto.typeReclamation ??
-      CATEGORIE_VERS_TYPE[acte.categorieActe?.toUpperCase() ?? ''] ??
-      'AUTRE';
+    const donnees = {
+      dossierSoinsId: dossier.id,
+      adherentId: dossier.adherentId,
+      beneficiaireId: dossier.beneficiaireId,
+      policeId: dossier.policeId,
+      montant: new Decimal(montant).toFixed(2),
+      typeReclamation: categorie.typeReclamation as TypeReclamation,
+    };
+
+    if (!garantie) {
+      // Règle « non couvert » : catégorie sans garantie dans le produit →
+      // rejet E011 posé ici, sans appel au microservice d'adjudication (il
+      // n'aurait aucune garantie à appliquer).
+      return this.rejeterCategorieNonCouverte(ctx, acte.id, donnees);
+    }
 
     const reclamation = await this.creerOuChargerReclamation(
       ctx,
       { acteDossierId: acte.id },
-      {
-        dossierSoinsId: dossier.id,
-        adherentId: dossier.adherentId,
-        beneficiaireId: dossier.beneficiaireId,
-        policeId: dossier.policeId,
-        garantieId,
-        montant: new Decimal(montant).toFixed(2),
-        typeReclamation,
-      },
+      { ...donnees, garantieId: garantie.id },
     );
 
     return this.verrouillerEtAdjuger(ctx, reclamation);
+  }
+
+  /**
+   * Réclamation d'un acte dont la catégorie n'a pas de garantie dans le
+   * produit : créée directement REJETE avec le code E011 (contrainte
+   * `reclamations_garantie_ou_non_couverte`, garantie NULL). Idempotente :
+   * une réclamation existant déjà pour l'acte → 409, comme `verrouillerEtAdjuger`.
+   */
+  private async rejeterCategorieNonCouverte(
+    ctx: ContexteAppelant,
+    acteDossierId: string,
+    data: {
+      dossierSoinsId: string;
+      adherentId: string | null;
+      beneficiaireId: string | null;
+      policeId: string;
+      montant: string;
+      typeReclamation: TypeReclamation;
+    },
+  ) {
+    const existante = await this.prisma.reclamation.findFirst({
+      where: { acteDossierId, deletedAt: null },
+    });
+    if (existante) {
+      throw new ConflictException(
+        `Réclamation déjà « ${existante.statut} » — soumission ignorée (idempotence).`,
+      );
+    }
+
+    let id: string;
+    try {
+      id = await this.prisma.$transaction(async (tx) => {
+        const r = await tx.reclamation.create({
+          data: {
+            organisationId: ctx.organisationId,
+            acteDossierId,
+            ...data,
+            garantieId: null,
+            statut: 'REJETE',
+            codesRejet: [CODE_REJET_CATEGORIE_NON_COUVERTE],
+          },
+        });
+        await this.audit(tx, ctx.userId, 'CREATION_RECLAMATION', r.id, {
+          acteDossierId,
+          montant: data.montant,
+          type: data.typeReclamation,
+        });
+        await this.audit(tx, ctx.userId, 'ADJUDICATION_REJETE', r.id, {
+          montantRembourse: '0.00',
+          codesRejet: [CODE_REJET_CATEGORIE_NON_COUVERTE],
+          motif: 'Catégorie d’acte non couverte par le produit (aucune garantie).',
+        });
+        return r.id;
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException(
+          'Réclamation déjà créée par une soumission concurrente.',
+        );
+      }
+      throw e;
+    }
+
+    const reclamation = await this.chargerReclamation(ctx, id);
+    return { reclamation, adjudication: null };
   }
 
   /**
@@ -391,7 +478,7 @@ export class ClaimsService {
       mode === 'ADHERENT' && ctx.adherentId
         ? { OR: [{ adherentId: ctx.adherentId }, { beneficiaireId: { in: await this.beneficiaireIdsPropres(ctx.adherentId) } }] }
         : {};
-    return this.prisma.reclamation.findMany({
+    const reclamations = await this.prisma.reclamation.findMany({
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
@@ -406,6 +493,7 @@ export class ClaimsService {
         beneficiaire: { select: { id: true, nom: true, prenom: true } },
       },
     });
+    return this.avecRoleRevue(reclamations);
   }
 
   async obtenirReclamation(user: AuthenticatedUser, id: string) {
@@ -438,7 +526,7 @@ export class ClaimsService {
       );
     }
 
-    const roleRequis = this.roleRevuePour(reclamation.typeReclamation);
+    const roleRequis = reclamation.roleRevue;
     const autorise =
       ctx.roleChain.includes(roleRequis) ||
       ctx.roleChain.includes(ROLE_REVUE_SUPERVISION);
@@ -488,12 +576,6 @@ export class ClaimsService {
     });
 
     return this.chargerReclamation(ctx, id);
-  }
-
-  private roleRevuePour(type: string): string {
-    return (TYPES_RECLAMATION_MEDICAUX as readonly string[]).includes(type)
-      ? ROLE_REVUE_MEDICALE
-      : ROLE_REVUE_FINANCIERE;
   }
 
   // --- Autorisation / helpers -------------------------------------
@@ -616,7 +698,40 @@ export class ClaimsService {
     if (!reclamation) {
       throw new NotFoundException('Réclamation introuvable.');
     }
-    return reclamation;
+    return (await this.avecRoleRevue([reclamation]))[0];
+  }
+
+  /**
+   * Rôle de revue manuelle de chaque réclamation, lu dans le référentiel
+   * `categories_acte` (prisma/sql/067) depuis la catégorie de sa source : celle
+   * de l'acte, ou PHARMACIE pour une dispensation. Exposé au web (`roleRevue`)
+   * pour qu'il ne redéfinisse pas la règle.
+   */
+  private async avecRoleRevue<T extends { acteDossierId: string | null }>(
+    reclamations: T[],
+  ): Promise<(T & { roleRevue: string })[]> {
+    const idsActes = [
+      ...new Set(reclamations.map((r) => r.acteDossierId).filter((v): v is string => !!v)),
+    ];
+    const actes = idsActes.length
+      ? await this.prisma.acteDossier.findMany({
+          where: { id: { in: idsActes } },
+          select: { id: true, categorieActe: true },
+        })
+      : [];
+    const categorieParActe = new Map(actes.map((a) => [a.id, a.categorieActe]));
+    const roleParCategorie = new Map(
+      (await this.categoriesActe.lister()).map((c) => [c.code, c.roleRevue]),
+    );
+    return reclamations.map((r) => {
+      const categorie = r.acteDossierId
+        ? categorieParActe.get(r.acteDossierId)
+        : CATEGORIE_ACTE_DISPENSATION;
+      return {
+        ...r,
+        roleRevue: (categorie && roleParCategorie.get(categorie)) || ROLE_REVUE_FINANCIERE,
+      };
+    });
   }
 
   /** Écriture d'audit — toujours via `log_audit()` (v9 §1.6). */

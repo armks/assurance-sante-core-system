@@ -12,6 +12,7 @@ import { StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
 
 export const metadata: Metadata = { title: 'Dossier de soins — Parcours de soins' };
 
@@ -46,7 +47,12 @@ export default async function DossierPage({
 
       <PageTitre
         titre={dossier.numeroTraitement}
-        action={<StatutBadge statut={dossier.statut} />}
+        action={
+          <StatutBadge
+            statut={dossier.statut}
+            libelles={LIBELLE_STATUT_DOSSIER}
+          />
+        }
       />
 
       <DossierDetail

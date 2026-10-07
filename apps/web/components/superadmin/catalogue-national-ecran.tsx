@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
 import { Stethoscope, Pill } from 'lucide-react';
+import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
 
 export interface ActeNational {
   id: string;
@@ -70,7 +71,7 @@ export function CatalogueNationalEcran({
     {
       cle: 'statut',
       entete: 'Statut',
-      rendu: (a) => <StatutBadge statut={a.statut} />,
+      rendu: (a) => <StatutBadge statut={a.statut} libelles={LIBELLE_STATUT_HOMOLOGATION} />,
     },
   ];
 
@@ -89,7 +90,10 @@ export function CatalogueNationalEcran({
     {
       cle: 'statutHomologation',
       entete: 'Statut',
-      rendu: (m) => <StatutBadge statut={m.statutHomologation} />,
+      rendu: (m) => <StatutBadge
+          statut={m.statutHomologation}
+          libelles={LIBELLE_STATUT_HOMOLOGATION}
+        />,
     },
   ];
 

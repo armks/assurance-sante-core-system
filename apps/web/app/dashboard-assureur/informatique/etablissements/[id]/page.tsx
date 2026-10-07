@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
+import { LIBELLE_STATUT_ETABLISSEMENT } from '@/lib/reseau';
 
 export const metadata: Metadata = { title: 'Établissement — Assurance Informatique' };
 
@@ -53,7 +54,12 @@ export default async function EtablissementPage({
 
       <PageTitre
         titre={etablissement.nom}
-        action={<StatutBadge statut={etablissement.statut} />}
+        action={
+          <StatutBadge
+            statut={etablissement.statut}
+            libelles={LIBELLE_STATUT_ETABLISSEMENT}
+          />
+        }
       />
 
       <Card>

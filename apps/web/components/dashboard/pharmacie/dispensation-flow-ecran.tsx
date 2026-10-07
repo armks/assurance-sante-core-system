@@ -25,6 +25,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { LIBELLE_STATUT_RECLAMATION } from '@/lib/reclamations';
 
 const STATUTS_DISPENSATION_MODIFIABLE = ['EN_PREPARATION', 'EN_ATTENTE_VALIDATION_PATIENT'];
 const INTERVALLE_SONDAGE_MS = 4000;
@@ -420,7 +421,9 @@ export function DispensationFlowEcran({
                 {dispensation.reclamation && (
                   <p className="text-sm text-muted-foreground">
                     Réclamation soumise à l’adjudication (
-                    {montantFr(dispensation.montantAssurance)} — statut {dispensation.reclamation.statut}).
+                    {montantFr(dispensation.montantAssurance)} — statut{' '}
+                    {LIBELLE_STATUT_RECLAMATION[dispensation.reclamation.statut] ??
+                      dispensation.reclamation.statut}).
                   </p>
                 )}
                 <Button onClick={reinitialiser}>Nouvelle dispensation</Button>

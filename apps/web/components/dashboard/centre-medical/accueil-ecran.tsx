@@ -12,6 +12,7 @@ import {
 import { ChampTexte, StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LIBELLE_STATUT_MEMBRE, TON_STATUT_MEMBRE } from '@/lib/member';
 
 type Resultat =
   | { ok: true; dossierId: string; numeroTraitement: string }
@@ -74,7 +75,11 @@ function RechercheCarte() {
                     : `Bénéficiaire (${resultat.membre.lienParente}) de ${resultat.membre.adherent.prenom} ${resultat.membre.adherent.nom}`}
                 </p>
               </div>
-              <StatutBadge statut={resultat.membre.statut} />
+              <StatutBadge
+                statut={resultat.membre.statut}
+                map={TON_STATUT_MEMBRE}
+                libelles={LIBELLE_STATUT_MEMBRE}
+              />
             </div>
           </div>
         )}

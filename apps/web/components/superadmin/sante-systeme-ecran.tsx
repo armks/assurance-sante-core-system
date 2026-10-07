@@ -11,6 +11,10 @@ import {
 } from '@/components/dashboard/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  LIBELLE_STATUT_LICENCE,
+  LIBELLE_STATUT_ORGANISATION,
+} from '@/lib/organisation';
 
 interface OrgSante {
   id: string;
@@ -60,7 +64,9 @@ export function SanteSystemeEcran({ sante }: { sante: SanteSysteme }) {
     {
       cle: 'statut',
       entete: 'Statut',
-      rendu: (o) => <StatutBadge statut={o.statut} />,
+      rendu: (o) => (
+        <StatutBadge statut={o.statut} libelles={LIBELLE_STATUT_ORGANISATION} />
+      ),
     },
     {
       cle: 'licence',
@@ -69,7 +75,10 @@ export function SanteSystemeEcran({ sante }: { sante: SanteSysteme }) {
         o.licence ? (
           <span className="flex items-center gap-1.5">
             <Badge variant="secondary">{o.licence.plan}</Badge>
-            <StatutBadge statut={o.licence.statut} />
+            <StatutBadge
+              statut={o.licence.statut}
+              libelles={LIBELLE_STATUT_LICENCE}
+            />
           </span>
         ) : (
           <Badge variant="outline">sans licence</Badge>
@@ -139,8 +148,16 @@ export function SanteSystemeEcran({ sante }: { sante: SanteSysteme }) {
       </GrilleCartes>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Repartition titre="Organisations par statut" data={resume.parStatutOrganisation} />
-        <Repartition titre="Licences par statut" data={resume.parStatutLicence} />
+        <Repartition
+          titre="Organisations par statut"
+          data={resume.parStatutOrganisation}
+          libelles={LIBELLE_STATUT_ORGANISATION}
+        />
+        <Repartition
+          titre="Licences par statut"
+          data={resume.parStatutLicence}
+          libelles={LIBELLE_STATUT_LICENCE}
+        />
       </div>
 
       <DataTable
@@ -158,9 +175,11 @@ export function SanteSystemeEcran({ sante }: { sante: SanteSysteme }) {
 function Repartition({
   titre,
   data,
+  libelles,
 }: {
   titre: string;
   data: Record<string, number>;
+  libelles: Record<string, string>;
 }) {
   const entrees = Object.entries(data);
   return (
@@ -174,7 +193,7 @@ function Repartition({
         ) : (
           entrees.map(([statut, n]) => (
             <span key={statut} className="flex items-center gap-1.5">
-              <StatutBadge statut={statut} />
+              <StatutBadge statut={statut} libelles={libelles} />
               <span className="text-sm font-medium tabular-nums">{n}</span>
             </span>
           ))

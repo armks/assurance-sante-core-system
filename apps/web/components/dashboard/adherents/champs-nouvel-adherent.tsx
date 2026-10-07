@@ -8,6 +8,7 @@ import {
 } from '@/components/dashboard/patterns';
 import { MODES_PAIEMENT, SEXES } from '@/lib/member';
 import type { OptionRef, PoliceRef } from './types';
+import { LIBELLE_POLICE } from '@/components/dashboard/polices-ecran';
 
 /**
  * Champs du formulaire « Nouvel adhérent ». Le choix du souscripteur filtre la
@@ -57,7 +58,7 @@ export function ChampsNouvelAdherent({
           valeur: p.id,
           libelle: `${p.numeroPolice} · ${
             p.produit ? `${p.produit.nom} v${p.produit.version}` : '—'
-          } (${p.statut})`,
+          } (${LIBELLE_POLICE[p.statut] ?? p.statut})`,
         }))}
       />
 

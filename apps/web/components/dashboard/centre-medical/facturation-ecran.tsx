@@ -8,7 +8,10 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
-import { FILTRE_STATUT_DOSSIER } from '@/lib/dossier-soins';
+import {
+  FILTRE_STATUT_DOSSIER,
+  LIBELLE_STATUT_DOSSIER,
+} from '@/lib/dossier-soins';
 
 export interface DossierClot {
   id: string;
@@ -26,7 +29,7 @@ export function FacturationEcran({ dossiers }: { dossiers: DossierClot[] }) {
     {
       cle: 'statut',
       entete: 'Dossier',
-      rendu: (d) => <StatutBadge statut={d.statut} />,
+      rendu: (d) => <StatutBadge statut={d.statut} libelles={LIBELLE_STATUT_DOSSIER} />,
     },
     {
       cle: 'dateCloture',

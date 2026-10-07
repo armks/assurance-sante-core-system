@@ -13,6 +13,10 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import {
+  LIBELLE_STATUT_LICENCE,
+  LIBELLE_STATUT_ORGANISATION,
+} from '@/lib/organisation';
 
 interface Licence {
   plan: string;
@@ -93,7 +97,7 @@ export default async function Societes() {
                         org.licence.statut === 'ACTIVE' ? 'success' : 'outline'
                       }
                     >
-                      Licence {org.licence.statut}
+                      Licence {LIBELLE_STATUT_LICENCE[org.licence.statut] ?? org.licence.statut}
                     </Badge>
                     {org.licence.dateFin && (
                       <Badge variant="muted">
@@ -106,7 +110,9 @@ export default async function Societes() {
                   <Badge variant="outline">sans licence</Badge>
                 )}
                 {org.statut !== 'ACTIVE' && (
-                  <Badge variant="outline">{org.statut}</Badge>
+                  <Badge variant="outline">
+                    {LIBELLE_STATUT_ORGANISATION[org.statut] ?? org.statut}
+                  </Badge>
                 )}
               </div>
             </CardHeader>

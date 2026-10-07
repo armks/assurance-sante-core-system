@@ -152,3 +152,76 @@ les premiers prompts) :
 - `@next/swc` : fallback WASM (natif bloqué, non requis)
 - `apps/api` : non affecté (pas de binaire natif ; Prisma query engine = exécutable
   séparé lancé en child process, pas un `.node` chargé en direct — fonctionne)
+
+---
+
+## 2026-10-07 — Incident : paramètre de filtre client écrasant le périmètre (fuite inter-société)
+
+### Constat
+Découvert le 2026-10-07 par le test HTTP réel de l'audit des filtres (commit `d6912b7`).
+Dans `AdherentService.listerAdherents` (`GET /api/v1/member/adherents`), le `where`
+Prisma était construit par étalements successifs : le périmètre société
+(`souscripteurId = societeId` du token) puis le filtre client
+(`souscripteurId` de la requête). Le second écrasait le premier.
+
+**Impact** : tout compte `SOCIETE_AFFILIEE` (administration, assurée, comptable,
+réception) pouvait lire le fichier des adhérents d'une autre société cliente de la
+**même** organisation en passant `?souscripteurId=<autre société>` (noms, n°
+d'adhérent, n° de carte, police, formule, nombre de bénéficiaires). Pas de fuite
+inter-organisation (`organisationId` toujours imposé). Le web n'envoyait jamais ce
+paramètre : il fallait forger la requête.
+
+### Correctif (`d6912b7`)
+- Les périmètres dérivés du token (société, adhérent) sont étalés **après** les
+  filtres client : ils les écrasent toujours.
+- `ListerAdherentsQueryDto` : `statut` en liste blanche, `souscripteurId` UUID, `q` ≤ 100.
+- Test unitaire dédié (`adherent.service.spec.ts` : « un souscripteurId fourni par
+  une société n'élargit jamais son périmètre ») ; test HTTP réel à deux sociétés.
+
+### Règle
+Un paramètre envoyé par le client (`souscripteurId`, `organisationId`,
+`etablissementId`, `adherentId`, `policeId`…) ne remplace ni n'élargit jamais le
+périmètre dérivé du token. Le périmètre est appliqué **après** les filtres client
+(même clé), ou sur une **clé distincte** (relation, `AND` SQL) pour être en
+intersection, ou le paramètre est vérifié (`assert…DansPerimetre`, 403/404).
+
+### Audit de tous les endpoints de liste et de recherche (2026-10-07)
+27 groupes d'endpoints GET acceptant un paramètre client (query ou chemin). Les
+autres GET sont des fiches détail ou des listes sans paramètre client.
+
+| Endpoint | Paramètres client | Périmètre (token) | Verdict |
+|---|---|---|---|
+| `member/adherents` | statut, souscripteurId, q | org + société + adhérent | **Vulnérable → corrigé** (`d6912b7`) |
+| `member/recherche-carte` | numeroCarte | org, rôle accueil | OK |
+| `member/adherents/:id/beneficiaires` | id | `chargerAdherent` org + société + adhérent | OK |
+| `member/souscripteurs/:souscripteurId/brouillon-adherents` | souscripteurId | `societeId === souscripteurId` sinon 403 | OK |
+| `billing/grilles-tarifaires` | produitId, souscripteurId | org, ASSUREUR | OK |
+| `billing/cotisations` | statut, policeId | org + société sur la relation `police` | OK |
+| `billing/polices/:policeId/cotisations` | policeId | `chargerPoliceLecture` org + société | OK |
+| `billing/souscripteurs/:souscripteurId/adherents-facturation` | souscripteurId, periode | org, rôles comptable/informatique assureur | OK |
+| `care-episode/dossiers` | statut, etablissementId | org ; centre médical : établissement du token appliqué après | OK |
+| `claims/reclamations` | statut | org + société + adhérent | OK |
+| `contestation/actes-a-examiner`, `ordonnances-a-examiner` | q, période, contestation, catégorie, page | org (`AND` SQL), rôles conseil | OK |
+| `pharmacy/prescriptions/rechercher-par-carte` | numeroCarte | org, rôle pharmacie | OK |
+| `pharmacy/dispensations` | q, statut, période, page | `pharmacieId` du token | OK |
+| `pharmacy/dispensations/mes-dispensations` | statut, période | adhérent + bénéficiaires | OK |
+| `preauthorization/codes-consultation`, `codes-ordonnance`, `codes-facturation` | statut, période, page | adhérent + bénéficiaires | OK |
+| `plan/produits` | statut, nom | org | OK |
+| `policy/polices` | statut, souscripteurId | org ; hors assureur : société du token, paramètre ignoré | OK |
+| `policy/polices/:id/avenants` | id | `chargerPolice` org + société | OK |
+| `provider/recherche` | lat, lng, rayonKm, cible | org | OK |
+| `provider/etablissements`, `provider/pharmacies` | type, statut, ville | org | OK |
+| `provider/{etablissements,pharmacies}/:id/{verifications,tarifs}` | id | `assert…DansPerimetre` org | OK |
+| `reference/actes`, `reference/medicaments` | statut, essentiel | org | OK |
+| `reference/catalogue-national/*`, `superadmin/catalogue-national/*` | statut | catalogue national partagé (par conception) | OK |
+| `tenant/souscripteurs` | type | org, ASSUREUR | OK |
+| `tenant/souscripteurs/:id/membres-comite` | id | org, ASSUREUR | OK |
+| `underwriting/questionnaires` | decision, souscripteurId | médecin : org (relation) ∩ souscripteurId ; souscripteur : `societeId` du token, paramètres ignorés | OK |
+| `public/statistiques`, `public/evenements` | organisation | public sans token (vitrine) | Hors classe |
+
+**Vérification HTTP réelle (deux sociétés S1/S2, deux établissements E1/E2)** : la
+société S1 demandant les données de S2 reçoit uniquement S1 (`member/adherents`,
+`policy/polices`, `billing/cotisations`, `underwriting/questionnaires`) ou 403/404
+(`brouillon-adherents`, `beneficiaires`, `polices/:id/cotisations`, `avenants`) ;
+le centre E1 demandant E2 reçoit uniquement E1. Témoins assureur : les données de
+S2 existent et lui sont visibles. Données de test supprimées.

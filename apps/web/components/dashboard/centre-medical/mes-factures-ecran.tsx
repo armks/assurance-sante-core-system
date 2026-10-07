@@ -6,6 +6,10 @@ import {
   type ColonneTable,
   type FiltreSelect,
 } from '@/components/dashboard/patterns';
+import {
+  LIBELLE_STATUT_FACTURE_DOSSIER,
+  TON_STATUT_FACTURE_DOSSIER,
+} from '@/lib/dossier-soins';
 import { dateFr, montantF } from '@/lib/format';
 
 export interface FactureDossierEtablissement {
@@ -21,20 +25,8 @@ export interface FactureDossierEtablissement {
   dateReglement: string | null;
 }
 
-const LIBELLE_STATUT: Record<string, string> = {
-  EMISE: 'Émise — en attente du patient',
-  EN_VALIDATION: 'En validation',
-  VALIDEE: 'Validée par le patient',
-  REGLEE: 'Réglée',
-  CONTESTEE: 'Contestée',
-};
-const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
-  EMISE: 'attention',
-  EN_VALIDATION: 'attention',
-  VALIDEE: 'attention',
-  REGLEE: 'succes',
-  CONTESTEE: 'danger',
-};
+const LIBELLE_STATUT = LIBELLE_STATUT_FACTURE_DOSSIER;
+const TON_STATUT = TON_STATUT_FACTURE_DOSSIER;
 
 const periodeCle = (d: string) => d.slice(0, 7); // 'YYYY-MM'
 const periodeLibelle = (cle: string) =>

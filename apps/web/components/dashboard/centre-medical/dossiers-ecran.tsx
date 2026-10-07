@@ -8,6 +8,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
 
 export interface DossierResume {
   id: string;
@@ -38,7 +39,7 @@ export function DossiersEcran({ dossiers }: { dossiers: DossierResume[] }) {
     {
       cle: 'statut',
       entete: 'Statut',
-      rendu: (d) => <StatutBadge statut={d.statut} />,
+      rendu: (d) => <StatutBadge statut={d.statut} libelles={LIBELLE_STATUT_DOSSIER} />,
     },
     {
       cle: 'dateOuverture',

@@ -286,7 +286,7 @@ export function AdherentDetail({
                         motif: String(fd.get('motif') ?? '') || undefined,
                       });
                       if (!r.ok) return { ok: false, error: r.error, erreurs: [] };
-                      return { ok: true, message: `Statut → ${r.statut}.` };
+                      return { ok: true, message: `Statut → ${LIBELLE_STATUT_MEMBRE[r.statut] ?? r.statut}.` };
                     }}
                     onSucces={() => router.refresh()}
                   >

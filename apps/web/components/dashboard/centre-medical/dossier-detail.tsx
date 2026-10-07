@@ -34,6 +34,11 @@ import {
   aUnRole,
 } from '@/lib/centre-medical';
 import { StatutActe } from './statut-acte';
+import {
+  LIBELLE_STATUT_CONSULTATION,
+  LIBELLE_STATUT_DOSSIER,
+  LIBELLE_STATUT_TICKET,
+} from '@/lib/dossier-soins';
 
 interface Consultation {
   id: string;
@@ -161,7 +166,7 @@ export function DossierDetail({
     {
       cle: 'statut',
       entete: 'Statut',
-      rendu: (c) => <StatutBadge statut={c.statut} />,
+      rendu: (c) => <StatutBadge statut={c.statut} libelles={LIBELLE_STATUT_CONSULTATION} />,
     },
   ];
 
@@ -241,7 +246,7 @@ export function DossierDetail({
         <CardContent className="divide-y">
           <Ligne label="N° de traitement">{dossier.numeroTraitement}</Ligne>
           <Ligne label="Statut">
-            <StatutBadge statut={dossier.statut} />
+            <StatutBadge statut={dossier.statut} libelles={LIBELLE_STATUT_DOSSIER} />
           </Ligne>
           <Ligne label="Patient">
             {dossier.beneficiaireId ? 'Bénéficiaire' : 'Adhérent titulaire'}
@@ -287,7 +292,10 @@ export function DossierDetail({
           )}
           <Ligne label="Ticket de soins">
             {dossier.ticket ? (
-              <StatutBadge statut={dossier.ticket.statut} />
+              <StatutBadge
+                statut={dossier.ticket.statut}
+                libelles={LIBELLE_STATUT_TICKET}
+              />
             ) : (
               '—'
             )}
@@ -529,7 +537,7 @@ export function DossierDetail({
         <CardContent>
           {!cloturable ? (
             <p className="text-sm text-muted-foreground">
-              Le dossier est déjà clôturé ({dossier.statut}).
+              Le dossier est déjà clôturé ({LIBELLE_STATUT_DOSSIER[dossier.statut] ?? dossier.statut}).
             </p>
           ) : !peutGerer ? (
             <p className="text-sm text-muted-foreground">

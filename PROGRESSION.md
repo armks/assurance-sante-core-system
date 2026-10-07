@@ -7125,3 +7125,46 @@ filtres de statut incomplets.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-07 — Libellés de statut accentués et uniques + audit « paramètre client / périmètre »
+
+### 1. Libellés de statut
+- Le libellé automatique de `StatutBadge` retire les accents (« Transfere »,
+  « Cloture », « Resilie », « Homologue », « Terminee »…). 29 badges sans table de
+  libellés et 12 affichages bruts du jeton (`{x.statut}`) recensés et corrigés.
+- Sources uniques : `lib/dossier-soins.ts` (dossier — badge, filtre et supervision
+  dérivés de `LIBELLE_STATUT_DOSSIER` —, consultation, ticket, cycle de facturation
+  vu par l'établissement), `lib/reseau.ts` (établissement, pharmacie, vérification),
+  `lib/referentiel.ts` (homologation, aussi dans `homologation-panneau` qui
+  affichait « HOMOLOGUE »), `lib/organisation.ts` (organisation, licence —
+  superadmin). Messages (« déjà clôturé (…) », statut de réclamation, police dans
+  le formulaire d'adhérent, retour de changement de statut) passés par ces tables.
+- Divergences relevées, **non modifiées** (décision produit) :
+  - factures mensuelles, écrans assureur : `PROGRAMMEE_PAIEMENT` « Validée pour
+    paiement » (comptable) / « En paiement » (suivi des paiements) ;
+    `VERIFIEE_MEDECIN_CONSEIL` et `VALIDEE_PHARMACIEN_CONSEIL` « … — prête pour
+    paiement » / « Vérifiée » / « Validée » ; `SOUMISE` « Soumise — en attente du
+    … » / « Soumise » ;
+  - polices : libellés identiques, tonalités différentes (`SUSPENDUE`,
+    `NON_RENOUVELEE`, `EN_SOUSCRIPTION`) entre l'écran assureur et les écrans
+    adhérent/société ;
+  - type d'établissement du panneau réseau affiché en minuscules sans accent
+    (« hopital public ») — pas un statut.
+  Les autres écarts sont des formulations par audience voulues (adhérent /
+  établissement / conseil : « Justification transmise » / « reçue », etc.).
+
+### 2. Audit « paramètre client écrasant le périmètre »
+- 27 groupes d'endpoints GET de liste/recherche audités (tableau complet dans
+  `SECURITY.md`). Un seul vulnérable : `member/adherents` (`souscripteurId`), déjà
+  corrigé avec test unitaire dédié dans `d6912b7`. Tous les autres appliquent le
+  périmètre après les filtres, sur une clé distincte, ou vérifient le paramètre.
+- HTTP réel à deux sociétés / deux établissements : 21/21 (S1 → S1 seulement ou
+  403/404 ; E1 → E1 seulement ; témoins assureur), plus navigateur : « Transféré »
+  sur la facturation du centre, la fiche dossier et la supervision assureur.
+  Données de test supprimées.
+
+### Tests
+API 919/919. Typage : API 0 erreur, web 0 erreur dans le code source.
+
+### Statut
+Terminé, commité et poussé.

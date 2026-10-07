@@ -14,6 +14,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
+import { LIBELLE_STATUT_ETABLISSEMENT } from '@/lib/reseau';
 
 export interface EtablissementInfo {
   id: string;
@@ -64,7 +66,7 @@ export function AdministratifEcran({
     {
       cle: 'statut',
       entete: 'Statut',
-      rendu: (d) => <StatutBadge statut={d.statut} />,
+      rendu: (d) => <StatutBadge statut={d.statut} libelles={LIBELLE_STATUT_DOSSIER} />,
     },
     {
       cle: 'dateOuverture',
@@ -103,7 +105,10 @@ export function AdministratifEcran({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
             <CardTitle className="text-base">{etablissement.nom}</CardTitle>
-            <StatutBadge statut={etablissement.statut} />
+            <StatutBadge
+              statut={etablissement.statut}
+              libelles={LIBELLE_STATUT_ETABLISSEMENT}
+            />
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-sm text-muted-foreground">

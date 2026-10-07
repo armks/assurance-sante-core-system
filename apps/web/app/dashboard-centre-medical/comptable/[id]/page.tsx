@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { ROLES_GENERATION_FACTURE, aUnRole } from '@/lib/centre-medical';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
 
 export const metadata: Metadata = { title: 'Facturation — Parcours de soins' };
 
@@ -45,7 +46,12 @@ export default async function TicketPage({
 
       <PageTitre
         titre={dossier.numeroTraitement}
-        action={<StatutBadge statut={dossier.statut} />}
+        action={
+          <StatutBadge
+            statut={dossier.statut}
+            libelles={LIBELLE_STATUT_DOSSIER}
+          />
+        }
       />
 
       <TicketDetail dossier={dossier} peutFacturer={peutFacturer} />

@@ -15,6 +15,7 @@ import {
 } from '@/app/dashboard-assureur/reference-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
 
 export interface ActeRef {
   id: string;
@@ -125,7 +126,7 @@ export function HomologationPanneau({
                   </td>
                   <td className="px-3 py-2">
                     <Badge variant={VARIANT_STATUT[a.statut] ?? 'outline'}>
-                      {a.statut}
+                      {LIBELLE_STATUT_HOMOLOGATION[a.statut] ?? a.statut}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -199,7 +200,8 @@ export function HomologationPanneau({
                     <Badge
                       variant={VARIANT_STATUT[m.statutHomologation] ?? 'outline'}
                     >
-                      {m.statutHomologation}
+                      {LIBELLE_STATUT_HOMOLOGATION[m.statutHomologation] ??
+                        m.statutHomologation}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-right">

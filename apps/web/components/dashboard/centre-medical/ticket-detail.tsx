@@ -17,6 +17,12 @@ import {
   TON_PREAUTORISATION,
 } from '@/lib/centre-medical';
 import { StatutActe } from './statut-acte';
+import {
+  LIBELLE_STATUT_DOSSIER,
+  LIBELLE_STATUT_FACTURE_DOSSIER,
+  LIBELLE_STATUT_TICKET,
+  TON_STATUT_FACTURE_DOSSIER,
+} from '@/lib/dossier-soins';
 
 interface LigneFacturationActe {
   id: string;
@@ -217,11 +223,11 @@ export function TicketDetail({
         <CardContent className="divide-y">
           <Ligne label="N° de traitement">{dossier.numeroTraitement}</Ligne>
           <Ligne label="Dossier">
-            <StatutBadge statut={dossier.statut} />
+            <StatutBadge statut={dossier.statut} libelles={LIBELLE_STATUT_DOSSIER} />
           </Ligne>
           <Ligne label="Clôturé le">{dateFr(dossier.dateCloture)}</Ligne>
           <Ligne label="Ticket de soins">
-            {ticket ? <StatutBadge statut={ticket.statut} /> : '—'}
+            {ticket ? <StatutBadge statut={ticket.statut} libelles={LIBELLE_STATUT_TICKET} /> : '—'}
           </Ligne>
           <Ligne label="Total actes prescrits">
             {montant(String(totalActes))}
@@ -317,7 +323,11 @@ export function TicketDetail({
                 <Ligne label="Part assurance">{montant(f.montantAssurance)}</Ligne>
                 <Ligne label="Part patient">{montant(f.montantPatient)}</Ligne>
                 <Ligne label="Statut">
-                  <StatutBadge statut={f.statut} />
+                  <StatutBadge
+                    statut={f.statut}
+                    map={TON_STATUT_FACTURE_DOSSIER}
+                    libelles={LIBELLE_STATUT_FACTURE_DOSSIER}
+                  />
                 </Ligne>
                 <div className="pt-2 text-sm">
                   {f.codeValideParPatient ? (

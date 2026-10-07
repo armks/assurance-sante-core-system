@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
+import { LIBELLE_STATUT_PHARMACIE } from '@/lib/reseau';
 
 export const metadata: Metadata = { title: 'Pharmacie — Assurance Informatique' };
 
@@ -52,7 +53,12 @@ export default async function PharmaciePage({
 
       <PageTitre
         titre={pharmacie.nom}
-        action={<StatutBadge statut={pharmacie.statut} />}
+        action={
+          <StatutBadge
+            statut={pharmacie.statut}
+            libelles={LIBELLE_STATUT_PHARMACIE}
+          />
+        }
       />
 
       <Card>

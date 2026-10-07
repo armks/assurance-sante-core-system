@@ -21,6 +21,10 @@ import {
   roleRevuePour,
 } from '@/lib/reclamations';
 import type { Reclamation } from './reclamations-liste';
+import {
+  LIBELLE_STATUT_DOSSIER,
+  LIBELLE_STATUT_TICKET,
+} from '@/lib/dossier-soins';
 
 interface DossierResume {
   id: string;
@@ -138,7 +142,7 @@ export function ReclamationDetail({
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Pas encore d’adjudication (statut {reclamation.statut}).
+              Pas encore d’adjudication (statut {LIBELLE_STATUT_RECLAMATION[reclamation.statut] ?? reclamation.statut}).
             </p>
           )}
 
@@ -212,11 +216,14 @@ export function ReclamationDetail({
                   {dossier.numeroTraitement}
                 </Ligne>
                 <Ligne label="Statut dossier">
-                  <StatutBadge statut={dossier.statut} />
+                  <StatutBadge statut={dossier.statut} libelles={LIBELLE_STATUT_DOSSIER} />
                 </Ligne>
                 <Ligne label="Ticket de soins">
                   {dossier.ticket ? (
-                    <StatutBadge statut={dossier.ticket.statut} />
+                    <StatutBadge
+                statut={dossier.ticket.statut}
+                libelles={LIBELLE_STATUT_TICKET}
+              />
                   ) : (
                     '—'
                   )}

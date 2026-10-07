@@ -28,6 +28,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { LIBELLE_STATUT_LIEU, LIBELLE_VERIFICATION } from '@/lib/reseau';
 
 const TYPES_ETABLISSEMENT = [
   'HOPITAL_PUBLIC',
@@ -396,7 +397,7 @@ export function ReseauPanneau({
                             : 'outline'
                         }
                       >
-                        {l.statut}
+                        {LIBELLE_STATUT_LIEU[l.statut] ?? l.statut}
                       </Badge>
                     </td>
                     <td className="px-3 py-2">
@@ -412,7 +413,7 @@ export function ReseauPanneau({
                           ton={
                             l.verificationStatut === 'ACTIF' ? 'succes' : 'danger'
                           }
-                          libelle={l.verificationStatut.toLowerCase()}
+                          libelles={LIBELLE_VERIFICATION}
                         />
                       ) : (
                         <span className="text-xs text-muted-foreground">

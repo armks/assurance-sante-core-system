@@ -39,9 +39,9 @@ class AdjudicationServiceTest {
   private AdjudicationService service;
 
   private static final UUID ID = JeuDeDonneesReference.RECLAMATION_ID;
-  /** Période en cours du produit de référence (année civile). */
+  /** Période du produit de référence (année civile) contenant la date des soins. */
   private static final PeriodeCumul PERIODE =
-      PeriodeCumul.courante("ANNEE_CIVILE", null, LocalDate.now(ZoneOffset.UTC));
+      PeriodeCumul.courante("ANNEE_CIVILE", null, JeuDeDonneesReference.DATE_SOINS);
 
   @BeforeEach
   void init() {
@@ -307,7 +307,7 @@ class AdjudicationServiceTest {
             b1.ticketModerateurPct(), b1.delaiCarenceJours(), b1.reseauSoins(),
             b1.policeStatut(), b1.policeDebut(), b1.policeFin(),
             b1.etablissementId(), b1.tarifConvention(),
-            b1.produitId(), JeuDeDonneesReference.ADHERENT_ID, b1.periodeCumul());
+            b1.produitId(), JeuDeDonneesReference.ADHERENT_ID, b1.periodeCumul(), b1.dateSoins());
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(b1), Optional.of(b2));
     when(repo.produitAPlafondFamille(JeuDeDonneesReference.PRODUIT_ID)).thenReturn(true);
     when(repo.sommeConsommeeFamille(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
@@ -346,6 +346,6 @@ class AdjudicationServiceTest {
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
         c.etablissementId(), c.tarifConvention(),
-        c.produitId(), c.titulaireId(), c.periodeCumul());
+        c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins());
   }
 }

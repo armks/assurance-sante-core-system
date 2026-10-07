@@ -70,7 +70,12 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         tc.tarif_convention AS tarif_convention,
         g.produit_id AS produit_id,
         COALESCE(r.adherent_id, b.adherent_id) AS titulaire_id,
-        pr.periode_cumul_plafond AS periode_cumul
+        pr.periode_cumul_plafond AS periode_cumul,
+        -- date des soins (prisma/sql/070) : acte réalisé / prescrit, dispensation
+        -- délivrée / préparée, à défaut la réclamation — en UTC (Côte d'Ivoire, UTC+0)
+        (COALESCE(ad.date_realisation, ad.date_prescription,
+                  dp.date_paiement, dp.date_preparation, r.created_at)
+           AT TIME ZONE 'UTC')::date AS date_soins
       FROM reclamations r
       JOIN garanties     g  ON g.id = r.garantie_id AND g.deleted_at IS NULL
       JOIN polices       p  ON p.id = r.police_id   AND p.deleted_at IS NULL
@@ -78,6 +83,7 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
       LEFT JOIN beneficiaires b ON b.id = r.beneficiaire_id
       LEFT JOIN dossiers_soins    ds ON ds.id = r.dossier_soins_id
       LEFT JOIN actes_dossier     ad ON ad.id = r.acte_dossier_id AND ad.deleted_at IS NULL
+      LEFT JOIN dispensations_pharmacie dp ON dp.id = r.dispensation_id
       LEFT JOIN referentiel_actes ra ON ra.code = ad.code_acte AND ra.deleted_at IS NULL
       LEFT JOIN tarifs_conventionnes tc
         ON tc.etablissement_id = ds.etablissement_id
@@ -117,7 +123,8 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
           rs.getBigDecimal("tarif_convention"),
           uuid(rs, "produit_id"),
           uuid(rs, "titulaire_id"),
-          rs.getString("periode_cumul"));
+          rs.getString("periode_cumul"),
+          localDate(rs, "date_soins"));
 
   @Override
   public Optional<ContexteAdjudication> chargerContexte(UUID reclamationId) {
@@ -197,9 +204,13 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
    *    celle du produit de la police pour la catégorie de l'acte — même appariement
    *    que la facture (une seule garantie active par catégorie).
    * Un acte facturé en tiers payant ne peut plus faire l'objet d'une réclamation
-   * (refus côté NestJS) : pas de double comptage. Période : {@code [debut, finExclue)}
-   * sur la date d'enregistrement (fuseau de la session, comme l'ancien
-   * {@code date_trunc('year', now())}).
+   * (refus côté NestJS) : pas de double comptage.
+   *
+   * <p>Période {@code [debut, finExclue)} appliquée à la DATE DES SOINS de chaque
+   * consommation (prisma/sql/070), jamais à sa date d'enregistrement (adjudication,
+   * facturation) : acte → réalisation, à défaut prescription ; dispensation →
+   * délivrance, à défaut préparation ; à défaut, date de la réclamation. Dates en UTC
+   * (Côte d'Ivoire, UTC+0), comme {@link ContexteAdjudication#dateSoins}.
    */
   private BigDecimal somme(
       String filtrePersonne,
@@ -213,9 +224,16 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
           (SELECT COALESCE(SUM(rb.montant_rembourse), 0)
              FROM remboursements rb
              JOIN reclamations  rc ON rc.id = rb.reclamation_id
+             LEFT JOIN actes_dossier           sa ON sa.id = rc.acte_dossier_id
+             LEFT JOIN dispensations_pharmacie sd ON sd.id = rc.dispensation_id
             WHERE %1$s
               AND rc.garantie_id = ?
-              AND rb.created_at >= ? AND rb.created_at < ?)
+              AND (COALESCE(sa.date_realisation, sa.date_prescription,
+                            sd.date_paiement, sd.date_preparation, rc.created_at)
+                     AT TIME ZONE 'UTC')::date >= ?
+              AND (COALESCE(sa.date_realisation, sa.date_prescription,
+                            sd.date_paiement, sd.date_preparation, rc.created_at)
+                     AT TIME ZONE 'UTC')::date < ?)
           +
           (SELECT COALESCE(SUM(lf.montant_reclame), 0)
              FROM lignes_facturation lf
@@ -229,7 +247,10 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
               AND g.id = ?
               AND lf.reportee_mois_suivant = false
               AND lf.acte_dossier_id::text <> ALL (string_to_array(?, ','))
-              AND lf.created_at >= ? AND lf.created_at < ?)
+              AND (COALESCE(ad.date_realisation, ad.date_prescription)
+                     AT TIME ZONE 'UTC')::date >= ?
+              AND (COALESCE(ad.date_realisation, ad.date_prescription)
+                     AT TIME ZONE 'UTC')::date < ?)
         """
             .formatted(filtrePersonne.formatted("rc"), filtrePersonne.formatted("ds"));
     final List<Object> params = new ArrayList<>();

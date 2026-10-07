@@ -50,7 +50,13 @@ public record ContexteAdjudication(
     /** Adhérent titulaire de la famille : l'adhérent lui-même, ou le titulaire du bénéficiaire. */
     UUID titulaireId,
     /** {@code ANNEE_POLICE} | {@code ANNEE_CIVILE} ({@link PeriodeCumul}). */
-    String periodeCumul) {
+    String periodeCumul,
+    /**
+     * Date de survenance des soins (prisma/sql/070) : réalisation de l'acte, à défaut sa
+     * prescription ; délivrance de la dispensation, à défaut sa préparation ; à défaut la
+     * date de la réclamation. C'est elle qui choisit la période de cumul des plafonds.
+     */
+    LocalDate dateSoins) {
 
   /** Personne soignée : l'adhérent, sinon le bénéficiaire, sinon (cas non attendu) la police. */
   public UUID clePersonne() {

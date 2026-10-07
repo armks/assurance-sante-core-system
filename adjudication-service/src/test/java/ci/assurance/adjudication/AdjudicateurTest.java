@@ -109,7 +109,7 @@ class AdjudicateurTest {
             base.ticketModerateurPct(), base.delaiCarenceJours(), base.reseauSoins(),
             base.policeStatut(), base.policeDebut(), base.policeFin(),
             base.etablissementId(), base.tarifConvention(),
-            base.produitId(), base.titulaireId(), base.periodeCumul());
+            base.produitId(), base.titulaireId(), base.periodeCumul(), base.dateSoins());
 
     Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, DATE_SOIN);
 

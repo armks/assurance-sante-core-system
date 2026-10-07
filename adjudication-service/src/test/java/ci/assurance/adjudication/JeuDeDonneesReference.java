@@ -35,6 +35,8 @@ public final class JeuDeDonneesReference {
   public static final BigDecimal FRANCHISE = new BigDecimal("2000.00");
   public static final BigDecimal PLAFOND_PAR_ACTE = new BigDecimal("50000.00");
   public static final BigDecimal PLAFOND_ANNUEL = new BigDecimal("100000.00");
+  /** Date de survenance des soins (choisit la période de cumul). */
+  public static final LocalDate DATE_SOINS = LocalDate.of(2026, 6, 15);
   public static final Instant DATE_CREATION = LocalDate.of(2026, 6, 15).atStartOfDay(java.time.ZoneOffset.UTC).toInstant();
 
   /** Contexte de base, personnalisable par les {@code with*} ci-dessous. */
@@ -74,7 +76,8 @@ public final class JeuDeDonneesReference {
         tarifConvention,
         PRODUIT_ID,
         ADHERENT_ID, // titulaire de la famille
-        "ANNEE_CIVILE");
+        "ANNEE_CIVILE",
+        DATE_SOINS);
   }
 
   public static ContexteAdjudication actif(BigDecimal montantReclame) {
@@ -104,7 +107,8 @@ public final class JeuDeDonneesReference {
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
         c.etablissementId(), c.tarifConvention(),
-        c.produitId(), ADHERENT_ID /* titulaire du bénéficiaire */, c.periodeCumul());
+        c.produitId(), ADHERENT_ID /* titulaire du bénéficiaire */, c.periodeCumul(),
+        c.dateSoins());
   }
 
   /** Copie de {@code c} avec ses deux plafonds annuels (chacun nullable = absent). */
@@ -118,6 +122,6 @@ public final class JeuDeDonneesReference {
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
         c.etablissementId(), c.tarifConvention(),
-        c.produitId(), c.titulaireId(), c.periodeCumul());
+        c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins());
   }
 }

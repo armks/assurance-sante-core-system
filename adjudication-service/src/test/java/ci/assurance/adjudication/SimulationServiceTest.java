@@ -44,9 +44,8 @@ class SimulationServiceTest {
   private static final UUID ETAB = UUID.fromString("55555555-5555-4555-8555-555555555555");
   private static final UUID BENEFICIAIRE = UUID.fromString("66666666-6666-4666-8666-666666666666");
   private static final LocalDate DATE = LocalDate.of(2026, 6, 15);
-  /** Période en cours du produit de test (année civile). */
-  private static final PeriodeCumul PERIODE =
-      PeriodeCumul.courante("ANNEE_CIVILE", null, LocalDate.now(ZoneOffset.UTC));
+  /** Période du produit de test (année civile) contenant la date des soins {@link #DATE}. */
+  private static final PeriodeCumul PERIODE = PeriodeCumul.courante("ANNEE_CIVILE", null, DATE);
 
   private AdjudicationRepository repo;
   private SimulationService service;

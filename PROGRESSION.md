@@ -7590,3 +7590,45 @@ civile** (aucun changement de comportement), année de police par défaut ensuit
 
 ### Statut
 Terminé — commit et push.
+
+## 2026-10-07 — Période de cumul déterminée par la date des soins (amendement ADR-006)
+
+### Constat
+La date retenue pour le cumul était la date d'ENREGISTREMENT de chaque consommation
+(`remboursements.created_at` = adjudication, `lignes_facturation.created_at` = facturation),
+et la période celle du jour : des soins antérieurs à l'anniversaire, facturés ou réclamés
+après, consommaient la nouvelle période.
+
+### Correctif
+- `prisma/sql/070_svc_adjudication_date_soins.sql` (appliquée) : `svc_adjudication` lit
+  `actes_dossier(date_realisation, date_prescription)`, `reclamations(dispensation_id)`,
+  `dispensations_pharmacie(id, date_paiement, date_preparation)`. ADR-003 mis à jour.
+- Java : date des soins de la réclamation dans le contexte (acte réalisé / prescrit,
+  dispensation délivrée / préparée, à défaut la réclamation) ; cumuls filtrés sur la date des
+  soins de chaque consommation ; adjudication sur la période contenant ses soins ; simulation
+  (facture) : période par acte, cumuls par garantie et par période.
+- Aucun changement NestJS / web : la facture envoie déjà la date de réalisation par acte.
+
+### Tests
+- JUnit 78/78 en build propre (+7, `DateSoinsCumulTest`) : soins du 20/02 réclamés le 10/03
+  (ancienne période, reste 5 000), soins du 02/03 (nouvelle période, 18 400), police du
+  29/02/2024 (soins du 27/02/2026 : ancienne période ; du 28/02/2026 : nouvelle), année civile
+  (soins du 28/12/2025 réclamés le 05/01/2026 : année 2025), date inconnue (repli sur la
+  réclamation), facture à cheval sur l'anniversaire (5 000, 10 000, puis 0).
+- API 974/974, typecheck API et web 0 erreur.
+- HTTP réel 11/11 (aujourd'hui 07/10/2026) : police du 01/10/2025 — facture de soins du
+  20/09 (25 000), réclamation de soins du 25/09 → 5 000 E006, facture de soins du 03/10 →
+  20 000, plafond affiché sur la période 2026-2027 : 20 000 consommés ; année civile — soins du
+  28/12/2025 réclamés en 2026 → 10 000, soins du 05/01/2026 → 15 000 ; police du 29/02/2024 —
+  soins du 27/02 puis du 28/02/2026 → 20 000 + 20 000, réclamation de soins du 26/02 → 10 000.
+  Contre-épreuve sur la version précédente du microservice (worktree temporaire, supprimé) :
+  5 contrôles en échec (0, 0, 10 000, 0, et 30 000 comptés sur la nouvelle période).
+  Données supprimées en ordre inverse des dépendances, 0 ligne et 0 compte Auth ; script
+  supprimé.
+
+### Point laissé en l'état
+L'éligibilité de la police (E001) et le tarif conventionné d'une réclamation restent
+appréciés à la date de la réclamation (la facture utilise déjà la date des soins).
+
+### Statut
+Terminé — commit et push.

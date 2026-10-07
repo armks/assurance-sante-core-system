@@ -149,7 +149,7 @@ l'état réel est une source d'erreur.
 `pg_roles`), puis **re-relevé le 2026-10-07** (`information_schema.role_table_grants`
 / `column_privileges`) : ajout des grants des migrations 034 / 035 (tarif
 conventionné), qui manquaient ici, et de 068 (cumul tiers payant, ADR-005),
-puis 069 (plafond double, ADR-006 — vérifié en base le même jour).
+puis 069 (plafond double, ADR-006) et 070 (date des soins, amendement d'ADR-006) — vérifiés en base le même jour.
 Toute modification future doit être répercutée ici dans la même PR que la
 migration SQL.
 
@@ -188,14 +188,15 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 
 | Table | Privilège | Colonnes |
 |---|---|---|
-| `reclamations` | `SELECT` | `id`, `organisation_id`, `dossier_soins_id`, `acte_dossier_id`, `adherent_id`, `beneficiaire_id`, `police_id`, `garantie_id`, `montant`, `type_reclamation`, `statut`, `created_at`, `deleted_at` *(13 colonnes)* |
+| `reclamations` | `SELECT` | `id`, `organisation_id`, `dossier_soins_id`, `acte_dossier_id`, `adherent_id`, `beneficiaire_id`, `police_id`, `garantie_id`, `montant`, `type_reclamation`, `statut`, `created_at`, `deleted_at` *(13 colonnes)* ; `dispensation_id` *(070)* |
 | `reclamations` | `UPDATE` | `statut` *(uniquement)* |
 | `remboursements` | `SELECT` | `id`, `reclamation_id`, `montant_rembourse`, `created_at` *(4 colonnes)* |
 | `dossiers_soins` | `SELECT` | `id`, `etablissement_id` *(034)* ; `adherent_id`, `beneficiaire_id`, `police_id` *(068)* |
-| `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* |
+| `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* ; `date_realisation`, `date_prescription` *(070 — date des soins)* |
 | `lignes_facturation` | `SELECT` | `id`, `acte_dossier_id`, `montant_reclame`, `reportee_mois_suivant`, `created_at` *(068)* |
 | `beneficiaires` | `SELECT` | `id`, `adherent_id`, `deleted_at` *(069 — rattachement au titulaire, clé de famille)* |
 | `produits` | `SELECT` | `id`, `periode_cumul_plafond` *(069 — période de cumul des plafonds)* |
+| `dispensations_pharmacie` | `SELECT` | `id`, `date_paiement`, `date_preparation` *(070 — date des soins d'une dispensation)* |
 
 > `SELECT(id)` sur `remboursements` est requis par `INSERT … RETURNING id`
 > (le `RETURNING` est évalué comme un `SELECT` sur les colonnes renvoyées).
@@ -452,3 +453,28 @@ repartent à zéro à la date anniversaire du contrat.
   plafond famille de 30 000 → 20 000 + 10 000 (contre-épreuve sans verrou
   famille : 20 000 + 20 000) ; mêmes montants pour deux réclamations adjugées en
   parallèle par le microservice.
+
+### Amendement du 2026-10-07 — la période de cumul est celle de la DATE DES SOINS
+
+Migration : `prisma/sql/070_svc_adjudication_date_soins.sql`.
+
+- **Avant** : la période était celle du jour, et chaque consommation était datée
+  par son ENREGISTREMENT (`remboursements.created_at` = date d'adjudication,
+  `lignes_facturation.created_at` = date de facturation). Des soins de septembre
+  facturés en octobre, après l'anniversaire de la police, consommaient la
+  nouvelle période — et l'ancienne restait vierge.
+- **Désormais** : une consommation appartient à la période qui contient la date
+  de survenance des soins ; une réclamation ou une facture est plafonnée sur la
+  période qui contient SES soins. Date des soins : acte → réalisation, à défaut
+  prescription ; dispensation → délivrance (`date_paiement` : les lignes passent
+  à SERVIE au paiement), à défaut préparation ; à défaut, date de la réclamation.
+  Dates en UTC (Côte d'Ivoire, UTC+0 ; mêmes dates que celles envoyées par le core).
+- **Facture à cheval** sur l'anniversaire : chaque acte consomme sa propre période
+  (cumuls de simulation par garantie ET par période).
+- **Affichage** (`/plafonds`) : inchangé, période en cours (contenant le jour),
+  désormais alimentée par les soins de cette période uniquement.
+- Vérifié en HTTP réel, avec contre-épreuve sur la version précédente du
+  microservice (5 contrôles sur 11 en échec, aux montants prévus).
+- **Non modifié (à arbitrer)** : l'éligibilité de la police (E001) et le tarif
+  conventionné d'une réclamation restent appréciés à la date de la RÉCLAMATION ;
+  la facture et la simulation utilisent déjà la date des soins.

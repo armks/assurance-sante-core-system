@@ -75,8 +75,14 @@ public class AdjudicationService {
             ? ctx.titulaireId()
             : ctx.clePersonne();
     repo.verrouillerPourPlafond(cleVerrou);
+    // période qui CONTIENT LA DATE DES SOINS (prisma/sql/070) — des soins de février
+    // réclamés en mars, après l'anniversaire de la police, consomment l'ancienne période
+    final LocalDate dateSoins =
+        ctx.dateSoins() != null
+            ? ctx.dateSoins()
+            : ctx.createdAt().atZone(ZoneOffset.UTC).toLocalDate();
     final PeriodeCumul periode =
-        PeriodeCumul.courante(ctx.periodeCumul(), ctx.policeDebut(), LocalDate.now(ZoneOffset.UTC));
+        PeriodeCumul.courante(ctx.periodeCumul(), ctx.policeDebut(), dateSoins);
     final java.math.BigDecimal dejaPersonne =
         ctx.plafondAnnuelPersonne() == null
             ? java.math.BigDecimal.ZERO

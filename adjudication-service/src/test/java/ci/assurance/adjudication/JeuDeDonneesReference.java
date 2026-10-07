@@ -80,4 +80,22 @@ public final class JeuDeDonneesReference {
       BigDecimal montantReclame, BigDecimal tarifConvention) {
     return contexte(montantReclame, "ACTIVE", tarifConvention);
   }
+
+  public static final UUID BENEFICIAIRE_ID = UUID.fromString("66666666-6666-4666-8666-666666666666");
+
+  /**
+   * Réclamation d'un BÉNÉFICIAIRE (enfant, conjoint…) : {@code adherent_id} est
+   * NULL, seul {@code beneficiaire_id} est renseigné (exclusivité en base).
+   */
+  public static ContexteAdjudication beneficiaireActif(BigDecimal montantReclame) {
+    ContexteAdjudication c = actif(montantReclame);
+    return new ContexteAdjudication(
+        c.id(), c.organisationId(), c.dossierSoinsId(), c.acteDossierId(),
+        null, BENEFICIAIRE_ID, c.policeId(), c.garantieId(),
+        c.montant(), c.typeReclamation(), c.statut(), c.createdAt(),
+        c.tauxCouverturePct(), c.plafondParActe(), c.plafondAnnuel(), c.franchise(),
+        c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
+        c.policeStatut(), c.policeDebut(), c.policeFin(),
+        c.etablissementId(), c.tarifConvention());
+  }
 }

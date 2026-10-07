@@ -61,11 +61,16 @@ public class AdjudicationService {
       throw new Doublon(reclamationId);
     }
 
-    // 3) verrou pessimiste (keyé sur l'adhérent, ou la police à défaut) + cumul de l'année
-    final UUID cleVerrou = ctx.adherentId() != null ? ctx.adherentId() : ctx.policeId();
+    // 3) verrou pessimiste + cumul de l'année, par PERSONNE assurée : l'adhérent
+    //    titulaire, ou le bénéficiaire (adherent_id NULL sur ses réclamations) ;
+    //    la police seulement si aucun des deux (cas non attendu).
+    final UUID cleVerrou =
+        ctx.adherentId() != null
+            ? ctx.adherentId()
+            : ctx.beneficiaireId() != null ? ctx.beneficiaireId() : ctx.policeId();
     repo.verrouillerPourPlafond(cleVerrou);
     final java.math.BigDecimal dejaRembourse =
-        repo.sommeRemboursementsAnnee(ctx.adherentId());
+        repo.sommeRemboursementsAnnee(ctx.adherentId(), ctx.beneficiaireId());
 
     // 4) calcul
     final LocalDate dateReference =

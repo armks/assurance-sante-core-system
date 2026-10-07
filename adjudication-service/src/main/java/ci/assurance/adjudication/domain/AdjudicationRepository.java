@@ -32,8 +32,14 @@ public interface AdjudicationRepository {
    */
   void verrouillerPourPlafond(UUID cle);
 
-  /** Somme des remboursements de l'année civile en cours pour cet adhérent. */
-  BigDecimal sommeRemboursementsAnnee(UUID adherentId);
+  /**
+   * Somme des remboursements de l'année civile en cours pour la PERSONNE
+   * assurée : l'adhérent titulaire si {@code adherentId} est renseigné, sinon
+   * le bénéficiaire ({@code reclamations.adherent_id} est NULL sur les
+   * réclamations d'un bénéficiaire — exclusivité adhérent/bénéficiaire). Les
+   * deux nuls : zéro.
+   */
+  BigDecimal sommeRemboursementsAnnee(UUID adherentId, UUID beneficiaireId);
 
   /** INSERT dans {@code remboursements} ... RETURNING id. */
   UUID insererRemboursement(

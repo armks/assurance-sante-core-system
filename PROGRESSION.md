@@ -7321,3 +7321,37 @@ Terminé, commité et poussé.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-07 — Plafond annuel des bénéficiaires (microservice Java)
+
+### Constat
+`JdbcAdjudicationRepository.sommeRemboursementsAnnee` ne cumulait que par
+`reclamations.adherent_id`. Une réclamation de bénéficiaire a `adherent_id` NULL
+(exclusivité adhérent / bénéficiaire) : le cumul était cherché avec `= NULL`, valait
+toujours 0, et le plafond annuel ne s'appliquait jamais aux bénéficiaires. Le verrou
+pessimiste se rabattait sur la police.
+
+### Correctif
+- Cumul et verrou par PERSONNE assurée : l'adhérent titulaire, sinon le bénéficiaire
+  (`sommeRemboursementsAnnee(adherentId, beneficiaireId)`, verrou sur le bénéficiaire).
+  Choix « par personne » (et non par famille) : comportement du titulaire inchangé,
+  libellé E006 « pour cet adhérent », cahier des charges « plafonds… par bénéficiaire ».
+- Aucun grant à modifier : `svc_adjudication` lit déjà `reclamations.beneficiaire_id`
+  (ADR-003). Aucun changement NestJS ni web.
+
+### Tests
+- JUnit : 25/25 (+4) — bénéficiaire 1re réclamation (18 400 / restant 81 600, verrou et
+  cumul sur le bénéficiaire, jamais la police), bénéficiaire à 90 000 déjà remboursés
+  (borné à 10 000, REVUE_MANUELLE E006), au plafond (REJETE E006), titulaire inchangé.
+- HTTP réel (NestJS → Java redémarré) : 7/7 — garantie 80 %, plafond annuel 50 000,
+  actes de 25 000 : enfant 20 000 → 20 000 → 10 000 (REVUE_MANUELLE E006) → 0 (REJETE
+  E006), total 50 000 ; titulaire 20 000, restant 30 000 (cumul indépendant). Données
+  supprimées en ordre inverse des dépendances, 0 ligne et 0 compte Auth vérifiés.
+
+### Non traité (à arbitrer)
+Le cumul additionne les remboursements de TOUTES les garanties de l'année et le
+compare au `plafond_annuel` de la garantie de la réclamation (pas de cumul par
+garantie).
+
+### Statut
+Terminé — commit à valider.

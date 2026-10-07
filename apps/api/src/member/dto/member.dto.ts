@@ -15,9 +15,27 @@ import {
   LIENS_PARENTE,
   MODES_PAIEMENT,
   SEXES,
+  STATUTS_ADHERENT_FILTRE,
   STATUTS_MEMBRE,
   STATUTS_SORTANT_CIBLE,
 } from '../member.types';
+
+/** `GET member/adherents` — `statut` en liste blanche (une valeur inconnue
+ * renvoie 400 au lieu d'une liste vide silencieuse). */
+export class ListerAdherentsQueryDto {
+  @IsOptional()
+  @IsIn(STATUTS_ADHERENT_FILTRE)
+  statut?: (typeof STATUTS_ADHERENT_FILTRE)[number];
+
+  @IsOptional()
+  @IsUUID()
+  souscripteurId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+}
 
 export class CreateAdherentDto {
   @IsUUID()

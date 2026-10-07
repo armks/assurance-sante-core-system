@@ -16,7 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   LIBELLE_STATUT_MEMBRE,
-  STATUTS_MEMBRE,
+  STATUTS_MEMBRE_FILTRE,
   TON_STATUT_MEMBRE,
 } from '@/lib/member';
 import { ChampsNouvelAdherent } from './champs-nouvel-adherent';
@@ -113,7 +113,7 @@ export function AdherentsListe({
           {
             cle: 'statut',
             libelle: 'Statut',
-            options: STATUTS_MEMBRE.map((s) => ({
+            options: STATUTS_MEMBRE_FILTRE.map((s) => ({
               valeur: s,
               libelle: LIBELLE_STATUT_MEMBRE[s],
             })),

@@ -128,6 +128,11 @@ export const ROLE_PROPOSITION_SORTANT_SOCIETE = 'SOCIETE_ADMINISTRATION';
 export const STATUT_ADHERENT_PROPOSE_SORTANT = 'PROPOSE_SORTANT';
 export const STATUTS_SORTANT_CIBLE = ['SUSPENDU', 'RADIE'] as const;
 
+/** Liste blanche du filtre `statut` de `GET member/adherents` : les statuts
+ * choisissables (`STATUTS_MEMBRE`) + `PROPOSE_SORTANT`, état transitoire jamais
+ * choisissable via `ChangerStatutDto` mais bien présent dans le fichier. */
+export const STATUTS_ADHERENT_FILTRE = [...STATUTS_MEMBRE, STATUT_ADHERENT_PROPOSE_SORTANT] as const;
+
 /**
  * Identification par numéro de carte à l'accueil du centre médical — ADDITIF
  * au code de consultation, ne le remplace pas. Purement informatif (statut

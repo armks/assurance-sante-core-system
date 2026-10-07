@@ -18,6 +18,7 @@ import {
   ClotureDto,
   ClotureForceeDto,
   DefinirTypeVisiteDto,
+  ListerDossiersQueryDto,
 } from './dto/care-episode.dto';
 
 /**
@@ -36,10 +37,9 @@ export class CareEpisodeController {
   @Get()
   lister(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('statut') statut?: string,
-    @Query('etablissementId') etablissementId?: string,
+    @Query() dto: ListerDossiersQueryDto,
   ) {
-    return this.careEpisode.listerDossiers(user, { statut, etablissementId });
+    return this.careEpisode.listerDossiers(user, dto);
   }
 
   @Get(':id')

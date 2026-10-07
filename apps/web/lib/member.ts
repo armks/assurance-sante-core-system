@@ -16,6 +16,12 @@ export const LIBELLE_STATUT_MEMBRE: Record<string, string> = {
   PROPOSE_SORTANT: 'Sortie proposée',
 };
 
+/** Options du FILTRE de statut des listes d'adhérents — `STATUTS_MEMBRE` +
+ * `PROPOSE_SORTANT`. Distinct de `STATUTS_MEMBRE`, qui pilote les boutons de
+ * changement de statut (`adherent-detail.tsx`) : `PROPOSE_SORTANT` n'y est
+ * jamais une cible. Miroir de `STATUTS_ADHERENT_FILTRE` (API). */
+export const STATUTS_MEMBRE_FILTRE = [...STATUTS_MEMBRE, 'PROPOSE_SORTANT'] as const;
+
 export const TON_STATUT_MEMBRE: Record<
   string,
   'succes' | 'attention' | 'danger'

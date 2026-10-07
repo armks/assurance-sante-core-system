@@ -173,18 +173,6 @@ export class AdherentService {
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
-        // Lecture scopée à SON souscripteur pour TOUT rôle SOCIETE_AFFILIEE
-        // (administration, assurée, comptable, réception) — pas seulement
-        // SOCIETE_ADMINISTRATION, qui seul a le droit d'ÉCRIRE (assertGestion).
-        ...(ctx.entite === ENTITE_SOCIETE_AFFILIEE
-          ? { souscripteurId: ctx.societeId ?? '__aucun__' }
-          : {}),
-        // Fuite inter-adhérent corrigée (audit dashboard adhérent) : un compte
-        // ADHERENT ne liste jamais que lui-même, jamais le fichier des membres
-        // de toute l'organisation.
-        ...(ctx.entite === ENTITE_ADHERENT
-          ? { id: ctx.adherentId ?? '__aucun__' }
-          : {}),
         ...(filtres.statut ? { statut: filtres.statut } : {}),
         ...(filtres.souscripteurId
           ? { souscripteurId: filtres.souscripteurId }
@@ -197,6 +185,21 @@ export class AdherentService {
                 { numeroAdherent: { contains: filtres.q, mode: 'insensitive' } },
               ],
             }
+          : {}),
+        // Périmètres APRÈS les filtres client : ils écrasent un
+        // `souscripteurId` fourni (une société qui demandait celui d'une autre
+        // lisait ses adhérents — fuite inter-société, audit des filtres).
+        // Lecture scopée à SON souscripteur pour TOUT rôle SOCIETE_AFFILIEE
+        // (administration, assurée, comptable, réception) — pas seulement
+        // SOCIETE_ADMINISTRATION, qui seul a le droit d'ÉCRIRE (assertGestion).
+        ...(ctx.entite === ENTITE_SOCIETE_AFFILIEE
+          ? { souscripteurId: ctx.societeId ?? '__aucun__' }
+          : {}),
+        // Fuite inter-adhérent corrigée (audit dashboard adhérent) : un compte
+        // ADHERENT ne liste jamais que lui-même, jamais le fichier des membres
+        // de toute l'organisation.
+        ...(ctx.entite === ENTITE_ADHERENT
+          ? { id: ctx.adherentId ?? '__aucun__' }
           : {}),
       },
       orderBy: [{ nom: 'asc' }, { prenom: 'asc' }],

@@ -8,6 +8,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { FILTRE_STATUT_DOSSIER } from '@/lib/dossier-soins';
 
 export interface DossierClot {
   id: string;
@@ -46,18 +47,7 @@ export function FacturationEcran({ dossiers }: { dossiers: DossierClot[] }) {
         champs: ['numeroTraitement'],
       }}
       colonnes={colonnes}
-      filtres={[
-        {
-          cle: 'statut',
-          libelle: 'Statut',
-          options: [
-            { valeur: 'OUVERT', libelle: 'Ouvert' },
-            { valeur: 'SUSPENDU', libelle: 'Suspendu' },
-            { valeur: 'CLOTURE', libelle: 'Clôturé' },
-            { valeur: 'FORCE_CLOS', libelle: 'Clôturé (forcé)' },
-          ],
-        },
-      ]}
+      filtres={[FILTRE_STATUT_DOSSIER]}
       actionLigne={(d) => (
         <Button asChild size="xs" variant="ghost">
           <Link href={`/dashboard-centre-medical/comptable/${d.id}`}>

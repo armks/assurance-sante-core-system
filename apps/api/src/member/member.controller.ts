@@ -23,6 +23,7 @@ import {
   ChangerStatutDto,
   CreateAdherentDto,
   CreateBeneficiaireDto,
+  ListerAdherentsQueryDto,
   ProposerAdherentDto,
   ProposerBeneficiaireDto,
   ProposerSortantsDto,
@@ -74,11 +75,9 @@ export class MemberController {
   @Get('adherents')
   listerAdherents(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('statut') statut?: string,
-    @Query('souscripteurId') souscripteurId?: string,
-    @Query('q') q?: string,
+    @Query() dto: ListerAdherentsQueryDto,
   ) {
-    return this.adherents.listerAdherents(user, { statut, souscripteurId, q });
+    return this.adherents.listerAdherents(user, dto);
   }
 
   @Get('adherents/:id')

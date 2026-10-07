@@ -7,7 +7,19 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { TYPES_VISITE } from '../care-episode.types';
+import { STATUTS_DOSSIER, TYPES_VISITE } from '../care-episode.types';
+
+/** `GET care-episode/dossiers` — `statut` en liste blanche (une valeur inconnue
+ * renvoie 400 au lieu d'une liste vide silencieuse). */
+export class ListerDossiersQueryDto {
+  @IsOptional()
+  @IsIn(STATUTS_DOSSIER)
+  statut?: (typeof STATUTS_DOSSIER)[number];
+
+  @IsOptional()
+  @IsUUID()
+  etablissementId?: string;
+}
 
 export class OuvrirDossierDto {
   @IsOptional()

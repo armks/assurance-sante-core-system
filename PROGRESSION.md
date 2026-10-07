@@ -7074,3 +7074,54 @@ actions superadmin en attente (vraie file d'attente filtrée côté serveur).
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-07 — Filtres de statut incomplets (anomalie n° 5) → 🎯 FIN COMPLÈTE DE L'AUDIT DES TABLEAUX ET FILTRES
+
+### Correctif
+- **Liste des adhérents** (`adherents-liste.tsx`, écrans assureur et société) : filtre
+  statut sur `STATUTS_MEMBRE_FILTRE` (`lib/member.ts`) = `STATUTS_MEMBRE` +
+  `PROPOSE_SORTANT` (« Sortie proposée »). `STATUTS_MEMBRE` inchangé : les boutons de
+  changement de statut de `adherent-detail.tsx` ne proposent toujours pas cette valeur.
+- **Facturation du centre médical** (`centre-medical/facturation-ecran.tsx`) : filtre
+  « Transféré » ajouté. Le filtre de la supervision assureur est extrait dans
+  `lib/dossier-soins.ts` (`FILTRE_STATUT_DOSSIER`) et partagé par les deux écrans.
+- **API — listes blanches** : `GET member/adherents` et `GET care-episode/dossiers`
+  lisaient `statut` en chaîne libre (une valeur inconnue renvoyait une liste vide sans
+  erreur). DTO de requête ajoutés : `ListerAdherentsQueryDto` (`statut` ∈
+  `STATUTS_ADHERENT_FILTRE`, `souscripteurId` UUID, `q` ≤ 100) et
+  `ListerDossiersQueryDto` (`statut` ∈ `STATUTS_DOSSIER`, `etablissementId` UUID) ;
+  valeur inconnue → 400. Tous les appels existants du web restent valides.
+- **Fuite inter-société corrigée** (trouvée par le test HTTP, antérieure à ce
+  correctif) : dans `listerAdherents`, le `souscripteurId` fourni par le client était
+  appliqué APRÈS le périmètre société et l'écrasait — une société qui demandait le
+  `souscripteurId` d'une autre lisait ses adhérents. Les périmètres (société,
+  adhérent) sont désormais appliqués après les filtres client.
+
+### Tests
+- Unitaires : +8 (DTO adhérents ×4, DTO dossiers ×3, périmètre société non élargi par
+  `souscripteurId`). API 919/919. Typage : API 0 erreur, web 0 erreur dans le code
+  source (1 erreur préexistante dans `.next/types` générés, inchangée).
+- HTTP réel + navigateur (Playwright), 2 organisations, 3 sociétés, 3 établissements,
+  31 adhérents, 23 dossiers créés pour le test : 34/34 vérifications.
+  - Adhérents : `statut=PROPOSE_SORTANT` → 22, seuls ces statuts ; combiné à `q` (3)
+    et `souscripteurId` (4) ; statut inconnu → 400 ; société S1 → 18, y compris en
+    demandant S2 ; organisation B isolée. Écran assureur : « 22 / 29 — page 1/2 »,
+    15 + 7 lignes, + recherche → 3, + formule → 4 ; écran société : « 18 / 25 — page 1/2 ».
+    Fiche adhérent : aucun bouton « Sortie proposée ».
+  - Dossiers : la requête de l'écran (sans statut) renvoie bien les TRANSFERE ;
+    `statut=TRANSFERE` → 12, comptable de E1 demandant E2 → reste borné à E1 ;
+    statut inconnu → 400. Écran facturation : « 12 / 18 — page 1/2 », 10 + 2 lignes,
+    + recherche par n° de traitement → 1 (dossier OUVERT → aucun résultat).
+  - Données de test supprimées, 0 ligne résiduelle vérifiée.
+
+### Remarque (non corrigée)
+Le badge de statut de l'écran de facturation affiche le libellé automatique
+« Transfere » (sans accent), alors que le filtre affiche « Transféré ».
+
+### Bilan de l'audit
+Les 5 anomalies du diagnostic du 2026-10-01 sont traitées : recherche insensible aux
+accents, nom complet, listes tronquées (n° 1 à 7 ; n° 8 et 9 laissées comme convenu),
+filtres de statut incomplets.
+
+### Statut
+Terminé, commité et poussé.

@@ -241,6 +241,27 @@ describe('AdherentService — fichier des membres', () => {
     );
   });
 
+  it('un souscripteurId fourni par une société n’élargit jamais son périmètre (filtre statut combiné)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_ADMINISTRATION'], {
+        societeId: 'sous-1',
+        entite: 'SOCIETE_AFFILIEE',
+      }),
+    );
+    await service.listerAdherents(USER, {
+      statut: 'PROPOSE_SORTANT',
+      souscripteurId: 'sous-autre',
+    });
+    expect(prisma.adherent.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          souscripteurId: 'sous-1',
+          statut: 'PROPOSE_SORTANT',
+        }),
+      }),
+    );
+  });
+
   it('SOCIETE_COMPTABLE ne peut PAS lire un adhérent d’une autre société (404, pas de fuite)', async () => {
     identity.getMe.mockResolvedValue(
       identite(['SOCIETE_COMPTABLE'], {

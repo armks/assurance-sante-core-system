@@ -23,7 +23,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
 import { Stethoscope, Pill } from 'lucide-react';
-import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import {
+  LIBELLE_STATUT_HOMOLOGATION,
+  libelleCategorieActe,
+} from '@/lib/referentiel';
 
 export interface ActeNational {
   id: string;
@@ -67,7 +70,12 @@ export function CatalogueNationalEcran({
   const colActes: ColonneTable<ActeNational>[] = [
     { cle: 'code', entete: 'Code', triable: true, className: 'font-mono text-xs' },
     { cle: 'libelle', entete: 'Libellé', triable: true },
-    { cle: 'categorie', entete: 'Catégorie', rendu: (a) => a.categorie ?? '—' },
+    {
+      cle: 'categorie',
+      entete: 'Catégorie',
+      valeur: (a) => libelleCategorieActe(a.categorie),
+      rendu: (a) => libelleCategorieActe(a.categorie),
+    },
     {
       cle: 'statut',
       entete: 'Statut',

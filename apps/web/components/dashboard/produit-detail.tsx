@@ -26,6 +26,11 @@ import {
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  CATEGORIES_GARANTIE,
+  libelleCategorieActe,
+  optionsCategorieActe,
+} from '@/lib/referentiel';
 
 interface Garantie {
   id: string;
@@ -50,20 +55,6 @@ export interface ProduitAvecGaranties {
   garanties: Garantie[];
 }
 
-const CATEGORIES_ACTE = [
-  'CONSULTATION',
-  'HOSPITALISATION',
-  'PHARMACIE',
-  'ANALYSES_LABORATOIRE',
-  'IMAGERIE',
-  'OPTIQUE',
-  'DENTAIRE',
-  'MATERNITE',
-  'SOINS_INFIRMIERS',
-  'TRANSPORT_SANITAIRE',
-  'AUTRE',
-];
-
 const LIBELLE_RESEAU: Record<string, string> = {
   TOUT_RESEAU: 'Tout réseau',
   CONVENTIONNE_SEUL: 'Conventionné seul',
@@ -85,10 +76,7 @@ function ChampsGarantie({ defaut }: { defaut?: Garantie }) {
         required
         placeholder="Choisir une catégorie…"
         defaultValue={defaut?.categorieActe}
-        options={CATEGORIES_ACTE.map((c) => ({
-          valeur: c,
-          libelle: c.replace(/_/g, ' '),
-        }))}
+        options={optionsCategorieActe(CATEGORIES_GARANTIE)}
       />
       <ChampNombre
         name="tauxCouverture"
@@ -203,7 +191,13 @@ export function ProduitDetail({
   const sansGarantie = produit.garanties.length === 0;
 
   const colonnes: ColonneTable<Garantie>[] = [
-    { cle: 'categorieActe', entete: 'Catégorie', triable: true },
+    {
+      cle: 'categorieActe',
+      entete: 'Catégorie',
+      triable: true,
+      valeur: (g) => libelleCategorieActe(g.categorieActe),
+      rendu: (g) => libelleCategorieActe(g.categorieActe),
+    },
     {
       cle: 'tauxCouverture',
       entete: 'Taux',

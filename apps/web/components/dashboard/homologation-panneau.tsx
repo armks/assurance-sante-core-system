@@ -15,7 +15,10 @@ import {
 } from '@/app/dashboard-assureur/reference-actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import {
+  LIBELLE_STATUT_HOMOLOGATION,
+  libelleCategorieActe,
+} from '@/lib/referentiel';
 
 export interface ActeRef {
   id: string;
@@ -122,7 +125,7 @@ export function HomologationPanneau({
                     </span>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
-                    {a.categorie ?? '—'}
+                    {libelleCategorieActe(a.categorie)}
                   </td>
                   <td className="px-3 py-2">
                     <Badge variant={VARIANT_STATUT[a.statut] ?? 'outline'}>

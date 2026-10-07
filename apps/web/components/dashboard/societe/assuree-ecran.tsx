@@ -13,6 +13,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
+import { libelleCategorieActe } from '@/lib/referentiel';
 
 export interface Garantie {
   id: string;
@@ -225,7 +226,7 @@ export function AssureeEcran({
                         {produit.garanties.map((g) => (
                           <tr key={g.id} className="border-t">
                             <td className="px-3 py-2">
-                              {g.categorieActe.replaceAll('_', ' ').toLowerCase()}
+                              {libelleCategorieActe(g.categorieActe)}
                             </td>
                             <td className="px-3 py-2 text-right">
                               {pourcent(g.tauxCouverture)}

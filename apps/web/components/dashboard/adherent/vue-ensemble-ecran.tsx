@@ -12,6 +12,7 @@ import {
   TON_STATUT_BENEFICIAIRE,
 } from '@/lib/member';
 import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
+import { libelleCategorieActe } from '@/lib/referentiel';
 
 export interface GarantieAdherent {
   id: string;
@@ -231,7 +232,7 @@ export function AdherentVueEnsemble({
                       {produit.garanties.map((g) => (
                         <tr key={g.id} className="border-t">
                           <td className="px-3 py-2">
-                            {g.categorieActe.replaceAll('_', ' ').toLowerCase()}
+                            {libelleCategorieActe(g.categorieActe)}
                           </td>
                           <td className="px-3 py-2 text-right">{pourcent(g.tauxCouverture)}</td>
                           <td className="px-3 py-2 text-right">{montant(g.plafondParActe)}</td>

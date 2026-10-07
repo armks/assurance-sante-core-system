@@ -7214,3 +7214,46 @@ Aucune logique métier modifiée (affichage seulement).
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-07 — Libellés des catégories d'acte (categorieActe)
+
+Affichage seulement, aucune logique métier modifiée.
+
+### Correctif
+- Source unique dans `lib/referentiel.ts` : `LIBELLE_CATEGORIE_ACTE` (15 valeurs),
+  `libelleCategorieActe()`, `optionsCategorieActe()`, `CATEGORIES_GARANTIE` (liste du
+  formulaire produit, sortie de `produit-detail.tsx`).
+- Valeurs couvertes : vocabulaire des actes (`CATEGORIES_ACTE` de l'API : Consultation,
+  Hospitalisation, Pharmacie, Optique, Dentaire, Imagerie, Biologie, Acte technique,
+  Transport, Autre), vocabulaire des garanties (Analyses de laboratoire, Maternité, Soins
+  infirmiers, Transport sanitaire) et `ANALYSES` du catalogue national (relevé en base).
+- Repli : un code inconnu (`SOINS_PALLIATIFS`) devient « Soins palliatifs » ; un texte
+  libre déjà lisible (« Consultation », saisi dans un référentiel) est rendu tel quel ;
+  jamais le code brut en minuscules.
+- 11 écrans : garanties (vue d'ensemble adhérent, écran société, fiche produit et son
+  formulaire), actes d'un dossier (fiche médecin et formulaire « Ajouter un acte »,
+  facturation du dossier, actes du mois du centre, fiche réclamation, actes à examiner
+  du médecin conseil et son filtre), référentiels d'actes (référentiel médical, actes à
+  homologuer, catalogue national). Colonnes triées et recherchées sur le libellé.
+- Aucun écran pharmacie n'affiche de catégorie d'acte.
+
+### Point relevé, non corrigé (logique métier)
+Le calcul de la part assurance (`preauthorization.service.ts`, `parCategorie`) apparie
+la catégorie de l'acte à celle de la garantie par code exact. Les deux vocabulaires
+diffèrent : un acte `BIOLOGIE`, `ACTE_TECHNIQUE` ou `TRANSPORT` ne trouve jamais de
+garantie (le formulaire produit propose `ANALYSES_LABORATOIRE`, `SOINS_INFIRMIERS`,
+`TRANSPORT_SANITAIRE`) et reçoit le taux de couverture par défaut. À arbitrer.
+
+### Tests
+- Navigateur (Playwright) : 17/17 — les 11 écrans, les 3 formulaires/filtres, et le
+  formulaire de modification du panneau réseau (types d'établissement, valeur courante
+  conservée), non ouvert lors de la tâche précédente.
+- Script de test : suppression dans l'ordre inverse des dépendances (réclamation → acte →
+  consultation → ticket → dossier → profils → adhérent → police → garanties → produits →
+  référentiel → établissement → souscripteur → organisation → comptes Auth), puis
+  comptage : 0 ligne dans 14 tables et 0 compte Auth, vérifié à chaque exécution, y
+  compris les 4 exécutions interrompues par des contraintes de fixtures.
+- API 919/919, typage web 0 erreur dans le code source.
+
+### Statut
+Terminé, commité et poussé.

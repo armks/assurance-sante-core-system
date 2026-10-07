@@ -8,6 +8,7 @@ import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboar
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatutActe } from './statut-acte';
+import { libelleCategorieActe } from '@/lib/referentiel';
 
 export interface ActeDuMois {
   id: string;
@@ -86,7 +87,12 @@ export function FactureMensuelleEtablissementEcran({
   const colonnesActes: ColonneTable<ActeDuMois>[] = [
     { cle: 'patient', entete: 'Patient', triable: true },
     { cle: 'numeroTraitement', entete: 'Dossier' },
-    { cle: 'categorieActe', entete: 'Catégorie' },
+    {
+      cle: 'categorieActe',
+      entete: 'Catégorie',
+      valeur: (a) => libelleCategorieActe(a.categorieActe),
+      rendu: (a) => libelleCategorieActe(a.categorieActe),
+    },
     { cle: 'libelle', entete: 'Acte' },
     {
       cle: 'montantPrescrit',

@@ -22,6 +22,10 @@ import {
 import { CATEGORIES_ACTE } from '@/lib/centre-medical';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  libelleCategorieActe,
+  optionsCategorieActe,
+} from '@/lib/referentiel';
 
 export interface ActeRevue {
   id: string;
@@ -138,7 +142,7 @@ const OPTIONS_CONTESTATION = [
   { valeur: 'EN_COURS', libelle: 'Contestation en cours' },
   { valeur: 'TRAITEE', libelle: 'Contestation tranchée' },
 ];
-const OPTIONS_CATEGORIE = CATEGORIES_ACTE.map((c) => ({ valeur: c, libelle: c.replace(/_/g, ' ') }));
+const OPTIONS_CATEGORIE = optionsCategorieActe(CATEGORIES_ACTE);
 
 export function MedecinConseilActesEcran({
   actes,
@@ -165,7 +169,12 @@ export function MedecinConseilActesEcran({
     { cle: 'patient', entete: 'Patient' },
     { cle: 'etablissement', entete: 'Établissement' },
     { cle: 'libelle', entete: 'Acte' },
-    { cle: 'categorieActe', entete: 'Catégorie' },
+    {
+      cle: 'categorieActe',
+      entete: 'Catégorie',
+      valeur: (a) => libelleCategorieActe(a.categorieActe),
+      rendu: (a) => libelleCategorieActe(a.categorieActe),
+    },
     {
       cle: 'montantPrescrit',
       entete: 'Montant',

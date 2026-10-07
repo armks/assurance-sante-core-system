@@ -25,6 +25,7 @@ import {
   LIBELLE_STATUT_DOSSIER,
   LIBELLE_STATUT_TICKET,
 } from '@/lib/dossier-soins';
+import { libelleCategorieActe } from '@/lib/referentiel';
 
 interface DossierResume {
   id: string;
@@ -249,7 +250,7 @@ export function ReclamationDetail({
                         <tr key={a.id} className="border-t">
                           <td className="px-3 py-2">{a.libelle}</td>
                           <td className="px-3 py-2">
-                            {a.categorieActe.replace(/_/g, ' ')}
+                            {libelleCategorieActe(a.categorieActe)}
                           </td>
                           <td className="px-3 py-2 text-right">
                             {montant(a.montantPrescrit)}

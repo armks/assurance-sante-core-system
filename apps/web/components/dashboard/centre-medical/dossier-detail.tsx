@@ -39,6 +39,10 @@ import {
   LIBELLE_STATUT_DOSSIER,
   LIBELLE_STATUT_TICKET,
 } from '@/lib/dossier-soins';
+import {
+  libelleCategorieActe,
+  optionsCategorieActe,
+} from '@/lib/referentiel';
 
 interface Consultation {
   id: string;
@@ -175,7 +179,8 @@ export function DossierDetail({
     {
       cle: 'categorieActe',
       entete: 'Catégorie',
-      rendu: (a) => a.categorieActe.replace(/_/g, ' '),
+      valeur: (a) => libelleCategorieActe(a.categorieActe),
+      rendu: (a) => libelleCategorieActe(a.categorieActe),
     },
     { cle: 'quantite', entete: 'Qté', aligneDroite: true },
     {
@@ -398,10 +403,7 @@ export function DossierDetail({
                       label="Catégorie"
                       required
                       placeholder="Choisir…"
-                      options={CATEGORIES_ACTE.map((v) => ({
-                        valeur: v,
-                        libelle: v.replace(/_/g, ' '),
-                      }))}
+                      options={optionsCategorieActe(CATEGORIES_ACTE)}
                     />
                     <ChampTexte
                       name="libelle"

@@ -23,6 +23,7 @@ import {
   LIBELLE_STATUT_TICKET,
   TON_STATUT_FACTURE_DOSSIER,
 } from '@/lib/dossier-soins';
+import { libelleCategorieActe } from '@/lib/referentiel';
 
 interface LigneFacturationActe {
   id: string;
@@ -162,7 +163,8 @@ export function TicketDetail({
       {
         cle: 'categorieActe',
         entete: 'Catégorie',
-        rendu: (a) => a.categorieActe.replace(/_/g, ' '),
+        valeur: (a) => libelleCategorieActe(a.categorieActe),
+        rendu: (a) => libelleCategorieActe(a.categorieActe),
       },
       { cle: 'quantite', entete: 'Qté', aligneDroite: true },
       {

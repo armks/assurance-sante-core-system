@@ -15,7 +15,10 @@ import {
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
-import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import {
+  LIBELLE_STATUT_HOMOLOGATION,
+  libelleCategorieActe,
+} from '@/lib/referentiel';
 
 export interface ActeReferentiel {
   id: string;
@@ -51,7 +54,12 @@ export function ReferentielMedicalEcran({
   const colActes: ColonneTable<ActeReferentiel>[] = [
     { cle: 'libelle', entete: 'Libellé', triable: true },
     { cle: 'code', entete: 'Code' },
-    { cle: 'categorie', entete: 'Catégorie', rendu: (a) => a.categorie ?? '—' },
+    {
+      cle: 'categorie',
+      entete: 'Catégorie',
+      valeur: (a) => libelleCategorieActe(a.categorie),
+      rendu: (a) => libelleCategorieActe(a.categorie),
+    },
     {
       cle: 'statut',
       entete: 'Statut',

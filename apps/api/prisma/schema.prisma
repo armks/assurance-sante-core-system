@@ -457,6 +457,9 @@ model Produit {
   /// Catégories d'acte confirmées NON COUVERTES par l'assureur à la publication
   /// (aucune garantie) — prisma/sql/067. Codes de `categories_acte`.
   categoriesNonCouvertes String[] @default([]) @map("categories_non_couvertes")
+  /// Période de cumul des plafonds annuels (prisma/sql/069) : ANNEE_POLICE (défaut,
+  /// anniversaire de la police) | ANNEE_CIVILE. Produits antérieurs à 069 : ANNEE_CIVILE.
+  periodeCumulPlafond String @default("ANNEE_POLICE") @map("periode_cumul_plafond")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -481,7 +484,10 @@ model Garantie {
   categorieActe     String    @map("categorie_acte") // FK categories_acte.code (prisma/sql/067)
   tauxCouverture    Decimal   @map("taux_couverture") @db.Decimal(5, 2) // obligatoire depuis prisma/sql/067
   plafondParActe    Decimal?  @map("plafond_par_acte") @db.Decimal(14, 2)
-  plafondAnnuel     Decimal?  @map("plafond_annuel") @db.Decimal(14, 2)
+  /// Plafonds annuels (prisma/sql/069), chacun optionnel — le plus restrictif s'applique :
+  /// par personne assurée, et partagé par la famille (titulaire + bénéficiaires).
+  plafondAnnuelPersonne Decimal? @map("plafond_annuel_personne") @db.Decimal(14, 2)
+  plafondAnnuelFamille  Decimal? @map("plafond_annuel_famille") @db.Decimal(14, 2)
   franchise         Decimal?  @db.Decimal(14, 2)
   ticketModerateur  Decimal?  @map("ticket_moderateur") @db.Decimal(5, 2)
   delaiCarenceJours Int?      @map("delai_carence_jours")

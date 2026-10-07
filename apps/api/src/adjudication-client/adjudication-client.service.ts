@@ -45,6 +45,29 @@ export interface ResultatSimulation {
 }
 
 /**
+ * État des plafonds annuels d'une famille (`POST /api/v1/adjudication/plafonds`,
+ * prisma/sql/069) : calculé par le microservice, mêmes cumuls et même période que
+ * l'adjudication. Montants restants `null` = pas de plafond de ce niveau.
+ */
+export interface EtatPlafondsFamille {
+  periode: { mode: 'ANNEE_POLICE' | 'ANNEE_CIVILE'; debut: string; fin: string };
+  garanties: {
+    garantie_id: string;
+    categorie_acte: string;
+    plafond_personne: number | null;
+    plafond_famille: number | null;
+    consomme_famille: number | null;
+    restant_famille: number | null;
+    personnes: {
+      adherent_id: string | null;
+      beneficiaire_id: string | null;
+      consomme: number;
+      restant: number | null;
+    }[];
+  }[];
+}
+
+/**
  * Messages présentés aux utilisateurs quand le calcul de la prise en charge
  * (microservice) est indisponible : ce qui s'est passé et quoi faire, JAMAIS de
  * détail technique — celui-ci reste dans les logs et l'audit.
@@ -60,6 +83,8 @@ export const MESSAGES_INDISPONIBILITE = {
     "Le calcul de la prise en charge par l'assurance est momentanément indisponible. La réclamation est remise en attente : réessayez dans quelques minutes.",
   reclamationErreur:
     "Le calcul de la prise en charge n'a pas pu aboutir. La réclamation est remise en attente : réessayez, et contactez le support si le problème persiste.",
+  plafonds:
+    'Le suivi des plafonds annuels est momentanément indisponible. Réessayez dans quelques minutes.',
 } as const;
 
 /**
@@ -130,6 +155,18 @@ export class AdjudicationClientService {
    */
   async simuler(demande: DemandeSimulation): Promise<ResultatSimulation> {
     return this.appeler<ResultatSimulation>('/api/v1/adjudication/simuler', demande);
+  }
+
+  /**
+   * Appelle `POST /api/v1/adjudication/plafonds` : consommé et restant, par
+   * personne et pour la famille, de chaque garantie plafonnée — sans écriture.
+   * `titulaireId` = l'adhérent titulaire de la famille.
+   */
+  async etatPlafonds(policeId: string, titulaireId: string): Promise<EtatPlafondsFamille> {
+    return this.appeler<EtatPlafondsFamille>('/api/v1/adjudication/plafonds', {
+      police_id: policeId,
+      adherent_id: titulaireId,
+    });
   }
 
   /**

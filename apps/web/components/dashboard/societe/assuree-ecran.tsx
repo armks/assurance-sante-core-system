@@ -20,7 +20,8 @@ export interface Garantie {
   categorieActe: string;
   tauxCouverture: string | number | null;
   plafondParActe: string | number | null;
-  plafondAnnuel: string | number | null;
+  plafondAnnuelPersonne: string | number | null;
+  plafondAnnuelFamille: string | number | null;
   franchise: string | number | null;
   ticketModerateur: string | number | null;
   delaiCarenceJours: number | null;
@@ -215,7 +216,10 @@ export function AssureeEcran({
                             Plafond / acte
                           </th>
                           <th className="px-3 py-2 font-medium text-right">
-                            Plafond / an
+                            Plafond / an / personne
+                          </th>
+                          <th className="px-3 py-2 font-medium text-right">
+                            Plafond / an / famille
                           </th>
                           <th className="px-3 py-2 font-medium text-right">
                             Franchise
@@ -236,7 +240,10 @@ export function AssureeEcran({
                               {montant(g.plafondParActe)}
                             </td>
                             <td className="px-3 py-2 text-right">
-                              {montant(g.plafondAnnuel)}
+                              {montant(g.plafondAnnuelPersonne)}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              {montant(g.plafondAnnuelFamille)}
                             </td>
                             <td className="px-3 py-2 text-right">
                               {montant(g.franchise)}
@@ -251,9 +258,9 @@ export function AssureeEcran({
                       </tbody>
                     </table>
                     <p className="border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                      Plafonds contractuels des garanties souscrites. Le suivi de
-                      leur consommation par sinistre n’est pas encore exposé sur
-                      ce tableau de bord.
+                      Plafonds contractuels des garanties souscrites. Le plafond
+                      restant de chaque adhérent et de sa famille est affiché sur
+                      sa fiche (rubrique Adhérents).
                     </p>
                   </div>
                 ) : (

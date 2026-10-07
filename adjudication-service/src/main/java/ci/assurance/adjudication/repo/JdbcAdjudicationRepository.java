@@ -4,6 +4,7 @@ import ci.assurance.adjudication.domain.Adjudicateur;
 import ci.assurance.adjudication.domain.AdjudicationRepository;
 import ci.assurance.adjudication.domain.ContexteAdjudication;
 import ci.assurance.adjudication.domain.GarantieApplicable;
+import ci.assurance.adjudication.domain.PeriodeCumul;
 import ci.assurance.adjudication.domain.PoliceApplicable;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,7 +14,10 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,16 +60,22 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         r.id, r.organisation_id, r.dossier_soins_id, r.acte_dossier_id,
         r.adherent_id, r.beneficiaire_id, r.police_id, r.garantie_id,
         r.montant, r.type_reclamation, r.statut, r.created_at,
-        g.taux_couverture, g.plafond_par_acte, g.plafond_annuel, g.franchise,
+        g.taux_couverture, g.plafond_par_acte, g.plafond_annuel_personne,
+        g.plafond_annuel_famille, g.franchise,
         g.ticket_moderateur, g.delai_carence_jours, g.reseau_soins,
         p.statut      AS police_statut,
         p.date_debut  AS police_debut,
         p.date_fin    AS police_fin,
         ds.etablissement_id AS etablissement_id,
-        tc.tarif_convention AS tarif_convention
+        tc.tarif_convention AS tarif_convention,
+        g.produit_id AS produit_id,
+        COALESCE(r.adherent_id, b.adherent_id) AS titulaire_id,
+        pr.periode_cumul_plafond AS periode_cumul
       FROM reclamations r
       JOIN garanties     g  ON g.id = r.garantie_id AND g.deleted_at IS NULL
       JOIN polices       p  ON p.id = r.police_id   AND p.deleted_at IS NULL
+      JOIN produits      pr ON pr.id = g.produit_id
+      LEFT JOIN beneficiaires b ON b.id = r.beneficiaire_id
       LEFT JOIN dossiers_soins    ds ON ds.id = r.dossier_soins_id
       LEFT JOIN actes_dossier     ad ON ad.id = r.acte_dossier_id AND ad.deleted_at IS NULL
       LEFT JOIN referentiel_actes ra ON ra.code = ad.code_acte AND ra.deleted_at IS NULL
@@ -94,7 +104,8 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
           instant(rs, "created_at"),
           rs.getBigDecimal("taux_couverture"),
           rs.getBigDecimal("plafond_par_acte"),
-          rs.getBigDecimal("plafond_annuel"),
+          rs.getBigDecimal("plafond_annuel_personne"),
+          rs.getBigDecimal("plafond_annuel_famille"),
           rs.getBigDecimal("franchise"),
           rs.getBigDecimal("ticket_moderateur"),
           (Integer) rs.getObject("delai_carence_jours"),
@@ -103,7 +114,10 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
           localDate(rs, "police_debut"),
           localDate(rs, "police_fin"),
           uuid(rs, "etablissement_id"),
-          rs.getBigDecimal("tarif_convention"));
+          rs.getBigDecimal("tarif_convention"),
+          uuid(rs, "produit_id"),
+          uuid(rs, "titulaire_id"),
+          rs.getString("periode_cumul"));
 
   @Override
   public Optional<ContexteAdjudication> chargerContexte(UUID reclamationId) {
@@ -139,88 +153,183 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
   }
 
   @Override
-  public BigDecimal sommeConsommeeAnnee(
-      UUID adherentId, UUID beneficiaireId, UUID garantieId, java.util.Collection<UUID> actesExclus) {
-    // Cumul par PERSONNE assurée (un bénéficiaire a adherent_id NULL) ET par
-    // GARANTIE, de TOUT ce que l'assureur prend en charge dans l'année :
-    //  - les remboursements adjugés (réclamations, dont les dispensations) ;
-    //  - la part assurance des lignes de facturation tiers payant
-    //    (`lignes_facturation.montant_reclame`, actes facturés au centre), hors
-    //    lignes reportées pour litige (`reportee_mois_suivant`). La garantie d'une
-    //    ligne est celle du produit de la police pour la catégorie de l'acte —
-    //    même appariement que la facture (une seule garantie active par catégorie).
-    // Un acte facturé en tiers payant ne peut plus faire l'objet d'une
-    // réclamation (refus côté NestJS) : pas de double comptage.
-    final String colonne;
-    final UUID personne;
+  public BigDecimal sommeConsommeePersonne(
+      UUID adherentId,
+      UUID beneficiaireId,
+      UUID garantieId,
+      Collection<UUID> actesExclus,
+      PeriodeCumul periode) {
+    // Personne : un bénéficiaire a adherent_id NULL sur ses réclamations et dossiers.
     if (adherentId != null) {
-      colonne = "adherent_id";
-      personne = adherentId;
-    } else if (beneficiaireId != null) {
-      colonne = "beneficiaire_id";
-      personne = beneficiaireId;
-    } else {
+      return somme("%1$s.adherent_id = ?", List.of(adherentId), garantieId, actesExclus, periode);
+    }
+    if (beneficiaireId != null) {
+      return somme("%1$s.beneficiaire_id = ?", List.of(beneficiaireId), garantieId, actesExclus, periode);
+    }
+    return BigDecimal.ZERO;
+  }
+
+  @Override
+  public BigDecimal sommeConsommeeFamille(
+      UUID titulaireId, UUID garantieId, Collection<UUID> actesExclus, PeriodeCumul periode) {
+    if (titulaireId == null) {
       return BigDecimal.ZERO;
     }
-    BigDecimal somme =
-        jdbc.queryForObject(
-            """
-            SELECT
-              (SELECT COALESCE(SUM(rb.montant_rembourse), 0)
-                 FROM remboursements rb
-                 JOIN reclamations  rc ON rc.id = rb.reclamation_id
-                WHERE rc.%1$s = ?
-                  AND rc.garantie_id = ?
-                  AND rb.created_at >= date_trunc('year', now()))
-              +
-              (SELECT COALESCE(SUM(lf.montant_reclame), 0)
-                 FROM lignes_facturation lf
-                 JOIN actes_dossier  ad ON ad.id = lf.acte_dossier_id AND ad.deleted_at IS NULL
-                 JOIN dossiers_soins ds ON ds.id = ad.dossier_soins_id
-                 JOIN polices        p  ON p.id = ds.police_id
-                 JOIN garanties      g  ON g.produit_id = p.produit_id
-                                       AND g.categorie_acte = ad.categorie_acte
-                                       AND g.deleted_at IS NULL
-                WHERE ds.%1$s = ?
-                  AND g.id = ?
-                  AND lf.reportee_mois_suivant = false
-                  AND lf.acte_dossier_id::text <> ALL (string_to_array(?, ','))
-                  AND lf.created_at >= date_trunc('year', now()))
-            """
-                .formatted(colonne),
-            BigDecimal.class,
-            personne,
-            garantieId,
-            personne,
-            garantieId,
+    // Famille : le titulaire OU l'un de ses bénéficiaires (supprimés compris — leur
+    // consommation passée reste imputée à la famille).
+    return somme(
+        "(%1$s.adherent_id = ? OR %1$s.beneficiaire_id IN"
+            + " (SELECT fb.id FROM beneficiaires fb WHERE fb.adherent_id = ?))",
+        List.of(titulaireId, titulaireId),
+        garantieId,
+        actesExclus,
+        periode);
+  }
+
+  /**
+   * Cumul de TOUT ce que l'assureur prend en charge sur la période, pour les personnes
+   * filtrées par {@code filtrePersonne} (gabarit appliqué aux alias {@code rc} puis
+   * {@code ds}) et la garantie :
+   *  - les remboursements adjugés (réclamations, dont les dispensations) ;
+   *  - la part assurance des lignes de facturation tiers payant
+   *    (`lignes_facturation.montant_reclame`, actes facturés au centre), hors lignes
+   *    reportées pour litige (`reportee_mois_suivant`). La garantie d'une ligne est
+   *    celle du produit de la police pour la catégorie de l'acte — même appariement
+   *    que la facture (une seule garantie active par catégorie).
+   * Un acte facturé en tiers payant ne peut plus faire l'objet d'une réclamation
+   * (refus côté NestJS) : pas de double comptage. Période : {@code [debut, finExclue)}
+   * sur la date d'enregistrement (fuseau de la session, comme l'ancien
+   * {@code date_trunc('year', now())}).
+   */
+  private BigDecimal somme(
+      String filtrePersonne,
+      List<UUID> personnes,
+      UUID garantieId,
+      Collection<UUID> actesExclus,
+      PeriodeCumul periode) {
+    final String sql =
+        """
+        SELECT
+          (SELECT COALESCE(SUM(rb.montant_rembourse), 0)
+             FROM remboursements rb
+             JOIN reclamations  rc ON rc.id = rb.reclamation_id
+            WHERE %1$s
+              AND rc.garantie_id = ?
+              AND rb.created_at >= ? AND rb.created_at < ?)
+          +
+          (SELECT COALESCE(SUM(lf.montant_reclame), 0)
+             FROM lignes_facturation lf
+             JOIN actes_dossier  ad ON ad.id = lf.acte_dossier_id AND ad.deleted_at IS NULL
+             JOIN dossiers_soins ds ON ds.id = ad.dossier_soins_id
+             JOIN polices        p  ON p.id = ds.police_id
+             JOIN garanties      g  ON g.produit_id = p.produit_id
+                                   AND g.categorie_acte = ad.categorie_acte
+                                   AND g.deleted_at IS NULL
+            WHERE %2$s
+              AND g.id = ?
+              AND lf.reportee_mois_suivant = false
+              AND lf.acte_dossier_id::text <> ALL (string_to_array(?, ','))
+              AND lf.created_at >= ? AND lf.created_at < ?)
+        """
+            .formatted(filtrePersonne.formatted("rc"), filtrePersonne.formatted("ds"));
+    final List<Object> params = new ArrayList<>();
+    for (int bloc = 0; bloc < 2; bloc++) {
+      params.addAll(personnes);
+      params.add(garantieId);
+      if (bloc == 1) {
+        params.add(
             actesExclus == null
                 ? ""
                 : String.join(",", actesExclus.stream().map(UUID::toString).toList()));
-    return somme == null ? BigDecimal.ZERO : somme;
+      }
+      params.add(periode.debut());
+      params.add(periode.finExclue());
+    }
+    final BigDecimal s = jdbc.queryForObject(sql, BigDecimal.class, params.toArray());
+    return s == null ? BigDecimal.ZERO : s;
   }
+
+  @Override
+  public UUID titulaireDe(UUID adherentId, UUID beneficiaireId) {
+    if (adherentId != null) {
+      return adherentId;
+    }
+    if (beneficiaireId == null) {
+      return null;
+    }
+    return jdbc
+        .query(
+            "SELECT adherent_id FROM beneficiaires WHERE id = ?",
+            (rs, n) -> uuid(rs, "adherent_id"),
+            beneficiaireId)
+        .stream()
+        .findFirst()
+        .orElse(null);
+  }
+
+  @Override
+  public boolean produitAPlafondFamille(UUID produitId) {
+    final Boolean b =
+        jdbc.queryForObject(
+            """
+            SELECT EXISTS (SELECT 1 FROM garanties
+                            WHERE produit_id = ? AND deleted_at IS NULL
+                              AND plafond_annuel_famille IS NOT NULL)
+            """,
+            Boolean.class,
+            produitId);
+    return Boolean.TRUE.equals(b);
+  }
+
+  private static final String SQL_GARANTIE =
+      """
+      SELECT id, produit_id, categorie_acte, taux_couverture, plafond_par_acte,
+             plafond_annuel_personne, plafond_annuel_famille, franchise,
+             ticket_moderateur, delai_carence_jours, reseau_soins
+      FROM garanties
+      """;
+
+  private static final RowMapper<GarantieApplicable> MAPPER_GARANTIE =
+      (rs, n) -> new GarantieApplicable(
+          uuid(rs, "id"),
+          uuid(rs, "produit_id"),
+          rs.getString("categorie_acte"),
+          rs.getBigDecimal("taux_couverture"),
+          rs.getBigDecimal("plafond_par_acte"),
+          rs.getBigDecimal("plafond_annuel_personne"),
+          rs.getBigDecimal("plafond_annuel_famille"),
+          rs.getBigDecimal("franchise"),
+          rs.getBigDecimal("ticket_moderateur"),
+          (Integer) rs.getObject("delai_carence_jours"),
+          rs.getString("reseau_soins"));
 
   @Override
   public Optional<GarantieApplicable> chargerGarantie(UUID garantieId) {
     return jdbc
-        .query(
-            """
-            SELECT id, produit_id, taux_couverture, plafond_par_acte, plafond_annuel,
-                   franchise, ticket_moderateur, delai_carence_jours, reseau_soins
-            FROM garanties WHERE id = ? AND deleted_at IS NULL
-            """,
-            (rs, n) -> new GarantieApplicable(
-                uuid(rs, "id"),
-                uuid(rs, "produit_id"),
-                rs.getBigDecimal("taux_couverture"),
-                rs.getBigDecimal("plafond_par_acte"),
-                rs.getBigDecimal("plafond_annuel"),
-                rs.getBigDecimal("franchise"),
-                rs.getBigDecimal("ticket_moderateur"),
-                (Integer) rs.getObject("delai_carence_jours"),
-                rs.getString("reseau_soins")),
-            garantieId)
+        .query(SQL_GARANTIE + " WHERE id = ? AND deleted_at IS NULL", MAPPER_GARANTIE, garantieId)
         .stream()
         .findFirst();
+  }
+
+  @Override
+  public List<GarantieApplicable> garantiesAvecPlafondAnnuel(UUID produitId) {
+    return jdbc.query(
+        SQL_GARANTIE
+            + """
+             WHERE produit_id = ? AND deleted_at IS NULL
+               AND (plafond_annuel_personne IS NOT NULL OR plafond_annuel_famille IS NOT NULL)
+             ORDER BY categorie_acte
+            """,
+        MAPPER_GARANTIE,
+        produitId);
+  }
+
+  @Override
+  public List<UUID> beneficiairesDe(UUID titulaireId) {
+    return jdbc.query(
+        "SELECT id FROM beneficiaires WHERE adherent_id = ? AND deleted_at IS NULL ORDER BY id",
+        (rs, n) -> uuid(rs, "id"),
+        titulaireId);
   }
 
   @Override
@@ -228,8 +337,11 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
     return jdbc
         .query(
             """
-            SELECT id, organisation_id, produit_id, statut, date_debut, date_fin
-            FROM polices WHERE id = ? AND deleted_at IS NULL
+            SELECT p.id, p.organisation_id, p.produit_id, p.statut, p.date_debut, p.date_fin,
+                   pr.periode_cumul_plafond
+            FROM polices p
+            JOIN produits pr ON pr.id = p.produit_id
+            WHERE p.id = ? AND p.deleted_at IS NULL
             """,
             (rs, n) -> new PoliceApplicable(
                 uuid(rs, "id"),
@@ -237,7 +349,8 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
                 uuid(rs, "produit_id"),
                 rs.getString("statut"),
                 localDate(rs, "date_debut"),
-                localDate(rs, "date_fin")),
+                localDate(rs, "date_fin"),
+                rs.getString("periode_cumul_plafond")),
             policeId)
         .stream()
         .findFirst();

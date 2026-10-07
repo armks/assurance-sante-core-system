@@ -148,7 +148,8 @@ l'état réel est une source d'erreur.
 2026-09-10 (`pg_class.relacl` / `pg_attribute.attacl` / `pg_proc.proacl` /
 `pg_roles`), puis **re-relevé le 2026-10-07** (`information_schema.role_table_grants`
 / `column_privileges`) : ajout des grants des migrations 034 / 035 (tarif
-conventionné), qui manquaient ici, et de 068 (cumul tiers payant, ADR-005).
+conventionné), qui manquaient ici, et de 068 (cumul tiers payant, ADR-005),
+puis 069 (plafond double, ADR-006 — vérifié en base le même jour).
 Toute modification future doit être répercutée ici dans la même PR que la
 migration SQL.
 
@@ -193,6 +194,8 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `dossiers_soins` | `SELECT` | `id`, `etablissement_id` *(034)* ; `adherent_id`, `beneficiaire_id`, `police_id` *(068)* |
 | `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* |
 | `lignes_facturation` | `SELECT` | `id`, `acte_dossier_id`, `montant_reclame`, `reportee_mois_suivant`, `created_at` *(068)* |
+| `beneficiaires` | `SELECT` | `id`, `adherent_id`, `deleted_at` *(069 — rattachement au titulaire, clé de famille)* |
+| `produits` | `SELECT` | `id`, `periode_cumul_plafond` *(069 — période de cumul des plafonds)* |
 
 > `SELECT(id)` sur `remboursements` est requis par `INSERT … RETURNING id`
 > (le `RETURNING` est évalué comme un `SELECT` sur les colonnes renvoyées).
@@ -376,3 +379,76 @@ financier dans le microservice Java.
 - **Supervision** : sondes `/healthz` (vivacité) et `/readyz` (base joignable) du
   microservice, `GET /api/v1/sante` côté API, état affiché au superadmin ; health
   checks ECS / ALB décrits dans la doc de déploiement (§3.5).
+
+---
+
+## ADR-006 — Plafond annuel double : par personne ET par famille, période de cumul paramétrable
+
+**Date :** 2026-10-07 — **Statut :** acceptée — **Migration :** `prisma/sql/069_plafond_annuel_personne_famille.sql`
+
+### Contexte
+
+Une garantie n'avait qu'un plafond annuel, cumulé par personne (titulaire ou
+bénéficiaire, séparément) sur l'année civile — période codée en dur dans le
+microservice (`date_trunc('year', now())` sur la date d'enregistrement), sans
+paramètre nulle part. Les contrats collectifs prévoient couramment un plafond
+par bénéficiaire ET un plafond partagé par la famille, et des compteurs qui
+repartent à zéro à la date anniversaire du contrat.
+
+### Décision
+
+1. **Deux plafonds optionnels par garantie** : `plafond_annuel_personne`
+   (l'ancien `plafond_annuel`, renommé — données et comportement inchangés) et
+   `plafond_annuel_famille` (titulaire + tous ses bénéficiaires). **Le plus
+   restrictif des deux restants s'applique** ; un plafond absent est ignoré ;
+   sans aucun des deux, pas de limite annuelle. Décision et codes inchangés :
+   restant épuisé → REJETE E006, remboursement réduit → REVUE_MANUELLE E006 ;
+   `plafond_restant_apres` = le plus petit des restants.
+2. **Famille** = clé de regroupement l'adhérent **titulaire** : le titulaire
+   lui-même, ou `beneficiaires.adherent_id` pour un bénéficiaire (ses
+   réclamations et dossiers ont `adherent_id` NULL). Le cumul famille compte la
+   consommation du titulaire et de TOUS ses bénéficiaires, y compris supprimés
+   depuis (leur consommation passée reste imputée). Même définition de « ce qui
+   consomme » qu'ADR-005 : remboursements + part assurance des lignes de
+   facturation tiers payant, par garantie.
+3. **Période de cumul paramétrable PAR PRODUIT** (`produits.periode_cumul_plafond`,
+   arbitrage de l'utilisateur : une clause du contrat, commune à toutes ses
+   garanties) : `ANNEE_POLICE` — année d'anniversaire de la date de début de la
+   police (défaut des nouveaux produits) — ou `ANNEE_CIVILE`. **Les produits
+   existants ont été migrés en `ANNEE_CIVILE`** (arbitrage : aucun changement de
+   comportement). La période en cours est déterminée par la date du jour, comme
+   avant ; police sans date de début → année civile. Calcul pur et testé
+   (`PeriodeCumul.java`, y compris un début au 29 février). Une nouvelle version
+   d'un produit conserve sa période.
+4. **Verrou** (`pg_advisory_xact_lock`) : sur la **famille** (titulaire) dès que
+   le **produit** a au moins une garantie à plafond famille, sinon sur la
+   personne — même règle côté Java (adjudication) et côté NestJS (facture,
+   `verrou-plafond.ts`). La règle est au niveau du produit, pas de la garantie :
+   une facture couvre plusieurs garanties, et facture et adjudication doivent
+   choisir la même clé pour se sérialiser.
+5. **Affichage** : nouvel endpoint Java sans écriture `POST /api/v1/adjudication/plafonds`
+   (consommé / restant par personne et pour la famille, période en cours) exposé
+   par `GET /api/v1/member/adherents/:id/plafonds`. Lecture réservée aux rôles qui
+   lisent déjà les réclamations — l'adhérent pour son dossier, sa société
+   (ASSUREE / ADMINISTRATION) pour ses propres adhérents, le personnel assureur
+   habilité ; refusée à la réception et à la comptabilité de la société (c'est une
+   consommation de soins par garantie). Microservice indisponible → 503 avec un
+   message clair, la page reste utilisable.
+
+### Conséquences
+
+- Contrat d'API produit / garantie : `plafondAnnuel` devient
+  `plafondAnnuelPersonne` + `plafondAnnuelFamille` ; `null` en modification
+  **retire** un plafond (seuls champs effaçables — sans cela, impossible de
+  passer d'un plafond par personne à un plafond familial). Produit :
+  `periodeCumulPlafond` (création et modification en brouillon).
+- Grants `svc_adjudication` étendus (069) à `beneficiaires(id, adherent_id,
+  deleted_at)` et `produits(id, periode_cumul_plafond)` — ADR-003 mis à jour.
+- Sérialisation plus large quand un plafond famille existe : toutes les
+  factures et adjudications d'une famille passent l'une après l'autre (au plus
+  quelques dizaines de millisecondes chacune ; coût accepté pour l'exactitude).
+- La simulation à l'ajout d'un acte reste indicative et sans verrou.
+- Vérifié en HTTP réel : deux bénéficiaires facturés en parallèle sous un
+  plafond famille de 30 000 → 20 000 + 10 000 (contre-épreuve sans verrou
+  famille : 20 000 + 20 000) ; mêmes montants pour deux réclamations adjugées en
+  parallèle par le microservice.

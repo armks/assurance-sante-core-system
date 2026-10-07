@@ -1,8 +1,11 @@
 package ci.assurance.adjudication.web;
 
 import ci.assurance.adjudication.domain.AdjudicationService;
+import ci.assurance.adjudication.domain.PlafondsService;
 import ci.assurance.adjudication.domain.SimulationService;
 import ci.assurance.adjudication.web.dto.DecisionResponse;
+import ci.assurance.adjudication.web.dto.PlafondsRequest;
+import ci.assurance.adjudication.web.dto.PlafondsResponse;
 import ci.assurance.adjudication.web.dto.SimulationRequest;
 import ci.assurance.adjudication.web.dto.SimulationResponse;
 import java.util.List;
@@ -23,10 +26,36 @@ public class AdjudicationController {
 
   private final AdjudicationService service;
   private final SimulationService simulation;
+  private final PlafondsService plafonds;
 
-  public AdjudicationController(AdjudicationService service, SimulationService simulation) {
+  public AdjudicationController(
+      AdjudicationService service, SimulationService simulation, PlafondsService plafonds) {
     this.service = service;
     this.simulation = simulation;
+    this.plafonds = plafonds;
+  }
+
+  /**
+   * État des plafonds annuels d'une famille (titulaire + bénéficiaires), sans écriture
+   * (prisma/sql/069) : par garantie plafonnée, consommé et restant par personne et pour
+   * la famille, sur la période de cumul en cours. Affiché à l'adhérent et à sa société.
+   */
+  @PostMapping("/plafonds")
+  public PlafondsResponse plafonds(@RequestBody PlafondsRequest req) {
+    final PlafondsService.Etat e =
+        plafonds.etat(req.policeId(), req.adherentId(), req.dateReference());
+    return new PlafondsResponse(
+        new PlafondsResponse.Periode(
+            e.periode().mode(), e.periode().debut(), e.periode().finExclue().minusDays(1)),
+        e.garanties().stream()
+            .map(g -> new PlafondsResponse.Garantie(
+                g.garantieId(), g.categorieActe(), g.plafondPersonne(), g.plafondFamille(),
+                g.consommeFamille(), g.restantFamille(),
+                g.personnes().stream()
+                    .map(p -> new PlafondsResponse.Personne(
+                        p.adherentId(), p.beneficiaireId(), p.consomme(), p.restant()))
+                    .toList()))
+            .toList());
   }
 
   @PostMapping("/{reclamationId}/evaluer")

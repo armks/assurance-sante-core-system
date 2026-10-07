@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { creerProduit } from '@/app/dashboard-assureur/informatique/produits/actions';
 import {
   CarteResume,
+  ChampSelect,
   ChampTexte,
   DataTable,
   FormulaireModal,
@@ -15,6 +16,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { AIDE_PERIODE_CUMUL, OPTIONS_PERIODE_CUMUL } from '@/lib/plafonds';
 
 export interface Produit {
   id: string;
@@ -117,7 +119,10 @@ export function ProduitsEcran({ produits }: { produits: Produit[] }) {
             declencheurLabel="Nouveau produit"
             libelleSoumettre="Créer le brouillon"
             onSoumettre={async (fd) =>
-              creerProduit({ nom: String(fd.get('nom') ?? '') })
+              creerProduit({
+                nom: String(fd.get('nom') ?? ''),
+                periodeCumulPlafond: String(fd.get('periodeCumulPlafond') ?? 'ANNEE_POLICE'),
+              })
             }
             onSucces={() => router.refresh()}
           >
@@ -126,6 +131,14 @@ export function ProduitsEcran({ produits }: { produits: Produit[] }) {
               label="Nom du produit"
               required
               placeholder="Ex. Santé Essentiel, Famille Plus…"
+            />
+            <ChampSelect
+              name="periodeCumulPlafond"
+              label="Période des plafonds annuels"
+              required
+              aide={AIDE_PERIODE_CUMUL}
+              defaultValue="ANNEE_POLICE"
+              options={OPTIONS_PERIODE_CUMUL}
             />
           </FormulaireModal>
         }

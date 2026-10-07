@@ -3,9 +3,10 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { StatutBadge } from '@/components/dashboard/patterns';
+import { PlafondsFamilleCarte, type PlafondsFamille } from '@/components/dashboard/plafonds-famille';
 import { PageTitre } from '@/components/page-titre';
 import { Button } from '@/components/ui/button';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
 import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
 import {
@@ -39,6 +40,13 @@ export async function AdherentSocieteDetail({
   // Lecture seule côté société : médaillons, pas d'upload (réservé à
   // l'adhérent et au personnel INFORMATIQUE/EXPLOITATION).
   const photos = await chargerPhotosFamille(adherent);
+  // Plafonds annuels restants : réservés au contact principal et à l'administration
+  // de la société (403 pour la réception / la comptabilité → carte non affichée).
+  const resPlafonds = await apiFetch(`/api/v1/member/adherents/${id}/plafonds`);
+  const plafonds: PlafondsFamille | null = resPlafonds.ok ? await resPlafonds.json() : null;
+  const erreurPlafonds =
+    !resPlafonds.ok && resPlafonds.status !== 403 ? await messageErreur(resPlafonds) : null;
+  const afficherPlafonds = resPlafonds.status !== 403;
 
   return (
     <div className="space-y-6">
@@ -67,6 +75,14 @@ export async function AdherentSocieteDetail({
         photoAdherentUrl={photos.adherent}
         photosParBeneficiaire={photos.beneficiaires}
       />
+
+      {afficherPlafonds && (
+        <PlafondsFamilleCarte
+          plafonds={plafonds}
+          erreur={erreurPlafonds}
+          titre="Plafonds annuels restants de la famille"
+        />
+      )}
     </div>
   );
 }

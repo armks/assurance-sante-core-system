@@ -123,6 +123,38 @@ describe('PlanService', () => {
     expect(res.statut).toBe('BROUILLON');
   });
 
+  it('crée un produit avec une période de cumul ANNEE_CIVILE choisie (sinon défaut base ANNEE_POLICE)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.produit.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'p1', statut: 'BROUILLON', garanties: [] });
+    prisma.produit.aggregate.mockResolvedValue({ _max: { version: null } });
+    prisma.produit.create.mockResolvedValue({ id: 'p1' });
+
+    await service.creerProduit(USER, { nom: 'Civile', periodeCumulPlafond: 'ANNEE_CIVILE' });
+
+    expect(prisma.produit.create.mock.calls[0][0].data.periodeCumulPlafond).toBe('ANNEE_CIVILE');
+  });
+
+  it('modifierGarantie : null RETIRE un plafond annuel (passage du plafond par personne au plafond famille)', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.produit.findFirst.mockResolvedValue({ id: 'p1', organisationId: 'org-1', statut: 'BROUILLON' });
+    prisma.garantie.findFirst.mockResolvedValue({ id: 'g1', produitId: 'p1', categorieActe: 'CONSULTATION' });
+    prisma.garantie.update.mockResolvedValue({ id: 'g1' });
+
+    await service.modifierGarantie(USER, 'p1', 'g1', {
+      plafondAnnuelPersonne: null,
+      plafondAnnuelFamille: 900000,
+    });
+
+    expect(prisma.garantie.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'g1' },
+        data: { plafondAnnuelPersonne: null, plafondAnnuelFamille: 900000 },
+      }),
+    );
+  });
+
   it('publie un produit BROUILLON → PUBLIE avec date_publication', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_DIRECTION']));
     prisma.produit.findFirst
@@ -295,6 +327,7 @@ describe('PlanService', () => {
         nom: 'Essentielle',
         version: 1,
         statut: 'PUBLIE',
+        periodeCumulPlafond: 'ANNEE_CIVILE',
       }) // source
       .mockResolvedValueOnce(null) // pas de BROUILLON existant
       .mockResolvedValueOnce({
@@ -310,7 +343,8 @@ describe('PlanService', () => {
         categorieActe: 'CONSULTATION',
         tauxCouverture: null,
         plafondParActe: null,
-        plafondAnnuel: null,
+        plafondAnnuelPersonne: 300000,
+        plafondAnnuelFamille: 900000,
         franchise: null,
         ticketModerateur: null,
         delaiCarenceJours: null,
@@ -329,6 +363,8 @@ describe('PlanService', () => {
         nom: 'Essentielle',
         version: 2,
         statut: 'BROUILLON',
+        // la période de cumul de la source est conservée (pas le défaut ANNEE_POLICE)
+        periodeCumulPlafond: 'ANNEE_CIVILE',
       },
     });
     expect(prisma.garantie.create).toHaveBeenCalledWith({
@@ -336,6 +372,8 @@ describe('PlanService', () => {
         produitId: 'p2',
         categorieActe: 'CONSULTATION',
         reseauSoins: 'TOUT_RESEAU',
+        plafondAnnuelPersonne: 300000,
+        plafondAnnuelFamille: 900000,
       }),
     });
     expect(res.version).toBe(2);

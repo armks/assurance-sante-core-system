@@ -27,7 +27,7 @@ class AdjudicateurTest {
   void casNormal() {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));
 
-    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, DATE_SOIN);
 
     // (25000 - 2000) * 80 % = 18400.00 ; min(18400, plafond acte 50000) ; plafond annuel 100000 non atteint
     assertEquals(Decision.AUTO_ADJUDIQUE, r.decision());
@@ -42,7 +42,7 @@ class AdjudicateurTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("30000.00"));
 
     // déjà 95 000 remboursés cette année → il ne reste que 5 000 de plafond
-    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("95000.00"), DATE_SOIN);
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("95000.00"), BigDecimal.ZERO, DATE_SOIN);
 
     // couvert = (30000 - 2000) * 80 % = 22400.00, mais plafond restant = 5000.00
     assertEquals(Decision.REVUE_MANUELLE, r.decision());
@@ -56,7 +56,7 @@ class AdjudicateurTest {
   void casPlafondEpuise() {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("30000.00"));
 
-    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("100000.00"), DATE_SOIN);
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("100000.00"), BigDecimal.ZERO, DATE_SOIN);
 
     assertEquals(Decision.REJETE, r.decision());
     assertEquals(new BigDecimal("0.00"), r.montantRembourse());
@@ -70,7 +70,7 @@ class AdjudicateurTest {
     ContexteAdjudication ctx =
         JeuDeDonneesReference.contexte(new BigDecimal("25000.00"), "SUSPENDUE");
 
-    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, DATE_SOIN);
 
     assertEquals(Decision.REJETE, r.decision());
     assertEquals(new BigDecimal("0.00"), r.montantRembourse());
@@ -84,7 +84,7 @@ class AdjudicateurTest {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));
 
     Adjudicateur.Resultat r =
-        adjudicateur.calculer(ctx, new BigDecimal("0.00"), LocalDate.of(2027, 1, 5));
+        adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, LocalDate.of(2027, 1, 5));
 
     assertEquals(Decision.REJETE, r.decision());
     assertEquals(new BigDecimal("0.00"), r.montantRembourse());
@@ -103,13 +103,15 @@ class AdjudicateurTest {
             base.montant(), base.typeReclamation(), base.statut(), base.createdAt(),
             new BigDecimal("100"), // taux 100 %
             null,                  // pas de plafond par acte
-            new BigDecimal("5000000.00"), // plafond annuel large
+            new BigDecimal("5000000.00"), // plafond annuel par personne large
+            null,                         // pas de plafond famille
             new BigDecimal("0.00"),       // pas de franchise
             base.ticketModerateurPct(), base.delaiCarenceJours(), base.reseauSoins(),
             base.policeStatut(), base.policeDebut(), base.policeFin(),
-            base.etablissementId(), base.tarifConvention());
+            base.etablissementId(), base.tarifConvention(),
+            base.produitId(), base.titulaireId(), base.periodeCumul());
 
-    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, DATE_SOIN);
 
     assertEquals(Decision.REVUE_MANUELLE, r.decision());
     assertEquals(new BigDecimal("300000.00"), r.montantRembourse());
@@ -128,7 +130,7 @@ class AdjudicateurTest {
         JeuDeDonneesReference.actifAvecTarifConventionne(
             new BigDecimal("40000.00"), new BigDecimal("25000.00"));
 
-    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, DATE_SOIN);
 
     // min(40000, 25000) = 25000 ; (25000 - 2000) * 80 % = 18400.00 — PAS
     // (40000 - 2000) * 80 % = 30400.00, qui serait le résultat sans plafonnement.
@@ -145,7 +147,7 @@ class AdjudicateurTest {
   void casSansTarifConventionneComportementInchange() {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("40000.00"));
 
-    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), DATE_SOIN);
+    Adjudicateur.Resultat r = adjudicateur.calculer(ctx, new BigDecimal("0.00"), BigDecimal.ZERO, DATE_SOIN);
 
     // (40000 - 2000) * 80 % = 30400.00 — le même montant facturé que le test
     // précédent, mais un résultat différent en l'absence de tarif conventionné :

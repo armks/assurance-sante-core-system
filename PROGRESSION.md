@@ -7531,3 +7531,62 @@ Terminé — commit à valider.
 
 ### Statut
 Terminé — commit et push.
+
+## 2026-10-07 — Plafond annuel par personne ET par famille, période de cumul paramétrable (ADR-006)
+
+### Constat préalable (demandé avant modification)
+La période de cumul n'était définie nulle part comme paramètre : codée en dur dans le
+microservice (`JdbcAdjudicationRepository.sommeConsommeeAnnee`,
+`created_at >= date_trunc('year', now())`), donc année civile, sur la date d'enregistrement.
+Arbitrages de l'utilisateur : paramètre **par produit** ; produits **existants en année
+civile** (aucun changement de comportement), année de police par défaut ensuite.
+
+### Base — `prisma/sql/069_plafond_annuel_personne_famille.sql` (appliquée, rejouable)
+- `garanties.plafond_annuel` → `plafond_annuel_personne` (RENAME, 4 valeurs conservées) ;
+  `plafond_annuel_famille` optionnel.
+- `produits.periode_cumul_plafond` (`ANNEE_POLICE` | `ANNEE_CIVILE`) : 4 produits existants en
+  `ANNEE_CIVILE`, défaut `ANNEE_POLICE`.
+- Grants `svc_adjudication` : `beneficiaires(id, adherent_id, deleted_at)`,
+  `produits(id, periode_cumul_plafond)`. ADR-003 mis à jour.
+
+### Java
+- `PeriodeCumul` (fonction pure) ; cumuls `sommeConsommeePersonne` / `sommeConsommeeFamille`
+  (famille = titulaire + bénéficiaires, clé = titulaire, bénéficiaires à `adherent_id` NULL
+  compris) ; `Adjudicateur` : le plus restrictif des deux restants.
+- Verrou famille dès que le produit a un plafond famille ; même règle en simulation.
+- `POST /api/v1/adjudication/plafonds` : état des plafonds d'une famille (sans écriture).
+
+### NestJS
+- Plan : DTO / service (`plafondAnnuelPersonne`, `plafondAnnuelFamille`, `null` retire un
+  plafond ; `periodeCumulPlafond` à la création et en modification ; une nouvelle version
+  garde la période de la source).
+- `verrou-plafond.ts` : clé famille (titulaire) quand le produit a un plafond famille.
+- `GET /api/v1/member/adherents/:id/plafonds` (`PlafondsService`) : rôles de lecture des
+  réclamations (adhérent, société ASSUREE / ADMINISTRATION, personnel assureur).
+
+### Web
+- Formulaire garantie : deux champs avec aide ; formulaire produit (création et
+  modification) : période des plafonds ; tableaux garanties : colonnes personne / famille.
+- `PlafondsFamilleCarte` : restant famille (jauge) et par personne, période affichée — sur
+  la vue d'ensemble adhérent (et carte « plafond restant le plus bas », qui remplace celle
+  de la dernière réclamation) et sur la fiche adhérent côté société.
+
+### Tests
+- JUnit 71/71 en build propre (+23) : `PeriodeCumulTest` (civile, anniversaire, veille,
+  29 février, sans date de début, avant le début), `PlafondDoubleTest` (personne seul, famille
+  seul, famille mord avant, personne mord avant, aucun ne mord, aucun plafond, famille épuisée,
+  bénéficiaire dans la famille du titulaire), verrou famille / deux bénéficiaires même clé,
+  simulation (cumul famille du titulaire, consommation ligne à ligne), `PlafondsServiceTest`.
+- API 974/974 (+11), typecheck API et web 0 erreur.
+- HTTP réel 21/21 : produit via l'API (défaut année de police, plafond famille retiré par
+  `null`) ; dépense du 15/02 hors année de police (0) mais comptée en année civile (20 000) ;
+  25 000 → 25 000, 10 000 → 5 000 (personne mord), bénéficiaire 20 000 → 20 000, autre
+  bénéficiaire 15 000 → 10 000 (famille mord), plafond personne seul 20 000 → 15 000, aucun
+  plafond 100 000 → 100 000 ; affichage adhérent / société (200), réception société 403, autre
+  famille 404, pages rendues ; deux bénéficiaires en parallèle (famille seul 30 000) : factures
+  20 000 + 10 000 et réclamations 20 000 + 10 000 (E006). Contre-épreuve sans clé famille :
+  factures 20 000 + 20 000. Données supprimées en ordre inverse des dépendances, 0 ligne et
+  0 compte Auth ; script supprimé.
+
+### Statut
+Terminé — commit et push.

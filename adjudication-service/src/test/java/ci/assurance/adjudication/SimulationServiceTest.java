@@ -12,6 +12,7 @@ import ci.assurance.adjudication.domain.AdjudicationExceptions.DemandeInvalide;
 import ci.assurance.adjudication.domain.AdjudicationRepository;
 import ci.assurance.adjudication.domain.Decision;
 import ci.assurance.adjudication.domain.GarantieApplicable;
+import ci.assurance.adjudication.domain.PeriodeCumul;
 import ci.assurance.adjudication.domain.PoliceApplicable;
 import ci.assurance.adjudication.domain.SimulationService;
 import ci.assurance.adjudication.domain.SimulationService.Demande;
@@ -19,6 +20,7 @@ import ci.assurance.adjudication.domain.SimulationService.Ligne;
 import ci.assurance.adjudication.domain.SimulationService.ResultatLigne;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,7 +42,11 @@ class SimulationServiceTest {
   private static final UUID PRODUIT = UUID.fromString("77777777-7777-4777-8777-777777777777");
   private static final UUID ADHERENT = UUID.fromString("22222222-2222-4222-8222-222222222222");
   private static final UUID ETAB = UUID.fromString("55555555-5555-4555-8555-555555555555");
+  private static final UUID BENEFICIAIRE = UUID.fromString("66666666-6666-4666-8666-666666666666");
   private static final LocalDate DATE = LocalDate.of(2026, 6, 15);
+  /** Période en cours du produit de test (année civile). */
+  private static final PeriodeCumul PERIODE =
+      PeriodeCumul.courante("ANNEE_CIVILE", null, LocalDate.now(ZoneOffset.UTC));
 
   private AdjudicationRepository repo;
   private SimulationService service;
@@ -51,16 +57,26 @@ class SimulationServiceTest {
     service = new SimulationService(repo);
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
         new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE",
-            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31))));
-    when(repo.sommeConsommeeAnnee(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
+            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), "ANNEE_CIVILE")));
+    when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
+    when(repo.sommeConsommeeFamille(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
+    when(repo.titulaireDe(ADHERENT, null)).thenReturn(ADHERENT);
+    when(repo.titulaireDe(null, BENEFICIAIRE)).thenReturn(ADHERENT);
   }
 
   private UUID garantie(String taux, String plafondActe, String plafondAnnuel, String franchise) {
+    return garantie(taux, plafondActe, plafondAnnuel, null, franchise);
+  }
+
+  /** Garantie avec plafonds annuels par personne et par famille (chacun nullable). */
+  private UUID garantie(
+      String taux, String plafondActe, String plafondPersonne, String plafondFamille, String franchise) {
     UUID id = UUID.randomUUID();
     when(repo.chargerGarantie(id)).thenReturn(Optional.of(new GarantieApplicable(
-        id, PRODUIT, new BigDecimal(taux),
+        id, PRODUIT, "CONSULTATION", new BigDecimal(taux),
         plafondActe == null ? null : new BigDecimal(plafondActe),
-        plafondAnnuel == null ? null : new BigDecimal(plafondAnnuel),
+        plafondPersonne == null ? null : new BigDecimal(plafondPersonne),
+        plafondFamille == null ? null : new BigDecimal(plafondFamille),
         franchise == null ? null : new BigDecimal(franchise),
         null, 0, "TOUT_RESEAU")));
     return id;
@@ -118,10 +134,10 @@ class SimulationServiceTest {
   @DisplayName("Cumul déjà consommé lu dans la base (remboursements + tiers payant) : 15000 sur 20000 → 5000.00")
   void cumulDeBase() {
     UUID g = garantie("80", null, "20000", null);
-    when(repo.sommeConsommeeAnnee(ADHERENT, null, g, java.util.List.of())).thenReturn(new BigDecimal("15000.00"));
+    when(repo.sommeConsommeePersonne(ADHERENT, null, g, java.util.List.of(), PERIODE)).thenReturn(new BigDecimal("15000.00"));
     ResultatLigne r = simuler(new Ligne(g, new BigDecimal("10000"), null)).get(0);
     assertThat(r.montantCouvert()).isEqualByComparingTo("5000.00");
-    verify(repo).sommeConsommeeAnnee(ADHERENT, null, g, java.util.List.of());
+    verify(repo).sommeConsommeePersonne(ADHERENT, null, g, java.util.List.of(), PERIODE);
   }
 
   @Test
@@ -131,7 +147,7 @@ class SimulationServiceTest {
     UUID acte = UUID.randomUUID();
     service.simuler(new Demande(POLICE, ADHERENT, null, ETAB, DATE,
         List.of(new Ligne(g, new BigDecimal("10000"), null, acte, LocalDate.of(2026, 6, 1)))));
-    verify(repo).sommeConsommeeAnnee(ADHERENT, null, g, List.of(acte));
+    verify(repo).sommeConsommeePersonne(ADHERENT, null, g, List.of(acte), PERIODE);
   }
 
   @Test
@@ -139,7 +155,7 @@ class SimulationServiceTest {
   void dateDeSoinsParLigne() {
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
         new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE",
-            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31))));
+            LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31), "ANNEE_CIVILE")));
     UUID g = garantie("80", null, null, null);
     ResultatLigne r = service.simuler(new Demande(POLICE, ADHERENT, null, ETAB, DATE,
         List.of(new Ligne(g, new BigDecimal("10000"), null, null, LocalDate.of(2026, 5, 2))))).get(0);
@@ -164,7 +180,7 @@ class SimulationServiceTest {
   @DisplayName("Police non active → REJETE E001, 0.00")
   void policeInactive() {
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
-        new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "SUSPENDUE", null, null)));
+        new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "SUSPENDUE", null, null, "ANNEE_CIVILE")));
     UUID g = garantie("80", null, null, null);
     ResultatLigne r = simuler(new Ligne(g, new BigDecimal("10000"), null)).get(0);
     assertThat(r.decision()).isEqualTo(Decision.REJETE);
@@ -186,7 +202,8 @@ class SimulationServiceTest {
   void garantieAutreProduit() {
     UUID autre = UUID.randomUUID();
     when(repo.chargerGarantie(autre)).thenReturn(Optional.of(new GarantieApplicable(
-        autre, UUID.randomUUID(), new BigDecimal("80"), null, null, null, null, 0, "TOUT_RESEAU")));
+        autre, UUID.randomUUID(), "CONSULTATION", new BigDecimal("80"), null, null, null, null, null, 0,
+        "TOUT_RESEAU")));
     assertThatThrownBy(() -> simuler(new Ligne(autre, new BigDecimal("10000"), null)))
         .isInstanceOf(DemandeInvalide.class);
   }
@@ -198,5 +215,43 @@ class SimulationServiceTest {
     assertThatThrownBy(() -> service.simuler(new Demande(POLICE, ADHERENT, UUID.randomUUID(), ETAB, DATE,
         List.of(new Ligne(g, new BigDecimal("10000"), null)))))
         .isInstanceOf(DemandeInvalide.class);
+  }
+
+  // --- Plafond annuel double : par personne ET par famille (prisma/sql/069) ---
+
+  @Test
+  @DisplayName("Bénéficiaire : le plafond FAMILLE est celui de son titulaire — 25000 déjà pris par la famille sur 30000 → 5000.00")
+  void beneficiaireCompteDansLaFamilleDuTitulaire() {
+    UUID g = garantie("80", null, null, "30000", null);
+    // cumul famille lu sur le TITULAIRE (sa consommation + celle de tous ses bénéficiaires)
+    when(repo.sommeConsommeeFamille(ADHERENT, g, List.of(), PERIODE)).thenReturn(new BigDecimal("25000.00"));
+    ResultatLigne r = service.simuler(new Demande(POLICE, null, BENEFICIAIRE, ETAB, DATE,
+        List.of(new Ligne(g, new BigDecimal("10000"), null)))).get(0);
+    assertThat(r.montantCouvert()).isEqualByComparingTo("5000.00");
+    assertThat(r.plafondRestantApres()).isEqualByComparingTo("0.00");
+    assertThat(r.codesRejet()).containsExactly("E006");
+    verify(repo).sommeConsommeeFamille(ADHERENT, g, List.of(), PERIODE);
+  }
+
+  @Test
+  @DisplayName("Facture : chaque ligne consomme AUSSI le plafond famille (15000) pour la suivante — 8000, 7000, 0")
+  void plafondFamilleConsommeLigneParLigne() {
+    UUID g = garantie("80", null, "50000", "15000", null);
+    List<ResultatLigne> r = simuler(
+        new Ligne(g, new BigDecimal("10000"), null),
+        new Ligne(g, new BigDecimal("10000"), null),
+        new Ligne(g, new BigDecimal("10000"), null));
+    assertThat(r).extracting(ResultatLigne::montantCouvert)
+        .usingComparatorForType(BigDecimal::compareTo, BigDecimal.class)
+        .containsExactly(new BigDecimal("8000.00"), new BigDecimal("7000.00"), new BigDecimal("0.00"));
+    assertThat(r.get(2).decision()).isEqualTo(Decision.REJETE);
+  }
+
+  @Test
+  @DisplayName("Sans plafond famille : aucun cumul famille n'est lu")
+  void sansPlafondFamillePasDeCumulFamille() {
+    UUID g = garantie("80", null, "20000", null, null);
+    simuler(new Ligne(g, new BigDecimal("10000"), null));
+    org.mockito.Mockito.verify(repo, org.mockito.Mockito.never()).sommeConsommeeFamille(any(), any(), any(), any());
   }
 }

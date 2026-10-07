@@ -13,13 +13,15 @@ import {
 } from '@/lib/member';
 import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
 import { useCategoriesActe } from '@/components/categories-acte';
+import { PlafondsFamilleCarte, type PlafondsFamille } from '@/components/dashboard/plafonds-famille';
 
 export interface GarantieAdherent {
   id: string;
   categorieActe: string;
   tauxCouverture: string | number | null;
   plafondParActe: string | number | null;
-  plafondAnnuel: string | number | null;
+  plafondAnnuelPersonne: string | number | null;
+  plafondAnnuelFamille: string | number | null;
   franchise: string | number | null;
   reseauSoins: string;
 }
@@ -88,10 +90,15 @@ export function AdherentVueEnsemble({
   reclamations,
   photoAdherentUrl = null,
   photosParBeneficiaire = {},
+  plafonds = null,
+  erreurPlafonds = null,
 }: {
   adherent: AdherentDetail;
   produit: ProduitAvecGaranties | null;
   reclamations: ReclamationAdherent[];
+  /** Plafonds annuels restants de la famille (`GET member/adherents/:id/plafonds`). */
+  plafonds?: PlafondsFamille | null;
+  erreurPlafonds?: string | null;
   /** URLs signées courte durée (`chargerPhotosFamille`). */
   photoAdherentUrl?: string | null;
   photosParBeneficiaire?: Record<string, string | null>;
@@ -100,9 +107,19 @@ export function AdherentVueEnsemble({
   const beneficiaires = adherent.beneficiaires ?? [];
   const police = adherent.police;
   const enCours = reclamations.filter((r) => RECLAMATIONS_EN_COURS.includes(r.statut));
-  const derniereAvecPlafond = [...reclamations]
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-    .find((r) => r.remboursement?.plafondRestantApres !== null && r.remboursement?.plafondRestantApres !== undefined);
+  // Restant le plus bas qui VOUS concerne (votre plafond personnel ou celui de la
+  // famille), toutes garanties plafonnées confondues — le détail est plus bas.
+  const plusBas = (plafonds?.garanties ?? [])
+    .flatMap((g) => {
+      const titulaire = g.personnes.find((p) => p.type === 'TITULAIRE');
+      return [
+        titulaire?.restant ?? null,
+        g.restantFamille,
+      ]
+        .filter((v): v is number => v !== null)
+        .map((restant) => ({ restant, categorie: g.categorieActe }));
+    })
+    .sort((a, b) => a.restant - b.restant)[0];
 
   return (
     <div className="space-y-8">
@@ -123,12 +140,10 @@ export function AdherentVueEnsemble({
           icon={FileText}
         />
         <CarteResume
-          libelle="Plafond restant (dernière garantie utilisée)"
-          valeur={
-            derniereAvecPlafond
-              ? montant(derniereAvecPlafond.remboursement!.plafondRestantApres)
-              : 'Aucune réclamation'
-          }
+          libelle="Plafond annuel restant le plus bas"
+          valeur={plusBas ? montant(plusBas.restant) : 'Aucun plafond annuel'}
+          indice={plusBas ? libelleCategorieActe(plusBas.categorie) : undefined}
+          tonIndice={plusBas && plusBas.restant <= 0 ? 'negatif' : 'neutre'}
           icon={Wallet}
         />
         <CarteResume
@@ -225,7 +240,8 @@ export function AdherentVueEnsemble({
                         <th className="px-3 py-2 font-medium">Garantie</th>
                         <th className="px-3 py-2 font-medium text-right">Taux</th>
                         <th className="px-3 py-2 font-medium text-right">Plafond / acte</th>
-                        <th className="px-3 py-2 font-medium text-right">Plafond / an</th>
+                        <th className="px-3 py-2 font-medium text-right">Plafond / an / personne</th>
+                        <th className="px-3 py-2 font-medium text-right">Plafond / an / famille</th>
                         <th className="px-3 py-2 font-medium">Réseau</th>
                       </tr>
                     </thead>
@@ -237,7 +253,8 @@ export function AdherentVueEnsemble({
                           </td>
                           <td className="px-3 py-2 text-right">{pourcent(g.tauxCouverture)}</td>
                           <td className="px-3 py-2 text-right">{montant(g.plafondParActe)}</td>
-                          <td className="px-3 py-2 text-right">{montant(g.plafondAnnuel)}</td>
+                          <td className="px-3 py-2 text-right">{montant(g.plafondAnnuelPersonne)}</td>
+                          <td className="px-3 py-2 text-right">{montant(g.plafondAnnuelFamille)}</td>
                           <td className="px-3 py-2 text-muted-foreground">
                             {g.reseauSoins === 'TOUT_RESEAU' ? 'Tout réseau' : 'Conventionné seul'}
                           </td>
@@ -252,6 +269,7 @@ export function AdherentVueEnsemble({
             </CardContent>
           </Card>
         )}
+        {police && <PlafondsFamilleCarte plafonds={plafonds} erreur={erreurPlafonds} />}
       </section>
     </div>
   );

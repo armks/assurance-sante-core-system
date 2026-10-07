@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
+import { AdjudicationClientModule } from '../adjudication-client/adjudication-client.module';
 import { IdentityModule } from '../identity/identity.module';
 import { AdherentService } from './adherent.service';
 import { MemberCarteService } from './carte.service';
 import { ImportAdherentsService } from './import-adherents.service';
 import { MemberController } from './member.controller';
+import { PlafondsService } from './plafonds.service';
 
 /**
  * Module `member/` — un domaine métier strict (v18 §4) : fichier des membres,
@@ -15,9 +17,9 @@ import { MemberController } from './member.controller';
  * l'adhérent (`CareEpisodeService`).
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, AdjudicationClientModule],
   controllers: [MemberController],
-  providers: [AdherentService, MemberCarteService, ImportAdherentsService],
+  providers: [AdherentService, MemberCarteService, ImportAdherentsService, PlafondsService],
   exports: [AdherentService],
 })
 export class MemberModule {}

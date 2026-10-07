@@ -17,13 +17,14 @@ import org.springframework.transaction.annotation.Transactional;
  * pour la simulation à l'ajout d'un acte, la facture d'un dossier (tiers payant)
  * et le comptoir pharmacie. Même règle que l'adjudication — {@link
  * Adjudicateur#calculer} (tarif conventionné, éligibilité police, franchise, taux,
- * plafond par acte, plafond annuel) et même cumul annuel
- * ({@link AdjudicationRepository#sommeConsommeeAnnee}) : une seule implémentation
- * des règles financières.
+ * plafond par acte, plafonds annuels par personne et par famille) et mêmes cumuls
+ * ({@link AdjudicationRepository#sommeConsommeePersonne},
+ * {@link AdjudicationRepository#sommeConsommeeFamille}) sur la même période
+ * ({@link PeriodeCumul}) : une seule implémentation des règles financières.
  *
- * <p>Les lignes sont évaluées DANS L'ORDRE : chaque ligne consomme le plafond
- * annuel de sa garantie pour les lignes suivantes de la même demande (plusieurs
- * actes d'une même facture). Aucun verrou ni écriture : le résultat est le montant
+ * <p>Les lignes sont évaluées DANS L'ORDRE : chaque ligne consomme les plafonds
+ * annuels (personne et famille) de sa garantie pour les lignes suivantes de la même
+ * demande (plusieurs actes d'une même facture). Aucun verrou ni écriture : le résultat est le montant
  * à facturer / à afficher ; l'adjudication d'une réclamation recalcule sous verrou.
  */
 @Service
@@ -82,8 +83,13 @@ public class SimulationService {
     final List<UUID> actesExclus =
         d.lignes().stream().map(Ligne::acteDossierId).filter(java.util.Objects::nonNull).toList();
 
-    // cumul courant par garantie : base (déjà consommé) + lignes déjà évaluées
-    final Map<UUID, BigDecimal> cumul = new HashMap<>();
+    final UUID titulaire = repo.titulaireDe(d.adherentId(), d.beneficiaireId());
+    final PeriodeCumul periode =
+        PeriodeCumul.courante(police.periodeCumul(), police.debut(), LocalDate.now(ZoneOffset.UTC));
+
+    // cumuls courants par garantie : base (déjà consommé) + lignes déjà évaluées
+    final Map<UUID, BigDecimal> cumulPersonne = new HashMap<>();
+    final Map<UUID, BigDecimal> cumulFamille = new HashMap<>();
     final List<ResultatLigne> resultats = new ArrayList<>();
     for (Ligne l : d.lignes()) {
       if (l.garantieId() == null || l.montant() == null || l.montant().signum() < 0) {
@@ -96,10 +102,19 @@ public class SimulationService {
         throw new DemandeInvalide(
             "La garantie " + g.id() + " n'appartient pas au produit de la police " + police.id() + ".");
       }
-      final BigDecimal deja =
-          cumul.computeIfAbsent(
+      final BigDecimal dejaPersonne =
+          cumulPersonne.computeIfAbsent(
               g.id(),
-              id -> repo.sommeConsommeeAnnee(d.adherentId(), d.beneficiaireId(), id, actesExclus));
+              id -> g.plafondAnnuelPersonne() == null
+                  ? BigDecimal.ZERO
+                  : repo.sommeConsommeePersonne(
+                      d.adherentId(), d.beneficiaireId(), id, actesExclus, periode));
+      final BigDecimal dejaFamille =
+          cumulFamille.computeIfAbsent(
+              g.id(),
+              id -> g.plafondAnnuelFamille() == null
+                  ? BigDecimal.ZERO
+                  : repo.sommeConsommeeFamille(titulaire, id, actesExclus, periode));
       final LocalDate date = l.dateSoins() != null ? l.dateSoins() : dateDemande;
 
       final ContexteAdjudication ctx =
@@ -107,13 +122,16 @@ public class SimulationService {
               null, police.organisationId(), null, null,
               d.adherentId(), d.beneficiaireId(), police.id(), g.id(),
               l.montant(), null, null, date.atStartOfDay(ZoneOffset.UTC).toInstant(),
-              g.tauxCouverturePct(), g.plafondParActe(), g.plafondAnnuel(), g.franchise(),
+              g.tauxCouverturePct(), g.plafondParActe(),
+              g.plafondAnnuelPersonne(), g.plafondAnnuelFamille(), g.franchise(),
               g.ticketModerateurPct(), g.delaiCarenceJours(), g.reseauSoins(),
               police.statut(), police.debut(), police.fin(),
-              d.etablissementId(), repo.tarifConvention(d.etablissementId(), l.codeActe(), date));
+              d.etablissementId(), repo.tarifConvention(d.etablissementId(), l.codeActe(), date),
+              g.produitId(), titulaire, police.periodeCumul());
 
-      final Adjudicateur.Resultat r = adjudicateur.calculer(ctx, deja, date);
-      cumul.put(g.id(), deja.add(r.montantRembourse()));
+      final Adjudicateur.Resultat r = adjudicateur.calculer(ctx, dejaPersonne, dejaFamille, date);
+      cumulPersonne.put(g.id(), dejaPersonne.add(r.montantRembourse()));
+      cumulFamille.put(g.id(), dejaFamille.add(r.montantRembourse()));
       resultats.add(
           new ResultatLigne(r.decision(), r.montantRembourse(), r.plafondRestantApres(), r.codesRejet()));
     }

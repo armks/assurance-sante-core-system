@@ -68,6 +68,8 @@ export class PlanService {
           nom: dto.nom,
           version,
           statut: 'BROUILLON',
+          // absent → défaut base ANNEE_POLICE (prisma/sql/069)
+          ...(dto.periodeCumulPlafond ? { periodeCumulPlafond: dto.periodeCumulPlafond } : {}),
         },
       });
       for (const g of dto.garanties ?? []) {
@@ -257,6 +259,9 @@ export class PlanService {
           nom: source.nom,
           version,
           statut: 'BROUILLON',
+          // la nouvelle version garde la période de cumul de la source (sinon un
+          // produit en année civile basculerait en silence sur le défaut année de police)
+          periodeCumulPlafond: source.periodeCumulPlafond,
         },
       });
       for (const g of garantiesSource) {
@@ -266,7 +271,8 @@ export class PlanService {
             categorieActe: g.categorieActe,
             tauxCouverture: g.tauxCouverture,
             plafondParActe: g.plafondParActe,
-            plafondAnnuel: g.plafondAnnuel,
+            plafondAnnuelPersonne: g.plafondAnnuelPersonne,
+            plafondAnnuelFamille: g.plafondAnnuelFamille,
             franchise: g.franchise,
             ticketModerateur: g.ticketModerateur,
             delaiCarenceJours: g.delaiCarenceJours,
@@ -476,7 +482,8 @@ export class PlanService {
       categorieActe: dto.categorieActe,
       tauxCouverture: dto.tauxCouverture,
       plafondParActe: dto.plafondParActe ?? null,
-      plafondAnnuel: dto.plafondAnnuel ?? null,
+      plafondAnnuelPersonne: dto.plafondAnnuelPersonne ?? null,
+      plafondAnnuelFamille: dto.plafondAnnuelFamille ?? null,
       franchise: dto.franchise ?? null,
       ticketModerateur: dto.ticketModerateur ?? null,
       delaiCarenceJours: dto.delaiCarenceJours ?? null,
@@ -492,7 +499,10 @@ export class PlanService {
     if (dto.categorieActe !== undefined) d.categorieActe = dto.categorieActe;
     if (dto.tauxCouverture !== undefined) d.tauxCouverture = dto.tauxCouverture;
     if (dto.plafondParActe !== undefined) d.plafondParActe = dto.plafondParActe;
-    if (dto.plafondAnnuel !== undefined) d.plafondAnnuel = dto.plafondAnnuel;
+    // null = plafond retiré (seuls champs effaçables : passer d'un plafond par
+    // personne à un plafond familial, ou l'inverse)
+    if (dto.plafondAnnuelPersonne !== undefined) d.plafondAnnuelPersonne = dto.plafondAnnuelPersonne;
+    if (dto.plafondAnnuelFamille !== undefined) d.plafondAnnuelFamille = dto.plafondAnnuelFamille;
     if (dto.franchise !== undefined) d.franchise = dto.franchise;
     if (dto.ticketModerateur !== undefined)
       d.ticketModerateur = dto.ticketModerateur;

@@ -1,23 +1,49 @@
 import type { Prisma } from '@prisma/client';
 
 /**
- * Verrou transactionnel du plafond annuel d'une PERSONNE assurée — MÊME clé que
- * le microservice (`AdjudicationService.java` : adhérent, sinon bénéficiaire,
- * sinon police ; `pg_advisory_xact_lock(hashtextextended(<uuid>, 0))`). Une
- * facture tiers payant et une adjudication de réclamation pour la même personne
- * sont donc sérialisées entre elles : chacune lit le cumul de l'année APRÈS le
- * commit de la précédente. Relâché au commit / rollback de `tx`.
+ * Verrou transactionnel des plafonds annuels — MÊME clé que le microservice
+ * (`AdjudicationService.java`), `pg_advisory_xact_lock(hashtextextended(<uuid>, 0))` :
+ * - produit SANS plafond famille : la PERSONNE (adhérent, sinon bénéficiaire, sinon
+ *   police) ;
+ * - produit AVEC au moins un plafond famille (prisma/sql/069) : la FAMILLE, c.-à-d.
+ *   l'adhérent titulaire — aussi pour un bénéficiaire (rattaché via
+ *   `beneficiaires.adherent_id`). Deux membres d'une même famille partagent alors
+ *   la clé : leurs factures et adjudications sont sérialisées.
+ * La règle est au niveau du PRODUIT (et non de la garantie) : une facture couvre
+ * plusieurs garanties, et la facture comme l'adjudication doivent toujours
+ * choisir la même clé pour se sérialiser entre elles. Chacune lit alors les
+ * cumuls APRÈS le commit de la précédente. Relâché au commit / rollback de `tx`.
  */
-export async function verrouillerPlafondPersonne(
+export async function verrouillerPlafond(
   tx: Prisma.TransactionClient,
   personne: {
     adherentId: string | null;
     beneficiaireId: string | null;
     policeId: string;
+    produitId: string;
   },
 ): Promise<void> {
-  const cle =
-    personne.adherentId ?? personne.beneficiaireId ?? personne.policeId;
+  let cle = personne.adherentId ?? personne.beneficiaireId ?? personne.policeId;
+  const plafondFamille = await tx.garantie.count({
+    where: {
+      produitId: personne.produitId,
+      deletedAt: null,
+      plafondAnnuelFamille: { not: null },
+    },
+  });
+  if (plafondFamille > 0) {
+    const titulaire =
+      personne.adherentId ??
+      (personne.beneficiaireId
+        ? (
+            await tx.beneficiaire.findUnique({
+              where: { id: personne.beneficiaireId },
+              select: { adherentId: true },
+            })
+          )?.adherentId
+        : null);
+    if (titulaire) cle = titulaire;
+  }
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${cle}, 0))`;
 }
 

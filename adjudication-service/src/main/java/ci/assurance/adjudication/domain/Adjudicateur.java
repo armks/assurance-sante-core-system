@@ -24,8 +24,10 @@ import java.util.List;
  *       (plancher 0) ;</li>
  *   <li>taux de couverture appliqué ;</li>
  *   <li>plafond par acte : borne haute ;</li>
- *   <li>plafond annuel restant : si épuisé → REJETE (E006), 0 ; sinon borne le
- *       remboursement — s'il le réduit, la réclamation part en REVUE_MANUELLE (E006) ;</li>
+ *   <li>plafond annuel restant — le PLUS RESTRICTIF du restant par personne et du
+ *       restant par famille (prisma/sql/069 ; un plafond absent est ignoré) : si
+ *       épuisé → REJETE (E006), 0 ; sinon borne le remboursement — s'il le réduit,
+ *       la réclamation part en REVUE_MANUELLE (E006) ;</li>
  *   <li>montant élevé (> seuil) → REVUE_MANUELLE (E010) ;</li>
  *   <li>sinon → AUTO_ADJUDIQUE.</li>
  * </ol>
@@ -47,12 +49,23 @@ public class Adjudicateur {
       BigDecimal plafondRestantApres) {
   }
 
+  /**
+   * @param dejaPersonne déjà pris en charge sur la période pour la PERSONNE et la garantie
+   * @param dejaFamille déjà pris en charge sur la période pour la FAMILLE (titulaire + ses
+   *     bénéficiaires) et la garantie ; ignoré sans plafond famille
+   */
   public Resultat calculer(
-      ContexteAdjudication ctx, BigDecimal dejaRembourseAnnee, LocalDate dateReference) {
+      ContexteAdjudication ctx,
+      BigDecimal dejaPersonne,
+      BigDecimal dejaFamille,
+      LocalDate dateReference) {
 
-    final BigDecimal deja = normaliser(dejaRembourseAnnee, BigDecimal.ZERO);
+    final BigDecimal dejaP = normaliser(dejaPersonne, BigDecimal.ZERO);
+    final BigDecimal dejaF = normaliser(dejaFamille, BigDecimal.ZERO);
     BigDecimal montantReclame = normaliser(ctx.montant(), BigDecimal.ZERO);
-    final BigDecimal plafondAnnuel = ctx.plafondAnnuel(); // nullable = pas de plafond annuel
+    // nullable = plafond absent, ignoré
+    final BigDecimal plafondPersonne = ctx.plafondAnnuelPersonne();
+    final BigDecimal plafondFamille = ctx.plafondAnnuelFamille();
 
     // 0) tarif conventionné établissement × acte (v3 §5) — plafonne le montant
     // facturé lui-même, avant tout le reste du calcul. `tarifConvention` est
@@ -62,10 +75,11 @@ public class Adjudicateur {
       montantReclame = montantReclame.min(normaliser(ctx.tarifConvention(), montantReclame));
     }
 
+    // restant le plus restrictif (null si aucun plafond annuel)
     final BigDecimal plafondRestantAvant =
-        plafondAnnuel == null
-            ? null
-            : plafondAnnuel.subtract(deja).max(BigDecimal.ZERO).setScale(ECHELLE, ARRONDI);
+        plusRestrictif(
+            restant(plafondPersonne, dejaP, BigDecimal.ZERO),
+            restant(plafondFamille, dejaF, BigDecimal.ZERO));
 
     // 1) éligibilité police
     if (!policeActive(ctx, dateReference)) {
@@ -100,9 +114,9 @@ public class Adjudicateur {
     }
 
     final BigDecimal plafondRestantApres =
-        plafondAnnuel == null
-            ? null
-            : plafondAnnuel.subtract(deja).subtract(montantRembourse).setScale(ECHELLE, ARRONDI);
+        plusRestrictif(
+            restant(plafondPersonne, dejaP, montantRembourse),
+            restant(plafondFamille, dejaF, montantRembourse));
 
     // 6) décision
     final List<String> codes = new ArrayList<>();
@@ -131,6 +145,21 @@ public class Adjudicateur {
       return false;
     }
     return true;
+  }
+
+  /** Restant d'un plafond après {@code deja + montant} (plancher 0) ; null si pas de plafond. */
+  private static BigDecimal restant(BigDecimal plafond, BigDecimal deja, BigDecimal montant) {
+    return plafond == null
+        ? null
+        : plafond.subtract(deja).subtract(montant).max(BigDecimal.ZERO).setScale(ECHELLE, ARRONDI);
+  }
+
+  /** Le plus petit des restants définis ; null si aucun. */
+  private static BigDecimal plusRestrictif(BigDecimal a, BigDecimal b) {
+    if (a == null) {
+      return b;
+    }
+    return b == null ? a : a.min(b);
   }
 
   private static BigDecimal normaliser(BigDecimal v, BigDecimal defaut) {

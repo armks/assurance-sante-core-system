@@ -18,8 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
  * <ol>
  *   <li>SELECT réclamation + garantie applicable + police ;</li>
  *   <li>vérif. statut EN_ADJUDICATION (409 sinon) + doublon (409) ;</li>
- *   <li>verrou pessimiste transactionnel keyé sur l'adhérent
- *       ({@code pg_advisory_xact_lock}) puis {@code SUM(remboursements de l'année)} ;</li>
+ *   <li>verrou pessimiste transactionnel keyé sur la personne, ou la famille si le
+ *       produit a un plafond famille ({@code pg_advisory_xact_lock}), puis cumuls de
+ *       la période par personne et par famille ;</li>
  *   <li>calcul {@link Adjudicateur} (BigDecimal) ;</li>
  *   <li>INSERT {@code remboursements} RETURNING id + UPDATE {@code reclamations.statut} ;</li>
  *   <li>{@code log_audit()}.</li>
@@ -61,25 +62,36 @@ public class AdjudicationService {
       throw new Doublon(reclamationId);
     }
 
-    // 3) verrou pessimiste + cumul de l'année, par PERSONNE assurée (l'adhérent
-    //    titulaire, ou le bénéficiaire — adherent_id NULL sur ses réclamations ;
-    //    la police seulement si aucun des deux, cas non attendu) et par GARANTIE
-    //    (le plafond annuel appartient à la garantie). Le verrou reste par
-    //    personne : il sérialise toutes ses adjudications, garanties confondues.
+    // 3) verrou pessimiste + cumuls de la période en cours (prisma/sql/069), par
+    //    GARANTIE (les plafonds appartiennent à la garantie) :
+    //    - par PERSONNE (l'adhérent, ou le bénéficiaire — adherent_id NULL sur ses
+    //      réclamations ; la police seulement si aucun des deux, cas non attendu) ;
+    //    - par FAMILLE (titulaire + tous ses bénéficiaires) si plafond famille.
+    //    Verrou sur la FAMILLE dès que le produit a un plafond famille (même règle
+    //    que le core NestJS), sinon sur la personne : il sérialise toutes les
+    //    adjudications et factures qui partagent un plafond, garanties confondues.
     final UUID cleVerrou =
-        ctx.adherentId() != null
-            ? ctx.adherentId()
-            : ctx.beneficiaireId() != null ? ctx.beneficiaireId() : ctx.policeId();
+        ctx.titulaireId() != null && repo.produitAPlafondFamille(ctx.produitId())
+            ? ctx.titulaireId()
+            : ctx.clePersonne();
     repo.verrouillerPourPlafond(cleVerrou);
-    final java.math.BigDecimal dejaRembourse =
-        repo.sommeConsommeeAnnee(
-            ctx.adherentId(), ctx.beneficiaireId(), ctx.garantieId(), java.util.List.of());
+    final PeriodeCumul periode =
+        PeriodeCumul.courante(ctx.periodeCumul(), ctx.policeDebut(), LocalDate.now(ZoneOffset.UTC));
+    final java.math.BigDecimal dejaPersonne =
+        ctx.plafondAnnuelPersonne() == null
+            ? java.math.BigDecimal.ZERO
+            : repo.sommeConsommeePersonne(
+                ctx.adherentId(), ctx.beneficiaireId(), ctx.garantieId(), java.util.List.of(), periode);
+    final java.math.BigDecimal dejaFamille =
+        ctx.plafondAnnuelFamille() == null
+            ? java.math.BigDecimal.ZERO
+            : repo.sommeConsommeeFamille(ctx.titulaireId(), ctx.garantieId(), java.util.List.of(), periode);
 
     // 4) calcul
     final LocalDate dateReference =
         ctx.createdAt().atZone(ZoneOffset.UTC).toLocalDate();
     final Adjudicateur.Resultat r =
-        adjudicateur.calculer(ctx, dejaRembourse, dateReference);
+        adjudicateur.calculer(ctx, dejaPersonne, dejaFamille, dateReference);
 
     final long dureeMs = (System.nanoTime() - debutNs) / 1_000_000L;
 

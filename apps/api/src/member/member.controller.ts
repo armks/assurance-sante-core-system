@@ -19,6 +19,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { AdherentService } from './adherent.service';
 import { MemberCarteService } from './carte.service';
+import { PlafondsService } from './plafonds.service';
 import {
   ChangerStatutDto,
   CreateAdherentDto,
@@ -46,6 +47,7 @@ export class MemberController {
     private readonly adherents: AdherentService,
     private readonly cartes: MemberCarteService,
     private readonly imports: ImportAdherentsService,
+    private readonly plafonds: PlafondsService,
   ) {}
 
   // --- Identification par numéro de carte (accueil centre médical) -----
@@ -86,6 +88,19 @@ export class MemberController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.adherents.obtenirAdherent(user, id);
+  }
+
+  /**
+   * Plafonds annuels restants de la famille de l'adhérent (titulaire + bénéficiaires),
+   * par garantie : par personne et pour la famille, sur la période de cumul en cours.
+   * Calcul du microservice d'adjudication (prisma/sql/069).
+   */
+  @Get('adherents/:id/plafonds')
+  plafondsFamille(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.plafonds.plafondsFamille(user, id);
   }
 
   @Patch('adherents/:id')

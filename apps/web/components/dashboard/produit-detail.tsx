@@ -10,7 +10,7 @@ import {
   creerNouvelleVersion,
   modifierGarantie,
   publierProduit,
-  renommerProduit,
+  modifierProduit,
   supprimerGarantie,
   type GarantieInput,
 } from '@/app/dashboard-assureur/informatique/produits/actions';
@@ -28,13 +28,22 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useCategoriesActe } from '@/components/categories-acte';
+import {
+  AIDE_PERIODE_CUMUL,
+  AIDE_PLAFOND_FAMILLE,
+  AIDE_PLAFOND_PERSONNE,
+  LIBELLE_PERIODE_CUMUL,
+  OPTIONS_PERIODE_CUMUL,
+  type PeriodeCumulPlafond,
+} from '@/lib/plafonds';
 
 interface Garantie {
   id: string;
   categorieActe: string;
   tauxCouverture: string | number | null;
   plafondParActe: string | number | null;
-  plafondAnnuel: string | number | null;
+  plafondAnnuelPersonne: string | number | null;
+  plafondAnnuelFamille: string | number | null;
   franchise: string | number | null;
   ticketModerateur: string | number | null;
   delaiCarenceJours: number | null;
@@ -49,6 +58,8 @@ export interface ProduitAvecGaranties {
   statut: 'BROUILLON' | 'PUBLIE' | 'ARCHIVE';
   datePublication: string | null;
   createdAt: string;
+  /** Période de cumul des plafonds annuels (prisma/sql/069). */
+  periodeCumulPlafond: PeriodeCumulPlafond;
   garanties: Garantie[];
   /** Catégories actives du référentiel sans garantie (calculé par l'API) :
    * à confirmer « non couvertes » avant publication. */
@@ -98,10 +109,18 @@ function ChampsGarantie({ defaut }: { defaut?: Garantie }) {
         defaultValue={defaut?.plafondParActe ?? undefined}
       />
       <ChampNombre
-        name="plafondAnnuel"
-        label="Plafond annuel (FCFA)"
+        name="plafondAnnuelPersonne"
+        label="Plafond annuel par personne (FCFA)"
         min={0}
-        defaultValue={defaut?.plafondAnnuel ?? undefined}
+        aide={AIDE_PLAFOND_PERSONNE}
+        defaultValue={defaut?.plafondAnnuelPersonne ?? undefined}
+      />
+      <ChampNombre
+        name="plafondAnnuelFamille"
+        label="Plafond annuel par famille (FCFA)"
+        min={0}
+        aide={AIDE_PLAFOND_FAMILLE}
+        defaultValue={defaut?.plafondAnnuelFamille ?? undefined}
       />
       <ChampNombre
         name="franchise"
@@ -149,11 +168,17 @@ function lireGarantieFormData(fd: FormData): GarantieInput {
     const v = fd.get(k);
     return v === null || v === '' ? undefined : Number(v);
   };
+  // plafonds annuels : vide = AUCUN plafond (null efface la valeur en modification)
+  const plafond = (k: string) => {
+    const v = fd.get(k);
+    return v === null || v === '' ? null : Number(v);
+  };
   return {
     categorieActe: String(fd.get('categorieActe') ?? ''),
     tauxCouverture: num('tauxCouverture'),
     plafondParActe: num('plafondParActe'),
-    plafondAnnuel: num('plafondAnnuel'),
+    plafondAnnuelPersonne: plafond('plafondAnnuelPersonne'),
+    plafondAnnuelFamille: plafond('plafondAnnuelFamille'),
     franchise: num('franchise'),
     ticketModerateur: num('ticketModerateur'),
     delaiCarenceJours: num('delaiCarenceJours'),
@@ -217,10 +242,16 @@ export function ProduitDetail({
       rendu: (g) => montant(g.plafondParActe),
     },
     {
-      cle: 'plafondAnnuel',
-      entete: 'Plafond / an',
+      cle: 'plafondAnnuelPersonne',
+      entete: 'Plafond / an / personne',
       aligneDroite: true,
-      rendu: (g) => montant(g.plafondAnnuel),
+      rendu: (g) => montant(g.plafondAnnuelPersonne),
+    },
+    {
+      cle: 'plafondAnnuelFamille',
+      entete: 'Plafond / an / famille',
+      aligneDroite: true,
+      rendu: (g) => montant(g.plafondAnnuelFamille),
     },
     {
       cle: 'franchise',
@@ -303,17 +334,18 @@ export function ProduitDetail({
           <CardTitle className="text-base">Informations</CardTitle>
           {brouillon && peutGererPlan && (
             <FormulaireModal
-              titre="Renommer le produit"
+              titre="Modifier le produit"
               mode="center"
               declencheur={
                 <Button size="sm" variant="outline">
-                  Renommer
+                  Modifier
                 </Button>
               }
               libelleSoumettre="Enregistrer"
               onSoumettre={async (fd) =>
-                renommerProduit(produit.id, {
+                modifierProduit(produit.id, {
                   nom: String(fd.get('nom') ?? ''),
+                  periodeCumulPlafond: String(fd.get('periodeCumulPlafond') ?? 'ANNEE_POLICE'),
                 })
               }
               onSucces={() => router.refresh()}
@@ -323,6 +355,14 @@ export function ProduitDetail({
                 label="Nom du produit"
                 required
                 defaultValue={produit.nom}
+              />
+              <ChampSelect
+                name="periodeCumulPlafond"
+                label="Période des plafonds annuels"
+                required
+                aide={AIDE_PERIODE_CUMUL}
+                defaultValue={produit.periodeCumulPlafond}
+                options={OPTIONS_PERIODE_CUMUL}
               />
             </FormulaireModal>
           )}
@@ -335,6 +375,9 @@ export function ProduitDetail({
             />
           </Ligne>
           <Ligne label="Version">v{produit.version}</Ligne>
+          <Ligne label="Période des plafonds annuels">
+            {LIBELLE_PERIODE_CUMUL[produit.periodeCumulPlafond] ?? produit.periodeCumulPlafond}
+          </Ligne>
           <Ligne label="Garanties">{produit.garanties.length}</Ligne>
           {!brouillon && (
             <Ligne label="Catégories non couvertes">

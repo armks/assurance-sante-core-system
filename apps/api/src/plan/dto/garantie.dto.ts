@@ -32,10 +32,23 @@ export class CreateGarantieDto {
   @Min(0)
   plafondParActe?: number;
 
+  /**
+   * Plafond annuel PAR PERSONNE assurée (titulaire ou bénéficiaire), sur la période de
+   * cumul du produit. Absent / null = pas de plafond par personne.
+   */
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  plafondAnnuel?: number;
+  plafondAnnuelPersonne?: number | null;
+
+  /**
+   * Plafond annuel PARTAGÉ PAR LA FAMILLE (titulaire + tous ses bénéficiaires). Le plus
+   * restrictif des deux plafonds s'applique. Absent / null = pas de plafond familial.
+   */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  plafondAnnuelFamille?: number | null;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -82,10 +95,23 @@ export class UpdateGarantieDto {
   @Min(0)
   plafondParActe?: number;
 
+  /**
+   * Plafond annuel PAR PERSONNE assurée (titulaire ou bénéficiaire), sur la période de
+   * cumul du produit. Absent / null = pas de plafond par personne.
+   */
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  plafondAnnuel?: number;
+  plafondAnnuelPersonne?: number | null;
+
+  /**
+   * Plafond annuel PARTAGÉ PAR LA FAMILLE (titulaire + tous ses bénéficiaires). Le plus
+   * restrictif des deux plafonds s'applique. Absent / null = pas de plafond familial.
+   */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  plafondAnnuelFamille?: number | null;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

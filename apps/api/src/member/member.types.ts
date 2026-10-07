@@ -166,3 +166,23 @@ export interface ContexteAppelant {
   /** `profils.adherent_id` — renseigné pour les rôles ADHERENT (self-service). */
   adherentId: string | null;
 }
+
+/**
+ * Lecture des plafonds annuels restants d'une famille (prisma/sql/069). C'est une
+ * consommation de soins par garantie (donnée sensible) : mêmes rôles que la lecture
+ * des réclamations (`claims.types.ts` — dupliqué localement, un module = un domaine) :
+ * personnel ASSUREUR habilité, l'adhérent pour son propre dossier, sa société cliente
+ * (ASSUREE / ADMINISTRATION) pour ses propres adhérents — pas la réception ni la
+ * comptabilité de la société. Le périmètre (propre dossier, propre société) est
+ * appliqué par `obtenirAdherent`.
+ */
+export const ROLES_LECTURE_PLAFONDS = [
+  'ASSUREUR_DIRECTION',
+  'ASSUREUR_EXPLOITATION',
+  'ASSUREUR_INFORMATIQUE',
+  'ASSUREUR_MEDECIN_CONSEIL',
+  'ADHERENT_TITULAIRE',
+  'SOUSCRIPTEUR_INDIVIDUEL',
+  'SOCIETE_ASSUREE',
+  'SOCIETE_ADMINISTRATION',
+] as const;

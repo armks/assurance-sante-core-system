@@ -87,7 +87,8 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         update: jest.fn(({ where, data }: any) => ({ id: where.id, ...data })),
       },
       contestationActe: { findMany: jest.fn().mockResolvedValue([]) },
-      garantie: { findMany: jest.fn().mockResolvedValue([]) },
+      // count : garanties à plafond FAMILLE du produit (verrou famille) — aucune par défaut
+      garantie: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       ligneFacturation: {
         create: jest.fn().mockResolvedValue({}),
         update: jest.fn().mockResolvedValue({}),
@@ -101,7 +102,11 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
       },
-      beneficiaire: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
+      beneficiaire: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       $executeRaw: jest.fn().mockResolvedValue(1),
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -348,6 +353,52 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
 
       expect(appelsVerrou()[0][1]).toBe('benef-1');
+    });
+
+    it('produit AVEC plafond famille : verrou sur le TITULAIRE du bénéficiaire (famille, clé du Java)', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(
+        dossier({ adherentId: null, beneficiaireId: 'benef-1', policeId: 'pol-1' }),
+      );
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { montantPrescrit: dec(10000) })]);
+      prisma.garantie.count.mockResolvedValue(1);
+      prisma.beneficiaire.findUnique.mockResolvedValue({ adherentId: ADH });
+
+      await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+
+      expect(prisma.garantie.count).toHaveBeenCalledWith({
+        where: { produitId: 'prod-1', deletedAt: null, plafondAnnuelFamille: { not: null } },
+      });
+      expect(appelsVerrou()[0][1]).toBe(ADH);
+    });
+
+    it('deux BÉNÉFICIAIRES d’une même famille (plafond famille) : même clé, leurs factures sont sérialisées', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.garantie.count.mockResolvedValue(1);
+      prisma.beneficiaire.findUnique.mockResolvedValue({ adherentId: ADH });
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { montantPrescrit: dec(10000) })]);
+
+      for (const beneficiaireId of ['benef-1', 'benef-2']) {
+        prisma.dossierSoins.findFirst.mockResolvedValueOnce(
+          dossier({ adherentId: null, beneficiaireId, policeId: 'pol-1' }),
+        );
+        await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+      }
+
+      expect(appelsVerrou().map((c: any) => c[1])).toEqual([ADH, ADH]);
+    });
+
+    it('produit SANS plafond famille : le bénéficiaire garde son propre verrou (aucune lecture du titulaire)', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(
+        dossier({ adherentId: null, beneficiaireId: 'benef-1', policeId: 'pol-1' }),
+      );
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { montantPrescrit: dec(10000) })]);
+
+      await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+
+      expect(appelsVerrou()[0][1]).toBe('benef-1');
+      expect(prisma.beneficiaire.findUnique).not.toHaveBeenCalled();
     });
 
     it('microservice indisponible → 503 avec un message clair en français, sans détail technique ; aucune facture', async () => {

@@ -10,10 +10,14 @@ const CIBLE = '/dashboard-assureur/informatique/produits';
 /** Crée un produit en BROUILLON (garanties ajoutées ensuite dans la vue détail). */
 export async function creerProduit(input: {
   nom: string;
+  periodeCumulPlafond?: string;
 }): Promise<ResultatSoumission> {
   const res = await apiFetch('/api/v1/plan/produits', {
     method: 'POST',
-    body: JSON.stringify({ nom: input.nom }),
+    body: JSON.stringify({
+      nom: input.nom,
+      ...(input.periodeCumulPlafond ? { periodeCumulPlafond: input.periodeCumulPlafond } : {}),
+    }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   const p = (await res.json()) as { nom: string; version: number };
@@ -21,25 +25,30 @@ export async function creerProduit(input: {
   return { ok: true, message: `Produit « ${p.nom} » v${p.version} créé en brouillon.` };
 }
 
-/** Renomme un produit (BROUILLON uniquement — 409 sinon côté API). */
-export async function renommerProduit(
+/**
+ * Modifie un produit BROUILLON (409 sinon côté API) : son nom et la période de cumul
+ * de ses plafonds annuels.
+ */
+export async function modifierProduit(
   produitId: string,
-  input: { nom: string },
+  input: { nom: string; periodeCumulPlafond: string },
 ): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/plan/produits/${produitId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ nom: input.nom }),
+    body: JSON.stringify({ nom: input.nom, periodeCumulPlafond: input.periodeCumulPlafond }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(`${CIBLE}/${produitId}`);
-  return { ok: true, message: 'Produit renommé.' };
+  return { ok: true, message: 'Produit modifié.' };
 }
 
 export interface GarantieInput {
   categorieActe: string;
   tauxCouverture?: number;
   plafondParActe?: number;
-  plafondAnnuel?: number;
+  /** null = pas de plafond (efface la valeur en modification). */
+  plafondAnnuelPersonne?: number | null;
+  plafondAnnuelFamille?: number | null;
   franchise?: number;
   ticketModerateur?: number;
   delaiCarenceJours?: number;

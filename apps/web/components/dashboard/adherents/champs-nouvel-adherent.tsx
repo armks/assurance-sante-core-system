@@ -8,7 +8,7 @@ import {
 } from '@/components/dashboard/patterns';
 import { MODES_PAIEMENT, SEXES } from '@/lib/member';
 import type { OptionRef, PoliceRef } from './types';
-import { LIBELLE_POLICE } from '@/components/dashboard/polices-ecran';
+import { LIBELLE_POLICE } from '@/lib/police';
 
 /**
  * Champs du formulaire « Nouvel adhérent ». Le choix du souscripteur filtre la

@@ -13,7 +13,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { apiFetch } from '@/lib/api';
-import { LIBELLE_STATUT_ETABLISSEMENT } from '@/lib/reseau';
+import {
+  LIBELLE_STATUT_ETABLISSEMENT,
+  libelleTypeEtablissement,
+} from '@/lib/reseau';
 
 export const metadata: Metadata = { title: 'Établissement — Assurance Informatique' };
 
@@ -74,7 +77,7 @@ export default async function EtablissementPage({
           <div className="flex justify-between gap-4 py-1">
             <span className="text-muted-foreground">Type</span>
             <span className="font-medium">
-              {etablissement.typeEtablissement.replaceAll('_', ' ').toLowerCase()}
+              {libelleTypeEtablissement(etablissement.typeEtablissement)}
             </span>
           </div>
           <div className="flex justify-between gap-4 py-1">

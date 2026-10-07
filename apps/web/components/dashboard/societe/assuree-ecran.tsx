@@ -12,6 +12,7 @@ import {
 } from '@/components/dashboard/patterns';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
 
 export interface Garantie {
   id: string;
@@ -52,27 +53,6 @@ export interface CotisationAssuree {
   statut: string;
 }
 
-const LIBELLE_STATUT_POLICE: Record<string, string> = {
-  DEVIS: 'Devis',
-  EN_SOUSCRIPTION: 'En souscription',
-  ACTIVE: 'Active',
-  SUSPENDUE: 'Suspendue',
-  RENOUVELEE: 'Renouvelée',
-  RESILIEE: 'Résiliée',
-  NON_RENOUVELEE: 'Non renouvelée',
-};
-const TON_STATUT_POLICE: Record<
-  string,
-  'succes' | 'attention' | 'danger' | 'neutre'
-> = {
-  DEVIS: 'attention',
-  EN_SOUSCRIPTION: 'attention',
-  ACTIVE: 'succes',
-  SUSPENDUE: 'danger',
-  RENOUVELEE: 'neutre',
-  RESILIEE: 'danger',
-  NON_RENOUVELEE: 'neutre',
-};
 const LIBELLE_STATUT_COTIS: Record<string, string> = {
   A_PAYER: 'À payer',
   PAYEE: 'Payée',
@@ -169,8 +149,8 @@ export function AssureeEcran({
             policeActive ? (
               <StatutBadge
                 statut={policeActive.statut}
-                map={TON_STATUT_POLICE}
-                libelles={LIBELLE_STATUT_POLICE}
+                map={TON_POLICE}
+                libelles={LIBELLE_POLICE}
               />
             ) : (
               '—'
@@ -217,8 +197,8 @@ export function AssureeEcran({
                 </div>
                 <StatutBadge
                   statut={p.statut}
-                  map={TON_STATUT_POLICE}
-                  libelles={LIBELLE_STATUT_POLICE}
+                  map={TON_POLICE}
+                  libelles={LIBELLE_POLICE}
                 />
               </CardHeader>
               <CardContent>

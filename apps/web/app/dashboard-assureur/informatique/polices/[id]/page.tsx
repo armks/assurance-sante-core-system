@@ -8,10 +8,7 @@ import {
   type ActionsPolice,
   type Police,
 } from '@/components/dashboard/police-detail';
-import {
-  LIBELLE_POLICE,
-  TON_POLICE,
-} from '@/components/dashboard/polices-ecran';
+import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
 import { PageTitre } from '@/components/page-titre';
 import { StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';

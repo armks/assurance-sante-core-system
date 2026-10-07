@@ -22,6 +22,25 @@ export const LIBELLE_STATUT_LIEU: Record<string, string> = {
   ...LIBELLE_STATUT_PHARMACIE,
 };
 
+/** Types d'établissement — MIROIR de `TYPES_ETABLISSEMENT`
+ * (`apps/api/src/provider/provider.types.ts`). Les pharmacies n'ont pas de type. */
+export const LIBELLE_TYPE_ETABLISSEMENT: Record<string, string> = {
+  HOPITAL_PUBLIC: 'Hôpital public',
+  CLINIQUE_PRIVEE: 'Clinique privée',
+  CABINET_MEDICAL: 'Cabinet médical',
+  CENTRE_SANTE: 'Centre de santé',
+  LABORATOIRE: 'Laboratoire',
+  CENTRE_IMAGERIE: 'Centre d’imagerie',
+  OPTICIEN: 'Opticien',
+  DENTISTE: 'Dentiste',
+  MATERNITE: 'Maternité',
+};
+
+export const TYPES_ETABLISSEMENT = Object.keys(LIBELLE_TYPE_ETABLISSEMENT);
+
+export const libelleTypeEtablissement = (type: string | null | undefined) =>
+  type ? (LIBELLE_TYPE_ETABLISSEMENT[type] ?? type) : '—';
+
 export const LIBELLE_VERIFICATION: Record<string, string> = {
   ACTIF: 'Actif',
   FERME: 'Fermé',

@@ -11,6 +11,7 @@ import {
   LIENS_PARENTE,
   TON_STATUT_BENEFICIAIRE,
 } from '@/lib/member';
+import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
 
 export interface GarantieAdherent {
   id: string;
@@ -70,27 +71,6 @@ export interface ReclamationAdherent {
   remboursement: { plafondRestantApres: string | number | null } | null;
 }
 
-const LIBELLE_STATUT_POLICE: Record<string, string> = {
-  DEVIS: 'Devis',
-  EN_SOUSCRIPTION: 'En souscription',
-  ACTIVE: 'Active',
-  SUSPENDUE: 'Suspendue',
-  RENOUVELEE: 'Renouvelée',
-  RESILIEE: 'Résiliée',
-  NON_RENOUVELEE: 'Non renouvelée',
-};
-const TON_STATUT_POLICE: Record<
-  string,
-  'succes' | 'attention' | 'danger' | 'neutre'
-> = {
-  DEVIS: 'attention',
-  EN_SOUSCRIPTION: 'attention',
-  ACTIVE: 'succes',
-  SUSPENDUE: 'danger',
-  RENOUVELEE: 'neutre',
-  RESILIEE: 'danger',
-  NON_RENOUVELEE: 'neutre',
-};
 
 const RECLAMATIONS_EN_COURS = ['SOUMISE', 'EN_ADJUDICATION', 'REVUE_MANUELLE'];
 
@@ -131,8 +111,8 @@ export function AdherentVueEnsemble({
             police ? (
               <StatutBadge
                 statut={police.statut}
-                map={TON_STATUT_POLICE}
-                libelles={LIBELLE_STATUT_POLICE}
+                map={TON_POLICE}
+                libelles={LIBELLE_POLICE}
               />
             ) : (
               '—'
@@ -230,8 +210,8 @@ export function AdherentVueEnsemble({
               </div>
               <StatutBadge
                 statut={police.statut}
-                map={TON_STATUT_POLICE}
-                libelles={LIBELLE_STATUT_POLICE}
+                map={TON_POLICE}
+                libelles={LIBELLE_POLICE}
               />
             </CardHeader>
             <CardContent>

@@ -25,6 +25,10 @@ import { PaiementFactureForm } from '@/components/dashboard/paiement-facture-for
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  LIBELLE_STATUT_FACTURE_MENSUELLE as LIBELLE_STATUT,
+  TON_STATUT_FACTURE_MENSUELLE as TON_STATUT,
+} from '@/lib/factures-mensuelles';
 
 export interface FactureGlobale {
   id: string;
@@ -58,26 +62,6 @@ export interface PaiementGroupeResume {
   statut: string;
 }
 
-const LIBELLE_STATUT: Record<string, string> = {
-  EN_PREPARATION: 'En préparation',
-  SOUMISE: 'Soumise',
-  VERIFIEE_MEDECIN_CONSEIL: 'Vérifiée',
-  VALIDEE_PHARMACIEN_CONSEIL: 'Validée',
-  PROGRAMMEE_PAIEMENT: 'En paiement',
-  PAIEMENT_PROGRAMME: 'Paiement programmé',
-  PARTIELLEMENT_REGLEE: 'Réglée partiellement',
-  PAYEE: 'Payée',
-};
-const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
-  EN_PREPARATION: 'neutre',
-  SOUMISE: 'attention',
-  VERIFIEE_MEDECIN_CONSEIL: 'attention',
-  VALIDEE_PHARMACIEN_CONSEIL: 'attention',
-  PROGRAMMEE_PAIEMENT: 'attention',
-  PAIEMENT_PROGRAMME: 'attention',
-  PARTIELLEMENT_REGLEE: 'attention',
-  PAYEE: 'succes',
-};
 const STATUTS_VERIFIES = ['VERIFIEE_MEDECIN_CONSEIL', 'VALIDEE_PHARMACIEN_CONSEIL'];
 /** Statuts payables via `PaiementFactureForm` — voir `PaymentService.STATUTS_FACTURE_PAYABLE`. */
 const STATUTS_PAYABLES = ['PROGRAMMEE_PAIEMENT', 'PAIEMENT_PROGRAMME', 'PARTIELLEMENT_REGLEE'];
@@ -391,7 +375,7 @@ export function SuiviPaiementsEcran({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">En paiement ({enPaiement.length})</CardTitle>
+          <CardTitle className="text-base">Validées — à payer ({enPaiement.length})</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {selectionValide && (

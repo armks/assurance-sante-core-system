@@ -14,9 +14,9 @@ import {
   GrilleCartes,
   StatutBadge,
   type ColonneTable,
-  type TonStatut,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
 
 export interface PoliceListe {
   id: string;
@@ -35,24 +35,6 @@ export interface OptionRef {
   version?: number;
 }
 
-export const TON_POLICE: Record<string, TonStatut> = {
-  DEVIS: 'attention',
-  EN_SOUSCRIPTION: 'info',
-  ACTIVE: 'succes',
-  SUSPENDUE: 'attention',
-  RENOUVELEE: 'neutre',
-  RESILIEE: 'danger',
-  NON_RENOUVELEE: 'danger',
-};
-export const LIBELLE_POLICE: Record<string, string> = {
-  DEVIS: 'Devis',
-  EN_SOUSCRIPTION: 'En souscription',
-  ACTIVE: 'Active',
-  SUSPENDUE: 'Suspendue',
-  RENOUVELEE: 'Renouvelée',
-  RESILIEE: 'Résiliée',
-  NON_RENOUVELEE: 'Non renouvelée',
-};
 
 const dateFr = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('fr-FR') : '—';

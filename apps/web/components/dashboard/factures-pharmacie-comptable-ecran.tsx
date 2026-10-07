@@ -7,6 +7,10 @@ import { validerPourPaiement } from '@/app/dashboard-assureur/factures-pharmacie
 import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { moisFr, montantF } from '@/lib/format';
+import {
+  LIBELLE_STATUT_FACTURE_MENSUELLE as LIBELLE_STATUT,
+  TON_STATUT_FACTURE_MENSUELLE as TON_STATUT,
+} from '@/lib/factures-mensuelles';
 
 export interface FactureMensuellePharmacieComptable {
   id: string;
@@ -19,24 +23,6 @@ export interface FactureMensuellePharmacieComptable {
   datePaiement: string | null;
 }
 
-const LIBELLE_STATUT: Record<string, string> = {
-  EN_PREPARATION: 'En préparation',
-  SOUMISE: 'Soumise — en attente du pharmacien conseil',
-  VALIDEE_PHARMACIEN_CONSEIL: 'Validée — prête pour paiement',
-  PROGRAMMEE_PAIEMENT: 'Validée pour paiement',
-  PAIEMENT_PROGRAMME: 'Paiement programmé',
-  PARTIELLEMENT_REGLEE: 'Réglée partiellement',
-  PAYEE: 'Payée',
-};
-const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
-  EN_PREPARATION: 'neutre',
-  SOUMISE: 'attention',
-  VALIDEE_PHARMACIEN_CONSEIL: 'attention',
-  PROGRAMMEE_PAIEMENT: 'attention',
-  PAIEMENT_PROGRAMME: 'attention',
-  PARTIELLEMENT_REGLEE: 'attention',
-  PAYEE: 'succes',
-};
 
 export function FacturesPharmacieComptableEcran({
   factures,

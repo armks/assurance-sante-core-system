@@ -1,3 +1,5 @@
+import { LIBELLE_TYPE_ETABLISSEMENT } from '@/lib/reseau';
+
 /**
  * Annuaire du réseau de soins : forme commune d'un lieu, quelle que soit la
  * source (API authentifiée `/provider/recherche` ou vues publiques
@@ -20,15 +22,7 @@ export interface LieuAnnuaire {
 }
 
 export const LIBELLE_TYPE_LIEU: Record<string, string> = {
-  HOPITAL_PUBLIC: 'Hôpital public',
-  CLINIQUE_PRIVEE: 'Clinique privée',
-  CABINET_MEDICAL: 'Cabinet médical',
-  CENTRE_SANTE: 'Centre de santé',
-  LABORATOIRE: 'Laboratoire',
-  CENTRE_IMAGERIE: 'Centre d’imagerie',
-  OPTICIEN: 'Opticien',
-  DENTISTE: 'Dentiste',
-  MATERNITE: 'Maternité',
+  ...LIBELLE_TYPE_ETABLISSEMENT,
   PHARMACIE: 'Pharmacie',
 };
 

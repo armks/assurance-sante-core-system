@@ -28,19 +28,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { LIBELLE_STATUT_LIEU, LIBELLE_VERIFICATION } from '@/lib/reseau';
-
-const TYPES_ETABLISSEMENT = [
-  'HOPITAL_PUBLIC',
-  'CLINIQUE_PRIVEE',
-  'CABINET_MEDICAL',
-  'CENTRE_SANTE',
-  'LABORATOIRE',
-  'CENTRE_IMAGERIE',
-  'OPTICIEN',
-  'DENTISTE',
-  'MATERNITE',
-];
+import {
+  LIBELLE_STATUT_LIEU,
+  LIBELLE_TYPE_ETABLISSEMENT,
+  LIBELLE_VERIFICATION,
+  TYPES_ETABLISSEMENT,
+  libelleTypeEtablissement,
+} from '@/lib/reseau';
 
 export interface LieuReseau {
   id: string;
@@ -298,7 +292,7 @@ export function ReseauPanneau({
                 </option>
                 {TYPES_ETABLISSEMENT.map((t) => (
                   <option key={t} value={t}>
-                    {t.replaceAll('_', ' ').toLowerCase()}
+                    {LIBELLE_TYPE_ETABLISSEMENT[t]}
                   </option>
                 ))}
               </select>
@@ -381,9 +375,7 @@ export function ReseauPanneau({
                     <td className="px-3 py-2 text-muted-foreground">{l.code}</td>
                     {estEtab && (
                       <td className="px-3 py-2 text-muted-foreground">
-                        {(l.typeEtablissement ?? '')
-                          .replaceAll('_', ' ')
-                          .toLowerCase()}
+                        {libelleTypeEtablissement(l.typeEtablissement)}
                       </td>
                     )}
                     <td className="px-3 py-2 text-muted-foreground">
@@ -492,7 +484,7 @@ export function ReseauPanneau({
                               defaultValue={l.typeEtablissement}
                               options={TYPES_ETABLISSEMENT.map((t) => ({
                                 valeur: t,
-                                libelle: t.replaceAll('_', ' ').toLowerCase(),
+                                libelle: LIBELLE_TYPE_ETABLISSEMENT[t],
                               }))}
                             />
                           )}

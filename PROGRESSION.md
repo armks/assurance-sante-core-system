@@ -7168,3 +7168,49 @@ API 919/919. Typage : API 0 erreur, web 0 erreur dans le code source.
 
 ### Statut
 Terminé, commité et poussé.
+
+## 2026-10-07 — Harmonisation des libellés : factures mensuelles, polices, types d'établissement
+
+Aucune logique métier modifiée (affichage seulement).
+
+### 1. Factures mensuelles — écrans comptables assureur
+- Source unique `lib/factures-mensuelles.ts`, utilisée par « Factures établissements »,
+  « Factures pharmacies » et « Suivi des paiements » (comptable et adjoint). Libellés
+  formulés selon l'action attendue du comptable :
+  - `SOUMISE` → « Soumise — à vérifier par le conseil » ;
+  - `VERIFIEE_MEDECIN_CONSEIL` / `VALIDEE_PHARMACIEN_CONSEIL` → « Vérifiée par le
+    conseil — à valider pour paiement » ;
+  - `PROGRAMMEE_PAIEMENT` → « Validée — à payer » (distinct de `PAIEMENT_PROGRAMME`,
+    « Paiement programmé », débit à date future) ; section du suivi renommée
+    « Validées — à payer ».
+- Les écrans du centre médical, de la pharmacie et des conseils gardent leurs
+  formulations (autre public).
+
+### 2. Polices
+- Source unique `lib/police.ts` (libellés + tonalités) pour l'écran assureur, la fiche
+  police, le formulaire d'adhérent, la vue d'ensemble adhérent et l'écran société
+  (deux copies locales supprimées). Tonalités alignées sur la convention de
+  `StatutBadge` : `SUSPENDUE` et `EN_SOUSCRIPTION` ambre, `NON_RENOUVELEE` rouge.
+
+### 3. Types d'établissement
+- Source unique `LIBELLE_TYPE_ETABLISSEMENT` dans `lib/reseau.ts` (9 types, miroir de
+  l'API). Remplace l'affichage « hopital public » du panneau réseau (liste et deux
+  formulaires) et de la fiche établissement, la copie locale du dashboard
+  administratif du centre, et alimente l'annuaire (`LIBELLE_TYPE_LIEU` = types +
+  « Pharmacie »). « Centre d’imagerie » unifié (apostrophe typographique).
+- Les pharmacies n'ont pas de type dans le schéma : rien d'autre à libeller.
+- Non traité (hors demande) : `categorieActe` affichée en minuscules sans accent dans
+  le tableau des garanties (vue d'ensemble adhérent, écran société).
+
+### Tests
+- Navigateur (Playwright), données de test créées puis supprimées : 15/15 — mêmes
+  libellés sur les 3 écrans comptables ; mêmes couleurs de police côté assureur,
+  société et adhérent ; « Hôpital public » / « Centre d’imagerie » sur le panneau
+  réseau, le formulaire de création, la fiche établissement, le dashboard
+  administratif du centre et l'annuaire de l'adhérent.
+- Un premier run a échoué avant la fin et laissé ses données (nettoyage dans le mauvais
+  ordre) : purgées (1 organisation de test, 5 comptes), 0 reste vérifié.
+- API 919/919, typage web 0 erreur dans le code source.
+
+### Statut
+Terminé, commité et poussé.

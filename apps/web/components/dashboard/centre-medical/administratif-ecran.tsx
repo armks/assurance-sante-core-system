@@ -15,7 +15,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
-import { LIBELLE_STATUT_ETABLISSEMENT } from '@/lib/reseau';
+import {
+  LIBELLE_STATUT_ETABLISSEMENT,
+  LIBELLE_TYPE_ETABLISSEMENT,
+} from '@/lib/reseau';
 
 export interface EtablissementInfo {
   id: string;
@@ -28,18 +31,6 @@ export interface EtablissementInfo {
   telephone: string | null;
   email: string | null;
 }
-
-const LIBELLE_TYPE_ETABLISSEMENT: Record<string, string> = {
-  HOPITAL_PUBLIC: 'Hôpital public',
-  CLINIQUE_PRIVEE: 'Clinique privée',
-  CABINET_MEDICAL: 'Cabinet médical',
-  CENTRE_SANTE: 'Centre de santé',
-  LABORATOIRE: 'Laboratoire',
-  CENTRE_IMAGERIE: "Centre d'imagerie",
-  OPTICIEN: 'Opticien',
-  DENTISTE: 'Dentiste',
-  MATERNITE: 'Maternité',
-};
 
 const dateFr = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('fr-FR') : '—';

@@ -21,10 +21,7 @@ import {
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
-import {
-  LIBELLE_POLICE,
-  TON_POLICE,
-} from '@/components/dashboard/polices-ecran';
+import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 

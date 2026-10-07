@@ -7355,3 +7355,29 @@ garantie).
 
 ### Statut
 Terminé — commit à valider.
+
+## 2026-10-07 — Plafond annuel cumulé par garantie (microservice Java)
+
+### Constat
+Le cumul annuel additionnait les remboursements de TOUTES les garanties de la
+personne puis le comparait au `plafond_annuel` de la seule garantie de la
+réclamation : des consultations consommaient le plafond des analyses ou de
+l'hospitalisation.
+
+### Correctif
+- `sommeRemboursementsAnnee(adherentId, beneficiaireId, garantieId)` : cumul par
+  personne assurée ET par garantie (`rc.garantie_id = ?`). Verrou inchangé (par
+  personne, toutes garanties confondues). Aucun grant modifié (`garantie_id` déjà lu,
+  ADR-003). Web inchangé : la carte adhérent affichait déjà « Plafond restant
+  (dernière garantie utilisée) ».
+
+### Tests
+- JUnit 26/26 (+1 : 100 000 remboursés sur une autre garantie n'entament pas le plafond
+  de celle-ci — 18 400, restant 81 600).
+- HTTP réel 7/7 (Java redémarré) : CONSULTATION plafond 40 000 épuisée (20 000, 20 000,
+  puis REJETE E006) ; ANALYSE 50 000 ensuite → 40 000, restant 60 000 (avant :
+  restant 20 000) ; enfant : consultation 20 000 restant 20 000, analyse 20 000 restant
+  80 000. Données supprimées, 0 ligne et 0 compte Auth vérifiés.
+
+### Statut
+Terminé — commit à valider.

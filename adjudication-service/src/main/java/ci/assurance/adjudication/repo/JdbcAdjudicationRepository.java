@@ -137,11 +137,13 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
   }
 
   @Override
-  public BigDecimal sommeRemboursementsAnnee(UUID adherentId, UUID beneficiaireId) {
-    // Cumul par PERSONNE assurée. Avant correctif, seul `rc.adherent_id = ?`
-    // existait : pour un bénéficiaire (adherent_id NULL) le paramètre était
-    // NULL, `= NULL` ne correspond à rien, cumul = 0 → plafond annuel jamais
-    // appliqué aux bénéficiaires.
+  public BigDecimal sommeRemboursementsAnnee(
+      UUID adherentId, UUID beneficiaireId, UUID garantieId) {
+    // Cumul par PERSONNE assurée (un bénéficiaire a adherent_id NULL) ET par
+    // GARANTIE : auparavant, les remboursements de toutes les garanties de
+    // l'année étaient additionnés puis comparés au plafond de la seule garantie
+    // de la réclamation — une consultation consommait le plafond de
+    // l'hospitalisation.
     final String colonne;
     final UUID personne;
     if (adherentId != null) {
@@ -160,11 +162,13 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
             FROM remboursements rb
             JOIN reclamations  rc ON rc.id = rb.reclamation_id
             WHERE rc.%s = ?
+              AND rc.garantie_id = ?
               AND rb.created_at >= date_trunc('year', now())
             """
                 .formatted(colonne),
             BigDecimal.class,
-            personne);
+            personne,
+            garantieId);
     return somme == null ? BigDecimal.ZERO : somme;
   }
 

@@ -553,7 +553,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       expect(res.montantTotal).toBe('10000.00');
     });
 
-    it('soumet une réclamation de 8000 F (montant_assurance) au microservice d’adjudication', async () => {
+    it('soumet le montant BRUT (10000 F) au microservice, jamais la part assurance déjà calculée (taux appliqué une seule fois)', async () => {
       claims.soumettreDepuisDispensation.mockResolvedValue({
         reclamation: { id: 'rec-1', statut: 'AUTO_ADJUDIQUE' },
       });
@@ -568,7 +568,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
           adherentId: 'adh-1',
           policeId: 'pol-1',
           garantieId: 'gar-pharma-1',
-          montant: '8000.00',
+          montant: '10000.00', // total ; la part assurance (8000) est recalculée par l'adjudication
         }),
       );
       expect(res.reclamation).toEqual({ id: 'rec-1', statut: 'AUTO_ADJUDIQUE' });

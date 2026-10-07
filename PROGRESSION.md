@@ -7381,3 +7381,31 @@ l'hospitalisation.
 
 ### Statut
 Terminé — commit à valider.
+
+## 2026-10-07 — Pharmacie : taux de couverture appliqué une seule fois
+
+### Constat
+À la confirmation du paiement d'une dispensation, `PharmacyService` envoyait au
+microservice d'adjudication la PART ASSURANCE (montant × taux), sur laquelle le Java
+réappliquait franchise et taux : remboursement enregistré et cumul du plafond annuel
+sous-évalués (20 000 F à 80 % : 12 800 enregistrés au lieu de 16 000).
+
+### Correctif
+- `confirmerPaiementDispensation` envoie le montant BRUT de la dispensation
+  (`montantTotal`), comme une réclamation d'acte ; le microservice applique seul
+  franchise, taux et plafonds. Paiement de la pharmacie inchangé (facture mensuelle,
+  part assurance des lignes). Aucun changement Java ni web.
+
+### Tests
+- Unitaire : la réclamation reçoit 10 000 (brut), plus la part assurance 8 000.
+  API 946/946 (`--runInBand`).
+- HTTP réel 6/6 (NestJS → Java) : garantie PHARMACIE 80 %, plafond annuel 50 000,
+  dispensation 20 000 → réclamation de 20 000, remboursement 16 000 (= part payée à la
+  pharmacie), plafond restant 34 000. Données supprimées, 0 ligne et 0 compte Auth.
+
+### Reste ouvert
+Une franchise sur la garantie PHARMACIE serait déduite par le Java mais pas au comptoir
+(calcul NestJS) — divergence NestJS / Java déjà relevée, à arbitrer.
+
+### Statut
+Terminé — commit à valider.

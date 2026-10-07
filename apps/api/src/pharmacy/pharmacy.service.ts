@@ -734,7 +734,11 @@ export class PharmacyService {
           beneficiaireId: dossier.beneficiaireId,
           policeId: dossier.policeId,
           garantieId: garantiePharmacie.id,
-          montant: montantAssurance.toFixed(2),
+          // Montant BRUT réclamé (total de la dispensation), comme pour une
+          // réclamation d'acte : c'est le microservice qui applique franchise,
+          // taux, plafond par acte et plafond annuel. Envoyer la part assurance
+          // (déjà multipliée par le taux) faisait appliquer le taux deux fois.
+          montant: maj.montantTotal.toFixed(2),
         },
       );
       reclamation = {

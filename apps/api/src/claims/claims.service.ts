@@ -29,6 +29,9 @@ import {
 import {
   CATEGORIE_ACTE_DISPENSATION,
   CODE_REJET_CATEGORIE_NON_COUVERTE,
+  LIMITE_ACTES_RECLAMABLES,
+  STATUTS_ACTE_RECLAMABLES,
+  STATUTS_PREAUTORISATION_NON_RECLAMABLES,
   CODE_REJET_MANUEL,
   ContexteAppelant,
   ROLE_REVUE_FINANCIERE,
@@ -94,6 +97,21 @@ export class ClaimsService {
     if (!dossier || dossier.organisationId !== ctx.organisationId) {
       // 404 plutôt que 403 : ne pas révéler un dossier d'une autre organisation
       throw new NotFoundException('Dossier de soins introuvable.');
+    }
+
+    // Mêmes conditions que la facturation tiers payant : un acte non réalisé, ou
+    // dont la pré-autorisation est en attente / refusée, n'est pas remboursable.
+    if (!(STATUTS_ACTE_RECLAMABLES as readonly string[]).includes(acte.statut)) {
+      throw new ConflictException(
+        "Cet acte n'est pas réclamable : il doit d'abord être marqué « réalisé » par le médecin traitant.",
+      );
+    }
+    if ((STATUTS_PREAUTORISATION_NON_RECLAMABLES as readonly string[]).includes(acte.statutPreautorisation)) {
+      throw new ConflictException(
+        acte.statutPreautorisation === 'REFUSEE'
+          ? "Cet acte n'est pas réclamable : sa pré-autorisation a été refusée."
+          : "Cet acte n'est pas réclamable : sa pré-autorisation est en attente de décision.",
+      );
     }
 
     // Acte déjà facturé en tiers payant : l'assureur le règle par la facture de
@@ -472,6 +490,96 @@ export class ClaimsService {
     return err instanceof AdjudicationInjoignableError
       ? new ServiceUnavailableException(MESSAGES_INDISPONIBILITE.reclamation)
       : new BadGatewayException(MESSAGES_INDISPONIBILITE.reclamationErreur);
+  }
+
+  /**
+   * Actes pour lesquels une réclamation PEUT être soumise (écran « Nouvelle
+   * réclamation ») : actes de l'organisation réalisés (ou liquidés), pré-autorisation
+   * ni en attente ni refusée, jamais facturés en tiers payant, sans réclamation —
+   * exactement les conditions de `soumettre`. Les plus récents d'abord
+   * (`LIMITE_ACTES_RECLAMABLES`) ; `recherche` filtre sur le nom, le prénom ou le
+   * numéro de carte du patient. Réservé aux rôles qui peuvent soumettre.
+   */
+  async listerActesReclamables(user: AuthenticatedUser, recherche?: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+
+    const terme = recherche?.trim();
+    const filtrePersonne = terme
+      ? {
+          OR: [
+            { nom: { contains: terme, mode: 'insensitive' as const } },
+            { prenom: { contains: terme, mode: 'insensitive' as const } },
+            { numeroCarte: { contains: terme, mode: 'insensitive' as const } },
+          ],
+        }
+      : undefined;
+
+    const actes = await this.prisma.acteDossier.findMany({
+      where: {
+        deletedAt: null,
+        statut: { in: [...STATUTS_ACTE_RECLAMABLES] },
+        statutPreautorisation: { notIn: [...STATUTS_PREAUTORISATION_NON_RECLAMABLES] },
+        lignesFacturation: { none: {} },
+        dossier: {
+          organisationId: ctx.organisationId,
+          deletedAt: null,
+          ...(filtrePersonne
+            ? { OR: [{ adherent: filtrePersonne }, { beneficiaire: filtrePersonne }] }
+            : {}),
+        },
+      },
+      include: {
+        dossier: {
+          select: {
+            id: true,
+            etablissement: { select: { nom: true } },
+            adherent: { select: { id: true, nom: true, prenom: true, numeroCarte: true } },
+            beneficiaire: { select: { id: true, nom: true, prenom: true, numeroCarte: true } },
+          },
+        },
+      },
+      orderBy: [{ dateRealisation: 'desc' }, { datePrescription: 'desc' }],
+      // marge pour les actes déjà réclamés, écartés ci-dessous
+      take: LIMITE_ACTES_RECLAMABLES * 2,
+    });
+
+    // pas de relation Prisma réclamation → acte : exclusion par une 2e requête
+    const dejaReclames = new Set(
+      (
+        await this.prisma.reclamation.findMany({
+          where: { acteDossierId: { in: actes.map((a) => a.id) }, deletedAt: null },
+          select: { acteDossierId: true },
+        })
+      ).map((r) => r.acteDossierId),
+    );
+
+    return actes
+      .filter((a) => !dejaReclames.has(a.id))
+      .slice(0, LIMITE_ACTES_RECLAMABLES)
+      .map((a) => {
+        const personne = a.dossier.adherent ?? a.dossier.beneficiaire;
+        return {
+          id: a.id,
+          libelle: a.libelle,
+          categorieActe: a.categorieActe,
+          codeActe: a.codeActe,
+          dateSoins: a.dateRealisation ?? a.datePrescription,
+          montant: new Decimal(a.montantPrescrit?.toString() ?? '0')
+            .mul(a.quantite ?? 1)
+            .toFixed(2),
+          dossierSoinsId: a.dossier.id,
+          etablissement: a.dossier.etablissement?.nom ?? null,
+          patient: personne
+            ? {
+                type: a.dossier.adherent ? ('ADHERENT' as const) : ('BENEFICIAIRE' as const),
+                nom: personne.nom,
+                prenom: personne.prenom,
+                numeroCarte: personne.numeroCarte,
+              }
+            : null,
+        };
+      });
   }
 
   async listerReclamations(

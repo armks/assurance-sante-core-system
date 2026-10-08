@@ -68,3 +68,17 @@ export function peutTraiterRevue(
   const rc = roleChain ?? [];
   return rc.includes(roleRevue) || rc.includes(ROLE_REVUE_SUPERVISION);
 }
+
+/**
+ * Rôles autorisés à SOUMETTRE une réclamation (écran « Nouvelle réclamation ») —
+ * miroir de `ROLES_GESTION_CLAIMS` côté API (claims.types.ts) ; l'API reste juge (403).
+ */
+export const ROLES_SOUMISSION_RECLAMATION = [
+  'ASSUREUR_DIRECTION',
+  'ASSUREUR_EXPLOITATION',
+  'ASSUREUR_INFORMATIQUE',
+];
+
+export function peutSoumettreReclamation(roleChain: readonly string[] | null | undefined): boolean {
+  return (roleChain ?? []).some((r) => ROLES_SOUMISSION_RECLAMATION.includes(r));
+}

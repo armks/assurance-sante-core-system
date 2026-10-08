@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Plus } from 'lucide-react';
 
 import {
   CarteResume,
@@ -46,8 +46,11 @@ const montant = (v: string | null) =>
 
 export function ReclamationsListe({
   reclamations,
+  peutSoumettre = false,
 }: {
   reclamations: Reclamation[];
+  /** Rôle autorisé à soumettre (direction, exploitation, informatique) : bouton « Nouvelle réclamation ». */
+  peutSoumettre?: boolean;
 }) {
   const parStatut = (s: string) =>
     reclamations.filter((r) => r.statut === s).length;
@@ -137,11 +140,21 @@ export function ReclamationsListe({
         <p className="text-sm text-muted-foreground">
           Toutes les réclamations de l’organisation.
         </p>
-        <Button asChild size="sm" variant={enRevue > 0 ? 'default' : 'outline'}>
-          <Link href="/dashboard-assureur/informatique/reclamations/revue-manuelle">
-            File « En revue manuelle » ({enRevue})
-          </Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="sm" variant={enRevue > 0 ? 'default' : 'outline'}>
+            <Link href="/dashboard-assureur/informatique/reclamations/revue-manuelle">
+              File « En revue manuelle » ({enRevue})
+            </Link>
+          </Button>
+          {peutSoumettre && (
+            <Button asChild size="sm">
+              <Link href="/dashboard-assureur/informatique/reclamations/nouvelle">
+                <Plus className="size-4" />
+                Nouvelle réclamation
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <DataTable

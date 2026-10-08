@@ -35,6 +35,18 @@ export class ClaimsController {
     return this.claims.soumettre(user, dto);
   }
 
+  /**
+   * Actes pour lesquels une réclamation peut être soumise (réalisés, non facturés
+   * en tiers payant, non réclamés). Déclarée AVANT `:id`.
+   */
+  @Get('actes-reclamables')
+  actesReclamables(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('recherche') recherche?: string,
+  ) {
+    return this.claims.listerActesReclamables(user, recherche);
+  }
+
   @Get()
   lister(
     @CurrentUser() user: AuthenticatedUser,

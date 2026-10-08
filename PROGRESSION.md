@@ -7712,3 +7712,38 @@ API 978/978, JUnit 89/89, typecheck API et web 0 erreur.
 
 ### Statut
 Terminé — commit et push.
+
+## 2026-10-08 — Écran « Nouvelle réclamation »
+
+### Constat
+La soumission d'une réclamation n'existait que par l'API (`POST /claims/reclamations/soumettre`),
+sans écran ; elle ne vérifiait ni que l'acte était réalisé, ni sa pré-autorisation (la facture
+tiers payant, si).
+
+### API (claims)
+- `GET /claims/reclamations/actes-reclamables?recherche=` : actes de l'organisation réalisés
+  (ou liquidés), pré-autorisation ni en attente ni refusée, jamais facturés en tiers payant, sans
+  réclamation ; recherche nom / prénom / n° de carte (titulaire ou bénéficiaire) ; 200 au plus,
+  les plus récents d'abord ; réservé aux rôles qui soumettent (direction, exploitation,
+  informatique).
+- `soumettre` : 409 explicite pour un acte non réalisé ou à pré-autorisation en attente /
+  refusée — mêmes conditions que la facture.
+
+### Web
+- Bouton « Nouvelle réclamation » sur la liste des réclamations (rôles qui soumettent).
+- `/dashboard-assureur/informatique/reclamations/nouvelle` : recherche du patient, tableau des
+  actes réclamables, « Réclamer » → montant payé par le patient (défaut : montant de l'acte) →
+  ouverture du détail de la réclamation (décision du moteur d'adjudication).
+
+### Tests
+- API 983/983 (+5), typecheck API et web 0 erreur.
+- HTTP réel 17/17 (deux passages) : liste limitée aux actes réclamables (non réalisé, facturé et
+  pré-autorisation en attente exclus), recherche par prénom du bénéficiaire, 403 au
+  médecin-conseil ; soumission 12 000 → AUTO_ADJUDIQUE 9 600, acte retiré de la liste, seconde
+  soumission 409, acte non réalisé 409, pré-autorisation en attente 409 ; pages rendues
+  (bouton, liste, recherche vide, détail) et redirection du médecin-conseil hors de l'espace
+  informatique. Données supprimées en ordre inverse des dépendances, 0 ligne et 0 compte Auth ;
+  script supprimé.
+
+### Statut
+Terminé — commit et push.

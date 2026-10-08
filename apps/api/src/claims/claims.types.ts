@@ -91,6 +91,21 @@ export const ROLES_SOCIETE_CLAIMS = [
   'SOCIETE_ADMINISTRATION',
 ] as const;
 
+/**
+ * Un acte n'est réclamable qu'aux MÊMES conditions qu'il est facturable en tiers
+ * payant (`preauthorization.types.ts`, dupliqué localement : un module = un domaine) :
+ * marqué réalisé (ou liquidé), et pré-autorisation ni en attente ni refusée.
+ */
+export const STATUTS_ACTE_RECLAMABLES = ['REALISE', 'LIQUIDE'] as const;
+export const STATUTS_PREAUTORISATION_NON_RECLAMABLES = [
+  'EN_ATTENTE_EXPLOITATION',
+  'EN_ATTENTE_MEDECIN_CONSEIL',
+  'REFUSEE',
+] as const;
+
+/** Nombre maximal d'actes réclamables renvoyés (les plus récents d'abord). */
+export const LIMITE_ACTES_RECLAMABLES = 200;
+
 /** Code ajouté à `codes_rejet` quand un rejet est prononcé après revue manuelle. */
 export const CODE_REJET_MANUEL = 'REJET_MANUEL';
 

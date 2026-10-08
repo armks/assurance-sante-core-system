@@ -45,6 +45,9 @@ const ACTE = {
   categorieActe: 'CONSULTATION',
   montantPrescrit: '15000',
   quantite: 1,
+  // conditions de réclamation (mêmes que la facture) : acte réalisé, pré-autorisation non requise
+  statut: 'REALISE',
+  statutPreautorisation: 'NON_REQUISE',
 };
 const DOSSIER = {
   id: 'dos-1',
@@ -418,6 +421,74 @@ describe('ClaimsService — soumission / verrouillage / adjudication', () => {
     await expect(
       service.validerManuellement(USER, 'rec-1', { decision: 'APPROUVE', motif: 'ok' }),
     ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  // --- Conditions de réclamation (mêmes que la facture tiers payant) ---
+
+  it.each([
+    [{ statut: 'PRESCRIT' }, 'marqué « réalisé »'],
+    [{ statutPreautorisation: 'EN_ATTENTE_MEDECIN_CONSEIL' }, 'pré-autorisation est en attente'],
+    [{ statutPreautorisation: 'REFUSEE' }, 'pré-autorisation a été refusée'],
+  ])('acte non réclamable (%o) → 409, aucune réclamation créée', async (surcharge, message) => {
+    prisma.acteDossier.findFirst.mockResolvedValue({ ...ACTE, ...surcharge });
+
+    const err = await service.soumettre(USER, { acteDossierId: 'acte-1' }).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ConflictException);
+    expect(err.message).toContain(message);
+    expect(prisma.reclamation.create).not.toHaveBeenCalled();
+    expect(adjudication.evaluer).not.toHaveBeenCalled();
+  });
+
+  describe('listerActesReclamables (écran « Nouvelle réclamation »)', () => {
+    const acteListe = (id: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      libelle: 'Consultation',
+      categorieActe: 'CONSULTATION',
+      codeActe: null,
+      montantPrescrit: '12000',
+      quantite: 2,
+      dateRealisation: new Date('2026-09-20T10:00:00Z'),
+      datePrescription: new Date('2026-09-19T10:00:00Z'),
+      dossier: {
+        id: 'dos-1',
+        etablissement: { nom: 'Clinique A' },
+        adherent: null,
+        beneficiaire: { id: 'ben-1', nom: 'KOUASSI', prenom: 'Junior', numeroCarte: 'CI-0001' },
+      },
+      ...extra,
+    });
+
+    it('filtre exactement comme soumettre (réalisé, pré-autorisation, jamais facturé, organisation) et écarte les actes déjà réclamés', async () => {
+      prisma.acteDossier.findMany.mockResolvedValueOnce([acteListe('a1'), acteListe('a2')]);
+      prisma.reclamation.findMany.mockResolvedValueOnce([{ acteDossierId: 'a2' }]);
+
+      const r = await service.listerActesReclamables(USER, '  kouassi ');
+
+      const where = prisma.acteDossier.findMany.mock.calls[0][0].where;
+      expect(where).toMatchObject({
+        deletedAt: null,
+        statut: { in: ['REALISE', 'LIQUIDE'] },
+        statutPreautorisation: { notIn: ['EN_ATTENTE_EXPLOITATION', 'EN_ATTENTE_MEDECIN_CONSEIL', 'REFUSEE'] },
+        lignesFacturation: { none: {} },
+        dossier: { organisationId: 'org-1', deletedAt: null },
+      });
+      // recherche (sans espaces) sur le titulaire OU le bénéficiaire
+      expect(JSON.stringify(where.dossier.OR)).toContain('"contains":"kouassi"');
+      expect(r.map((a) => a.id)).toEqual(['a1']);
+      expect(r[0]).toMatchObject({
+        montant: '24000.00',
+        etablissement: 'Clinique A',
+        patient: { type: 'BENEFICIAIRE', prenom: 'Junior', numeroCarte: 'CI-0001' },
+      });
+      expect(r[0].dateSoins).toEqual(new Date('2026-09-20T10:00:00Z'));
+    });
+
+    it('réservé aux rôles qui peuvent soumettre : médecin-conseil → 403', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_MEDECIN_CONSEIL']));
+      await expect(service.listerActesReclamables(USER)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.acteDossier.findMany).not.toHaveBeenCalled();
+    });
   });
 });
 

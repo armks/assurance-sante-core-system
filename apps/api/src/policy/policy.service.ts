@@ -70,6 +70,11 @@ export class PolicyService {
     if (!souscripteur) {
       throw new NotFoundException('Souscripteur introuvable.');
     }
+    if (souscripteur.statut === 'ARCHIVE') {
+      throw new ConflictException(
+        `La société cliente « ${souscripteur.nom} » est archivée : aucune nouvelle police. Désarchivez-la d'abord.`,
+      );
+    }
 
     const produit = await this.prisma.produit.findFirst({
       where: {

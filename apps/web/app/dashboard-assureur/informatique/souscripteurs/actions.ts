@@ -84,3 +84,36 @@ export async function retirerMembreComite(
   revalidatePath(`${CIBLE}/${souscripteurId}`);
   return { ok: true };
 }
+
+/** Modifie une société cliente (le nom est tracé à l'audit) ; refusé si elle est archivée. */
+export async function modifierSouscripteur(
+  id: string,
+  input: { nom?: string; secteurActivite?: string; effectifDeclare?: number; typeCollectivite?: string; organeGouvernance?: string; bailleurSubvention?: string },
+): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
+  const res = await apiFetch(`/api/v1/tenant/souscripteurs/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(CIBLE);
+  revalidatePath(`${CIBLE}/${id}`);
+  return { ok: true, message: 'Société modifiée.' };
+}
+
+/** Archivage (ARCHIVE) / désarchivage (ACTIF) — direction et informatique. */
+export async function changerArchivageSouscripteur(
+  id: string,
+  action: 'archiver' | 'desarchiver',
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/tenant/souscripteurs/${id}/${action}`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  revalidatePath(`${CIBLE}/${id}`);
+  return { ok: true };
+}
+
+/** Suppression (logique) d'une société sans aucun lien — direction et informatique. */
+export async function supprimerSouscripteur(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/tenant/souscripteurs/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}

@@ -95,6 +95,24 @@ export class ProviderController {
     return this.provider.validerEtablissement(user, id);
   }
 
+  /** Archivage (RESILIE) : refusé tant qu'une activité est en cours (ADR-007). */
+  @Post('etablissements/:id/archiver')
+  archiverEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.archiverEtablissement(user, id);
+  }
+
+  /** Désarchivage (ACTIF) — ne réactive pas les comptes rattachés. */
+  @Post('etablissements/:id/desarchiver')
+  desarchiverEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.desarchiverEtablissement(user, id);
+  }
+
   @Delete('etablissements/:id')
   @HttpCode(204)
   supprimerEtablissement(
@@ -226,6 +244,24 @@ export class ProviderController {
     @Body() dto: UpdatePharmacieDto,
   ) {
     return this.provider.modifierPharmacie(user, id, dto);
+  }
+
+  /** Archivage (RESILIEE) : refusé tant qu'une activité est en cours (ADR-007). */
+  @Post('pharmacies/:id/archiver')
+  archiverPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.archiverPharmacie(user, id);
+  }
+
+  /** Désarchivage (ACTIVE) — ne réactive pas les comptes rattachés. */
+  @Post('pharmacies/:id/desarchiver')
+  desarchiverPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provider.desarchiverPharmacie(user, id);
   }
 
   @Delete('pharmacies/:id')

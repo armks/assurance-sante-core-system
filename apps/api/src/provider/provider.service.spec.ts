@@ -324,6 +324,129 @@ describe('ProviderService', () => {
     expect(res.avertissements.some((a: any) => a.type === 'GEOCODAGE_ECHOUE')).toBe(true);
   });
 
+  describe('lot 3 — modifier, archiver, désarchiver (ADR-007)', () => {
+    const ETAB = { id: 'e1', nom: 'Clinique A', code: 'CLA', statut: 'ACTIF', adresseComplete: 'Rue 1', quartier: null, commune: 'Cocody', ville: 'Abidjan', pays: "Côte d'Ivoire", latitude: 5.1, longitude: -4.1 };
+    const PHARM = { ...ETAB, id: 'p1', nom: 'Pharmacie A', code: 'PHA' };
+    const audit = () => prisma.$executeRaw.mock.calls.map((c: any[]) => c.slice(1).join('|')).join('\n');
+
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.etablissementSante.findFirst.mockResolvedValue(ETAB);
+      prisma.pharmacie.findFirst.mockResolvedValue(PHARM);
+      prisma.profil = { updateMany: jest.fn().mockResolvedValue({ count: 3 }), update: jest.fn() };
+    });
+
+    it('contact et adresse libres : modification sans géocodage si l’adresse ne change pas', async () => {
+      await service.modifierEtablissement(USER, 'e1', { telephone: '0102030405', email: 'a@b.ci' });
+      expect(geocodage.geocoder).not.toHaveBeenCalled();
+      expect(prisma.etablissementSante.update).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { telephone: '0102030405', email: 'a@b.ci' } });
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'etablissement', 'e1', 'modifier');
+    });
+
+    it('nom et code TRACÉS : ancienne et nouvelle valeur à l’audit ; code déjà pris → 409 sans écriture', async () => {
+      await service.modifierEtablissement(USER, 'e1', { nom: 'Clinique B', code: 'CLB' });
+      const details = prisma.$executeRaw.mock.calls[0][5];
+      expect(JSON.parse(details)).toMatchObject({ nom: { avant: 'Clinique A', apres: 'Clinique B' }, code: { avant: 'CLA', apres: 'CLB' } });
+
+      prisma.etablissementSante.update.mockClear();
+      prisma.etablissementSante.count.mockResolvedValue(1);
+      await expect(service.modifierEtablissement(USER, 'e1', { code: 'PRIS' })).rejects.toThrow(ConflictException);
+      expect(prisma.etablissementSante.update).not.toHaveBeenCalled();
+    });
+
+    it('même code qu’avant : pas de contrôle d’unicité (l’élément ne se bloque pas lui-même)', async () => {
+      prisma.etablissementSante.count.mockResolvedValue(1);
+      await expect(service.modifierEtablissement(USER, 'e1', { code: 'CLA', nom: 'Nouveau nom' })).resolves.toBeDefined();
+    });
+
+    it('changement d’adresse : géocodage relancé, nouvelle position enregistrée', async () => {
+      geocodage.geocoder.mockResolvedValue({ latitude: 5.36, longitude: -4.0 });
+      const res = await service.modifierEtablissement(USER, 'e1', { quartier: 'Riviera' });
+      expect(geocodage.geocoder).toHaveBeenCalledWith(expect.objectContaining({ quartier: 'Riviera', commune: 'Cocody', ville: 'Abidjan' }));
+      expect(prisma.etablissementSante.update).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { quartier: 'Riviera', latitude: 5.36, longitude: -4.0 } });
+      expect(res.avertissements.some((a: any) => a.type === 'GEOCODAGE_AUTO')).toBe(true);
+    });
+
+    it('géocodage en échec (introuvable ou exception) : l’enregistrement N’EST PAS bloqué, ancienne position retirée, avertissement', async () => {
+      geocodage.geocoder.mockResolvedValue(null);
+      const res = await service.modifierPharmacie(USER, 'p1', { ville: 'Bouaké' });
+      expect(prisma.pharmacie.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { ville: 'Bouaké', latitude: null, longitude: null } });
+      expect(res.avertissements.some((a: any) => a.type === 'GEOCODAGE_ECHOUE')).toBe(true);
+
+      prisma.pharmacie.update.mockClear();
+      geocodage.geocoder.mockRejectedValue(new Error('réseau coupé'));
+      await expect(service.modifierPharmacie(USER, 'p1', { ville: 'Korhogo' })).resolves.toBeDefined();
+      expect(prisma.pharmacie.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('coordonnées saisies à la main : pas de géocodage', async () => {
+      await service.modifierEtablissement(USER, 'e1', { ville: 'Yamoussoukro', latitude: 6.8, longitude: -5.3 });
+      expect(geocodage.geocoder).not.toHaveBeenCalled();
+      expect(prisma.etablissementSante.update).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { ville: 'Yamoussoukro', latitude: 6.8, longitude: -5.3 } });
+    });
+
+    it('l’archivage ne passe pas par « statut » du PATCH ; un élément archivé ne se modifie pas', async () => {
+      await expect(service.modifierEtablissement(USER, 'e1', { statut: 'RESILIE' })).rejects.toThrow(/action « Archiver »/);
+      await expect(service.modifierPharmacie(USER, 'p1', { statut: 'RESILIEE' })).rejects.toThrow(/action « Archiver »/);
+      dependances.assertPossible.mockRejectedValueOnce(new ConflictException('Modification impossible : archivé'));
+      await expect(service.modifierEtablissement(USER, 'e1', { telephone: '1' })).rejects.toThrow(ConflictException);
+      expect(prisma.etablissementSante.update).not.toHaveBeenCalled();
+    });
+
+    it('archiver : garde des dépendances PUIS statut RESILIE / RESILIEE et audit dans la même transaction', async () => {
+      await service.archiverEtablissement(USER, 'e1');
+      await service.archiverPharmacie(USER, 'p1');
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'etablissement', 'e1', 'archiver');
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'pharmacie', 'p1', 'archiver');
+      expect(prisma.etablissementSante.update).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { statut: 'RESILIE' } });
+      expect(prisma.pharmacie.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { statut: 'RESILIEE' } });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+      expect(audit()).toContain('ARCHIVAGE_ETABLISSEMENT');
+      expect(audit()).toContain('ARCHIVAGE_PHARMACIE');
+    });
+
+    it('archiver DÉSACTIVE les comptes rattachés (même transaction, périmètre de l’organisation) et compte combien à l’audit', async () => {
+      await service.archiverEtablissement(USER, 'e1');
+      await service.archiverPharmacie(USER, 'p1');
+      expect(prisma.profil.updateMany).toHaveBeenNthCalledWith(1, {
+        where: { organisationId: 'org-1', deletedAt: null, desactiveLe: null, etablissementId: 'e1' },
+        data: { desactiveLe: expect.any(Date), desactiveMotif: expect.stringContaining('Clinique A') },
+      });
+      expect(prisma.profil.updateMany).toHaveBeenNthCalledWith(2, {
+        where: { organisationId: 'org-1', deletedAt: null, desactiveLe: null, pharmacieId: 'p1' },
+        data: { desactiveLe: expect.any(Date), desactiveMotif: expect.stringContaining('Pharmacie A') },
+      });
+      const calls = prisma.$executeRaw.mock.calls.map((c: any[]) => JSON.parse(c[5]));
+      expect(calls[0]).toMatchObject({ nouveauStatut: 'RESILIE', comptesDesactives: 3 });
+    });
+
+    it('archivage refusé par la garde : aucune écriture, aucun audit de succès', async () => {
+      dependances.assertPossible.mockRejectedValueOnce(new ConflictException('Archivage impossible : 2 dossiers de soins ouverts'));
+      await expect(service.archiverEtablissement(USER, 'e1')).rejects.toThrow(/2 dossiers de soins ouverts/);
+      expect(prisma.etablissementSante.update).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it('désarchiver : ACTIF / ACTIVE, et ne touche à AUCUN compte rattaché', async () => {
+      prisma.etablissementSante.findFirst.mockResolvedValue({ ...ETAB, statut: 'RESILIE' });
+      prisma.pharmacie.findFirst.mockResolvedValue({ ...PHARM, statut: 'RESILIEE' });
+      await service.desarchiverEtablissement(USER, 'e1');
+      await service.desarchiverPharmacie(USER, 'p1');
+      expect(prisma.etablissementSante.update).toHaveBeenCalledWith({ where: { id: 'e1' }, data: { statut: 'ACTIF' } });
+      expect(prisma.pharmacie.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { statut: 'ACTIVE' } });
+      expect(prisma.profil.updateMany).not.toHaveBeenCalled();
+      expect(prisma.profil.update).not.toHaveBeenCalled();
+    });
+
+    it('rôle non habilité (comptable) : 403 ; hors organisation : 404', async () => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_COMPTABLE']));
+      await expect(service.archiverEtablissement(USER, 'e1')).rejects.toThrow(ForbiddenException);
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      prisma.etablissementSante.findFirst.mockResolvedValue(null);
+      await expect(service.archiverEtablissement(USER, 'autre-org')).rejects.toThrow(/introuvable/i);
+    });
+  });
+
   it('détection de doublon : nom proche à moins de 200 m → avertissement (pas un blocage)', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
     prisma.etablissementSante.findMany.mockResolvedValue([

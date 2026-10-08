@@ -679,3 +679,65 @@ Réponses du propriétaire aux points ouverts du lot 1, désormais **décidées*
 
 **Reste à faire** : lots 3 à 5 (comptes utilisateurs, sociétés, comptes financiers, polices et
 avenants) ; purge des données personnelles ; tarifs de pharmacie rattachés aux médicaments.
+
+### Lot 3 « entités partenaires » (2026-10-08) — migration `prisma/sql/075_souscripteurs_statut_archivage.sql`
+
+Entités : établissements de santé, pharmacies, sociétés clientes (souscripteurs).
+
+1. **Statut d'archivage des sociétés** : `souscripteurs.statut` ∈ {ACTIF, ARCHIVE} (CHECK),
+   distinct de `deleted_at`. Établissements (RESILIE ↔ ACTIF) et pharmacies (RESILIEE ↔ ACTIVE)
+   avaient déjà leur statut. **Unicité** : les index uniques de `etablissements_sante.code` et
+   `pharmacies.code` sont partiels (`WHERE deleted_at IS NULL`, 074 — vérifié en base) ; `souscripteurs`
+   n'a aucun index unique hors clé primaire, rien à rendre partiel.
+2. **Modifier** : contact et adresse libres ; `nom` et `code` tracés à l'audit (ancienne et nouvelle
+   valeur) ; code unique parmi les non supprimés (le code d'un élément n'est pas comparé à
+   lui-même). L'archivage ne passe **jamais** par `statut` du PATCH (409 qui renvoie à l'action
+   « Archiver ») ; un élément archivé ne se modifie pas (409 : désarchivez-le d'abord).
+   Les sociétés n'ont ni adresse ni contact en base : seuls nom, secteur, effectif, type de
+   collectivité sont modifiables.
+3. **Supprimer** : suppression logique, seulement sans aucune dépendance, liens logiques compris
+   (comptes, invitations, dossiers…) ; 409 avec raison et nombres, refus tracé à part.
+4. **Archiver / désarchiver** : `POST …/archiver` et `…/desarchiver` (établissements, pharmacies,
+   sociétés). **Blocages** (raison en français, nombres exacts) : établissement — dossier OUVERT,
+   facture non réglée, facture mensuelle non payée ; pharmacie — dispensation non payée (ni
+   PAYEE ni ANNULEE), facture mensuelle non payée ; société — police ACTIVE ou SUSPENDUE,
+   adhérent ACTIF, cotisation à payer (A_PAYER **et EN_RETARD**, ajout par rapport à la demande :
+   une cotisation en retard est a fortiori impayée).
+5. **Effets d'un archivage**, tous contrôlés **côté serveur** :
+   - les comptes rattachés sont **désactivés dans la même transaction** (`profils.desactive_le` /
+     `desactive_motif`, 075 ; le nombre est tracé à l'audit) — distinct de `deleted_at` ;
+   - `IdentityService.getMe`, point de passage de tous les services authentifiés, refuse (403
+     `COMPTE_DESACTIVE`) un compte désactivé, et (403 `PERIMETRE_ARCHIVE`) un compte dont
+     l'établissement, la pharmacie ou la société est archivé(e) ou supprimé(e) ; l'écran
+     « Accès coupé » explique le motif ;
+   - **le désarchivage ne réactive pas les comptes** : l'informatique les rétablit un à un
+     (`POST /identity/comptes/:id/reactiver`, 409 tant que la structure est encore archivée,
+     tracé `REACTIVATION_COMPTE` ; bouton « Réactiver » dans la liste des utilisateurs) ;
+   - garde de service en plus de la coupure des comptes (défense en profondeur, testée) :
+     ouverture de dossier (statut ACTIF exigé), préparation d'une dispensation, facture par
+     sélection d'actes, factures mensuelles établissement et pharmacie ; nouvelle police,
+     nouvel adhérent et import d'adhérents sur une société archivée → 409 ;
+   - disparition de l'annuaire public (liste et carte) : les vues `etablissements_sante_public`
+     et `pharmacies_public` ne retiennent que ACTIF / ACTIVE non supprimé — vérifié en base et sur la
+     page `/reseau-de-soins` ;
+   - historique, factures passées et fiches restent lisibles côté assureur ; rien n'est supprimé.
+6. **Changement d'adresse** : relance le géocodage Nominatim (adresse fusionnée avec l'existante)
+   sans jamais bloquer l'enregistrement. Succès : nouvelle position (avertissement
+   `GEOCODAGE_AUTO`). Échec ou exception : adresse enregistrée, **ancienne position retirée**
+   (elle ne correspond plus à la nouvelle adresse), avertissement `GEOCODAGE_ECHOUE`. Coordonnées
+   saisies à la main : pas de géocodage. L'annuaire public lit directement ces colonnes.
+7. **Rôles** : établissements et pharmacies — modification, archivage, suppression : informatique.
+   Sociétés — modification : direction, exploitation, informatique, comptable (inchangé) ;
+   **archivage et suppression : direction et informatique** (`rolesArchivage` du registre, verdict
+   `ROLE` et 403). Réactivation d'un compte : informatique.
+8. **Journalisation** : succès via `log_audit()` dans la transaction métier (statut, désactivation
+   des comptes et audit validés ou annulés ensemble) ; refus tracés à part (`REFUS_ARCHIVER`,
+   `REFUS_SUPPRIMER`…).
+9. **Registre** : comptage des cotisations d'une société restreint à l'organisation du jeton
+   (une cotisation d'une autre organisation pointant sur la société n'est pas comptée).
+
+**Limites connues** : le blocage des comptes archivés vaut pour l'API (point `getMe`) mais n'est
+pas doublé par une policy RLS comme pour les organisations suspendues (065) — accès PostgREST
+direct non couvert. La coupure est totale (lecture comprise) pour les comptes rattachés ; seul
+l'assureur consulte l'historique d'une structure archivée. Un compte créé APRÈS l'archivage d'une
+structure est refusé par `PERIMETRE_ARCHIVE` sans être marqué désactivé.

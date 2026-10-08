@@ -1980,6 +1980,19 @@ export class PreauthorizationService {
    * jamais validée/réglée) est RÉATTACHÉ au nouveau cycle plutôt que dupliqué
    * (au plus une ligne `A_PAYER` par acte, contrainte posée en base).
    */
+  /** Établissement archivé (RESILIE) : plus de nouvelle facturation (ADR-007, lot 3). */
+  private async assertEtablissementNonArchive(etablissementId: string, quoi: string): Promise<void> {
+    const e = await this.prisma.etablissementSante.findUnique({
+      where: { id: etablissementId },
+      select: { nom: true, statut: true, deletedAt: true },
+    });
+    if (!e || e.deletedAt || e.statut === 'RESILIE') {
+      throw new ConflictException(
+        `L'établissement « ${e?.nom ?? 'inconnu'} » est archivé : ${quoi}. L'historique et les factures passées restent consultables.`,
+      );
+    }
+  }
+
   async genererFactureSelection(
     user: AuthenticatedUser,
     dossierSoinsId: string,
@@ -2019,6 +2032,7 @@ export class PreauthorizationService {
         'Le ticket de soins est ANNULÉ — aucune facturation possible.',
       );
     }
+    await this.assertEtablissementNonArchive(dossier.etablissementId, 'aucune nouvelle facture');
 
     const acteIdsDemandes = [...new Set(dto.acteIds)];
     const actesDemandes = await this.prisma.acteDossier.findMany({
@@ -2669,6 +2683,7 @@ export class PreauthorizationService {
         "Réservé au comptable ou à l'administratif de l'établissement concerné.",
       );
     }
+    await this.assertEtablissementNonArchive(ctx.etablissementId, 'aucune nouvelle facture mensuelle');
 
     const maintenant = new Date();
     const { debut, fin } = this.bornesMoisPrecedentEtablissement(maintenant);

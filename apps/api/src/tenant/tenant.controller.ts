@@ -62,6 +62,24 @@ export class TenantController {
     return this.tenant.modifier(user, id, dto);
   }
 
+  /** Archivage (ARCHIVE) — direction et informatique ; refusé tant qu'un contrat est en cours. */
+  @Post(':id/archiver')
+  archiver(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.tenant.changerArchivage(user, id, 'archiver');
+  }
+
+  /** Désarchivage (ACTIF) — ne réactive pas les comptes de la société. */
+  @Post(':id/desarchiver')
+  desarchiver(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.tenant.changerArchivage(user, id, 'desarchiver');
+  }
+
   @Delete(':id')
   @HttpCode(204)
   supprimer(

@@ -90,6 +90,15 @@ describe('PolicyService', () => {
     service = moduleRef.get(PolicyService);
   });
 
+  it('société cliente ARCHIVÉE : aucune nouvelle police (409), rien n’est créé', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
+    prisma.souscripteur.findFirst.mockResolvedValue({ id: 's1', nom: 'ACME', organisationId: 'org-1', statut: 'ARCHIVE' });
+    await expect(service.creerDevis(USER, { souscripteurId: 's1', produitId: 'pr1' })).rejects.toThrow(
+      /ACME.*archivée.*aucune nouvelle police/,
+    );
+    expect(prisma.police.create).not.toHaveBeenCalled();
+  });
+
   it('crée un devis sur un produit PUBLIE', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
     prisma.souscripteur.findFirst.mockResolvedValue({

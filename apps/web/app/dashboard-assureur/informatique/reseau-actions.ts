@@ -90,6 +90,9 @@ export async function creerPharmacie(input: {
 
 interface ModifierLieuInput {
   nom?: string;
+  /** Code modifiable (unique parmi les non supprimés) ; ancien et nouveau tracés à l'audit. */
+  code?: string;
+  quartier?: string;
   ville?: string;
   commune?: string;
   adresseComplete?: string;
@@ -109,8 +112,9 @@ export async function modifierEtablissement(
     body: JSON.stringify(nettoyer(input)),
   });
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const corps = (await res.json().catch(() => ({}))) as { avertissements?: { message: string }[] };
   revalidatePath(`${RACINE}/etablissements`);
-  return { ok: true, message: 'Établissement modifié.' };
+  return { ok: true, message: ['Établissement modifié.', ...(corps.avertissements ?? []).map((a) => a.message)].join(' ') };
 }
 
 export async function modifierPharmacie(
@@ -122,8 +126,9 @@ export async function modifierPharmacie(
     body: JSON.stringify(nettoyer(input)),
   });
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const corps = (await res.json().catch(() => ({}))) as { avertissements?: { message: string }[] };
   revalidatePath(`${RACINE}/pharmacies`);
-  return { ok: true, message: 'Pharmacie modifiée.' };
+  return { ok: true, message: ['Pharmacie modifiée.', ...(corps.avertissements ?? []).map((a) => a.message)].join(' ') };
 }
 
 export async function supprimerEtablissement(
@@ -149,6 +154,19 @@ export async function supprimerPharmacie(
     return { ok: false, error: await messageErreur(res) };
   }
   revalidatePath(`${RACINE}/pharmacies`);
+  return { ok: true };
+}
+
+/** Archivage / désarchivage d'un établissement ou d'une pharmacie (RESILIE / RESILIEE ↔ ACTIF / ACTIVE). */
+export async function changerArchivageLieu(
+  cible: 'etablissements' | 'pharmacies',
+  id: string,
+  action: 'archiver' | 'desarchiver',
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/provider/${cible}/${id}/${action}`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(`${RACINE}/${cible}`);
+  revalidatePath(`${RACINE}/${cible}/${id}`);
   return { ok: true };
 }
 

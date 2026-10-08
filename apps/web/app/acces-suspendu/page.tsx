@@ -19,10 +19,11 @@ export default async function AccesSuspenduPage() {
   if (etat.kind !== 'organisation-suspendue') redirect('/dashboard');
 
   const suspendue = etat.code === 'ORGANISATION_SUSPENDUE';
+  const archive = etat.code === 'PERIMETRE_ARCHIVE' || etat.code === 'COMPTE_DESACTIVE';
   return (
     <EcranMessage
       tonalite="erreur"
-      titre={suspendue ? 'Accès suspendu' : 'Société inactive'}
+      titre={etat.code === 'COMPTE_DESACTIVE' ? 'Compte désactivé' : archive ? 'Accès coupé' : suspendue ? 'Accès suspendu' : 'Société inactive'}
       description={etat.message}
     >
       <p className="text-muted-foreground">

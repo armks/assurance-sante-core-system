@@ -81,6 +81,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
 
   beforeEach(async () => {
     prisma = {
+      etablissementSante: { findUnique: jest.fn().mockResolvedValue({ nom: 'Centre A', statut: 'ACTIF', deletedAt: null }) },
       dossierSoins: { findFirst: jest.fn() },
       acteDossier: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -620,6 +621,17 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
 
       const res = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
       expect(res.statut).toBe('EMISE');
+    });
+
+    it('établissement ARCHIVÉ (RESILIE) : aucune nouvelle facture (409), aucune facture créée', async () => {
+      identity.getMe.mockResolvedValue(profil('CENTRE_MEDICAL_COMPTABLE', { etablissementId: 'etab-1' }));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier());
+      prisma.etablissementSante.findUnique.mockResolvedValue({ nom: 'Centre A', statut: 'RESILIE', deletedAt: null });
+
+      await expect(
+        service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] }),
+      ).rejects.toThrow(/Centre A.*archivé.*aucune nouvelle facture/);
+      expect(prisma.factureDossier.create).not.toHaveBeenCalled();
     });
 
     it('CENTRE_MEDICAL_COMPTABLE d’un AUTRE établissement → 403', async () => {

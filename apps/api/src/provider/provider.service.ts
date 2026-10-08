@@ -173,25 +173,15 @@ export class ProviderService {
     id: string,
     dto: UpdateEtablissementDto,
   ) {
-    const ctx = await this.contexteAppelant(user);
-    this.assertGestion(ctx);
-    await this.assertEtablissementDansPerimetre(ctx.organisationId, id);
+    return this.modifierLieu('etablissement', user, id, dto);
+  }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.etablissementSante.update({
-        where: { id },
-        data: this.lieuUpdateData(dto),
-      });
-      await this.audit(
-        tx,
-        ctx.userId,
-        'MODIFICATION_ETABLISSEMENT',
-        id,
-        { champs: Object.keys(dto) },
-        'etablissements_sante',
-      );
-    });
-    return this.chargerEtablissement(ctx.organisationId, id);
+  async archiverEtablissement(user: AuthenticatedUser, id: string) {
+    return this.changerArchivage('etablissement', user, id, 'archiver');
+  }
+
+  async desarchiverEtablissement(user: AuthenticatedUser, id: string) {
+    return this.changerArchivage('etablissement', user, id, 'desarchiver');
   }
 
   /**
@@ -353,25 +343,15 @@ export class ProviderService {
     id: string,
     dto: UpdatePharmacieDto,
   ) {
-    const ctx = await this.contexteAppelant(user);
-    this.assertGestion(ctx);
-    await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+    return this.modifierLieu('pharmacie', user, id, dto);
+  }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.pharmacie.update({
-        where: { id },
-        data: this.lieuUpdateData(dto),
-      });
-      await this.audit(
-        tx,
-        ctx.userId,
-        'MODIFICATION_PHARMACIE',
-        id,
-        { champs: Object.keys(dto) },
-        'pharmacies',
-      );
-    });
-    return this.chargerPharmacie(ctx.organisationId, id);
+  async archiverPharmacie(user: AuthenticatedUser, id: string) {
+    return this.changerArchivage('pharmacie', user, id, 'archiver');
+  }
+
+  async desarchiverPharmacie(user: AuthenticatedUser, id: string) {
+    return this.changerArchivage('pharmacie', user, id, 'desarchiver');
   }
 
   async supprimerPharmacie(user: AuthenticatedUser, id: string): Promise<void> {
@@ -1267,6 +1247,170 @@ export class ProviderService {
     if (existe) {
       throw new ConflictException(`Le code « ${code} » est déjà utilisé.`);
     }
+  }
+
+  // --- Modification et archivage communs aux établissements et pharmacies (lot 3, ADR-007) ---
+
+  private static readonly CHAMPS_ADRESSE = ['adresseComplete', 'quartier', 'commune', 'ville', 'pays'] as const;
+  private static readonly STATUT_ARCHIVE = { etablissement: 'RESILIE', pharmacie: 'RESILIEE' } as const;
+  private static readonly STATUT_ACTIF = { etablissement: 'ACTIF', pharmacie: 'ACTIVE' } as const;
+
+  /**
+   * Modification d'un établissement / d'une pharmacie : contact et adresse libres ;
+   * `nom` et `code` tracés (ancienne et nouvelle valeur) à l'audit ; code unique parmi
+   * les non supprimés. Un élément archivé ne se modifie pas (désarchivez-le d'abord) et
+   * l'archivage passe par son action dédiée, jamais par `statut`. Un changement
+   * d'adresse relance le géocodage Nominatim — sans jamais bloquer l'enregistrement.
+   */
+  private async modifierLieu(
+    cible: 'etablissement' | 'pharmacie',
+    user: AuthenticatedUser,
+    id: string,
+    dto: UpdateEtablissementDto | UpdatePharmacieDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const modele = cible === 'etablissement' ? 'etablissementSante' : 'pharmacie';
+    const avant: any =
+      cible === 'etablissement'
+        ? await this.assertEtablissementDansPerimetre(ctx.organisationId, id)
+        : await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+
+    // ADR-007 : élément archivé → 409 (refus tracé)
+    await this.dependances.assertPossible(user, cible, id, 'modifier');
+
+    if (dto.statut === ProviderService.STATUT_ARCHIVE[cible]) {
+      throw new ConflictException(
+        `Pour archiver ${cible === 'etablissement' ? "l'établissement" : 'la pharmacie'}, utilisez l'action « Archiver » : elle vérifie qu'aucune activité n'est en cours.`,
+      );
+    }
+    if (dto.code !== undefined && dto.code !== avant.code) {
+      await this.assertCodeLibre(modele, dto.code);
+    }
+
+    const data = this.lieuUpdateData(dto);
+    const avertissements: Avertissement[] = [];
+    const adresseChangee = ProviderService.CHAMPS_ADRESSE.some(
+      (k) => (dto as any)[k] !== undefined && (dto as any)[k] !== avant[k],
+    );
+    const coordsFournies = dto.latitude != null && dto.longitude != null;
+    if (adresseChangee && !coordsFournies) {
+      const adresse = Object.fromEntries(
+        ProviderService.CHAMPS_ADRESSE.map((k) => [k, (dto as any)[k] ?? avant[k]]),
+      );
+      let coords: { latitude: number; longitude: number } | null = null;
+      try {
+        coords = await this.geocodage.geocoder(adresse);
+      } catch (err) {
+        this.logger.warn(`Géocodage impossible (modification) : ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (coords) {
+        data.latitude = coords.latitude;
+        data.longitude = coords.longitude;
+        avertissements.push({
+          type: 'GEOCODAGE_AUTO',
+          message: `Adresse modifiée : position recalculée automatiquement (Nominatim) : ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}. Vérifiez-la.`,
+        });
+      } else {
+        // l'ancienne position ne correspond plus à la nouvelle adresse : on ne la garde pas
+        data.latitude = null;
+        data.longitude = null;
+        avertissements.push({
+          type: 'GEOCODAGE_ECHOUE',
+          message:
+            "Adresse enregistrée, mais le géocodage automatique a échoué : l'ancienne position a été retirée de la carte. Saisissez la latitude / longitude à la main.",
+        });
+      }
+    }
+
+    const details: Record<string, unknown> = { champs: Object.keys(dto) };
+    if (dto.nom !== undefined && dto.nom !== avant.nom) details.nom = { avant: avant.nom, apres: dto.nom };
+    if (dto.code !== undefined && dto.code !== avant.code) details.code = { avant: avant.code, apres: dto.code };
+    if (adresseChangee) {
+      details.adresseModifiee = true;
+      details.geocodage = avertissements.some((a) => a.type === 'GEOCODAGE_AUTO') ? 'AUTO' : coordsFournies ? 'MANUEL' : 'ECHEC';
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (cible === 'etablissement') {
+        await tx.etablissementSante.update({ where: { id }, data });
+      } else {
+        await tx.pharmacie.update({ where: { id }, data });
+      }
+      await this.audit(
+        tx,
+        ctx.userId,
+        cible === 'etablissement' ? 'MODIFICATION_ETABLISSEMENT' : 'MODIFICATION_PHARMACIE',
+        id,
+        details as Prisma.InputJsonValue,
+        cible === 'etablissement' ? 'etablissements_sante' : 'pharmacies',
+      );
+    });
+
+    const apres =
+      cible === 'etablissement'
+        ? await this.chargerEtablissement(ctx.organisationId, id)
+        : await this.chargerPharmacie(ctx.organisationId, id);
+    return { ...apres, avertissements };
+  }
+
+  /**
+   * Archivage (RESILIE / RESILIEE) et désarchivage (ACTIF / ACTIVE). Le serveur refuse
+   * (409, raison et nombres en français, refus tracé) tant qu'une activité est en cours.
+   * Succès : statut et audit dans UNE transaction. Le désarchivage ne réactive PAS les
+   * comptes rattachés : ils restent coupés tant qu'ils n'ont pas été rétablis un à un.
+   */
+  private async changerArchivage(
+    cible: 'etablissement' | 'pharmacie',
+    user: AuthenticatedUser,
+    id: string,
+    action: 'archiver' | 'desarchiver',
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const avant: any =
+      cible === 'etablissement'
+        ? await this.assertEtablissementDansPerimetre(ctx.organisationId, id)
+        : await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, cible, id, action);
+
+    const nouveau = action === 'archiver' ? ProviderService.STATUT_ARCHIVE[cible] : ProviderService.STATUT_ACTIF[cible];
+    await this.prisma.$transaction(async (tx) => {
+      if (cible === 'etablissement') {
+        await tx.etablissementSante.update({ where: { id }, data: { statut: nouveau } });
+      } else {
+        await tx.pharmacie.update({ where: { id }, data: { statut: nouveau } });
+      }
+      // Archivage : les comptes rattachés sont DÉSACTIVÉS (dans la même transaction). Le
+      // désarchivage ne les réactive PAS : l'informatique les rétablit un à un.
+      let comptesDesactives = 0;
+      if (action === 'archiver') {
+        const r = await tx.profil.updateMany({
+          where: {
+            organisationId: ctx.organisationId,
+            deletedAt: null,
+            desactiveLe: null,
+            ...(cible === 'etablissement' ? { etablissementId: id } : { pharmacieId: id }),
+          },
+          data: {
+            desactiveLe: new Date(),
+            desactiveMotif: `archivage ${cible === 'etablissement' ? "de l'établissement" : 'de la pharmacie'} « ${avant.nom} »`,
+          },
+        });
+        comptesDesactives = r.count;
+      }
+      await this.audit(
+        tx,
+        ctx.userId,
+        `${action === 'archiver' ? 'ARCHIVAGE' : 'DESARCHIVAGE'}_${cible === 'etablissement' ? 'ETABLISSEMENT' : 'PHARMACIE'}`,
+        id,
+        { ancienStatut: avant.statut, nouveauStatut: nouveau, ...(action === 'archiver' ? { comptesDesactives } : {}) },
+        cible === 'etablissement' ? 'etablissements_sante' : 'pharmacies',
+      );
+    });
+    return cible === 'etablissement'
+      ? this.chargerEtablissement(ctx.organisationId, id)
+      : this.chargerPharmacie(ctx.organisationId, id);
   }
 
   private lieuUpdateData(

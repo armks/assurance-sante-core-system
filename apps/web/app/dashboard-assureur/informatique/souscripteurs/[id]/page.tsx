@@ -31,6 +31,7 @@ interface Souscripteur {
   subventionExterne: boolean;
   bailleurSubvention: string | null;
   numeroPieceIdentite: string | null;
+  statut?: 'ACTIF' | 'ARCHIVE';
   createdAt: string;
   membresComite: MembreComite[];
 }
@@ -85,11 +86,14 @@ export default async function SouscripteurDetail({
       <PageTitre
         titre={s.nom}
         action={
-          <StatutBadge
-            statut={s.type}
-            ton="info"
-            libelle={LIBELLE_TYPE[s.type]}
-          />
+          <span className="flex items-center gap-2">
+            <StatutBadge
+              statut={s.type}
+              ton="info"
+              libelle={LIBELLE_TYPE[s.type]}
+            />
+            {s.statut === 'ARCHIVE' && <StatutBadge statut="ARCHIVE" ton="neutre" libelle="Archivée" />}
+          </span>
         }
       />
 

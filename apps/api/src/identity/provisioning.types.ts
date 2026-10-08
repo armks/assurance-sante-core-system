@@ -23,4 +23,7 @@ export interface CompteOrganisation {
   libelleRole: string | null;
   email: string | null;
   createdAt: Date;
+  /** Compte désactivé par un archivage (rétabli à la main) ; null = actif. */
+  desactiveLe: Date | null;
+  desactiveMotif: string | null;
 }

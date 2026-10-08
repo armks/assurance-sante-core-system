@@ -193,6 +193,11 @@ export class ImportAdherentsService {
     if (!souscripteur) {
       throw new NotFoundException('Souscripteur introuvable.');
     }
+    if (souscripteur.statut === 'ARCHIVE') {
+      throw new ConflictException(
+        `La société cliente « ${souscripteur.nom} » est archivée : aucun import d'adhérents. Désarchivez-la d'abord.`,
+      );
+    }
 
     if (!MIME_TYPES_AUTORISES.includes(fichier.mimetype) && !fichier.originalname.toLowerCase().endsWith('.xlsx')) {
       throw new BadRequestException('Seul un fichier .xlsx est accepté.');

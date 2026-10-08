@@ -55,6 +55,7 @@ export function ConfirmationAction({
   onConfirmer,
   onSucces,
   declencheur,
+  libelles,
 }: {
   action: ActionConfirmee;
   /** Élément nommé, avec son type : « l’acte « CI-CONS-GEN — Consultation » ». */
@@ -67,8 +68,10 @@ export function ConfirmationAction({
   onSucces?: () => void;
   /** Bouton déclencheur (un bouton fantôme « Supprimer » par défaut). */
   declencheur?: React.ReactNode;
+  /** Libellés propres à un cas particulier (ex. « Réactiver » un compte au lieu de « Désarchiver »). */
+  libelles?: Partial<{ titre: string; bouton: string; verbe: string }>;
 }) {
-  const libelle = LIBELLE_ACTION[action];
+  const libelle = { ...LIBELLE_ACTION[action], ...libelles };
   const [ouvert, setOuvert] = useState(false);
   const [verdict, setVerdict] = useState<VerdictAction | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);

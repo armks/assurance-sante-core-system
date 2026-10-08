@@ -172,6 +172,13 @@ export class DependancesService {
     ) {
       raison = `Suppression impossible : la suppression définitive est réservée ${def.libelleRolesSuppression ?? 'à un autre rôle'}.`;
       code = 'ROLE';
+    } else if (
+      (action === 'archiver' || action === 'desarchiver') &&
+      def.rolesArchivage &&
+      !ctx.roleChain.some((r) => (def.rolesArchivage as readonly string[]).includes(r))
+    ) {
+      raison = `${NOM_ACTION[action]} impossible : l'archivage est réservé ${def.libelleRolesArchivage ?? 'à un autre rôle'}.`;
+      code = 'ROLE';
     } else {
       const etat = regle(rec, ctx);
       if (etat) {

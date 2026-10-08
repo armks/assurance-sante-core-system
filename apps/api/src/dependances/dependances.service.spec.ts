@@ -25,6 +25,7 @@ function fixture(entite: string, action: Action): Record<string, unknown> {
     organisation: archive ? 'ARCHIVEE' : 'ACTIVE',
     etablissement: archive ? 'RESILIE' : 'ACTIF',
     pharmacie: archive ? 'RESILIEE' : 'ACTIVE',
+    souscripteur: archive ? 'ARCHIVE' : 'ACTIF',
     referentielActe: action === 'supprimer' ? 'PROPOSE' : archive ? 'RETIRE' : 'HOMOLOGUE',
     acteNational: archive ? 'RETIRE' : 'HOMOLOGUE',
     produit: action === 'archiver' ? 'PUBLIE' : archive ? 'ARCHIVE' : 'BROUILLON',
@@ -132,11 +133,11 @@ describe('DependancesService — messages, rôles, périmètre, refus', () => {
     expect(v.raison).toBe('Modification impossible : Un produit publié ou archivé ne se modifie pas : créez une nouvelle version.');
   });
 
-  it('action non disponible pour l’entité (archiver une société cliente) → impossible, raison explicite', async () => {
-    const { s } = service(fixture('souscripteur', 'archiver'), 'ASSUREUR_INFORMATIQUE');
-    const v = await s.verifier(USER, 'souscripteur', 'x-1', 'archiver');
+  it('action non disponible pour l’entité (archiver un compte utilisateur) → impossible, raison explicite', async () => {
+    const { s } = service(fixture('utilisateur', 'archiver'), 'ASSUREUR_INFORMATIQUE');
+    const v = await s.verifier(USER, 'utilisateur', 'x-1', 'archiver');
     expect(v.possible).toBe(false);
-    expect(v.raison).toBe("Archivage impossible : cette action n'est pas encore disponible pour la société cliente.");
+    expect(v.raison).toBe("Archivage impossible : cette action n'est pas encore disponible pour le compte utilisateur.");
   });
 
   it('rôle insuffisant → 403 ; entité inconnue → 404 ; enregistrement hors périmètre → 404 sans aucun comptage', async () => {
@@ -334,6 +335,93 @@ describe('DependancesService — lot 2 : entités de configuration', () => {
       expect(r.a.desarchiver.possible).toBe(false);
       expect(r.b.desarchiver.possible).toBe(true);
       expect(r.b.archiver).toMatchObject({ possible: false, code: 'ETAT' });
+    });
+  });
+});
+
+describe('DependancesService — lot 3 : entités partenaires', () => {
+  const index = (entite: string, cle: string) => REGISTRE[entite].dependances.findIndex((d) => d.cle === cle);
+  const verifier = (entite: string, action: Action, role: string, valeurs: Record<number, number> = {}, rec?: Record<string, unknown>) =>
+    service(rec ?? fixture(entite, action), role, valeurs).s.verifier(USER, entite, 'x-1', action);
+
+  describe('blocages d’archivage : raison précise, nombres en français', () => {
+    const cas: [string, string, number, string][] = [
+      ['etablissement', 'dossiersOuverts', 2, '2 dossiers de soins ouverts'],
+      ['etablissement', 'facturesNonReglees', 1, '1 facture non réglée'],
+      ['etablissement', 'facturesMensuellesNonPayees', 3, '3 factures mensuelles non payées'],
+      ['pharmacie', 'dispensationsEnCours', 4, '4 dispensations non payées'],
+      ['pharmacie', 'facturesMensuellesNonPayees', 1, '1 facture mensuelle non payée'],
+      ['souscripteur', 'policesEnCours', 2, '2 polices actives ou suspendues'],
+      ['souscripteur', 'adherentsActifs', 1, '1 adhérent actif'],
+      ['souscripteur', 'cotisationsImpayees', 5, '5 cotisations à payer'],
+    ];
+    for (const [entite, cle, n, texte] of cas) {
+      it(`${entite} — ${cle} (${n}) bloque l’archivage : « ${texte} »`, async () => {
+        const v = await verifier(entite, 'archiver', 'ASSUREUR_INFORMATIQUE', { [index(entite, cle)]: n });
+        expect(v).toMatchObject({ possible: false, code: 'LIENS' });
+        expect(v.raison).toContain(texte);
+        expect(v.raison).toMatch(/^Archivage impossible : /);
+      });
+    }
+
+    it('sans activité en cours : archivage possible (établissement, pharmacie, société)', async () => {
+      for (const e of ['etablissement', 'pharmacie', 'souscripteur']) {
+        expect((await verifier(e, 'archiver', 'ASSUREUR_INFORMATIQUE')).possible).toBe(true);
+      }
+    });
+
+    it('un élément archivé : déjà archivé / désarchivage possible / modification refusée', async () => {
+      for (const [e, role] of [['etablissement', 'ASSUREUR_INFORMATIQUE'], ['pharmacie', 'ASSUREUR_INFORMATIQUE'], ['souscripteur', 'ASSUREUR_DIRECTION']]) {
+        const rec = fixture(e, 'desarchiver');
+        expect((await verifier(e, 'archiver', role, {}, rec)).raison).toContain('déjà archivé');
+        expect((await verifier(e, 'desarchiver', role, {}, rec)).possible).toBe(true);
+        expect((await verifier(e, 'modifier', role, {}, rec)).raison).toContain('désarchiv');
+      }
+      expect((await verifier('etablissement', 'desarchiver', 'ASSUREUR_INFORMATIQUE', {}, fixture('etablissement', 'supprimer'))).raison).toContain("n'est pas archivé");
+    });
+  });
+
+  describe('la suppression reste liée à TOUTES les dépendances, liens logiques compris', () => {
+    const cas: [string, string][] = [
+      ['etablissement', 'utilisateurs'], ['etablissement', 'invitations'], ['etablissement', 'tarifs'], ['etablissement', 'dossiers'],
+      ['pharmacie', 'utilisateurs'], ['pharmacie', 'invitations'], ['pharmacie', 'stock'], ['pharmacie', 'dispensations'],
+      ['souscripteur', 'utilisateurs'], ['souscripteur', 'invitations'], ['souscripteur', 'polices'], ['souscripteur', 'adherents'],
+    ];
+    for (const [entite, cle] of cas) {
+      it(`${entite} — « ${cle} » bloque la suppression`, async () => {
+        const v = await verifier(entite, 'supprimer', 'ASSUREUR_INFORMATIQUE', { [index(entite, cle)]: 1 });
+        expect(v).toMatchObject({ possible: false, code: 'LIENS' });
+      });
+    }
+  });
+
+  describe('rôles', () => {
+    it('établissement / pharmacie : archivage et suppression INFORMATIQUE seulement', async () => {
+      for (const e of ['etablissement', 'pharmacie']) {
+        await expect(verifier(e, 'archiver', 'ASSUREUR_DIRECTION')).rejects.toThrow();
+        await expect(verifier(e, 'supprimer', 'ASSUREUR_COMPTABLE')).rejects.toThrow();
+        expect((await verifier(e, 'archiver', 'ASSUREUR_INFORMATIQUE')).possible).toBe(true);
+      }
+    });
+    it('société : archivage et suppression DIRECTION et INFORMATIQUE ; exploitation et comptable gardent la modification', async () => {
+      for (const role of ['ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE']) {
+        expect((await verifier('souscripteur', 'archiver', role)).possible).toBe(true);
+        expect((await verifier('souscripteur', 'supprimer', role)).possible).toBe(true);
+      }
+      for (const role of ['ASSUREUR_EXPLOITATION', 'ASSUREUR_COMPTABLE']) {
+        const a = await verifier('souscripteur', 'archiver', role);
+        expect(a).toMatchObject({ possible: false, code: 'ROLE' });
+        expect(a.raison).toContain("l'archivage est réservé au service informatique et à la direction");
+        expect((await verifier('souscripteur', 'desarchiver', role, {}, fixture('souscripteur', 'desarchiver'))).code).toBe('ROLE');
+        expect((await verifier('souscripteur', 'supprimer', role)).code).toBe('ROLE');
+        expect((await verifier('souscripteur', 'modifier', role)).possible).toBe(true);
+      }
+    });
+    it('assertPossible : rôle non autorisé à archiver → 403 (pas 409), refus tracé', async () => {
+      const { s, executeRaw } = service(fixture('souscripteur', 'archiver'), 'ASSUREUR_COMPTABLE');
+      const err = await s.assertPossible(USER, 'souscripteur', 'x-1', 'archiver').catch((e) => e);
+      expect(err).toBeInstanceOf(ForbiddenException);
+      expect(executeRaw.mock.calls[0].slice(1, 3)).toEqual(['REFUS_ARCHIVER', 'souscripteurs']);
     });
   });
 });

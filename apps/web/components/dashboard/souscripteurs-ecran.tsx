@@ -4,9 +4,16 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { creerSouscripteur } from '@/app/dashboard-assureur/informatique/souscripteurs/actions';
+import {
+  changerArchivageSouscripteur,
+  creerSouscripteur,
+  modifierSouscripteur,
+  supprimerSouscripteur,
+} from '@/app/dashboard-assureur/informatique/souscripteurs/actions';
+import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
 import {
   CarteResume,
+  ConfirmationAction,
   ChampCheckbox,
   ChampNombre,
   ChampSelect,
@@ -27,6 +34,8 @@ export interface Souscripteur {
   secteurActivite: string | null;
   effectifDeclare: number | null;
   typeCollectivite: string | null;
+  /** ACTIF | ARCHIVE (archivage réversible, distinct de la suppression). */
+  statut?: 'ACTIF' | 'ARCHIVE';
   createdAt: string;
 }
 
@@ -106,11 +115,22 @@ function ChampsSouscripteur() {
 }
 
 export function SouscripteursEcran({
-  souscripteurs,
+  souscripteurs: tousLesSouscripteurs,
+  verdicts = {},
+  peutArchiver = false,
 }: {
   souscripteurs: Souscripteur[];
+  /** Verdicts « action possible ? » par société (boutons grisés avec la raison). */
+  verdicts?: VerdictsListe;
+  /** Archivage et suppression : direction et informatique. */
+  peutArchiver?: boolean;
 }) {
   const router = useRouter();
+  const [voirArchives, setVoirArchives] = useState(false);
+  const nbArchives = tousLesSouscripteurs.filter((s) => s.statut === 'ARCHIVE').length;
+  const souscripteurs = voirArchives
+    ? tousLesSouscripteurs
+    : tousLesSouscripteurs.filter((s) => s.statut !== 'ARCHIVE');
 
   const parType = (t: string) =>
     souscripteurs.filter((s) => s.type === t).length;
@@ -135,6 +155,16 @@ export function SouscripteursEcran({
           : s.type === 'COLLECTIVITE'
             ? s.typeCollectivite || '—'
             : '—',
+    },
+    {
+      cle: 'statut',
+      entete: 'Statut',
+      rendu: (s) =>
+        s.statut === 'ARCHIVE' ? (
+          <StatutBadge statut="ARCHIVE" ton="neutre" libelle="Archivée" />
+        ) : (
+          <StatutBadge statut="ACTIF" ton="succes" libelle="Active" />
+        ),
     },
     {
       cle: 'createdAt',
@@ -169,6 +199,13 @@ export function SouscripteursEcran({
           icon={User}
         />
       </GrilleCartes>
+
+      {nbArchives > 0 && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
+          Archivées ({nbArchives})
+        </label>
+      )}
 
       <DataTable
         donnees={souscripteurs}
@@ -220,15 +257,84 @@ export function SouscripteursEcran({
             <ChampsSouscripteur />
           </FormulaireModal>
         }
-        actionLigne={(s) => (
-          <Button asChild size="xs" variant="ghost">
-            <Link
-              href={`/dashboard-assureur/informatique/souscripteurs/${s.id}`}
-            >
-              Détails
-            </Link>
-          </Button>
-        )}
+        actionLigne={(s) => {
+          const nom = `la société « ${s.nom} »`;
+          const v = verdicts[s.id];
+          return (
+            <span className="flex flex-wrap justify-end gap-2">
+              <Button asChild size="xs" variant="ghost">
+                <Link href={`/dashboard-assureur/informatique/souscripteurs/${s.id}`}>Détails</Link>
+              </Button>
+              <FormulaireModal
+                titre="Modifier la société"
+                description="Le nom est tracé dans l’audit (ancienne et nouvelle valeur)."
+                declencheur={
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    disabled={!!v?.modifier && !v.modifier.possible}
+                    title={v?.modifier && !v.modifier.possible ? (v.modifier.raison ?? undefined) : undefined}
+                  >
+                    Modifier
+                  </Button>
+                }
+                libelleSoumettre="Enregistrer"
+                onSoumettre={async (fd) => {
+                  const effectif = fd.get('effectifDeclare');
+                  return modifierSouscripteur(s.id, {
+                    nom: String(fd.get('nom') ?? '') || undefined,
+                    secteurActivite: String(fd.get('secteurActivite') ?? '') || undefined,
+                    effectifDeclare: effectif ? Number(effectif) : undefined,
+                    typeCollectivite: String(fd.get('typeCollectivite') ?? '') || undefined,
+                  });
+                }}
+                onSucces={() => router.refresh()}
+              >
+                <ChampTexte name="nom" label="Nom" required defaultValue={s.nom} />
+                {s.type === 'ENTREPRISE' && (
+                  <>
+                    <ChampTexte name="secteurActivite" label="Secteur d’activité" defaultValue={s.secteurActivite ?? undefined} />
+                    <ChampNombre name="effectifDeclare" label="Effectif déclaré" min={1} defaultValue={s.effectifDeclare ?? undefined} />
+                  </>
+                )}
+                {s.type === 'COLLECTIVITE' && (
+                  <ChampTexte name="typeCollectivite" label="Type de collectivité" defaultValue={s.typeCollectivite ?? undefined} />
+                )}
+              </FormulaireModal>
+              {peutArchiver &&
+                (s.statut === 'ARCHIVE' ? (
+                  <ConfirmationAction
+                    action="desarchiver"
+                    element={nom}
+                    consequence="Elle redevient active (nouvelles polices et adhérents possibles). Les comptes de la société ne sont PAS réactivés automatiquement."
+                    verifier={() => verifierAction('souscripteur', s.id, 'desarchiver')}
+                    onConfirmer={() => changerArchivageSouscripteur(s.id, 'desarchiver')}
+                    onSucces={() => router.refresh()}
+                  />
+                ) : (
+                  <ConfirmationAction
+                    action="archiver"
+                    element={nom}
+                    consequence="Plus de nouvelle police ni de nouvel adhérent ; les comptes de la société ne peuvent plus agir. L’historique reste lisible."
+                    verifier={() => verifierAction('souscripteur', s.id, 'archiver')}
+                    onConfirmer={() => changerArchivageSouscripteur(s.id, 'archiver')}
+                    onSucces={() => router.refresh()}
+                  />
+                ))}
+              {peutArchiver && (
+                <ConfirmationAction
+                  action="supprimer"
+                  element={nom}
+                  consequence="Suppression logique, tracée, possible uniquement sans aucun lien."
+                  verifier={() => verifierAction('souscripteur', s.id, 'supprimer')}
+                  onConfirmer={() => supprimerSouscripteur(s.id)}
+                  onSucces={() => router.refresh()}
+                />
+              )}
+            </span>
+          );
+        }}
         vide="Aucun souscripteur pour l’instant."
       />
     </div>

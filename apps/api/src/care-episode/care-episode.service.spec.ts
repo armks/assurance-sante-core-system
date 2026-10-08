@@ -147,6 +147,16 @@ describe('CareEpisodeService', () => {
     expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
   });
 
+  it('établissement ARCHIVÉ (RESILIE) : aucun nouveau dossier — blocage précis, rien n’est créé', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
+    prisma.etablissementSante.findFirst.mockResolvedValue({ ...ETAB_ACTIF, statut: 'RESILIE' });
+
+    await expect(service.ouvrirDossier(USER, dtoOuverture)).rejects.toMatchObject({
+      response: { blocages: expect.arrayContaining([expect.stringContaining('Établissement non actif dans le réseau (statut : RESILIE)')]) },
+    });
+    expect(prisma.dossierSoins.create).not.toHaveBeenCalled();
+  });
+
   it('patient (adhérent) d’une AUTRE organisation → 404, aucune évaluation ni création', async () => {
     identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_ACCUEIL']));
     prisma.adherent.findFirst.mockResolvedValue(null); // hors de l'organisation de l'appelant

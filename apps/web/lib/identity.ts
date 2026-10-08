@@ -41,7 +41,7 @@ export type EtatIdentite =
 export interface EtatSuspendu {
   kind: 'organisation-suspendue';
   email: string;
-  code: 'ORGANISATION_SUSPENDUE' | 'ORGANISATION_INACTIVE';
+  code: 'ORGANISATION_SUSPENDUE' | 'ORGANISATION_INACTIVE' | 'PERIMETRE_ARCHIVE' | 'COMPTE_DESACTIVE';
   organisation: string | null;
   message: string;
 }
@@ -82,7 +82,7 @@ const chargerIdentiteBrut = cache(async (): Promise<EtatIdentite | EtatSuspendu>
       };
       if (
         res.status === 403 &&
-        (body.code === 'ORGANISATION_SUSPENDUE' || body.code === 'ORGANISATION_INACTIVE')
+        (body.code === 'ORGANISATION_SUSPENDUE' || body.code === 'ORGANISATION_INACTIVE' || body.code === 'PERIMETRE_ARCHIVE' || body.code === 'COMPTE_DESACTIVE')
       ) {
         return {
           kind: 'organisation-suspendue',

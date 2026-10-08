@@ -89,15 +89,54 @@ export class TenantService {
   ) {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
-    await this.assertSouscripteurDansPerimetre(ctx.organisationId, id);
+    const avant = await this.assertSouscripteurDansPerimetre(ctx.organisationId, id);
+
+    // ADR-007 : société archivée → 409 (refus tracé)
+    await this.dependances.assertPossible(user, 'souscripteur', id, 'modifier');
+
+    const details: Record<string, unknown> = { champs: Object.keys(dto) };
+    if (dto.nom !== undefined && dto.nom !== avant.nom) details.nom = { avant: avant.nom, apres: dto.nom };
 
     await this.prisma.$transaction(async (tx) => {
       await tx.souscripteur.update({ where: { id }, data: { ...dto } });
-      await this.audit(tx, ctx.userId, 'MODIFICATION_SOUSCRIPTEUR', id, {
-        champs: Object.keys(dto),
-      });
+      await this.audit(tx, ctx.userId, 'MODIFICATION_SOUSCRIPTEUR', id, details as Prisma.InputJsonValue);
     });
 
+    return this.chargerSouscripteur(this.prisma, ctx.organisationId, id);
+  }
+
+  /**
+   * Archivage (ACTIF → ARCHIVE) / désarchivage. Refusé tant qu'une police est active ou
+   * suspendue, qu'un adhérent est actif ou qu'une cotisation reste à payer. Le
+   * désarchivage ne réactive pas les comptes de la société.
+   */
+  async changerArchivage(user: AuthenticatedUser, id: string, action: 'archiver' | 'desarchiver') {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const avant = await this.assertSouscripteurDansPerimetre(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'souscripteur', id, action);
+
+    const nouveau = action === 'archiver' ? 'ARCHIVE' : 'ACTIF';
+    await this.prisma.$transaction(async (tx) => {
+      await tx.souscripteur.update({ where: { id }, data: { statut: nouveau } });
+      // Archivage : comptes de la société désactivés (même transaction) ; le désarchivage
+      // ne les réactive pas.
+      let comptesDesactives = 0;
+      if (action === 'archiver') {
+        const r = await tx.profil.updateMany({
+          where: { organisationId: ctx.organisationId, societeId: id, deletedAt: null, desactiveLe: null },
+          data: { desactiveLe: new Date(), desactiveMotif: `archivage de la société « ${avant.nom} »` },
+        });
+        comptesDesactives = r.count;
+      }
+      await this.audit(
+        tx,
+        ctx.userId,
+        action === 'archiver' ? 'ARCHIVAGE_SOUSCRIPTEUR' : 'DESARCHIVAGE_SOUSCRIPTEUR',
+        id,
+        { ancienStatut: avant.statut, nouveauStatut: nouveau, ...(action === 'archiver' ? { comptesDesactives } : {}) },
+      );
+    });
     return this.chargerSouscripteur(this.prisma, ctx.organisationId, id);
   }
 

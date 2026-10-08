@@ -65,6 +65,24 @@ export class IdentityService {
       }
     }
 
+    // Compte DÉSACTIVÉ (archivage de son établissement / pharmacie / société, ADR-007 lot 3) :
+    // il le reste après un désarchivage, jusqu'à sa réactivation explicite par l'informatique.
+    if (profil.desactiveLe) {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'COMPTE_DESACTIVE',
+        organisation: null,
+        message: `Votre compte est désactivé${profil.desactiveMotif ? ` (${profil.desactiveMotif})` : ''}. Contactez le service informatique de votre assureur pour le rétablir.`,
+      });
+    }
+
+    // Établissement / pharmacie / société ARCHIVÉ(E) ou supprimé(e) : les comptes qui y sont
+    // rattachés ne peuvent plus agir (ADR-007, lot 3). Même point de passage que ci-dessus →
+    // la coupure vaut à chaque requête, session ouverte comprise. Le désarchivage ne
+    // réactive pas les comptes automatiquement : ils sont rétablis un à un par l'informatique
+    // (retrait du rattachement ou suppression du compte).
+    await this.assertPerimetreActif(profil);
+
     const profilResume: ProfilResume = {
       id: profil.id,
       organisationId: profil.organisationId,
@@ -123,6 +141,42 @@ export class IdentityService {
     };
 
     return { profil: profilResume, permissions };
+  }
+
+  private async assertPerimetreActif(profil: {
+    etablissementId: string | null;
+    pharmacieId: string | null;
+    societeId: string | null;
+  }): Promise<void> {
+    const refuser = (nom: string, genre: string) => {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'PERIMETRE_ARCHIVE',
+        organisation: nom,
+        message: `L’accès est coupé : ${genre} « ${nom} » est archivé(e). Contactez le service informatique de votre assureur.`,
+      });
+    };
+    if (profil.etablissementId) {
+      const e = await this.prisma.etablissementSante.findUnique({
+        where: { id: profil.etablissementId },
+        select: { nom: true, statut: true, deletedAt: true },
+      });
+      if (!e || e.deletedAt || e.statut === 'RESILIE') refuser(e?.nom ?? 'établissement', "l'établissement");
+    }
+    if (profil.pharmacieId) {
+      const p = await this.prisma.pharmacie.findUnique({
+        where: { id: profil.pharmacieId },
+        select: { nom: true, statut: true, deletedAt: true },
+      });
+      if (!p || p.deletedAt || p.statut === 'RESILIEE') refuser(p?.nom ?? 'pharmacie', 'la pharmacie');
+    }
+    if (profil.societeId) {
+      const s = await this.prisma.souscripteur.findUnique({
+        where: { id: profil.societeId },
+        select: { nom: true, statut: true, deletedAt: true },
+      });
+      if (!s || s.deletedAt || s.statut === 'ARCHIVE') refuser(s?.nom ?? 'société', 'la société');
+    }
   }
 
   /** Rôle propre suivi de ses parents (role_parent_code), sans boucle infinie. */

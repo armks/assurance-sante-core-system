@@ -36,6 +36,15 @@ const ROLE_SOCIETE_MEMBRES = 'SOCIETE_ADMINISTRATION';
 const SUPPRESSION_INFORMATIQUE = { rolesSuppression: ['ASSUREUR_INFORMATIQUE'], libelleRolesSuppression: 'au service informatique' } as const;
 const TARIF_PHARMACIE_NON_TRACE =
   "les calculs du comptoir de pharmacie ne tracent pas encore le tarif utilisé : on ne peut pas prouver qu'il n'a jamais servi. Fermez-le, ou utilisez « Changer à partir du… ».";
+// Sociétés clientes (lot 3) : suppression ET archivage réservés à la direction et à l'informatique.
+const GESTION_ARCHIVAGE_SOUSCRIPTEUR = {
+  rolesSuppression: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_DIRECTION'],
+  libelleRolesSuppression: 'au service informatique et à la direction',
+  rolesArchivage: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_DIRECTION'],
+  libelleRolesArchivage: 'au service informatique et à la direction',
+} as const;
+// Archivage des partenaires du réseau (lot 3) : service informatique.
+const ARCHIVAGE_INFORMATIQUE = { rolesArchivage: ['ASSUREUR_INFORMATIQUE'], libelleRolesArchivage: 'au service informatique' } as const;
 const SUPPRESSION_PRODUIT = { rolesSuppression: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_DIRECTION'], libelleRolesSuppression: 'au service informatique et à la direction' } as const;
 
 // --- Aides ------------------------------------------------------------------------
@@ -85,12 +94,13 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'la',
     table: 'souscripteurs',
     roles: GESTION_SOUSCRIPTEUR,
+    ...GESTION_ARCHIVAGE_SOUSCRIPTEUR,
     charger: (db, id, ctx) => db.souscripteur.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (s) => s.nom,
     dependances: [
       dep('adherents', 'adhérent', 'adhérents', (db, s, ctx) => db.adherent.count({ where: { souscripteurId: s.id, organisationId: org(ctx) } })),
       dep('polices', 'police', 'polices', (db, s, ctx) => db.police.count({ where: { souscripteurId: s.id, organisationId: org(ctx) } })),
-      dep('cotisations', 'cotisation', 'cotisations', (db, s) => db.cotisation.count({ where: { societeId: s.id } })),
+      dep('cotisations', 'cotisation', 'cotisations', (db, s, ctx) => db.cotisation.count({ where: { societeId: s.id, police: { organisationId: org(ctx) } } })),
       dep('grilles', 'grille tarifaire', 'grilles tarifaires', (db, s, ctx) => db.grilleTarifaire.count({ where: { souscripteurId: s.id, organisationId: org(ctx) } })),
       dep('imports', "import d'adhérents", "imports d'adhérents", (db, s, ctx) => db.importAdherents.count({ where: { souscripteurId: s.id, organisationId: org(ctx) } })),
       dep('questionnaires', 'questionnaire médical', 'questionnaires médicaux', (db, s) => db.questionnaireMedical.count({ where: { souscripteurId: s.id } })),
@@ -99,8 +109,17 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
       // liens LOGIQUES (sans clé étrangère) relevés par l'audit
       dep('utilisateurs', 'compte utilisateur', 'comptes utilisateurs', (db, s, ctx) => db.profil.count({ where: { societeId: s.id, organisationId: org(ctx), deletedAt: null } })),
       dep('invitations', 'invitation', 'invitations', (db, s, ctx) => db.invitation.count({ where: { societeId: s.id, organisationId: org(ctx) } })),
+      // bloquent aussi l'ARCHIVAGE : contrats et sommes en cours
+      dep('policesEnCours', 'police active ou suspendue', 'polices actives ou suspendues', (db, s, ctx) => db.police.count({ where: { souscripteurId: s.id, organisationId: org(ctx), deletedAt: null, statut: { in: ['ACTIVE', 'SUSPENDUE'] } } }), ['archiver']),
+      dep('adherentsActifs', 'adhérent actif', 'adhérents actifs', (db, s, ctx) => db.adherent.count({ where: { souscripteurId: s.id, organisationId: org(ctx), deletedAt: null, statut: 'ACTIF' } }), ['archiver']),
+      dep('cotisationsImpayees', 'cotisation à payer', 'cotisations à payer', (db, s, ctx) => db.cotisation.count({ where: { societeId: s.id, deletedAt: null, statut: { in: ['A_PAYER', 'EN_RETARD'] }, police: { organisationId: org(ctx) } } }), ['archiver']),
     ],
-    regles: { supprimer: () => null, modifier: () => null },
+    regles: {
+      supprimer: () => null,
+      archiver: (s) => (s.statut === 'ARCHIVE' ? dejaArchive('La société cliente') : null),
+      desarchiver: (s) => (s.statut !== 'ARCHIVE' ? "La société cliente n'est pas archivée." : null),
+      modifier: (s) => (s.statut === 'ARCHIVE' ? 'La société cliente est archivée : désarchivez-la d’abord.' : null),
+    },
   },
 
   utilisateur: {
@@ -145,6 +164,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'le',
     table: 'etablissements_sante',
     roles: GESTION_RESEAU,
+    ...ARCHIVAGE_INFORMATIQUE,
     charger: (db, id, ctx) => db.etablissementSante.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (e) => e.nom,
     dependances: [
@@ -159,6 +179,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
       // bloquent aussi l'ARCHIVAGE : activité en cours
       dep('dossiersOuverts', 'dossier de soins ouvert', 'dossiers de soins ouverts', (db, e, ctx) => db.dossierSoins.count({ where: { organisationId: org(ctx), etablissementId: e.id, statut: 'OUVERT' } }), ['archiver']),
       dep('facturesNonReglees', 'facture non réglée', 'factures non réglées', (db, e, ctx) => db.factureDossier.count({ where: { etablissementId: e.id, organisationId: org(ctx), statut: { not: 'REGLEE' } } }), ['archiver']),
+      dep('facturesMensuellesNonPayees', 'facture mensuelle non payée', 'factures mensuelles non payées', (db, e, ctx) => db.factureMensuelleEtablissement.count({ where: { etablissementId: e.id, organisationId: org(ctx), statut: { not: 'PAYEE' } } }), ['archiver']),
     ],
     regles: {
       supprimer: () => null,
@@ -173,6 +194,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'la',
     table: 'pharmacies',
     roles: GESTION_RESEAU,
+    ...ARCHIVAGE_INFORMATIQUE,
     charger: (db, id, ctx) => db.pharmacie.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (p) => p.nom,
     dependances: [
@@ -184,7 +206,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
       dep('tarifs', 'tarif conventionné', 'tarifs conventionnés', (db, p, ctx) => db.tarifConventionne.count({ where: { pharmacieId: p.id, organisationId: org(ctx), deletedAt: null } })),
       dep('utilisateurs', 'compte utilisateur', 'comptes utilisateurs', (db, p, ctx) => db.profil.count({ where: { pharmacieId: p.id, organisationId: org(ctx), deletedAt: null } })),
       dep('invitations', 'invitation', 'invitations', (db, p, ctx) => db.invitation.count({ where: { pharmacieId: p.id, organisationId: org(ctx) } })),
-      dep('dispensationsEnCours', 'dispensation en cours', 'dispensations en cours', (db, p) => db.dispensationPharmacie.count({ where: { pharmacieId: p.id, statut: { notIn: ['PAYEE', 'ANNULEE'] } } }), ['archiver']),
+      dep('dispensationsEnCours', 'dispensation non payée', 'dispensations non payées', (db, p) => db.dispensationPharmacie.count({ where: { pharmacieId: p.id, statut: { notIn: ['PAYEE', 'ANNULEE'] } } }), ['archiver']),
       dep('facturesMensuellesNonPayees', 'facture mensuelle non payée', 'factures mensuelles non payées', (db, p, ctx) => db.factureMensuellePharmacie.count({ where: { pharmacieId: p.id, organisationId: org(ctx), statut: { not: 'PAYEE' } } }), ['archiver']),
     ],
     regles: {

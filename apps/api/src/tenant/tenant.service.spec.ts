@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   BadRequestException,
   ForbiddenException,
   NotFoundException,
@@ -65,7 +66,7 @@ describe('TenantService', () => {
       update: jest.Mock;
       updateMany: jest.Mock;
     };
-    profil: { findMany: jest.Mock };
+    profil: { findMany: jest.Mock; updateMany: jest.Mock };
     $transaction: jest.Mock;
     $executeRaw: jest.Mock;
   };
@@ -86,7 +87,7 @@ describe('TenantService', () => {
         update: jest.fn(),
         updateMany: jest.fn(),
       },
-      profil: { findMany: jest.fn() },
+      profil: { findMany: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
       $executeRaw: jest.fn().mockResolvedValue(1),
       // exécute le callback avec le mock prisma lui-même comme "tx"
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(prisma)),
@@ -217,6 +218,60 @@ describe('TenantService', () => {
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(prisma.souscripteur.update).not.toHaveBeenCalled();
+  });
+
+  describe('lot 3 — modification tracée, archivage', () => {
+    const SOUS = { id: '11111111-1111-1111-1111-111111111111', nom: 'ACME', statut: 'ACTIF', organisationId: 'org-1', deletedAt: null };
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(identiteAvec({ organisationId: 'org-1', roleChain: ['ASSUREUR_DIRECTION'] }));
+      prisma.souscripteur.findFirst.mockResolvedValue(SOUS);
+    });
+    const details = () => JSON.parse(prisma.$executeRaw.mock.calls[0][5]);
+
+    it('modifier : garde « modifier » puis nom tracé (avant / après) à l’audit dans la transaction', async () => {
+      await service.modifier(USER, SOUS.id, { nom: 'ACME Holding', secteurActivite: 'BTP' });
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'souscripteur', SOUS.id, 'modifier');
+      expect(prisma.souscripteur.update).toHaveBeenCalledWith({ where: { id: SOUS.id }, data: { nom: 'ACME Holding', secteurActivite: 'BTP' } });
+      expect(details()).toMatchObject({ nom: { avant: 'ACME', apres: 'ACME Holding' } });
+    });
+
+    it('modifier une société archivée : refusé par la garde (409), aucune écriture', async () => {
+      dependances.assertPossible.mockRejectedValueOnce(new ConflictException('Modification impossible : archivée'));
+      await expect(service.modifier(USER, SOUS.id, { secteurActivite: 'X' })).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.souscripteur.update).not.toHaveBeenCalled();
+    });
+
+    it('archiver / désarchiver : garde, statut ARCHIVE / ACTIF et audit de succès, sans toucher aux comptes', async () => {
+      await service.changerArchivage(USER, SOUS.id, 'archiver');
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'souscripteur', SOUS.id, 'archiver');
+      expect(prisma.souscripteur.update).toHaveBeenCalledWith({ where: { id: SOUS.id }, data: { statut: 'ARCHIVE' } });
+      expect(prisma.$executeRaw.mock.calls[0][1]).toBe('ARCHIVAGE_SOUSCRIPTEUR');
+      // archivage : comptes de la société désactivés, nombre tracé
+      expect(prisma.profil.updateMany).toHaveBeenCalledTimes(1);
+      expect(prisma.profil.updateMany).toHaveBeenCalledWith({
+        where: { organisationId: 'org-1', societeId: SOUS.id, deletedAt: null, desactiveLe: null },
+        data: { desactiveLe: expect.any(Date), desactiveMotif: expect.stringContaining('ACME') },
+      });
+      expect(JSON.parse(prisma.$executeRaw.mock.calls[0][5])).toMatchObject({ comptesDesactives: 2 });
+      prisma.souscripteur.findFirst.mockResolvedValue({ ...SOUS, statut: 'ARCHIVE' });
+      await service.changerArchivage(USER, SOUS.id, 'desarchiver');
+      expect(prisma.souscripteur.update).toHaveBeenLastCalledWith({ where: { id: SOUS.id }, data: { statut: 'ACTIF' } });
+      // désarchivage : AUCUN compte réactivé automatiquement
+      expect(prisma.profil.updateMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('archivage bloqué (police active…) : aucune écriture, aucun audit', async () => {
+      dependances.assertPossible.mockRejectedValueOnce(new ConflictException('Archivage impossible : 2 polices actives ou suspendues'));
+      await expect(service.changerArchivage(USER, SOUS.id, 'archiver')).rejects.toThrow(/2 polices actives/);
+      expect(prisma.souscripteur.update).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it('société d’une autre organisation : 404, rien de modifié', async () => {
+      prisma.souscripteur.findFirst.mockResolvedValue(null);
+      await expect(service.changerArchivage(USER, SOUS.id, 'archiver')).rejects.toBeInstanceOf(NotFoundException);
+      expect(dependances.assertPossible).not.toHaveBeenCalled();
+    });
   });
 
   it('refuse la gestion à un rôle non habilité (médecin conseil)', async () => {

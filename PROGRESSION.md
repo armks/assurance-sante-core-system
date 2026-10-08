@@ -7881,3 +7881,56 @@ Terminé — en attente de validation pour le commit. Lots 3 à 5 non commencés
 #### Suite complète
 - API 1 126/1 126, JUnit 91/91, intégration 2/2, typage API et web 0 erreur. Scripts de test
   supprimés ; aucune organisation, compte, ligne nationale ou compte Auth résiduel.
+
+## 2026-10-08 — Chantier suppression / modification / archivage — lot 3 « entités partenaires » (ADR-007)
+
+### Réalisé
+- `prisma/sql/075_souscripteurs_statut_archivage.sql` (appliquée, rejouable) : `souscripteurs.statut`
+  (ACTIF / ARCHIVE) ; `profils.desactive_le` / `desactive_motif`. Index uniques des codes
+  établissement / pharmacie déjà partiels (074) ; aucun index unique sur `souscripteurs`.
+- API : modifier (contact et adresse libres, nom et code tracés, code unique, géocodage Nominatim
+  relancé sans bloquer), archiver / désarchiver (`POST …/archiver`, `…/desarchiver`) pour
+  établissements, pharmacies et sociétés ; blocages d'archivage avec raison et nombres ;
+  rôles d'archivage au registre (sociétés : direction + informatique).
+- Effets : comptes rattachés désactivés dans la transaction d'archivage ; `getMe` refuse les comptes
+  désactivés (403 `COMPTE_DESACTIVE`) et ceux d'un périmètre archivé (403 `PERIMETRE_ARCHIVE`) ;
+  désarchiver ne réactive pas les comptes ; `POST /identity/comptes/:id/reactiver` (informatique) ;
+  gardes de service : dossier, dispensation, factures, factures mensuelles, police, adhérent, import.
+- Web : modifier / archiver / désarchiver / supprimer avec `ConfirmationAction` et verdicts du
+  serveur sur établissements, pharmacies et sociétés (bouton de suppression d'une société, manquant
+  selon l'audit, ajouté) ; cases « Archivés » ; « Réactiver » dans les utilisateurs ; écran
+  « Compte désactivé / Accès coupé » ; prop `libelles` ajoutée à `ConfirmationAction`.
+- ADR-007 complété (lot 3).
+
+### Tests
+- API 1 187/1 187 (+61), JUnit 91/91, intégration 2/2, typage API et web 0 erreur.
+- Un cas par règle (jest) : chaque dépendance bloquante d'archivage avec sa phrase, suppression
+  bloquée par chaque lien (comptes et invitations compris), rôles (403 vs 409), modification tracée,
+  géocodage succès / échec / exception, désactivation des comptes, réactivation, gardes de service.
+- HTTP réel (tous les contrôles OK, nettoyage à zéro) : modification et audit en base, géocodage
+  réel Nominatim (Plateau, Abidjan résolu) et chemin d'échec, annuaire public (vue) avant / après
+  archivage et après modification de position, blocages d'archivage un par un (dossier ouvert, facture
+  non réglée, facture mensuelle, dispensation, police ACTIVE puis SUSPENDUE, adhérent, cotisation),
+  refus tracés, comptes coupés et non réactivés par le désarchivage, ouverture de dossier réelle
+  possible sur un établissement actif et impossible sur l'archivé, dispensation réelle idem,
+  facturation côté assureur refusée sur l'archivé (409), police / adhérent refusés sur société
+  archivée. Isolation : 29 tentatives par attaquant (deux organisations, des deux sens), direction
+  de A contre les sociétés de B, deux comptes société (sociétés différentes) contre l'autre société
+  et le réseau : toutes en 403 / 404, base inchangée ; comptages : les compte, dossier, adhérent,
+  police et cotisation de B qui visent un élément de A ne sont pas comptés.
+- Corrigé grâce à ce test : le comptage des cotisations d'une société n'était pas restreint à
+  l'organisation (une cotisation d'une autre organisation était comptée).
+- Navigateur (Chromium / Playwright, vrais comptes) : modification, archivage bloqué puis réussi,
+  filtre « Archivés », désarchivage, suppression, annuaire public `/reseau-de-soins`, compte
+  désactivé, réactivation, pharmacies, sociétés (direction et exploitation) — 3 passages complets sans
+  échec. Un premier passage à froid a eu un délai dépassé (compilation à la demande) sans reproduction.
+
+### Limites
+- Coupure des comptes archivés assurée côté API ; pas de policy RLS équivalente à celle des
+  organisations suspendues (accès PostgREST direct non couvert).
+- La coupure est totale pour les comptes rattachés (lecture comprise).
+- Les sociétés n'ont ni adresse ni contact en base : seuls nom et champs de profil sont modifiables.
+- Hydratation de la page des événements (lot 2) : toujours non reproduite.
+
+### Statut
+Terminé — commit et push. Lots 4 et 5 non commencés (dette `tarif_pharmacie_id` au lot 4).

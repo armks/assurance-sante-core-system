@@ -63,6 +63,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
 
   beforeEach(async () => {
     prisma = {
+      etablissementSante: { findUnique: jest.fn().mockResolvedValue({ nom: 'Centre A', statut: 'ACTIF', deletedAt: null }) },
       acteDossier: { findMany: jest.fn().mockResolvedValue([]) },
       contestationActe: { findMany: jest.fn().mockResolvedValue([]) },
       ligneFacturation: {
@@ -131,6 +132,15 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       await expect(
         service.soumettreFactureMensuelleEtablissement(USER, { periode: '2026-09-01' }),
       ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('établissement ARCHIVÉ : aucune nouvelle facture mensuelle (409)', async () => {
+      identity.getMe.mockResolvedValue(comptableEtab());
+      prisma.etablissementSante.findUnique.mockResolvedValue({ nom: 'Centre A', statut: 'RESILIE', deletedAt: null });
+      await expect(
+        service.soumettreFactureMensuelleEtablissement(USER, { periode: '2026-08-01' }),
+      ).rejects.toThrow(/Centre A.*archivé.*aucune nouvelle facture mensuelle/);
+      expect(prisma.factureMensuelleEtablissement.create).not.toHaveBeenCalled();
     });
 
     it('facture déjà SOUMISE pour cette période → 409', async () => {

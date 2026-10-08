@@ -90,6 +90,11 @@ export class AdherentService {
         'Souscripteur inconnu ou hors de votre organisation.',
       );
     }
+    if (souscripteur.statut === 'ARCHIVE') {
+      throw new ConflictException(
+        `La société cliente « ${souscripteur.nom} » est archivée : aucun nouvel adhérent. Désarchivez-la d'abord.`,
+      );
+    }
 
     if (dto.policeId) {
       await this.assertPoliceDuSouscripteur(

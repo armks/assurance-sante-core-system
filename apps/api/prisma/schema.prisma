@@ -146,6 +146,9 @@ model Profil {
   createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+  /// Compte DÉSACTIVÉ (archivage de son établissement / pharmacie / société) — rétabli à la main (prisma/sql/075)
+  desactiveLe        DateTime? @map("desactive_le") @db.Timestamptz(6)
+  desactiveMotif     String?   @map("desactive_motif")
 
   organisation          Organisation?          @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sousRole              SousRole?              @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
@@ -197,6 +200,8 @@ model Souscripteur {
   bailleurSubvention     String?   @map("bailleur_subvention")
   numeroPieceIdentite    String?   @map("numero_piece_identite")
   questionnaireMedicalId String?   @map("questionnaire_medical_id") @db.Uuid
+  /// ACTIF | ARCHIVE — archivage RÉVERSIBLE, distinct de `deleted_at` (prisma/sql/075, ADR-007)
+  statut                 String    @default("ACTIF")
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)

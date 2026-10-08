@@ -163,6 +163,14 @@ describe('AdherentService — fichier des membres', () => {
     expect(res).toMatchObject({ id: 'ben-1' });
   });
 
+  it('société cliente ARCHIVÉE : aucun nouvel adhérent (409), rien n’est créé', async () => {
+    prisma.souscripteur.findFirst.mockResolvedValue({ id: 'sous-1', nom: 'ACME', statut: 'ARCHIVE' });
+    await expect(
+      service.creerAdherent(USER, { souscripteurId: 'sous-1', nom: 'Konan', prenom: 'Yao', dateNaissance: '1990-05-14', sexe: 'M' }),
+    ).rejects.toThrow(/ACME.*archivée.*aucun nouvel adhérent/);
+    expect(prisma.adherent.create).not.toHaveBeenCalled();
+  });
+
   it('refuse la création par un rôle non habilité (comptable)', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_COMPTABLE']));
     await expect(

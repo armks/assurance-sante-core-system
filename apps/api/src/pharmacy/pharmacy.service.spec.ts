@@ -86,6 +86,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     prisma = {
       adherent: { findFirst: jest.fn().mockResolvedValue(null) },
       beneficiaire: { findFirst: jest.fn().mockResolvedValue(null) },
+      pharmacie: { findUnique: jest.fn().mockResolvedValue({ nom: 'Pharmacie test', statut: 'ACTIVE', deletedAt: null }) },
       ordonnance: { findFirst: jest.fn() },
       ligneOrdonnance: { findMany: jest.fn(), updateMany: jest.fn() },
       garantie: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -192,6 +193,23 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     expect(res.montantTotal).toBe('1000.00');
     expect((res as any).code).toBeUndefined(); // jamais renvoyé à la pharmacie
     expect(prisma.ligneOrdonnance.updateMany).not.toHaveBeenCalled(); // pas encore verrouillée
+  });
+
+  it('pharmacie ARCHIVÉE (RESILIEE) : aucune nouvelle dispensation (409), rien n’est lu ni écrit', async () => {
+    identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+    prisma.pharmacie.findUnique.mockResolvedValue({ nom: 'Pharmacie du Plateau', statut: 'RESILIEE', deletedAt: null });
+    await expect(service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }])).rejects.toThrow(
+      /Pharmacie du Plateau.*archivée.*aucune nouvelle dispensation/,
+    );
+    expect(prisma.ordonnance.findFirst).not.toHaveBeenCalled();
+    expect(prisma.dispensationPharmacie.create).not.toHaveBeenCalled();
+  });
+
+  it('pharmacie ARCHIVÉE : aucune nouvelle facture mensuelle (409)', async () => {
+    identity.getMe.mockResolvedValue({ profil: { id: 'u', organisationId: 'org-1', pharmacieId: 'pharm-1', adherentId: null, role: 'PHARMACIE_PHARMACIEN' }, permissions: { roleChain: ['PHARMACIE_PHARMACIEN'] } });
+    prisma.pharmacie.findUnique.mockResolvedValue({ nom: 'Pharmacie du Plateau', statut: 'RESILIEE', deletedAt: null });
+    await expect(service.soumettreFactureMensuelle(USER, { periode: '2026-09-01' } as any)).rejects.toThrow(/archivée.*aucune nouvelle facture mensuelle/);
+    expect(prisma.factureMensuellePharmacie.create).not.toHaveBeenCalled();
   });
 
   // ═══════════════════════════════════════════════════════════════════

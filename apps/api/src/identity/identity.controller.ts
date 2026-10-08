@@ -65,6 +65,18 @@ export class IdentityController {
   }
 
   /**
+   * POST /api/v1/identity/comptes/:id/reactiver — rétablit un compte désactivé par un
+   * archivage (informatique). Le désarchivage d'une structure ne le fait jamais.
+   */
+  @Post('comptes/:id/reactiver')
+  reactiverCompte(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.provisioningService.reactiverCompte(user, id);
+  }
+
+  /**
    * GET /api/v1/identity/organisations — liste des tenants + leur licence
    * (superadmin). La création se fait via POST /api/v1/superadmin/organisations/initier.
    */

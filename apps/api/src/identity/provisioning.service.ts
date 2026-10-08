@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { IdentityService } from './identity.service';
@@ -85,12 +85,61 @@ export class ProvisioningService {
              p.role,
              sr.libelle       AS "libelleRole",
              u.email          AS email,
-             p.created_at     AS "createdAt"
+             p.created_at     AS "createdAt",
+             p.desactive_le   AS "desactiveLe",
+             p.desactive_motif AS "desactiveMotif"
       FROM profils p
       JOIN auth.users u ON u.id = p.id
       LEFT JOIN sous_roles sr ON sr.code = p.role
       WHERE p.organisation_id = ${profil.organisationId}::uuid
         AND p.deleted_at IS NULL
       ORDER BY p.created_at DESC`;
+  }
+
+  /**
+   * Rétablit un compte désactivé par un archivage. Réservé à l'informatique ; refusé tant
+   * que l'établissement, la pharmacie ou la société auquel le compte est rattaché reste
+   * archivé. Le désarchivage d'une structure ne rétablit JAMAIS ses comptes à sa place.
+   */
+  async reactiverCompte(user: AuthenticatedUser, compteId: string) {
+    const { profil, permissions } = await this.identity.getMe(user);
+    if (!profil.organisationId || !(permissions?.roleChain ?? []).includes('ASSUREUR_INFORMATIQUE')) {
+      throw new ForbiddenException('La réactivation des comptes est réservée à l’Assurance Informatique.');
+    }
+    const cible = await this.prisma.profil.findFirst({
+      where: { id: compteId, organisationId: profil.organisationId, deletedAt: null },
+    });
+    if (!cible) throw new NotFoundException('Compte introuvable.');
+    if (!cible.desactiveLe) throw new ConflictException('Ce compte n’est pas désactivé.');
+
+    const archive = async (): Promise<string | null> => {
+      if (cible.etablissementId) {
+        const e = await this.prisma.etablissementSante.findUnique({ where: { id: cible.etablissementId }, select: { nom: true, statut: true, deletedAt: true } });
+        if (!e || e.deletedAt || e.statut === 'RESILIE') return `l'établissement « ${e?.nom ?? 'inconnu'} »`;
+      }
+      if (cible.pharmacieId) {
+        const p = await this.prisma.pharmacie.findUnique({ where: { id: cible.pharmacieId }, select: { nom: true, statut: true, deletedAt: true } });
+        if (!p || p.deletedAt || p.statut === 'RESILIEE') return `la pharmacie « ${p?.nom ?? 'inconnue'} »`;
+      }
+      if (cible.societeId) {
+        const s = await this.prisma.souscripteur.findUnique({ where: { id: cible.societeId }, select: { nom: true, statut: true, deletedAt: true } });
+        if (!s || s.deletedAt || s.statut === 'ARCHIVE') return `la société « ${s?.nom ?? 'inconnue'} »`;
+      }
+      return null;
+    };
+    const bloque = await archive();
+    if (bloque) {
+      throw new ConflictException(`Réactivation impossible : ${bloque} est encore archivé(e). Désarchivez-le(la) d'abord.`);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.profil.update({ where: { id: compteId }, data: { desactiveLe: null, desactiveMotif: null } });
+      await tx.$executeRaw`
+        SELECT log_audit(
+          'REACTIVATION_COMPTE'::text, 'profils'::text, ${compteId}::uuid, ${profil.id}::uuid,
+          ${JSON.stringify({ motifPrecedent: cible.desactiveMotif })}::jsonb
+        )`;
+    });
+    return { id: compteId, desactiveLe: null };
   }
 }

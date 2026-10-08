@@ -129,3 +129,14 @@ export async function renvoyerEmail(id: string): Promise<ResultatInvitation> {
   }
   return { ok: true, message: 'E-mail renvoyé avec succès.' };
 }
+
+/**
+ * Rétablit un compte désactivé par un archivage (informatique). Refusé tant que sa structure
+ * est archivée : le désarchivage ne réactive jamais les comptes à sa place (ADR-007).
+ */
+export async function reactiverCompte(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/identity/comptes/${id}/reactiver`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}

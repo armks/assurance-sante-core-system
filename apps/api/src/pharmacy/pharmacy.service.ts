@@ -217,6 +217,7 @@ export class PharmacyService {
     const ctx = await this.contexteAppelant(user);
     this.assertPharmacie(ctx);
     const pharmacieId = ctx.pharmacieId!;
+    await this.assertPharmacieNonArchivee(pharmacieId, 'aucune nouvelle dispensation');
 
     const ordonnance = await this.prisma.ordonnance.findFirst({
       where: { id: ordonnanceId, organisationId: ctx.organisationId, deletedAt: null },
@@ -931,6 +932,7 @@ export class PharmacyService {
         'Réservé au pharmacien ou au comptable de la pharmacie concernée.',
       );
     }
+    await this.assertPharmacieNonArchivee(ctx.pharmacieId, 'aucune nouvelle facture mensuelle');
 
     const maintenant = new Date();
     const { debut, fin } = this.bornesMoisPrecedent(maintenant);
@@ -1337,6 +1339,19 @@ export class PharmacyService {
       pharmacieId: profil.pharmacieId,
       adherentId: profil.adherentId,
     };
+  }
+
+  /** Pharmacie archivée (RESILIEE) : plus de nouvelle dispensation ni facturation (ADR-007, lot 3). */
+  private async assertPharmacieNonArchivee(pharmacieId: string, quoi: string): Promise<void> {
+    const p = await this.prisma.pharmacie.findUnique({
+      where: { id: pharmacieId },
+      select: { nom: true, statut: true, deletedAt: true },
+    });
+    if (!p || p.deletedAt || p.statut === 'RESILIEE') {
+      throw new ConflictException(
+        `La pharmacie « ${p?.nom ?? 'inconnue'} » est archivée : ${quoi}. L'historique reste consultable.`,
+      );
+    }
   }
 
   private assertPharmacie(ctx: ContexteAppelant): void {

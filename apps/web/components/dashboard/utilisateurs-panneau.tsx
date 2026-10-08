@@ -1,8 +1,10 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
 import {
+  reactiverCompte,
   inviterUtilisateur,
   rejeterInvitation,
   renvoyerEmail,
@@ -10,7 +12,7 @@ import {
   validerProposition,
   type ResultatInvitation,
 } from '@/app/dashboard-assureur/informatique/utilisateurs/actions';
-import { ChampZone, FormulaireModal } from '@/components/dashboard/patterns';
+import { ChampZone, ConfirmationAction, FormulaireModal } from '@/components/dashboard/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +52,9 @@ export interface Compte {
   libelleRole: string | null;
   email: string | null;
   createdAt: string;
+  /** Compte désactivé par un archivage (rétabli à la main) ; null/absent = actif. */
+  desactiveLe?: string | null;
+  desactiveMotif?: string | null;
 }
 
 export interface Invitation {
@@ -111,6 +116,7 @@ export function UtilisateursPanneau({
   pharmacies?: Ressource[];
   souscripteurs?: Ressource[];
 }) {
+  const router = useRouter();
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatInvitation | null>(null);
   const [role, setRole] = useState('');
@@ -474,6 +480,8 @@ export function UtilisateursPanneau({
                   <th className="px-3 py-2 font-medium">E-mail</th>
                   <th className="px-3 py-2 font-medium">Rôle</th>
                   <th className="px-3 py-2 font-medium">Créé le</th>
+                  <th className="px-3 py-2 font-medium">État</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -486,13 +494,39 @@ export function UtilisateursPanneau({
                     <td className="px-3 py-2 text-muted-foreground">
                       {new Date(c.createdAt).toLocaleDateString('fr-FR')}
                     </td>
+                    <td className="px-3 py-2">
+                      {c.desactiveLe ? (
+                        <span title={c.desactiveMotif ?? undefined}>
+                          <Badge variant="outline">Désactivé</Badge>
+                        </span>
+                      ) : (
+                        <Badge variant="success">Actif</Badge>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {c.desactiveLe && (
+                        <ConfirmationAction
+                          action="desarchiver"
+                          libelles={{ titre: 'Réactiver', bouton: 'Réactiver', verbe: 'réactiver' }}
+                          element={`le compte ${c.email ?? c.id}`}
+                          consequence={`Il avait été désactivé : ${c.desactiveMotif ?? 'archivage'}. Il pourra de nouveau se connecter, si sa structure n’est plus archivée.`}
+                          onConfirmer={() => reactiverCompte(c.id)}
+                          onSucces={() => router.refresh()}
+                          declencheur={
+                            <Button type="button" size="xs" variant="ghost">
+                              Réactiver
+                            </Button>
+                          }
+                        />
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {comptes.length === 0 && (
                   <tr className="border-t">
                     <td
                       className="px-3 py-6 text-center text-muted-foreground"
-                      colSpan={3}
+                      colSpan={5}
                     >
                       Aucun compte.
                     </td>

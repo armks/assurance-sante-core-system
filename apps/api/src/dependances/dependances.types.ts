@@ -52,6 +52,14 @@ export interface DefinitionEntite<R = any> {
   /** Libellé humain des rôles de suppression (« le service informatique »). */
   libelleRolesSuppression?: string;
   /**
+   * Rôles autorisés à ARCHIVER / DÉSARCHIVER (lot 3 : sociétés clientes — direction et
+   * informatique). Absent : les mêmes que `roles`. Même mécanisme que la suppression
+   * (verdict ROLE, 403).
+   */
+  rolesArchivage?: readonly string[];
+  /** Libellé humain des rôles d'archivage (« à la direction et au service informatique »). */
+  libelleRolesArchivage?: string;
+  /**
    * Conseil ajouté à la raison quand des LIENS bloquent l'action (par défaut, pour la
    * suppression d'une entité archivable : « Archivez-le plutôt. »).
    */

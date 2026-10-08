@@ -102,12 +102,18 @@ describe('IdentityService.getMe', () => {
   let prisma: {
     profil: { findFirst: jest.Mock };
     sousRole: { findMany: jest.Mock };
+    etablissementSante: { findUnique: jest.Mock };
+    pharmacie: { findUnique: jest.Mock };
+    souscripteur: { findUnique: jest.Mock };
   };
 
   beforeEach(async () => {
     prisma = {
       profil: { findFirst: jest.fn() },
       sousRole: { findMany: jest.fn().mockResolvedValue(SOUS_ROLES) },
+      etablissementSante: { findUnique: jest.fn() },
+      pharmacie: { findUnique: jest.fn() },
+      souscripteur: { findUnique: jest.fn() },
     };
 
     const moduleRef = await Test.createTestingModule({
@@ -218,6 +224,58 @@ describe('IdentityService.getMe', () => {
     expect(res.permissions).toBeNull();
     expect(res.profil.role).toBeNull();
     expect(prisma.sousRole.findMany).not.toHaveBeenCalled();
+  });
+
+  describe('périmètre archivé (ADR-007, lot 3) : les comptes rattachés ne peuvent plus agir', () => {
+    const refuse = async () => {
+      const err = await service.getMe(USER).catch((e) => e);
+      expect(err).toBeInstanceOf(ForbiddenException);
+      return err.getResponse() as { code: string; message: string };
+    };
+
+    it('établissement RESILIE (ou supprimé) → 403 PERIMETRE_ARCHIVE', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ etablissementId: 'etab-1' }));
+      prisma.etablissementSante.findUnique.mockResolvedValue({ nom: 'Clinique A', statut: 'RESILIE', deletedAt: null });
+      const r = await refuse();
+      expect(r.code).toBe('PERIMETRE_ARCHIVE');
+      expect(r.message).toContain('Clinique A');
+      prisma.etablissementSante.findUnique.mockResolvedValue({ nom: 'Clinique A', statut: 'ACTIF', deletedAt: new Date() });
+      await refuse();
+    });
+
+    it('pharmacie RESILIEE → 403 ; société ARCHIVE → 403', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ pharmacieId: 'ph-1' }));
+      prisma.pharmacie.findUnique.mockResolvedValue({ nom: 'Pharmacie B', statut: 'RESILIEE', deletedAt: null });
+      expect((await refuse()).code).toBe('PERIMETRE_ARCHIVE');
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ societeId: 'soc-1' }));
+      prisma.souscripteur.findUnique.mockResolvedValue({ nom: 'ACME', statut: 'ARCHIVE', deletedAt: null });
+      expect((await refuse()).code).toBe('PERIMETRE_ARCHIVE');
+    });
+
+    it('compte DÉSACTIVÉ (archivage) → 403 COMPTE_DESACTIVE, même si la structure a été désarchivée depuis', async () => {
+      prisma.profil.findFirst.mockResolvedValue(
+        makeProfil({ etablissementId: 'etab-1', desactiveLe: new Date('2026-10-01'), desactiveMotif: "archivage de l'établissement « Clinique A »" }),
+      );
+      prisma.etablissementSante.findUnique.mockResolvedValue({ nom: 'Clinique A', statut: 'ACTIF', deletedAt: null });
+      const r = await refuse();
+      expect(r.code).toBe('COMPTE_DESACTIVE');
+      expect(r.message).toContain('Clinique A');
+      expect(prisma.sousRole.findMany).not.toHaveBeenCalled();
+    });
+
+    it('périmètre actif → accès normal', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ etablissementId: 'etab-1' }));
+      prisma.etablissementSante.findUnique.mockResolvedValue({ nom: 'Clinique A', statut: 'ACTIF', deletedAt: null });
+      expect((await service.getMe(USER)).profil.etablissementId).toBe('etab-1');
+    });
+
+    it('compte assureur (sans rattachement) : aucune lecture du périmètre', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil());
+      await service.getMe(USER);
+      expect(prisma.etablissementSante.findUnique).not.toHaveBeenCalled();
+      expect(prisma.pharmacie.findUnique).not.toHaveBeenCalled();
+      expect(prisma.souscripteur.findUnique).not.toHaveBeenCalled();
+    });
   });
 
   it('rejette un compte introuvable', async () => {

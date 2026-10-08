@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
 import {
@@ -10,14 +11,17 @@ import {
   modifierPharmacie,
   rechercheGeolocalisee,
   reverifierObsoletes,
+  changerArchivageLieu,
   supprimerEtablissement,
   supprimerPharmacie,
   validerEtablissement,
   type ResultatRechercheGeo,
   type ResultatReseau,
 } from '@/app/dashboard-assureur/informatique/reseau-actions';
+import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
 import {
   ChampCheckbox,
+  ConfirmationAction,
   ChampNombre,
   ChampSelect,
   ChampTexte,
@@ -43,6 +47,10 @@ export interface LieuReseau {
   typeEtablissement?: string;
   ville: string | null;
   commune: string | null;
+  quartier?: string | null;
+  adresseComplete?: string | null;
+  telephone?: string | null;
+  email?: string | null;
   statut: string;
   gardeWeekend: boolean;
   latitude: number | null;
@@ -75,13 +83,21 @@ function num(v: FormDataEntryValue | null): number | undefined {
 
 export function ReseauPanneau({
   kind,
-  lieux,
+  lieux: tousLesLieux,
   erreur,
+  verdicts = {},
 }: {
   kind: 'etablissements' | 'pharmacies';
   lieux: LieuReseau[];
   erreur: string | null;
+  /** Verdicts « action possible ? » par lieu (boutons grisés avec la raison). */
+  verdicts?: VerdictsListe;
 }) {
+  const router = useRouter();
+  const [voirArchives, setVoirArchives] = useState(false);
+  const estArchive = (l: LieuReseau) => l.statut === 'RESILIE' || l.statut === 'RESILIEE';
+  const nbArchives = tousLesLieux.filter(estArchive).length;
+  const lieux = voirArchives ? tousLesLieux : tousLesLieux.filter((l) => !estArchive(l));
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatReseau | null>(null);
   const [resVerif, setResVerif] = useState<ResultatReseau | null>(null);
@@ -344,6 +360,12 @@ export function ReseauPanneau({
           {lieux.length} {estEtab ? 'établissement' : 'pharmacie'}
           {lieux.length > 1 ? 's' : ''}
         </h2>
+        {nbArchives > 0 && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
+            Archivés ({nbArchives})
+          </label>
+        )}
         {erreur ? (
           <p className="text-sm text-destructive">{erreur}</p>
         ) : (
@@ -446,8 +468,15 @@ export function ReseauPanneau({
                         )}
                         <FormulaireModal
                           titre={estEtab ? "Modifier l'établissement" : 'Modifier la pharmacie'}
+                          description="Contact et adresse sont libres. Le nom et le code sont tracés dans l’audit (ancienne et nouvelle valeur). Un changement d’adresse relance le géocodage de la position."
                           declencheur={
-                            <Button type="button" size="xs" variant="ghost">
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              disabled={!!verdicts[l.id]?.modifier && !verdicts[l.id].modifier.possible}
+                              title={verdicts[l.id]?.modifier && !verdicts[l.id].modifier.possible ? (verdicts[l.id].modifier.raison ?? undefined) : undefined}
+                            >
                               Modifier
                             </Button>
                           }
@@ -455,12 +484,15 @@ export function ReseauPanneau({
                           onSoumettre={async (fd) => {
                             const input = {
                               nom: String(fd.get('nom') ?? '') || undefined,
+                              code: String(fd.get('code') ?? '') || undefined,
                               ville: String(fd.get('ville') ?? '') || undefined,
                               commune: String(fd.get('commune') ?? '') || undefined,
+                              quartier: String(fd.get('quartier') ?? '') || undefined,
                               adresseComplete:
                                 String(fd.get('adresseComplete') ?? '') || undefined,
                               telephone:
                                 String(fd.get('telephone') ?? '') || undefined,
+                              email: String(fd.get('email') ?? '') || undefined,
                               gardeWeekend: fd.get('gardeWeekend') === 'on',
                             };
                             const r = estEtab
@@ -477,6 +509,7 @@ export function ReseauPanneau({
                           }}
                         >
                           <ChampTexte name="nom" label="Nom" required defaultValue={l.nom} />
+                          <ChampTexte name="code" label="Code" required defaultValue={l.code} />
                           {estEtab && (
                             <ChampSelect
                               name="typeEtablissement"
@@ -500,40 +533,47 @@ export function ReseauPanneau({
                               defaultValue={l.commune ?? undefined}
                             />
                           </div>
+                          <ChampTexte name="quartier" label="Quartier" defaultValue={l.quartier ?? undefined} />
                           <ChampTexte
                             name="adresseComplete"
                             label="Adresse complète"
+                            defaultValue={l.adresseComplete ?? undefined}
                           />
-                          <ChampTexte name="telephone" label="Téléphone" />
+                          <ChampTexte name="telephone" label="Téléphone" defaultValue={l.telephone ?? undefined} />
+                          <ChampTexte name="email" label="E-mail" type="email" defaultValue={l.email ?? undefined} />
                           <ChampCheckbox
                             name="gardeWeekend"
                             label="Garde le week-end"
                             defaultChecked={l.gardeWeekend}
                           />
                         </FormulaireModal>
-                        <FormulaireModal
-                          titre={estEtab ? "Supprimer l'établissement" : 'Supprimer la pharmacie'}
-                          mode="center"
-                          declencheur={
-                            <Button type="button" size="xs" variant="ghost">
-                              Supprimer
-                            </Button>
-                          }
-                          libelleSoumettre="Supprimer"
-                          onSoumettre={async () => {
-                            const r = estEtab
-                              ? await supprimerEtablissement(l.id)
-                              : await supprimerPharmacie(l.id);
-                            return r.ok
-                              ? { ok: true, message: 'Supprimé.' }
-                              : { ok: false, error: r.error };
-                          }}
-                        >
-                          <p className="text-sm text-muted-foreground">
-                            « {l.nom} » sera retiré du réseau. Action tracée
-                            dans l’audit.
-                          </p>
-                        </FormulaireModal>
+                        {estArchive(l) ? (
+                          <ConfirmationAction
+                            action="desarchiver"
+                            element={`${estEtab ? "l’établissement" : 'la pharmacie'} « ${l.nom} »`}
+                            consequence="Il redevient visible dans l’annuaire public et accepte de nouveau dossiers et facturation. Les comptes rattachés ne sont PAS réactivés automatiquement."
+                            verifier={() => verifierAction(estEtab ? 'etablissement' : 'pharmacie', l.id, 'desarchiver')}
+                            onConfirmer={() => changerArchivageLieu(kind, l.id, 'desarchiver')}
+                            onSucces={() => router.refresh()}
+                          />
+                        ) : (
+                          <ConfirmationAction
+                            action="archiver"
+                            element={`${estEtab ? "l’établissement" : 'la pharmacie'} « ${l.nom} »`}
+                            consequence="Il disparaît de l’annuaire public, n’accepte plus de nouveau dossier ni de facturation, et les comptes qui lui sont rattachés ne peuvent plus agir. L’historique et les factures passées restent lisibles."
+                            verifier={() => verifierAction(estEtab ? 'etablissement' : 'pharmacie', l.id, 'archiver')}
+                            onConfirmer={() => changerArchivageLieu(kind, l.id, 'archiver')}
+                            onSucces={() => router.refresh()}
+                          />
+                        )}
+                        <ConfirmationAction
+                          action="supprimer"
+                          element={`${estEtab ? "l’établissement" : 'la pharmacie'} « ${l.nom} »`}
+                          consequence="Il est retiré du réseau (suppression logique, tracée). Possible uniquement s’il n’a aucun lien."
+                          verifier={() => verifierAction(estEtab ? 'etablissement' : 'pharmacie', l.id, 'supprimer')}
+                          onConfirmer={() => (estEtab ? supprimerEtablissement(l.id) : supprimerPharmacie(l.id))}
+                          onSucces={() => router.refresh()}
+                        />
                       </span>
                     </td>
                   </tr>

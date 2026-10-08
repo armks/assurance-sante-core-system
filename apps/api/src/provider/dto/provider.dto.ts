@@ -70,6 +70,9 @@ export class CreateEtablissementDto extends BaseLieuDto {
 
 export class UpdateEtablissementDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) nom?: string;
+  /** Code modifiable (unique parmi les non supprimés) ; ancien et nouveau tracés à l'audit. */
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(40) code?: string;
+  @IsOptional() @IsString() @MaxLength(80) pays?: string;
   @IsOptional() @IsIn(TYPES_ETABLISSEMENT) typeEtablissement?: string;
   @IsOptional() @IsString() @MaxLength(120) ville?: string;
   @IsOptional() @IsString() @MaxLength(120) commune?: string;
@@ -95,6 +98,9 @@ export class CreatePharmacieDto extends BaseLieuDto {
 
 export class UpdatePharmacieDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) nom?: string;
+  /** Code modifiable (unique parmi les non supprimés) ; ancien et nouveau tracés à l'audit. */
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(40) code?: string;
+  @IsOptional() @IsString() @MaxLength(80) pays?: string;
   @IsOptional() @IsString() @MaxLength(120) ville?: string;
   @IsOptional() @IsString() @MaxLength(120) commune?: string;
   @IsOptional() @IsString() @MaxLength(120) quartier?: string;

@@ -2,7 +2,8 @@
 
 import { revalidatePath } from 'next/cache';
 
-import { apiFetch, messageErreur } from '@/lib/api';
+import type { ResultatSoumission } from '@/components/dashboard/patterns';
+import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
 
 export type ResultatInvitation =
   | { ok: true; message: string }
@@ -139,4 +140,57 @@ export async function reactiverCompte(id: string): Promise<{ ok: true } | { ok: 
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
   revalidatePath(CIBLE);
   return { ok: true };
+}
+
+/** Révocation d'un compte (jamais supprimé) : statut REVOQUE, compte Auth bloqué, sessions supprimées. */
+export async function revoquerCompte(id: string, motif?: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/identity/comptes/${id}/revoquer`, {
+    method: 'POST',
+    body: JSON.stringify(motif ? { motif } : {}),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}
+
+/** Changement de rôle (rôles permis par regles_provisioning, même entité) : effectif immédiatement. */
+export async function changerRoleCompte(id: string, role: string): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/identity/comptes/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Rôle modifié : effectif dès la prochaine requête du compte.' };
+}
+
+/** Suppression d'un compte sans aucune référence ni ligne d'audit. */
+export async function supprimerCompte(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/identity/comptes/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}
+
+/** Nouvelle invitation depuis une invitation REVOQUEE ou EXPIREE (l'ancienne reste dans l'historique). */
+export async function renvoyerNouvelleInvitation(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/invitations/${id}/renvoyer-nouvelle`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}
+
+/** « Tout réactiver » : comptes désactivés d'un périmètre désarchivé. */
+export async function reactiverPerimetre(
+  cible: 'etablissement' | 'pharmacie' | 'societe',
+  id: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const res = await apiFetch('/api/v1/identity/comptes/reactiver-perimetre', {
+    method: 'POST',
+    body: JSON.stringify({ cible, id }),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const r = (await res.json()) as { reactives: unknown[] };
+  revalidatePath(CIBLE);
+  revalidatePath('/dashboard-assureur/informatique/etablissements');
+  revalidatePath('/dashboard-assureur/informatique/pharmacies');
+  revalidatePath('/dashboard-assureur/informatique/souscripteurs');
+  return { ok: true, message: `${r.reactives.length} compte(s) réactivé(s).` };
 }

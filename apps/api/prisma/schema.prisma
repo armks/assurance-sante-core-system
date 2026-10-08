@@ -149,6 +149,11 @@ model Profil {
   /// Compte DÉSACTIVÉ (archivage de son établissement / pharmacie / société) — rétabli à la main (prisma/sql/075)
   desactiveLe        DateTime? @map("desactive_le") @db.Timestamptz(6)
   desactiveMotif     String?   @map("desactive_motif")
+  /// ACTIF | REVOQUE — révocation MANUELLE (le compte n'est jamais supprimé), prisma/sql/076
+  statut             String    @default("ACTIF")
+  revoqueLe          DateTime? @map("revoque_le") @db.Timestamptz(6)
+  revoquePar         String?   @map("revoque_par") @db.Uuid
+  revoqueMotif       String?   @map("revoque_motif")
 
   organisation          Organisation?          @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sousRole              SousRole?              @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
@@ -717,6 +722,8 @@ model Invitation {
   /// NULL = aucun essai d'envoi réel encore tenté (proposition en attente,
   /// ou ligne historique antérieure à cette colonne).
   emailEnvoye     Boolean?  @map("email_envoye")
+  /// Invitation qui remplace celle-ci (révoquée ou expirée) — l'ancienne reste dans l'historique (076)
+  remplaceePar    String?   @map("remplacee_par") @db.Uuid
   expireLe        DateTime  @default(dbgenerated("(now() + '72:00:00'::interval)")) @map("expire_le") @db.Timestamptz(6)
   accepteLe       DateTime? @map("accepte_le") @db.Timestamptz(6)
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

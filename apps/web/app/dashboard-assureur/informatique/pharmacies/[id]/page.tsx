@@ -10,6 +10,7 @@ import {
   type ActeDisponible,
   type TarifConventionne,
 } from '@/components/dashboard/tarifs-conventionnes-panneau';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { peutSupprimerDefinitivement, verdictsListe } from '@/app/dependances-actions';
@@ -25,6 +26,8 @@ interface PharmacieDetail {
   ville: string | null;
   commune: string | null;
   statut: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export default async function PharmaciePage({
@@ -79,6 +82,20 @@ export default async function PharmaciePage({
             <span className="text-muted-foreground">Localisation</span>
             <span className="font-medium">
               {[pharmacie.commune, pharmacie.ville].filter(Boolean).join(', ') || '—'}
+            </span>
+          </div>
+          <div className="flex justify-between gap-4 py-1">
+            <span className="text-muted-foreground">Position</span>
+            <span className="font-medium">
+              {pharmacie.latitude != null && pharmacie.longitude != null ? (
+                `${pharmacie.latitude.toFixed(4)}, ${pharmacie.longitude.toFixed(4)}`
+              ) : (
+                <span title="Le géocodage automatique a échoué (ou l’adresse manque) : saisissez la latitude et la longitude à la main depuis la liste (Modifier).">
+                  <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                    Position non résolue
+                  </Badge>
+                </span>
+              )}
             </span>
           </div>
         </CardContent>

@@ -10,6 +10,7 @@ import type {
   OptionRef,
   PoliceRef,
 } from '@/components/dashboard/adherents/types';
+import { verdictsListe } from '@/app/dependances-actions';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
@@ -42,6 +43,7 @@ export default async function AdherentsPage() {
   // pas une erreur de page, juste un panneau vide pour ce rôle.
   const imports: ImportAdherentsResume[] = resI.ok ? await resI.json() : [];
   const roleChain = etat.identity.permissions.roleChain;
+  const verdicts = await verdictsListe('adherent', adherents.map((a) => a.id));
 
   return (
     <div className="space-y-8">
@@ -59,6 +61,7 @@ export default async function AdherentsPage() {
             polices={polices}
             peutCreer={peutGererMembres(roleChain)}
             basePath="/dashboard-assureur/informatique/adherents"
+            verdicts={verdicts}
           />
           {(peutImporterAdherents(roleChain) || peutValiderImportAdherents(roleChain)) && (
             <ImportsAdherentsPanel

@@ -6,6 +6,8 @@ import {
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvitationsService } from './invitations.service';
 import { SupabaseAdminService } from './supabase-admin.service';
@@ -21,6 +23,12 @@ const USER: AuthenticatedUser = {
 
 const DANS_72H = new Date(Date.now() + 72 * 3600 * 1000);
 const HIER = new Date(Date.now() - 3600 * 1000);
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 describe('InvitationsService', () => {
   let service: InvitationsService;
@@ -73,6 +81,7 @@ describe('InvitationsService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
         { provide: SupabaseAdminService, useValue: admin },
+        { provide: DependancesService, useValue: dependances },
       ],
     }).compile();
 
@@ -734,5 +743,64 @@ describe('InvitationsService', () => {
       organisationId: 'org-1',
     });
     expect(res[0]).toMatchObject({ statut: 'EN_ATTENTE', emailEnvoye: false });
+  });
+
+  describe('lot 4 — renvoyerNouvelle (depuis REVOQUEE ou EXPIREE, sans suppression)', () => {
+    const ANCIENNE = {
+      id: 'inv-old', invitePar: 'quelquun', statut: 'REVOQUEE', mode: 'CREATION_DIRECTE', roleValidateur: null,
+      email: 'x@y.ci', telephone: null, rolePropose: 'CENTRE_MEDICAL_ACCUEIL', organisationId: 'org-1',
+      societeId: null, etablissementId: 'etab-1', pharmacieId: null, adherentId: null,
+      authUserId: null, token: 'tok-old', expireLe: DANS_72H, accepteLe: null, createdAt: new Date(), emailEnvoye: true, remplaceePar: null,
+    };
+    const roles = { role: 'ASSUREUR_INFORMATIQUE', organisationId: 'org-1', roleChain: ['ASSUREUR_INFORMATIQUE'] };
+
+    beforeEach(() => {
+      connecte(roles);
+      prisma.invitation.findFirst.mockResolvedValue(ANCIENNE);
+      prisma.regleProvisioning.findFirst.mockResolvedValue({ id: 'r1', mode: 'CREATION_DIRECTE', roleValidateur: null });
+      prisma._tx.invitation.create.mockImplementation(({ data }: any) => ({ id: 'inv-new', createdAt: new Date(), accepteLe: null, expireLe: DANS_72H, ...data }));
+    });
+
+    it('nouvelle ligne (nouveau jeton, même périmètre), ancienne conservée et chaînée, audit — jamais de suppression', async () => {
+      const r: any = await service.renvoyerNouvelle(USER, 'inv-old');
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'invitation', 'inv-old', 'desarchiver');
+      expect(admin.inviterUtilisateur).toHaveBeenCalledWith('x@y.ci', expect.stringContaining('/accepter-invitation/'), expect.objectContaining({ role_propose: 'CENTRE_MEDICAL_ACCUEIL' }));
+      const cree = prisma._tx.invitation.create.mock.calls[0][0].data;
+      expect(cree).toMatchObject({ email: 'x@y.ci', rolePropose: 'CENTRE_MEDICAL_ACCUEIL', organisationId: 'org-1', etablissementId: 'etab-1', statut: 'EN_ATTENTE', authUserId: 'auth-new' });
+      expect(cree.token).not.toBe('tok-old');
+      expect(prisma._tx.invitation.update).toHaveBeenCalledWith({ where: { id: 'inv-old' }, data: { remplaceePar: 'inv-new' } });
+      expect(r.id).toBe('inv-new');
+      expect(admin.supprimerUtilisateur).not.toHaveBeenCalled();
+      expect(prisma._tx.$executeRaw).toHaveBeenCalled();
+    });
+
+    it('proposition d’origine : la nouvelle repart en attente de validation, sans appel Supabase', async () => {
+      prisma.invitation.findFirst.mockResolvedValue({ ...ANCIENNE, mode: 'PROPOSITION', roleValidateur: 'ASSUREUR_INFORMATIQUE', statut: 'EXPIREE' });
+      await service.renvoyerNouvelle(USER, 'inv-old');
+      expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+      expect(prisma._tx.invitation.create.mock.calls[0][0].data).toMatchObject({ statut: 'EN_ATTENTE_VALIDATION_INFORMATIQUE', mode: 'PROPOSITION' });
+    });
+
+    it('refusé par la garde (état, déjà remplacée) : rien n’est créé ni appelé', async () => {
+      dependances.assertPossible.mockRejectedValueOnce(new ConflictException('Renvoi impossible : seule une invitation révoquée ou expirée peut être renvoyée.'));
+      await expect(service.renvoyerNouvelle(USER, 'inv-old')).rejects.toBeInstanceOf(ConflictException);
+      expect(admin.inviterUtilisateur).not.toHaveBeenCalled();
+      expect(prisma._tx.invitation.create).not.toHaveBeenCalled();
+    });
+
+    it('règle de provisioning disparue → 403 ; un compte actif existe déjà pour l’adresse → 409', async () => {
+      prisma.regleProvisioning.findFirst.mockResolvedValue(null);
+      await expect(service.renvoyerNouvelle(USER, 'inv-old')).rejects.toBeInstanceOf(ForbiddenException);
+      prisma.regleProvisioning.findFirst.mockResolvedValue({ id: 'r1' });
+      prisma.$queryRaw.mockResolvedValue([{ count: 1n }]);
+      await expect(service.renvoyerNouvelle(USER, 'inv-old')).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma._tx.invitation.create).not.toHaveBeenCalled();
+    });
+
+    it('rôle autre qu’informatique et ni émetteur ni validateur → 403', async () => {
+      connecte({ role: 'ASSUREUR_COMPTABLE', organisationId: 'org-1', roleChain: ['ASSUREUR_COMPTABLE'] });
+      await expect(service.renvoyerNouvelle(USER, 'inv-old')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(dependances.assertPossible).not.toHaveBeenCalled();
+    });
   });
 });

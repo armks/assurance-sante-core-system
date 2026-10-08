@@ -11,6 +11,7 @@ import {
   supprimerSouscripteur,
 } from '@/app/dashboard-assureur/informatique/souscripteurs/actions';
 import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
+import { ToutReactiver, type CompteDesactiveResume } from '@/components/dashboard/tout-reactiver';
 import {
   CarteResume,
   ConfirmationAction,
@@ -118,12 +119,17 @@ export function SouscripteursEcran({
   souscripteurs: tousLesSouscripteurs,
   verdicts = {},
   peutArchiver = false,
+  desactives = {},
+  peutReactiver = false,
 }: {
   souscripteurs: Souscripteur[];
   /** Verdicts « action possible ? » par société (boutons grisés avec la raison). */
   verdicts?: VerdictsListe;
   /** Archivage et suppression : direction et informatique. */
   peutArchiver?: boolean;
+  /** Comptes désactivés par l'archivage, par société (boutons « Tout réactiver »). */
+  desactives?: Record<string, CompteDesactiveResume[]>;
+  peutReactiver?: boolean;
 }) {
   const router = useRouter();
   const [voirArchives, setVoirArchives] = useState(false);
@@ -302,6 +308,9 @@ export function SouscripteursEcran({
                   <ChampTexte name="typeCollectivite" label="Type de collectivité" defaultValue={s.typeCollectivite ?? undefined} />
                 )}
               </FormulaireModal>
+              {s.statut !== 'ARCHIVE' && peutReactiver && (
+                <ToutReactiver cible="societe" id={s.id} nom={s.nom} comptes={desactives[s.id] ?? []} />
+              )}
               {peutArchiver &&
                 (s.statut === 'ARCHIVE' ? (
                   <ConfirmationAction

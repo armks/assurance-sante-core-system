@@ -149,6 +149,30 @@ export class SupabaseAdminService {
     }
   }
 
+  /**
+   * Bloque (`bloque = true`) ou débloque un compte Auth : « ban » GoTrue — aucune nouvelle
+   * connexion ni renouvellement de jeton. Le compte n'est JAMAIS supprimé. Renvoie `false`
+   * (sans lever) si l'appel échoue : le statut applicatif REVOQUE reste, lui, appliqué par
+   * l'API et par la RLS.
+   */
+  async definirBlocage(authUserId: string, bloque: boolean): Promise<boolean> {
+    try {
+      this.assertConfig();
+      const res = await fetch(`${this.baseUrl}/auth/v1/admin/users/${authUserId}`, {
+        method: 'PUT',
+        headers: this.headers(),
+        body: JSON.stringify({ ban_duration: bloque ? '876000h' : 'none' }),
+      });
+      if (!res.ok) {
+        this.logger.error(`Blocage Auth ${authUserId} (${bloque}) refusé : ${res.status} ${(await res.text()).slice(0, 160)}`);
+      }
+      return res.ok;
+    } catch (error) {
+      this.logger.error(`Blocage Auth ${authUserId} impossible : ${error instanceof Error ? error.message : 'erreur inconnue'}`);
+      return false;
+    }
+  }
+
   /** Supprime un compte auth (nettoyage si la finalisation échoue). */
   async supprimerUtilisateur(authUserId: string): Promise<void> {
     try {

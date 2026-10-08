@@ -26,6 +26,8 @@ function fixture(entite: string, action: Action): Record<string, unknown> {
     etablissement: archive ? 'RESILIE' : 'ACTIF',
     pharmacie: archive ? 'RESILIEE' : 'ACTIVE',
     souscripteur: archive ? 'ARCHIVE' : 'ACTIF',
+    utilisateur: archive ? 'REVOQUE' : 'ACTIF',
+    invitation: archive ? 'REVOQUEE' : 'EN_ATTENTE',
     referentielActe: action === 'supprimer' ? 'PROPOSE' : archive ? 'RETIRE' : 'HOMOLOGUE',
     acteNational: archive ? 'RETIRE' : 'HOMOLOGUE',
     produit: action === 'archiver' ? 'PUBLIE' : archive ? 'ARCHIVE' : 'BROUILLON',
@@ -63,13 +65,13 @@ function baseFactice(rec: unknown, valeurs: Record<number, number> = {}) {
   return { db, appels, executeRaw, transaction };
 }
 
-function service(rec: unknown, role: string, valeurs: Record<number, number> = {}, profil: Record<string, unknown> = {}) {
+function service(rec: unknown, role: string, valeurs: Record<number, number> = {}, profil: Record<string, unknown> = {}, niveauAcces = 'ADMIN') {
   const base = baseFactice(rec, valeurs);
   const estSuperadmin = role === 'SUPERADMIN_PRINCIPAL';
   const identity = {
     getMe: jest.fn().mockResolvedValue({
       profil: { id: 'u-appelant', organisationId: estSuperadmin ? null : ORG, societeId: null, ...profil },
-      permissions: { roleChain: [role] },
+      permissions: { roleChain: role.split('+'), niveauAcces },
     }),
   };
   return { s: new DependancesService(base.db, identity as any), ...base };
@@ -79,6 +81,7 @@ describe('DependancesService — registre : chaque type de dépendance, pour cha
   for (const [entite, def] of Object.entries(REGISTRE)) {
     describe(entite, () => {
       def.dependances.forEach((d, index) => {
+        if (d.bloquantSiNul) return; // garde-fou « aucun autre … » : testé à part (décompte nul = blocage)
         const bloque = d.bloque ?? ['supprimer'];
         it(`« ${d.cle} » (1 ${d.singulier}) bloque ${bloque.join(', ')} — et aucune autre action`, async () => {
           for (const action of ACTIONS) {
@@ -133,11 +136,11 @@ describe('DependancesService — messages, rôles, périmètre, refus', () => {
     expect(v.raison).toBe('Modification impossible : Un produit publié ou archivé ne se modifie pas : créez une nouvelle version.');
   });
 
-  it('action non disponible pour l’entité (archiver un compte utilisateur) → impossible, raison explicite', async () => {
-    const { s } = service(fixture('utilisateur', 'archiver'), 'ASSUREUR_INFORMATIQUE');
-    const v = await s.verifier(USER, 'utilisateur', 'x-1', 'archiver');
+  it('action non disponible pour l’entité (archiver une invitation) → impossible, raison explicite', async () => {
+    const { s } = service(fixture('invitation', 'archiver'), 'ASSUREUR_INFORMATIQUE');
+    const v = await s.verifier(USER, 'invitation', 'x-1', 'archiver');
     expect(v.possible).toBe(false);
-    expect(v.raison).toBe("Archivage impossible : cette action n'est pas encore disponible pour le compte utilisateur.");
+    expect(v.raison).toBe("Archivage impossible : cette action n'est pas encore disponible pour l'invitation.");
   });
 
   it('rôle insuffisant → 403 ; entité inconnue → 404 ; enregistrement hors périmètre → 404 sans aucun comptage', async () => {
@@ -422,6 +425,153 @@ describe('DependancesService — lot 3 : entités partenaires', () => {
       const err = await s.assertPossible(USER, 'souscripteur', 'x-1', 'archiver').catch((e) => e);
       expect(err).toBeInstanceOf(ForbiddenException);
       expect(executeRaw.mock.calls[0].slice(1, 3)).toEqual(['REFUS_ARCHIVER', 'souscripteurs']);
+    });
+  });
+});
+
+describe('DependancesService — lot 4 : personnes', () => {
+  const index = (entite: string, cle: string) => REGISTRE[entite].dependances.findIndex((d) => d.cle === cle);
+  const verifier = (entite: string, action: Action, role: string, valeurs: Record<number, number> = {}, rec?: Record<string, unknown>, niveau = 'ADMIN') =>
+    service(rec ?? fixture(entite, action), role, valeurs, {}, niveau).s.verifier(USER, entite, 'x-1', action);
+
+  describe('comptes : révoquer (archiver), réactiver (désarchiver), changer le rôle (modifier), supprimer', () => {
+    const cptActif = { ...fixture('utilisateur', 'archiver'), role: 'ASSUREUR_EXPLOITATION', sousRole: { niveauAcces: 'MODIFICATION' }, statut: 'ACTIF', desactiveLe: null };
+    const cptRevoque = { ...cptActif, statut: 'REVOQUE' };
+    const idxAdmin = () => index('utilisateur', 'dernierAdministrateur');
+
+    it('compte ordinaire : révocation, changement de rôle et suppression possibles ; libellés « Révocation » / « Réactivation » / « Changement de rôle »', async () => {
+      for (const action of ['archiver', 'modifier', 'supprimer'] as const) {
+        const v = await verifier('utilisateur', action, 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, cptActif);
+        expect({ action, possible: v.possible }).toEqual({ action, possible: true });
+      }
+      const rev = await verifier('utilisateur', 'desarchiver', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, cptActif);
+      expect(rev.raison).toBe("Réactivation impossible : ce compte n'est ni révoqué ni désactivé.");
+      const dejaRevoque = await verifier('utilisateur', 'archiver', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, cptRevoque);
+      expect(dejaRevoque.raison).toBe('Révocation impossible : ce compte est déjà révoqué.');
+      const modifRevoque = await verifier('utilisateur', 'modifier', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, cptRevoque);
+      expect(modifRevoque.raison).toBe('Changement de rôle impossible : ce compte est révoqué : réactivez-le d’abord.');
+    });
+
+    it('réactiver : possible pour un compte révoqué ET pour un compte désactivé par un archivage', async () => {
+      expect((await verifier('utilisateur', 'desarchiver', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, cptRevoque)).possible).toBe(true);
+      expect((await verifier('utilisateur', 'desarchiver', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, { ...cptActif, desactiveLe: new Date() })).possible).toBe(true);
+    });
+
+    it('pas d’auto-révocation, ni de suppression ou de changement de rôle de soi-même', async () => {
+      const soi = { ...cptActif, id: 'u-appelant' };
+      expect((await verifier('utilisateur', 'archiver', 'ASSUREUR_INFORMATIQUE', {}, soi)).raison).toBe('Révocation impossible : Vous ne pouvez pas révoquer votre propre compte.');
+      expect((await verifier('utilisateur', 'supprimer', 'ASSUREUR_INFORMATIQUE', {}, soi)).raison).toBe('Suppression impossible : Vous ne pouvez pas supprimer votre propre compte.');
+      expect((await verifier('utilisateur', 'modifier', 'ASSUREUR_INFORMATIQUE', {}, soi)).raison).toBe('Changement de rôle impossible : Vous ne pouvez pas changer votre propre rôle.');
+    });
+
+    it('DERNIER administrateur protégé : aucun autre administrateur actif → révoquer, supprimer et changer le rôle refusés, avec la raison', async () => {
+      const dernier = { ...cptActif, role: 'ASSUREUR_INFORMATIQUE', sousRole: { niveauAcces: 'ADMIN' } };
+      for (const [action, nom] of [['archiver', 'Révocation'], ['modifier', 'Changement de rôle'], ['supprimer', 'Suppression']] as const) {
+        const v = await verifier('utilisateur', action, 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 0 }, dernier);
+        expect(v).toMatchObject({ possible: false, code: 'LIENS' });
+        expect(v.raison).toBe(`${nom} impossible : ce compte est le dernier administrateur actif de l'organisation : nommez-en un autre d'abord.`);
+      }
+      // un AUTRE administrateur actif existe → possible
+      expect((await verifier('utilisateur', 'archiver', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, dernier)).possible).toBe(true);
+      // un compte qui n'est pas administrateur n'est jamais « le dernier »
+      expect((await verifier('utilisateur', 'archiver', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 0 }, cptActif)).possible).toBe(true);
+    });
+
+    it('niveau SUPÉRIEUR : niveau d’accès au-dessus du mien → refusé (révoquer, changer le rôle, supprimer, réactiver)', async () => {
+      const admin = { ...cptActif, role: 'ASSUREUR_INFORMATIQUE', sousRole: { niveauAcces: 'ADMIN' } };
+      for (const action of ['archiver', 'modifier', 'supprimer'] as const) {
+        const v = await verifier('utilisateur', action, 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, admin, 'MODIFICATION');
+        expect(v.raison).toContain("ce compte est d'un niveau supérieur au vôtre");
+      }
+      const reac = await verifier('utilisateur', 'desarchiver', 'ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, { ...admin, statut: 'REVOQUE' }, 'MODIFICATION');
+      expect(reac.possible).toBe(false);
+    });
+
+    it('niveau SUPÉRIEUR : le rôle parent de l’appelant (adjoint → titulaire) est protégé, même à niveau d’accès égal', async () => {
+      const titulaire = { ...cptActif, role: 'ASSUREUR_INFORMATIQUE', sousRole: { niveauAcces: 'MODIFICATION' } };
+      const v = await verifier('utilisateur', 'archiver', 'ASSUREUR_INFORMATIQUE_ADJOINT+ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, titulaire, 'MODIFICATION');
+      expect(v.possible).toBe(false);
+      expect(v.raison).toContain("ce compte est d'un niveau supérieur au vôtre");
+      // un collègue de même rôle et de même niveau n'est PAS protégé
+      const collegue = { ...cptActif, role: 'ASSUREUR_INFORMATIQUE_ADJOINT', sousRole: { niveauAcces: 'MODIFICATION' } };
+      expect((await verifier('utilisateur', 'archiver', 'ASSUREUR_INFORMATIQUE_ADJOINT+ASSUREUR_INFORMATIQUE', { [idxAdmin()]: 1 }, collegue, 'MODIFICATION')).possible).toBe(true);
+    });
+
+    it('rôle : seule l’informatique gère les comptes (403) ; compte d’une autre organisation : 404 sans aucun comptage', async () => {
+      await expect(verifier('utilisateur', 'archiver', 'ASSUREUR_DIRECTION', {}, cptActif)).rejects.toBeInstanceOf(ForbiddenException);
+      const { s, appels } = service(null, 'ASSUREUR_INFORMATIQUE');
+      await expect(s.verifier(USER, 'utilisateur', 'autre-org', 'archiver')).rejects.toBeInstanceOf(NotFoundException);
+      expect(appels).toEqual([]);
+    });
+  });
+
+  describe('adhérents et bénéficiaires : blocages d’archivage avec raison et nombres', () => {
+    const cas: [string, string, number, string][] = [
+      ['adherent', 'dossiersOuverts', 2, '2 dossiers de soins ouverts'],
+      ['adherent', 'reclamationsEnCours', 1, '1 réclamation en cours'],
+      ['adherent', 'cotisationsDues', 3, '3 cotisations dues'],
+      ['adherent', 'dossiersOuvertsBeneficiaires', 1, "1 dossier de soins ouvert d'un bénéficiaire"],
+      ['adherent', 'reclamationsEnCoursBeneficiaires', 2, 'réclamations en cours de bénéficiaires'],
+      ['beneficiaire', 'dossiersOuverts', 1, '1 dossier de soins ouvert'],
+      ['beneficiaire', 'reclamationsEnCours', 4, '4 réclamations en cours'],
+    ];
+    for (const [entite, cle, n, texte] of cas) {
+      it(`${entite} — ${cle} (${n}) bloque l’archivage : « ${texte} »`, async () => {
+        const v = await verifier(entite, 'archiver', 'ASSUREUR_EXPLOITATION', { [index(entite, cle)]: n });
+        expect(v).toMatchObject({ possible: false, code: 'LIENS' });
+        expect(v.raison).toContain(texte);
+        expect(v.raison).toMatch(/^Archivage impossible : /);
+      });
+    }
+
+    it('la suppression reste liée à TOUS les liens (dossiers, réclamations, factures, cotisations, codes, comptes, invitations, bénéficiaires)', async () => {
+      for (const cle of ['dossiers', 'reclamations', 'factures', 'cotisations', 'codesConsultation', 'codesOrdonnance', 'comptes', 'invitations', 'beneficiaires']) {
+        const v = await verifier('adherent', 'supprimer', 'ASSUREUR_DIRECTION', { [index('adherent', cle)]: 1 });
+        expect({ cle, possible: v.possible }).toEqual({ cle, possible: false });
+      }
+    });
+
+    it('rôles : direction, exploitation, informatique ; SOCIETE_ADMINISTRATION pour SES adhérents ; comptable refusé (403)', async () => {
+      for (const role of ['ASSUREUR_DIRECTION', 'ASSUREUR_EXPLOITATION', 'ASSUREUR_INFORMATIQUE']) {
+        expect((await verifier('adherent', 'archiver', role)).possible).toBe(true);
+      }
+      await expect(verifier('adherent', 'archiver', 'ASSUREUR_COMPTABLE')).rejects.toBeInstanceOf(ForbiddenException);
+      const societe = service(fixture('adherent', 'archiver'), 'SOCIETE_ADMINISTRATION', {}, { societeId: 'soc-1' });
+      expect((await societe.s.verifier(USER, 'adherent', 'x-1', 'archiver')).possible).toBe(true);
+    });
+
+    it('société : sortie déjà proposée → archiver refusé ; réactivation (désarchiver) réservée à l’assureur', async () => {
+      const proposee = { ...fixture('adherent', 'archiver'), statut: 'PROPOSE_SORTANT' };
+      const s1 = service(proposee, 'SOCIETE_ADMINISTRATION', {}, { societeId: 'soc-1' });
+      expect((await s1.s.verifier(USER, 'adherent', 'x-1', 'archiver')).raison).toContain('sa sortie est déjà proposée');
+      const s2 = service(fixture('adherent', 'desarchiver'), 'SOCIETE_ADMINISTRATION', {}, { societeId: 'soc-1' });
+      expect((await s2.s.verifier(USER, 'adherent', 'x-1', 'desarchiver')).raison).toContain("réservée à l'assureur");
+      expect((await verifier('adherent', 'desarchiver', 'ASSUREUR_EXPLOITATION')).possible).toBe(true);
+    });
+
+    it('déjà radié : archiver et modifier refusés ; non radié : désarchiver refusé', async () => {
+      const radie = fixture('adherent', 'desarchiver');
+      expect((await verifier('adherent', 'archiver', 'ASSUREUR_EXPLOITATION', {}, radie)).raison).toContain('déjà archivé');
+      expect((await verifier('adherent', 'modifier', 'ASSUREUR_EXPLOITATION', {}, radie)).raison).toContain('réactivez-le');
+      expect((await verifier('adherent', 'desarchiver', 'ASSUREUR_EXPLOITATION', {}, fixture('adherent', 'archiver'))).raison).toContain("n'est pas radié");
+    });
+  });
+
+  describe('invitations : renvoyer une nouvelle invitation (désarchiver) sans jamais supprimer', () => {
+    const inv = (statut: string, extra: Record<string, unknown> = {}) => ({ ...fixture('invitation', 'archiver'), statut, expireLe: new Date(Date.now() + 3600_000), remplaceePar: null, ...extra });
+
+    it('REVOQUEE et EXPIREE (statut, ou échéance dépassée) : renvoi possible', async () => {
+      expect((await verifier('invitation', 'desarchiver', 'ASSUREUR_INFORMATIQUE', {}, inv('REVOQUEE'))).possible).toBe(true);
+      expect((await verifier('invitation', 'desarchiver', 'ASSUREUR_INFORMATIQUE', {}, inv('EXPIREE'))).possible).toBe(true);
+      expect((await verifier('invitation', 'desarchiver', 'ASSUREUR_INFORMATIQUE', {}, inv('EN_ATTENTE', { expireLe: new Date(Date.now() - 1000) }))).possible).toBe(true);
+    });
+    it('EN_ATTENTE valide, ACCEPTEE, REJETEE : refusé ; déjà remplacée : refusé ; jamais supprimable', async () => {
+      for (const statut of ['EN_ATTENTE', 'ACCEPTEE', 'REJETEE']) {
+        const v = await verifier('invitation', 'desarchiver', 'ASSUREUR_INFORMATIQUE', {}, inv(statut));
+        expect(v.raison).toBe('Renvoi impossible : seule une invitation révoquée ou expirée peut être renvoyée.');
+      }
+      expect((await verifier('invitation', 'desarchiver', 'ASSUREUR_INFORMATIQUE', {}, inv('REVOQUEE', { remplaceePar: 'inv-2' }))).raison).toContain('déjà été remplacée');
+      expect((await verifier('invitation', 'supprimer', 'ASSUREUR_INFORMATIQUE', {}, inv('REVOQUEE'))).possible).toBe(false);
     });
   });
 });

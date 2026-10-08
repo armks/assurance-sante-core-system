@@ -13,6 +13,7 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberCarteService } from './carte.service';
 import {
+  ArchiverMembreDto,
   ChangerStatutDto,
   CreateAdherentDto,
   CreateBeneficiaireDto,
@@ -308,6 +309,8 @@ export class AdherentService {
     const ctx = await this.contexteAppelant(user);
     const actuel = await this.chargerAdherent(ctx, id);
     this.assertGestion(ctx, actuel.souscripteurId);
+    // ADR-007 : un adhérent archivé (RADIE) ne se modifie pas — réactivez-le d'abord (409, refus tracé)
+    await this.dependances.assertPossible(user, 'adherent', id, 'modifier');
 
     if (dto.policeId) {
       await this.assertPoliceDuSouscripteur(
@@ -356,6 +359,7 @@ export class AdherentService {
     const ctx = await this.contexteAppelant(user);
     const actuel = await this.chargerAdherent(ctx, id);
     this.assertGestion(ctx, actuel.souscripteurId);
+    this.assertStatutHorsArchivage('adhérent', actuel.statut, dto.statut);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.adherent.update({
@@ -402,6 +406,120 @@ export class AdherentService {
         'adherents',
       );
     });
+  }
+
+  // --- Archivage (sortie) et désarchivage — ADR-007, lot 4 ------------------------
+
+  /** Le statut RADIE (archivage) ne se pose ni ne se quitte par le changement de statut libre. */
+  private assertStatutHorsArchivage(qui: string, actuel: string, cible: string): void {
+    if (cible === 'RADIE' || actuel === 'RADIE') {
+      throw new ConflictException(
+        `Pour archiver ou désarchiver un ${qui} (statut RADIE), utilisez les actions « Archiver » / « Désarchiver » : elles vérifient les blocages et tracent la sortie.`,
+      );
+    }
+  }
+
+  /**
+   * Archivage = SORTIE (RADIE). Refusé (409, raison et nombres, refus tracé) tant qu'un dossier
+   * est ouvert, qu'une réclamation est en cours ou qu'une cotisation est due — pour l'adhérent
+   * ET ses bénéficiaires, qui sont archivés avec lui (même transaction). Mécanisme sortants
+   * existant respecté : une SOCIETE_ADMINISTRATION ne radie pas, elle PROPOSE la sortie
+   * (PROPOSE_SORTANT → l'assureur la valide) ; l'assureur archive directement.
+   */
+  async archiverAdherent(user: AuthenticatedUser, id: string, dto: ArchiverMembreDto) {
+    const ctx = await this.contexteAppelant(user);
+    const actuel = await this.chargerAdherent(ctx, id);
+    this.assertGestion(ctx, actuel.souscripteurId);
+    await this.dependances.assertPossible(user, 'adherent', id, 'archiver');
+
+    if (!this.aRoleAssureur(ctx)) {
+      const motif = dto.motif ?? 'Sortie demandée par la société';
+      await this.prisma.$transaction(async (tx) => {
+        await tx.adherent.update({
+          where: { id },
+          data: { statut: STATUT_ADHERENT_PROPOSE_SORTANT, statutSortantCible: 'RADIE', motifSortie: motif },
+        });
+        await this.audit(tx, ctx.userId, 'PROPOSITION_SORTANT', id, { statutCible: 'RADIE', motif }, 'adherents');
+      });
+      return { ...(await this.chargerAdherent(ctx, id)), proposition: true };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const radies = await this.radierAvecBeneficiaires(tx, id, dto.motif ?? actuel.motifSortie ?? null);
+      await this.audit(
+        tx,
+        ctx.userId,
+        'ARCHIVAGE_ADHERENT',
+        id,
+        { de: actuel.statut, motif: dto.motif ?? null, beneficiairesArchives: radies },
+        'adherents',
+      );
+    });
+    return this.chargerAdherent(ctx, id);
+  }
+
+  /** Statut RADIE + bénéficiaires non radiés → RADIE, dans la transaction de l'appelant. */
+  private async radierAvecBeneficiaires(tx: Prisma.TransactionClient, adherentId: string, motif: string | null): Promise<number> {
+    await tx.adherent.update({
+      where: { id: adherentId },
+      data: { statut: 'RADIE', statutSortantCible: null, ...(motif ? { motifSortie: motif } : {}) },
+    });
+    const r = await tx.beneficiaire.updateMany({
+      where: { adherentId, deletedAt: null, statut: { not: 'RADIE' } },
+      data: { statut: 'RADIE' },
+    });
+    return r.count;
+  }
+
+  /**
+   * Désarchivage = réactivation (ACTIF), réservée à l'assureur. Les bénéficiaires archivés avec
+   * l'adhérent NE sont PAS réactivés à sa place : chacun l'est explicitement.
+   */
+  async desarchiverAdherent(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    const actuel = await this.chargerAdherent(ctx, id);
+    if (!this.aRoleAssureur(ctx)) {
+      throw new ForbiddenException("La réactivation d'un adhérent sorti est réservée au personnel de l'assureur.");
+    }
+    await this.dependances.assertPossible(user, 'adherent', id, 'desarchiver');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.adherent.update({ where: { id }, data: { statut: 'ACTIF', statutSortantCible: null } });
+      const restants = await tx.beneficiaire.count({ where: { adherentId: id, deletedAt: null, statut: 'RADIE' } });
+      await this.audit(tx, ctx.userId, 'DESARCHIVAGE_ADHERENT', id, { de: actuel.statut, beneficiairesToujoursArchives: restants }, 'adherents');
+    });
+    return this.chargerAdherent(ctx, id);
+  }
+
+  async archiverBeneficiaire(user: AuthenticatedUser, adherentId: string, beneficiaireId: string, dto: ArchiverMembreDto) {
+    const ctx = await this.contexteAppelant(user);
+    const adherent = await this.chargerAdherent(ctx, adherentId);
+    this.assertGestion(ctx, adherent.souscripteurId);
+    const actuel = await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    await this.dependances.assertPossible(user, 'beneficiaire', beneficiaireId, 'archiver');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.beneficiaire.update({ where: { id: beneficiaireId }, data: { statut: 'RADIE' } });
+      await this.audit(tx, ctx.userId, 'ARCHIVAGE_BENEFICIAIRE', beneficiaireId, { adherentId, de: actuel.statut, motif: dto.motif ?? null }, 'beneficiaires');
+    });
+    return this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+  }
+
+  async desarchiverBeneficiaire(user: AuthenticatedUser, adherentId: string, beneficiaireId: string) {
+    const ctx = await this.contexteAppelant(user);
+    const adherent = await this.chargerAdherent(ctx, adherentId);
+    this.assertGestion(ctx, adherent.souscripteurId);
+    const actuel = await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    await this.dependances.assertPossible(user, 'beneficiaire', beneficiaireId, 'desarchiver');
+    if (adherent.statut === 'RADIE') {
+      throw new ConflictException("Désarchivage impossible : l'adhérent titulaire est lui-même archivé. Réactivez-le d'abord.");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.beneficiaire.update({ where: { id: beneficiaireId }, data: { statut: 'ACTIF' } });
+      await this.audit(tx, ctx.userId, 'DESARCHIVAGE_BENEFICIAIRE', beneficiaireId, { adherentId, de: actuel.statut }, 'beneficiaires');
+    });
+    return this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
   }
 
   // --- Mouvements de personnel — SORTANTS (prisma/sql/056) -----------
@@ -493,17 +611,28 @@ export class AdherentService {
         );
       }
 
+      const radiation = adherent.statutSortantCible === 'RADIE';
+      // Sortie par RADIATION = archivage : mêmes blocages (dossier ouvert, réclamation en cours,
+      // cotisation due) et mêmes bénéficiaires entraînés que l'action « Archiver ».
+      if (radiation) {
+        await this.dependances.assertPossible(user, 'adherent', adherentId, 'archiver');
+      }
       await this.prisma.$transaction(async (tx) => {
-        await tx.adherent.update({
-          where: { id: adherentId },
-          data: { statut: adherent.statutSortantCible! },
-        });
+        let beneficiairesArchives = 0;
+        if (radiation) {
+          beneficiairesArchives = await this.radierAvecBeneficiaires(tx, adherentId, adherent.motifSortie);
+        } else {
+          await tx.adherent.update({
+            where: { id: adherentId },
+            data: { statut: adherent.statutSortantCible! },
+          });
+        }
         await this.audit(
           tx,
           ctx.userId,
           'VALIDATION_SORTANT',
           adherentId,
-          { statut: adherent.statutSortantCible, motif: adherent.motifSortie },
+          { statut: adherent.statutSortantCible, motif: adherent.motifSortie, ...(radiation ? { beneficiairesArchives } : {}) },
           'adherents',
         );
       });
@@ -571,6 +700,7 @@ export class AdherentService {
     const adherent = await this.chargerAdherent(ctx, adherentId);
     this.assertGestion(ctx, adherent.souscripteurId);
     await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    await this.dependances.assertPossible(user, 'beneficiaire', beneficiaireId, 'modifier');
 
     const data: Prisma.BeneficiaireUpdateInput = {};
     if (dto.lienParente !== undefined) data.lienParente = dto.lienParente;
@@ -610,6 +740,7 @@ export class AdherentService {
       adherentId,
       beneficiaireId,
     );
+    this.assertStatutHorsArchivage('bénéficiaire', actuel.statut, dto.statut);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.beneficiaire.update({

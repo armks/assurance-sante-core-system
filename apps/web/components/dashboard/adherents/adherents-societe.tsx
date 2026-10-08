@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 
+import { verdictsListe } from '@/app/dependances-actions';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
@@ -35,6 +36,7 @@ export async function AdherentsSociete({ basePath }: { basePath: string }) {
   const souscripteurs: OptionRef[] = resS.ok ? await resS.json() : [];
   const polices: PoliceRef[] = resP.ok ? await resP.json() : [];
   const imports: ImportAdherentsResume[] = resI?.ok ? await resI.json() : [];
+  const verdicts = await verdictsListe('adherent', adherents.map((a) => a.id));
   const brouillon = imports.find((i) => i.statut === 'BROUILLON') ?? null;
   const soumis = imports.filter((i) => i.statut !== 'BROUILLON');
 
@@ -55,6 +57,8 @@ export async function AdherentsSociete({ basePath }: { basePath: string }) {
             peutCreer={peutGererMembres(roleChain)}
             basePath={basePath}
             souscripteurVerrou={societeId}
+            verdicts={verdicts}
+            estSociete={roleChain.every((r) => !r.startsWith('ASSUREUR_'))}
           />
           {peutProposer && societeId && (
             <PropositionsAdherentsPanel

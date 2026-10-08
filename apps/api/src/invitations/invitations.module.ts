@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DependancesModule } from '../dependances/dependances.module';
 import { IdentityModule } from '../identity/identity.module';
 import { InvitationsController } from './invitations.controller';
 import { InvitationsService } from './invitations.service';
@@ -10,7 +11,7 @@ import { SupabaseAdminService } from './supabase-admin.service';
  * ou visible côté serveur.
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, DependancesModule],
   controllers: [InvitationsController],
   providers: [InvitationsService, SupabaseAdminService],
   exports: [InvitationsService],

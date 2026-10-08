@@ -17,6 +17,8 @@ export interface ContexteDependances {
   societeId: string | null;
   /** Vrai si l'appelant n'agit QUE via un rôle société (périmètre = sa société). */
   estSociete: boolean;
+  /** Niveau d'accès effectif de l'appelant (LECTURE_SEULE | MODIFICATION | ADMIN) — lot 4 (comptes). */
+  niveauAcces: string;
 }
 
 /** Un type de lien (clé étrangère OU lien logique), compté par UNE requête. */
@@ -27,6 +29,18 @@ export interface DefinitionDependance<R = any> {
   pluriel: string;
   /** Actions que ce lien empêche (défaut : supprimer). */
   bloque?: readonly Action[];
+  /**
+   * Motif en toutes lettres (« c'est le dernier administrateur… ») : quand ce lien bloque, la
+   * raison cite ce motif au lieu de « est lié à N … » (garde-fous des comptes, lot 4).
+   */
+  motif?: string;
+  /**
+   * Le lien bloque quand le décompte est NUL (et que `concerne` vaut vrai) : garde-fou « il
+   * n'existe aucun AUTRE administrateur actif ». Le service convertit alors le décompte en 1
+   * (bloquant) ou 0.
+   */
+  bloquantSiNul?: boolean;
+  concerne?: (rec: R) => boolean;
   /** Exactement UN appel `count` — restreint au périmètre `ctx`. */
   compter(db: Db, rec: R, ctx: ContexteDependances): Promise<number>;
 }
@@ -64,6 +78,8 @@ export interface DefinitionEntite<R = any> {
    * suppression d'une entité archivable : « Archivez-le plutôt. »).
    */
   conseils?: Partial<Record<Action, string>>;
+  /** Libellés propres à l'entité pour les raisons (« Révocation » plutôt que « Archivage »). */
+  nomsAction?: Partial<Record<Action, string>>;
   /** SOCIETE_ADMINISTRATION autorisée sur SON périmètre (adhérents, bénéficiaires). */
   roleSociete?: string;
   /** Charge l'enregistrement DANS le périmètre (null → 404, sans rien révéler). */

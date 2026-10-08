@@ -7934,3 +7934,64 @@ Terminé — en attente de validation pour le commit. Lots 3 à 5 non commencés
 
 ### Statut
 Terminé — commit et push. Lots 4 et 5 non commencés (dette `tarif_pharmacie_id` au lot 4).
+
+## 2026-10-08 — Chantier suppression / modification / archivage — lot 4 « personnes » (ADR-007)
+
+### Réalisé
+- `prisma/sql/076_profils_revocation_rls_actif.sql` (appliquée deux fois, idempotente) : `profils.statut`
+  (ACTIF / REVOQUE) et trace de révocation ; `invitations.remplacee_par` ; fonction RLS
+  `profil_appelant_actif()` ; `organisation_appelant_active()` l'exige ; policy RESTRICTIVE
+  `profil_actif_exige` sur toutes les tables à RLS du schéma public.
+- Module `comptes/` : révoquer (statut + audit, puis sessions supprimées et compte Supabase bloqué,
+  jamais supprimé), réactiver, changer le rôle (regles_provisioning, même entité, ancien / nouveau
+  tracés, effet immédiat), supprimer (sans référence ni audit), « Tout réactiver » d'un périmètre
+  désarchivé. Garde : `SupabaseAuthGuard` refuse les comptes révoqués à chaque requête ; `getMe` aussi.
+- Registre : garde-fous des comptes (auto-révocation, dernier administrateur, niveau supérieur, hors
+  périmètre) ; adhérents / bénéficiaires (dossier ouvert, réclamation en cours, cotisation due, y
+  compris celles des bénéficiaires) ; invitations (renvoi depuis REVOQUEE / EXPIREE). Comptages
+  restreints à l'organisation (cotisations, consultations, actes prescrits, dispensations, avenants).
+- Adhérents : archiver (sortie, bénéficiaires entraînés, société = proposition de sortie),
+  désarchiver, modifier (refusé si archivé), supprimer ; validation des sortants par radiation soumise
+  aux mêmes blocages ; changement de statut libre ne radie plus.
+- Invitations : `renvoyer-nouvelle` (l'ancienne conservée et chaînée).
+- Web : utilisateurs (révoquer, réactiver, changer le rôle, supprimer, case « Révoqués »), invitations
+  (« Renvoyer l'invitation »), adhérents (liste et fiche, bouton de suppression manquant ajouté, case
+  « Archivés »), bénéficiaires, « Tout réactiver » (liste des comptes dans la confirmation),
+  « Position non résolue » (liste et fiche des établissements et pharmacies).
+- ADR-007 complété (lot 4).
+
+### Tests
+- API 1 240/1 240 (+53), JUnit 91/91, intégration 2/2, typage API et web 0 erreur.
+- Un cas par règle (jest) : garde-fous des comptes (soi-même, dernier administrateur, niveau supérieur,
+  rôle parent), blocages d'archivage un par un avec leur phrase, rôles (403 vs 409), service des comptes
+  (ordre transaction → sessions → blocage Auth, échec du blocage, périmètre), garde d'authentification
+  (jeton valide + compte révoqué → 403, prise en compte dès la requête suivante), `getMe`, renvoi
+  d'invitation, adhérents (cascade, société = proposition, désarchivage sans réactivation des bénéficiaires).
+- HTTP réel (tous les contrôles OK, nettoyage à zéro, comptes Auth compris) : **jeton existant refusé
+  après révocation** (403 `COMPTE_REVOQUE`, plusieurs routes), connexion impossible (compte bloqué),
+  jeton de nouveau accepté dès la réactivation ; **accès direct PostgREST avec le jeton révoqué refusé
+  immédiatement** (lecture et écriture, ligne inchangée) alors qu'un compte actif lit — rétabli dès la
+  réactivation ; dernier administrateur protégé (révocation, changement de rôle, suppression) ;
+  **changement de rôle effectif immédiatement avec le même jeton** ; rôle hors règles / autre entité
+  / inconnu refusés ; suppression refusée si historique ; adhérent : blocages un par un, cascade aux
+  bénéficiaires, désarchivage, mécanisme sortants (la société propose, l'assureur valide) ; invitations
+  (REVOQUEE et EXPIREE renvoyées, déjà remplacée / en attente / acceptée refusées, aucune suppression) ;
+  « Tout réactiver » (révoqué à la main exclu).
+- Isolation HTTP réelle : 38 tentatives par attaquant entre deux organisations (dans les deux sens),
+  exploitation de A contre B, deux comptes société contre l'autre société et les comptes, validation de
+  sortants d'une autre organisation : toutes en 403 / 404, base et blocages Auth inchangés ; comptages
+  sans fuite (cotisation due, dossier ouvert, ligne d'audit d'une autre organisation non comptés).
+- Navigateur (Chromium / Playwright, vrais comptes) : tous les écrans touchés, sans échec au dernier
+  passage (utilisateurs, invitations, adhérents liste et fiche, société, établissements, « Tout
+  réactiver », « Position non résolue »).
+- Corrigés grâce aux tests : route `renvoyer-nouvelle` sans garde d'authentification ; modification d'un
+  adhérent / bénéficiaire archivé non refusée ; fixture de test de la garde.
+
+### Limites
+- Les administrateurs « actifs » sont l'informatique et son adjoint ; le garde-fou est surtout défensif
+  (l'appelant étant lui-même administrateur) mais joue sur l'auto-révocation du dernier.
+- La RLS restrictive ne couvre que les tables à RLS activée ; `profils` n'expose aucun SELECT à un client.
+- Sessions Auth supprimées par la base (`auth.sessions`) faute d'endpoint dédié ; le refus n'en dépend pas.
+
+### Statut
+Terminé — commit et push. Lot 5 non commencé (dette `tarif_pharmacie_id` : lot « pharmacie / comptoir »).

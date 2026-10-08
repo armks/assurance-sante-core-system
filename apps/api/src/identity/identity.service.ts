@@ -65,6 +65,15 @@ export class IdentityService {
       }
     }
 
+    if (profil.statut === 'REVOQUE') {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'COMPTE_REVOQUE',
+        organisation: null,
+        message: 'Votre accès a été révoqué. Contactez le service informatique de votre assureur.',
+      });
+    }
+
     // Compte DÉSACTIVÉ (archivage de son établissement / pharmacie / société, ADR-007 lot 3) :
     // il le reste après un désarchivage, jusqu'à sa réactivation explicite par l'informatique.
     if (profil.desactiveLe) {

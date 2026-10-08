@@ -215,18 +215,88 @@ describe('AdherentService — fichier des membres', () => {
     expect(prisma.adherent.create).not.toHaveBeenCalled();
   });
 
-  it('change le statut d’un adhérent en RADIE (avec audit)', async () => {
-    const res = await service.changerStatutAdherent(USER, 'adh-1', {
-      statut: 'RADIE',
-      motif: 'Départ',
-    });
+  it('le changement de statut libre n’archive plus : RADIE (et sortie de RADIE) passent par Archiver / Désarchiver', async () => {
+    await expect(service.changerStatutAdherent(USER, 'adh-1', { statut: 'RADIE', motif: 'Départ' })).rejects.toThrow(/« Archiver »/);
+    expect(prisma.adherent.update).not.toHaveBeenCalled();
+    prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, statut: 'RADIE' });
+    await expect(service.changerStatutAdherent(USER, 'adh-1', { statut: 'ACTIF' })).rejects.toThrow(/« Désarchiver »/);
+    expect(prisma.adherent.update).not.toHaveBeenCalled();
+  });
 
-    expect(prisma.adherent.update).toHaveBeenCalledWith({
-      where: { id: 'adh-1' },
-      data: { statut: 'RADIE' },
-    });
+  it('SUSPENDU ↔ ACTIF restent possibles par le changement de statut (avec audit)', async () => {
+    const res = await service.changerStatutAdherent(USER, 'adh-1', { statut: 'SUSPENDU', motif: 'Congé' });
+    expect(prisma.adherent.update).toHaveBeenCalledWith({ where: { id: 'adh-1' }, data: { statut: 'SUSPENDU' } });
     expect(prisma.$executeRaw).toHaveBeenCalled();
     expect(res).toBeDefined();
+  });
+
+  describe('lot 4 — archiver / désarchiver (sortie)', () => {
+    beforeEach(() => {
+      prisma.beneficiaire.updateMany = jest.fn().mockResolvedValue({ count: 2 });
+      prisma.beneficiaire.count = jest.fn().mockResolvedValue(2);
+    });
+
+    it('assureur : garde « archiver », adhérent RADIE ET bénéficiaires entraînés dans la MÊME transaction, nombre tracé', async () => {
+      await service.archiverAdherent(USER, 'adh-1', { motif: 'Départ' });
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'adherent', 'adh-1', 'archiver');
+      expect(prisma.adherent.update).toHaveBeenCalledWith({ where: { id: 'adh-1' }, data: { statut: 'RADIE', statutSortantCible: null, motifSortie: 'Départ' } });
+      expect(prisma.beneficiaire.updateMany).toHaveBeenCalledWith({
+        where: { adherentId: 'adh-1', deletedAt: null, statut: { not: 'RADIE' } },
+        data: { statut: 'RADIE' },
+      });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const details = JSON.parse(prisma.$executeRaw.mock.calls[0][5]);
+      expect(details).toMatchObject({ motif: 'Départ', beneficiairesArchives: 2 });
+      expect(prisma.$executeRaw.mock.calls[0][1]).toBe('ARCHIVAGE_ADHERENT');
+    });
+
+    it('archivage bloqué (dossier ouvert, réclamation en cours, cotisation due) : rien n’est écrit', async () => {
+      dependances.assertPossible.mockRejectedValueOnce(new ConflictException('Archivage impossible : 1 dossier de soins ouvert et 1 cotisation due'));
+      await expect(service.archiverAdherent(USER, 'adh-1', {})).rejects.toThrow(/dossier de soins ouvert/);
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
+      expect(prisma.beneficiaire.updateMany).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    });
+
+    it('SOCIETE_ADMINISTRATION : ne radie pas, PROPOSE la sortie (mécanisme sortants) — aucun bénéficiaire touché', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      const res: any = await service.archiverAdherent(USER, 'adh-1', {});
+      expect(prisma.adherent.update).toHaveBeenCalledWith({
+        where: { id: 'adh-1' },
+        data: { statut: 'PROPOSE_SORTANT', statutSortantCible: 'RADIE', motifSortie: 'Sortie demandée par la société' },
+      });
+      expect(prisma.beneficiaire.updateMany).not.toHaveBeenCalled();
+      expect(prisma.$executeRaw.mock.calls[0][1]).toBe('PROPOSITION_SORTANT');
+      expect(res.proposition).toBe(true);
+    });
+
+    it('société d’une AUTRE société : 403, rien d’écrit', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'autre-societe' }));
+      await expect(service.archiverAdherent(USER, 'adh-1', {})).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
+    });
+
+    it('désarchiver : ACTIF, réservé à l’assureur, bénéficiaires NON réactivés (leur nombre est tracé)', async () => {
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, statut: 'RADIE' });
+      await service.desarchiverAdherent(USER, 'adh-1');
+      expect(prisma.adherent.update).toHaveBeenCalledWith({ where: { id: 'adh-1' }, data: { statut: 'ACTIF', statutSortantCible: null } });
+      expect(prisma.beneficiaire.updateMany).not.toHaveBeenCalled();
+      expect(JSON.parse(prisma.$executeRaw.mock.calls[0][5])).toMatchObject({ beneficiairesToujoursArchives: 2 });
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      await expect(service.desarchiverAdherent(USER, 'adh-1')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('bénéficiaire : archiver (garde puis RADIE) ; désarchiver refusé tant que l’adhérent titulaire est archivé', async () => {
+      await service.archiverBeneficiaire(USER, 'adh-1', 'ben-1', { motif: 'Majeur' });
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'beneficiaire', 'ben-1', 'archiver');
+      expect(prisma.beneficiaire.update).toHaveBeenCalledWith({ where: { id: 'ben-1' }, data: { statut: 'RADIE' } });
+      prisma.adherent.findFirst.mockResolvedValue({ ...ADHERENT_CREE, statut: 'RADIE' });
+      await expect(service.desarchiverBeneficiaire(USER, 'adh-1', 'ben-1')).rejects.toThrow(/titulaire est lui-même archivé/);
+      prisma.adherent.findFirst.mockResolvedValue(ADHERENT_CREE);
+      prisma.beneficiaire.update.mockClear();
+      await service.desarchiverBeneficiaire(USER, 'adh-1', 'ben-1');
+      expect(prisma.beneficiaire.update).toHaveBeenCalledWith({ where: { id: 'ben-1' }, data: { statut: 'ACTIF' } });
+    });
   });
 
   it('refuse un compte sans organisation', async () => {
@@ -1021,13 +1091,17 @@ describe('AdherentService — fichier des membres', () => {
         ...ADHERENT_CREE, statut: 'PROPOSE_SORTANT', statutSortantCible: 'RADIE', motifSortie: 'Départ',
       });
       prisma.adherent.update.mockResolvedValue({});
+      prisma.beneficiaire.updateMany = jest.fn().mockResolvedValue({ count: 3 });
 
       const res = await service.validerSortants(USER, DTO);
 
+      // sortie par RADIATION = archivage : mêmes blocages, mêmes bénéficiaires entraînés
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'adherent', 'adh-1', 'archiver');
       expect(prisma.adherent.update).toHaveBeenCalledWith({
         where: { id: 'adh-1' },
-        data: { statut: 'RADIE' },
+        data: { statut: 'RADIE', statutSortantCible: null, motifSortie: 'Départ' },
       });
+      expect(prisma.beneficiaire.updateMany).toHaveBeenCalledTimes(1);
       expect(res.validations).toEqual([{ adherentId: 'adh-1', statut: 'RADIE' }]);
     });
 

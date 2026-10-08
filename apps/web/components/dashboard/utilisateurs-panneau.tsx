@@ -3,8 +3,13 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
+import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
 import {
+  changerRoleCompte,
   reactiverCompte,
+  renvoyerNouvelleInvitation,
+  revoquerCompte,
+  supprimerCompte,
   inviterUtilisateur,
   rejeterInvitation,
   renvoyerEmail,
@@ -12,7 +17,7 @@ import {
   validerProposition,
   type ResultatInvitation,
 } from '@/app/dashboard-assureur/informatique/utilisateurs/actions';
-import { ChampZone, ConfirmationAction, FormulaireModal } from '@/components/dashboard/patterns';
+import { ChampSelect, ChampZone, ConfirmationAction, FormulaireModal } from '@/components/dashboard/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +60,11 @@ export interface Compte {
   /** Compte désactivé par un archivage (rétabli à la main) ; null/absent = actif. */
   desactiveLe?: string | null;
   desactiveMotif?: string | null;
+  /** ACTIF | REVOQUE (révocation manuelle ; le compte n'est jamais supprimé). */
+  statut?: string;
+  revoqueMotif?: string | null;
+  /** Entité du rôle : un changement de rôle reste dans l'entité. */
+  entiteRole?: string | null;
 }
 
 export interface Invitation {
@@ -68,6 +78,8 @@ export interface Invitation {
   createdAt: string;
   emailEnvoye?: boolean | null;
   lienAcceptation?: string;
+  /** Invitation qui l'a remplacée (révoquée / expirée → renvoyée). */
+  remplaceePar?: string | null;
 }
 
 const LIBELLE_STATUT: Record<string, string> = {
@@ -105,6 +117,7 @@ export function UtilisateursPanneau({
   etablissements = [],
   pharmacies = [],
   souscripteurs = [],
+  verdicts = {},
 }: {
   comptes: Compte[];
   invitations: Invitation[];
@@ -115,8 +128,13 @@ export function UtilisateursPanneau({
   etablissements?: Ressource[];
   pharmacies?: Ressource[];
   souscripteurs?: Ressource[];
+  /** Verdicts « action possible ? » des comptes ET des invitations (par id). */
+  verdicts?: VerdictsListe;
 }) {
   const router = useRouter();
+  const [voirRevoques, setVoirRevoques] = useState(false);
+  const nbRevoques = comptes.filter((c) => c.statut === 'REVOQUE').length;
+  const comptesVisibles = voirRevoques ? comptes : comptes.filter((c) => c.statut !== 'REVOQUE');
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatInvitation | null>(null);
   const [role, setRole] = useState('');
@@ -436,6 +454,7 @@ export function UtilisateursPanneau({
                   <th className="px-3 py-2 font-medium">Rôle</th>
                   <th className="px-3 py-2 font-medium">Statut</th>
                   <th className="px-3 py-2 font-medium">Créée le</th>
+                  <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
@@ -457,6 +476,27 @@ export function UtilisateursPanneau({
                     <td className="px-3 py-2 text-muted-foreground">
                       {new Date(inv.createdAt).toLocaleDateString('fr-FR')}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      {(inv.statut === 'REVOQUEE' || inv.statut === 'EXPIREE') &&
+                        (inv.remplaceePar ? (
+                          <span className="text-xs text-muted-foreground">Remplacée</span>
+                        ) : (
+                          <ConfirmationAction
+                            action="desarchiver"
+                            libelles={{ titre: 'Renvoyer', bouton: 'Renvoyer', verbe: 'renvoyer' }}
+                            element={`l’invitation de ${inv.email}`}
+                            consequence="Une NOUVELLE invitation (nouveau lien, nouvelle échéance) est envoyée à la même adresse, pour le même rôle. L’ancienne reste dans l’historique."
+                            verifier={() => verifierAction('invitation', inv.id, 'desarchiver')}
+                            onConfirmer={() => renvoyerNouvelleInvitation(inv.id)}
+                            onSucces={() => router.refresh()}
+                            declencheur={
+                              <Button type="button" size="xs" variant="outline">
+                                Renvoyer l’invitation
+                              </Button>
+                            }
+                          />
+                        ))}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -468,8 +508,14 @@ export function UtilisateursPanneau({
       {/* --- Comptes de l'organisation --- */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
-          Comptes de l’organisation ({comptes.length})
+          Comptes de l’organisation ({comptesVisibles.length})
         </h2>
+        {nbRevoques > 0 && (
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input type="checkbox" checked={voirRevoques} onChange={(e) => setVoirRevoques(e.target.checked)} />
+            Révoqués ({nbRevoques})
+          </label>
+        )}
         {erreur ? (
           <p className="text-sm text-destructive">{erreur}</p>
         ) : (
@@ -485,44 +531,108 @@ export function UtilisateursPanneau({
                 </tr>
               </thead>
               <tbody>
-                {comptes.map((c) => (
-                  <tr key={c.id} className="border-t">
-                    <td className="px-3 py-2">{c.email ?? '—'}</td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {c.libelleRole ?? c.role ?? 'Sans rôle'}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {new Date(c.createdAt).toLocaleDateString('fr-FR')}
-                    </td>
-                    <td className="px-3 py-2">
-                      {c.desactiveLe ? (
-                        <span title={c.desactiveMotif ?? undefined}>
-                          <Badge variant="outline">Désactivé</Badge>
+                {comptesVisibles.map((c) => {
+                  const revoque = c.statut === 'REVOQUE';
+                  const v = verdicts[c.id];
+                  const nomCompte = `le compte ${c.email ?? c.id}`;
+                  const rolesPossibles = roles.filter((r) => r.code !== c.role && (!c.entiteRole || r.entite === c.entiteRole));
+                  return (
+                    <tr key={c.id} className="border-t">
+                      <td className="px-3 py-2">{c.email ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{c.libelleRole ?? c.role ?? 'Sans rôle'}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{new Date(c.createdAt).toLocaleDateString('fr-FR')}</td>
+                      <td className="px-3 py-2">
+                        {revoque ? (
+                          <span title={c.revoqueMotif ?? undefined}>
+                            <Badge variant="outline">Révoqué</Badge>
+                          </span>
+                        ) : c.desactiveLe ? (
+                          <span title={c.desactiveMotif ?? undefined}>
+                            <Badge variant="outline">Désactivé</Badge>
+                          </span>
+                        ) : (
+                          <Badge variant="success">Actif</Badge>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <span className="flex flex-wrap justify-end gap-2">
+                          {!revoque && (
+                            <FormulaireModal
+                              titre="Changer le rôle"
+                              description={`Rôle actuel : ${c.libelleRole ?? c.role ?? '—'}. Seuls les rôles permis par les règles de provisioning, de la même entité, sont proposés. Ancien et nouveau rôle sont tracés ; le changement est effectif dès la prochaine requête du compte.`}
+                              declencheur={
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant="ghost"
+                                  disabled={(!!v?.modifier && !v.modifier.possible) || rolesPossibles.length === 0}
+                                  title={v?.modifier && !v.modifier.possible ? (v.modifier.raison ?? undefined) : undefined}
+                                >
+                                  Changer le rôle
+                                </Button>
+                              }
+                              libelleSoumettre="Changer le rôle"
+                              onSoumettre={async (fd) => changerRoleCompte(c.id, String(fd.get('role') ?? ''))}
+                              onSucces={() => router.refresh()}
+                            >
+                              <ChampSelect
+                                name="role"
+                                label="Nouveau rôle"
+                                required
+                                placeholder="Choisir un rôle…"
+                                options={rolesPossibles.map((r) => ({ valeur: r.code, libelle: r.libelle }))}
+                              />
+                            </FormulaireModal>
+                          )}
+                          {revoque || c.desactiveLe ? (
+                            <ConfirmationAction
+                              action="desarchiver"
+                              libelles={{ titre: 'Réactiver', bouton: 'Réactiver', verbe: 'réactiver' }}
+                              element={nomCompte}
+                              consequence={
+                                revoque
+                                  ? `Révoqué (${c.revoqueMotif ?? 'sans motif'}). Le blocage est levé : il pourra de nouveau se connecter.`
+                                  : `Désactivé : ${c.desactiveMotif ?? 'archivage'}. Il pourra de nouveau se connecter, si sa structure n’est plus archivée.`
+                              }
+                              verifier={() => verifierAction('utilisateur', c.id, 'desarchiver')}
+                              onConfirmer={() => reactiverCompte(c.id)}
+                              onSucces={() => router.refresh()}
+                              declencheur={
+                                <Button type="button" size="xs" variant="ghost">
+                                  Réactiver
+                                </Button>
+                              }
+                            />
+                          ) : (
+                            <ConfirmationAction
+                              action="archiver"
+                              libelles={{ titre: 'Révoquer', bouton: 'Révoquer', verbe: 'révoquer' }}
+                              element={nomCompte}
+                              consequence="Son accès est coupé immédiatement : ses jetons et sessions ouverts sont refusés. Le compte et son historique sont conservés ; vous pourrez le réactiver."
+                              verifier={() => verifierAction('utilisateur', c.id, 'archiver')}
+                              onConfirmer={() => revoquerCompte(c.id)}
+                              onSucces={() => router.refresh()}
+                              declencheur={
+                                <Button type="button" size="xs" variant="ghost">
+                                  Révoquer
+                                </Button>
+                              }
+                            />
+                          )}
+                          <ConfirmationAction
+                            action="supprimer"
+                            element={nomCompte}
+                            consequence="Possible uniquement s’il n’a aucune référence ni ligne d’historique (audit). Préférez la révocation."
+                            verifier={() => verifierAction('utilisateur', c.id, 'supprimer')}
+                            onConfirmer={() => supprimerCompte(c.id)}
+                            onSucces={() => router.refresh()}
+                          />
                         </span>
-                      ) : (
-                        <Badge variant="success">Actif</Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {c.desactiveLe && (
-                        <ConfirmationAction
-                          action="desarchiver"
-                          libelles={{ titre: 'Réactiver', bouton: 'Réactiver', verbe: 'réactiver' }}
-                          element={`le compte ${c.email ?? c.id}`}
-                          consequence={`Il avait été désactivé : ${c.desactiveMotif ?? 'archivage'}. Il pourra de nouveau se connecter, si sa structure n’est plus archivée.`}
-                          onConfirmer={() => reactiverCompte(c.id)}
-                          onSucces={() => router.refresh()}
-                          declencheur={
-                            <Button type="button" size="xs" variant="ghost">
-                              Réactiver
-                            </Button>
-                          }
-                        />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {comptes.length === 0 && (
+                      </td>
+                    </tr>
+                  );
+                })}
+                {comptesVisibles.length === 0 && (
                   <tr className="border-t">
                     <td
                       className="px-3 py-6 text-center text-muted-foreground"

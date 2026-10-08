@@ -95,6 +95,11 @@ export class UpdateBeneficiaireDto {
   @IsOptional() @IsIn(SEXES) sexe?: string;
 }
 
+/** Archivage (sortie) d'un adhérent ou d'un bénéficiaire — motif facultatif, tracé. */
+export class ArchiverMembreDto {
+  @IsOptional() @IsString() @MaxLength(400) motif?: string;
+}
+
 export class ChangerStatutDto {
   @IsIn(STATUTS_MEMBRE)
   statut!: string;

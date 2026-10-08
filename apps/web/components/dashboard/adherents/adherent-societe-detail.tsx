@@ -74,6 +74,8 @@ export async function AdherentSocieteDetail({
         peutValiderBeneficiaireSociete={peutValiderBeneficiaireSociete(etat.identity.permissions.roleChain)}
         photoAdherentUrl={photos.adherent}
         photosParBeneficiaire={photos.beneficiaires}
+        estSociete={etat.identity.permissions.roleChain.every((r) => !r.startsWith('ASSUREUR_'))}
+        retourHref={basePath}
       />
 
       {afficherPlafonds && (

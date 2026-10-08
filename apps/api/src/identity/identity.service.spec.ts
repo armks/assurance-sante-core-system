@@ -263,6 +263,22 @@ describe('IdentityService.getMe', () => {
       expect(prisma.sousRole.findMany).not.toHaveBeenCalled();
     });
 
+    it('compte RÉVOQUÉ → 403 COMPTE_REVOQUE (statut relu en base à chaque requête), avant toute lecture de permissions', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ statut: 'REVOQUE' }));
+      const r = await refuse();
+      expect(r.code).toBe('COMPTE_REVOQUE');
+      expect(prisma.sousRole.findMany).not.toHaveBeenCalled();
+    });
+
+    it('changement de rôle EFFECTIF IMMÉDIATEMENT : le rôle vient de la base à chaque appel, jamais du jeton', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ role: 'ASSUREUR_COMPTABLE' }));
+      expect((await service.getMe(USER)).permissions?.roleChain).toEqual(['ASSUREUR_COMPTABLE']);
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ role: 'ASSUREUR_MEDECIN_SOUSCRIPTEUR' }));
+      const apres = await service.getMe(USER);
+      expect(apres.profil.role).toBe('ASSUREUR_MEDECIN_SOUSCRIPTEUR');
+      expect(apres.permissions?.roleChain).toEqual(['ASSUREUR_MEDECIN_SOUSCRIPTEUR']);
+    });
+
     it('périmètre actif → accès normal', async () => {
       prisma.profil.findFirst.mockResolvedValue(makeProfil({ etablissementId: 'etab-1' }));
       prisma.etablissementSante.findUnique.mockResolvedValue({ nom: 'Clinique A', statut: 'ACTIF', deletedAt: null });

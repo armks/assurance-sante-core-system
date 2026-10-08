@@ -47,6 +47,17 @@ const GESTION_ARCHIVAGE_SOUSCRIPTEUR = {
 const ARCHIVAGE_INFORMATIQUE = { rolesArchivage: ['ASSUREUR_INFORMATIQUE'], libelleRolesArchivage: 'au service informatique' } as const;
 const SUPPRESSION_PRODUIT = { rolesSuppression: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_DIRECTION'], libelleRolesSuppression: 'au service informatique et à la direction' } as const;
 
+// Comptes (lot 4) : rang des niveaux d'accès et rôles « administrateur de l'organisation ».
+const RANG_NIVEAU: Record<string, number> = { LECTURE_SEULE: 1, MODIFICATION: 2, ADMIN: 3 };
+/** Réclamation « en cours » : soumise, en adjudication ou en revue manuelle (ni payée, ni rejetée). */
+const STATUTS_RECLAMATION_EN_COURS = ['SOUMISE', 'EN_ADJUDICATION', 'AUTO_ADJUDIQUE', 'REVUE_MANUELLE'];
+const ROLES_ADMINISTRATEUR = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_INFORMATIQUE_ADJOINT'];
+/** Le compte est-il d'un niveau SUPÉRIEUR à l'appelant (niveau d'accès, ou rôle parent de l'appelant) ? */
+const auDessusDeLAppelant = (p: any, ctx: ContexteDependances): boolean =>
+  (RANG_NIVEAU[p._niveau] ?? 0) > (RANG_NIVEAU[ctx.niveauAcces] ?? 0) ||
+  (!!p.role && ctx.roleChain.slice(1).includes(p.role));
+const MESSAGE_NIVEAU_SUPERIEUR = "ce compte est d'un niveau supérieur au vôtre.";
+
 // --- Aides ------------------------------------------------------------------------
 /** Organisation du périmètre (jamais null pour une entité d'organisation). */
 const org = (ctx: ContexteDependances) => ctx.organisationId ?? '00000000-0000-0000-0000-000000000000';
@@ -127,22 +138,81 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'le',
     table: 'profils',
     roles: GESTION_UTILISATEURS,
-    charger: (db, id, ctx) => db.profil.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
+    // archiver = RÉVOQUER (le compte n'est jamais supprimé), désarchiver = RÉACTIVER,
+    // modifier = CHANGER LE RÔLE
+    nomsAction: { archiver: 'Révocation', desarchiver: 'Réactivation', modifier: 'Changement de rôle' },
+    charger: async (db, id, ctx) => {
+      const p: any = await db.profil.findFirst({
+        where: { id, organisationId: org(ctx), deletedAt: null },
+        include: { sousRole: true },
+      });
+      if (!p) return null;
+      let niveau: string = p.sousRole?.niveauAcces ?? 'LECTURE_SEULE';
+      if (p.sousRole?.roleParentCode) {
+        const parent: any = await db.sousRole.findUnique({ where: { code: p.sousRole.roleParentCode } });
+        if (parent && (RANG_NIVEAU[parent.niveauAcces] ?? 0) > (RANG_NIVEAU[niveau] ?? 0)) niveau = parent.niveauAcces;
+      }
+      return { ...p, _niveau: niveau };
+    },
     nom: (p) => `${p.role ?? 'sans rôle'} (${String(p.id).slice(0, 8)})`,
     dependances: [
       dep('lignesAudit', "ligne d'historique (audit)", "lignes d'historique (audit)", (db, p, ctx) => db.auditLog.count({ where: { userId: p.id, organisationId: org(ctx) } })),
-      dep('consultations', 'consultation', 'consultations', (db, p) => db.consultationDossier.count({ where: { medecinId: p.id } })),
-      dep('actesPrescrits', 'acte prescrit', 'actes prescrits', (db, p) => db.acteDossier.count({ where: { medecinPrescripteurId: p.id } })),
+      dep('consultations', 'consultation', 'consultations', (db, p, ctx) => db.consultationDossier.count({ where: { medecinId: p.id, dossier: { organisationId: org(ctx) } } })),
+      dep('actesPrescrits', 'acte prescrit', 'actes prescrits', (db, p, ctx) => db.acteDossier.count({ where: { medecinPrescripteurId: p.id, dossier: { organisationId: org(ctx) } } })),
       dep('ordonnances', 'ordonnance', 'ordonnances', (db, p, ctx) => db.ordonnance.count({ where: { medecinId: p.id, organisationId: org(ctx) } })),
-      dep('dispensations', 'dispensation', 'dispensations', (db, p) => db.dispensationPharmacie.count({ where: { caissiereId: p.id } })),
+      dep('dispensations', 'dispensation', 'dispensations', (db, p, ctx) => db.dispensationPharmacie.count({ where: { caissiereId: p.id, pharmacie: { organisationId: org(ctx) } } })),
       dep('notes', 'note de dossier', 'notes de dossier', (db, p, ctx) => db.noteDossier.count({ where: { auteurId: p.id, organisationId: org(ctx) } })),
       dep('invitationsEnvoyees', 'invitation envoyée', 'invitations envoyées', (db, p, ctx) => db.invitation.count({ where: { invitePar: p.id, organisationId: org(ctx) } })),
       dep('mouvements', 'mouvement financier', 'mouvements financiers', (db, p, ctx) => db.mouvementFinancier.count({ where: { effectueParId: p.id, organisationId: org(ctx) } })),
-      dep('avenants', 'avenant', 'avenants', (db, p) => db.avenant.count({ where: { creePar: p.id } })),
+      dep('avenants', 'avenant', 'avenants', (db, p, ctx) => db.avenant.count({ where: { creePar: p.id, police: { organisationId: org(ctx) } } })),
+      // garde-fou : jamais sans administrateur — compte les AUTRES administrateurs actifs ; ce
+      // compte, s'il est administrateur, ne peut être révoqué / supprimé / changé de rôle quand il
+      // n'en existe aucun autre
+      {
+        cle: 'dernierAdministrateur',
+        singulier: 'dernier administrateur actif',
+        pluriel: 'derniers administrateurs actifs',
+        bloque: ['supprimer', 'archiver', 'modifier'],
+        bloquantSiNul: true,
+        concerne: (p) => ROLES_ADMINISTRATEUR.includes(p.role),
+        motif: "ce compte est le dernier administrateur actif de l'organisation : nommez-en un autre d'abord",
+        compter: (db, p, ctx) =>
+          db.profil.count({
+            where: {
+              organisationId: org(ctx),
+              id: { not: p.id },
+              role: { in: ROLES_ADMINISTRATEUR },
+              deletedAt: null,
+              statut: 'ACTIF',
+              desactiveLe: null,
+            },
+          }),
+      },
     ],
     regles: {
-      supprimer: (p, ctx) => (p.id === ctx.userId ? 'Vous ne pouvez pas supprimer votre propre compte.' : null),
-      modifier: () => null,
+      supprimer: (p, ctx) => (p.id === ctx.userId ? 'Vous ne pouvez pas supprimer votre propre compte.' : auDessusDeLAppelant(p, ctx) ? MESSAGE_NIVEAU_SUPERIEUR : null),
+      archiver: (p, ctx) =>
+        p.id === ctx.userId
+          ? 'Vous ne pouvez pas révoquer votre propre compte.'
+          : p.statut === 'REVOQUE'
+            ? 'ce compte est déjà révoqué.'
+            : auDessusDeLAppelant(p, ctx)
+              ? MESSAGE_NIVEAU_SUPERIEUR
+              : null,
+      desarchiver: (p, ctx) =>
+        p.statut !== 'REVOQUE' && !p.desactiveLe
+          ? "ce compte n'est ni révoqué ni désactivé."
+          : auDessusDeLAppelant(p, ctx)
+            ? MESSAGE_NIVEAU_SUPERIEUR
+            : null,
+      modifier: (p, ctx) =>
+        p.id === ctx.userId
+          ? 'Vous ne pouvez pas changer votre propre rôle.'
+          : p.statut === 'REVOQUE'
+            ? 'ce compte est révoqué : réactivez-le d’abord.'
+            : auDessusDeLAppelant(p, ctx)
+              ? MESSAGE_NIVEAU_SUPERIEUR
+              : null,
     },
   },
 
@@ -151,11 +221,19 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'la',
     table: 'invitations',
     roles: GESTION_UTILISATEURS,
+    // désarchiver = RENVOYER une nouvelle invitation (depuis REVOQUEE ou EXPIREE) ; rien n'est supprimé
+    nomsAction: { desarchiver: 'Renvoi' },
     charger: (db, id, ctx) => db.invitation.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (i) => i.email,
     dependances: [],
     regles: {
       supprimer: () => "Une invitation n'est jamais supprimée : elle reste dans l'historique des accès. Révoquez-la si elle est encore en attente.",
+      desarchiver: (i) =>
+        i.statut === 'REVOQUEE' || i.statut === 'EXPIREE' || (i.statut === 'EN_ATTENTE' && i.expireLe && new Date(i.expireLe).getTime() < Date.now())
+          ? i.remplaceePar
+            ? 'cette invitation a déjà été remplacée par une nouvelle.'
+            : null
+          : "seule une invitation révoquée ou expirée peut être renvoyée.",
     },
   },
 
@@ -469,17 +547,33 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
       dep('dossiers', 'dossier de soins', 'dossiers de soins', (db, a, ctx) => db.dossierSoins.count({ where: { adherentId: a.id, organisationId: org(ctx) } })),
       dep('reclamations', 'réclamation', 'réclamations', (db, a, ctx) => db.reclamation.count({ where: { adherentId: a.id, organisationId: org(ctx) } })),
       dep('factures', 'facture', 'factures', (db, a, ctx) => db.factureDossier.count({ where: { adherentId: a.id, organisationId: org(ctx) } })),
-      dep('cotisations', 'cotisation', 'cotisations', (db, a) => db.cotisation.count({ where: { adherentId: a.id } })),
+      dep('cotisations', 'cotisation', 'cotisations', (db, a, ctx) => db.cotisation.count({ where: { adherentId: a.id, police: { organisationId: org(ctx) } } })),
       dep('codesConsultation', 'code de consultation', 'codes de consultation', (db, a, ctx) => db.codeConsultation.count({ where: { adherentId: a.id, organisationId: org(ctx) } })),
       dep('codesOrdonnance', "code d'ordonnance", "codes d'ordonnance", (db, a, ctx) => db.codeOrdonnance.count({ where: { adherentId: a.id, organisationId: org(ctx) } })),
       dep('comptes', 'compte utilisateur', 'comptes utilisateurs', (db, a, ctx) => db.profil.count({ where: { adherentId: a.id, organisationId: org(ctx), deletedAt: null } })),
       dep('invitations', 'invitation', 'invitations', (db, a, ctx) => db.invitation.count({ where: { adherentId: a.id, organisationId: org(ctx) } })),
       dep('dossiersOuverts', 'dossier de soins ouvert', 'dossiers de soins ouverts', (db, a, ctx) => db.dossierSoins.count({ where: { adherentId: a.id, organisationId: org(ctx), statut: 'OUVERT' } }), ['archiver']),
+      dep('reclamationsEnCours', 'réclamation en cours', 'réclamations en cours', (db, a, ctx) => db.reclamation.count({ where: { adherentId: a.id, organisationId: org(ctx), statut: { in: STATUTS_RECLAMATION_EN_COURS } } }), ['archiver']),
+      dep('cotisationsDues', 'cotisation due', 'cotisations dues', (db, a, ctx) => db.cotisation.count({ where: { adherentId: a.id, deletedAt: null, statut: { in: ['A_PAYER', 'EN_RETARD'] }, police: { organisationId: org(ctx) } } }), ['archiver']),
+      // l'archivage d'un adhérent entraîne ses bénéficiaires : leurs activités en cours bloquent aussi
+      dep('dossiersOuvertsBeneficiaires', "dossier de soins ouvert d'un bénéficiaire", "dossiers de soins ouverts de bénéficiaires", (db, a, ctx) => db.dossierSoins.count({ where: { organisationId: org(ctx), statut: 'OUVERT', beneficiaire: { adherentId: a.id, deletedAt: null } } }), ['archiver']),
+      dep('reclamationsEnCoursBeneficiaires', "réclamation en cours d'un bénéficiaire", "réclamations en cours de bénéficiaires", (db, a, ctx) => db.reclamation.count({ where: { organisationId: org(ctx), statut: { in: STATUTS_RECLAMATION_EN_COURS }, beneficiaire: { adherentId: a.id, deletedAt: null } } }), ['archiver']),
     ],
     regles: {
       supprimer: () => null,
-      archiver: (a) => (a.statut === 'RADIE' ? dejaArchive("L'adhérent") : null),
-      desarchiver: (a) => (a.statut !== 'RADIE' ? "L'adhérent n'est pas radié." : null),
+      // la société PROPOSE la sortie (mécanisme sortants existant) ; l'assureur l'effectue
+      archiver: (a, ctx) =>
+        a.statut === 'RADIE'
+          ? dejaArchive("L'adhérent")
+          : a.statut === 'PROPOSE_SORTANT' && ctx.estSociete
+            ? "sa sortie est déjà proposée : elle attend la validation de l'assureur."
+            : null,
+      desarchiver: (a, ctx) =>
+        a.statut !== 'RADIE'
+          ? "L'adhérent n'est pas radié."
+          : ctx.estSociete
+            ? "la réactivation d'un adhérent sorti est réservée à l'assureur."
+            : null,
       modifier: (a) => (a.statut === 'RADIE' ? "L'adhérent est radié : réactivez-le d'abord." : null),
     },
   },
@@ -506,6 +600,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
       dep('codesConsultation', 'code de consultation', 'codes de consultation', (db, b, ctx) => db.codeConsultation.count({ where: { beneficiaireId: b.id, organisationId: org(ctx) } })),
       dep('codesOrdonnance', "code d'ordonnance", "codes d'ordonnance", (db, b, ctx) => db.codeOrdonnance.count({ where: { beneficiaireId: b.id, organisationId: org(ctx) } })),
       dep('dossiersOuverts', 'dossier de soins ouvert', 'dossiers de soins ouverts', (db, b, ctx) => db.dossierSoins.count({ where: { beneficiaireId: b.id, organisationId: org(ctx), statut: 'OUVERT' } }), ['archiver']),
+      dep('reclamationsEnCours', 'réclamation en cours', 'réclamations en cours', (db, b, ctx) => db.reclamation.count({ where: { beneficiaireId: b.id, organisationId: org(ctx), statut: { in: STATUTS_RECLAMATION_EN_COURS } } }), ['archiver']),
     ],
     regles: {
       supprimer: () => null,

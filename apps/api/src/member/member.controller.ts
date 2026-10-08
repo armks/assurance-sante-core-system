@@ -21,6 +21,7 @@ import { AdherentService } from './adherent.service';
 import { MemberCarteService } from './carte.service';
 import { PlafondsService } from './plafonds.service';
 import {
+  ArchiverMembreDto,
   ChangerStatutDto,
   CreateAdherentDto,
   CreateBeneficiaireDto,
@@ -131,6 +132,25 @@ export class MemberController {
     return this.adherents.validerAdherent(user, id);
   }
 
+  /** Archivage (sortie, RADIE) — ou PROPOSITION de sortie pour une société ; entraîne les bénéficiaires. */
+  @Post('adherents/:id/archiver')
+  archiverAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ArchiverMembreDto,
+  ) {
+    return this.adherents.archiverAdherent(user, id, dto);
+  }
+
+  /** Réactivation (ACTIF) — assureur ; les bénéficiaires ne sont pas réactivés à sa place. */
+  @Post('adherents/:id/desarchiver')
+  desarchiverAdherent(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.adherents.desarchiverAdherent(user, id);
+  }
+
   @Delete('adherents/:id')
   @HttpCode(204)
   supprimerAdherent(
@@ -200,6 +220,25 @@ export class MemberController {
       beneficiaireId,
       dto,
     );
+  }
+
+  @Post('adherents/:id/beneficiaires/:beneficiaireId/archiver')
+  archiverBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+    @Body() dto: ArchiverMembreDto,
+  ) {
+    return this.adherents.archiverBeneficiaire(user, id, beneficiaireId, dto);
+  }
+
+  @Post('adherents/:id/beneficiaires/:beneficiaireId/desarchiver')
+  desarchiverBeneficiaire(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('beneficiaireId', ParseUUIDPipe) beneficiaireId: string,
+  ) {
+    return this.adherents.desarchiverBeneficiaire(user, id, beneficiaireId);
   }
 
   @Post('adherents/:id/beneficiaires/:beneficiaireId/carte')

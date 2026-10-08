@@ -4,9 +4,18 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Users } from 'lucide-react';
 
-import { creerAdherent } from '@/app/dashboard-assureur/adherents-actions';
+import {
+  archiverAdherent,
+  creerAdherent,
+  desarchiverAdherent,
+  supprimerAdherent,
+} from '@/app/dashboard-assureur/adherents-actions';
+import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
+import { useState } from 'react';
+
 import {
   CarteResume,
+  ConfirmationAction,
   DataTable,
   FormulaireModal,
   GrilleCartes,
@@ -23,12 +32,14 @@ import { ChampsNouvelAdherent } from './champs-nouvel-adherent';
 import type { AdherentListe, OptionRef, PoliceRef } from './types';
 
 export function AdherentsListe({
-  adherents,
+  adherents: adherentsEntrants,
   souscripteurs,
   polices,
   peutCreer,
   basePath,
   souscripteurVerrou,
+  verdicts = {},
+  estSociete = false,
 }: {
   adherents: AdherentListe[];
   souscripteurs: OptionRef[];
@@ -36,9 +47,18 @@ export function AdherentsListe({
   peutCreer: boolean;
   basePath: string;
   souscripteurVerrou?: string;
+  /** Verdicts « action possible ? » par adhérent (boutons grisés avec la raison). */
+  verdicts?: VerdictsListe;
+  /** Rôle société : « Archiver » PROPOSE la sortie (validée par l'assureur). */
+  estSociete?: boolean;
 }) {
   const router = useRouter();
-  const parStatut = (s: string) => adherents.filter((a) => a.statut === s).length;
+  const [voirArchives, setVoirArchives] = useState(false);
+  let adherents = adherentsEntrants;
+  const tous = adherentsEntrants;
+  const nbArchives = tous.filter((a) => a.statut === 'RADIE').length;
+  adherents = voirArchives ? tous : tous.filter((a) => a.statut !== 'RADIE');
+  const parStatut = (s: string) => tous.filter((a) => a.statut === s).length;
 
   const colonnes: ColonneTable<AdherentListe>[] = [
     { cle: 'numeroAdherent', entete: 'N° adhérent', triable: true },
@@ -101,6 +121,13 @@ export function AdherentsListe({
         <CarteResume libelle="Radiés" valeur={parStatut('RADIE')} />
       </GrilleCartes>
 
+      {nbArchives > 0 && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
+          Archivés ({nbArchives})
+        </label>
+      )}
+
       <DataTable
         donnees={adherents}
         cleLigne={(a) => a.id}
@@ -161,11 +188,58 @@ export function AdherentsListe({
             </FormulaireModal>
           ) : undefined
         }
-        actionLigne={(a) => (
-          <Button asChild size="xs" variant="ghost">
-            <Link href={`${basePath}/${a.id}`}>Détails</Link>
-          </Button>
-        )}
+        actionLigne={(a) => {
+          const nom = `l’adhérent « ${a.prenom} ${a.nom} »`;
+          const nbBenef = a._count?.beneficiaires ?? 0;
+          return (
+            <span className="flex flex-wrap justify-end gap-2">
+              <Button asChild size="xs" variant="ghost">
+                <Link href={`${basePath}/${a.id}`}>Détails</Link>
+              </Button>
+              {peutCreer &&
+                (a.statut === 'RADIE' ? (
+                  !estSociete && (
+                    <ConfirmationAction
+                      action="desarchiver"
+                      element={nom}
+                      consequence="Il redevient actif. Ses bénéficiaires archivés avec lui ne sont PAS réactivés à sa place : réactivez-les un à un."
+                      verifier={() => verifierAction('adherent', a.id, 'desarchiver')}
+                      onConfirmer={() => desarchiverAdherent(a.id)}
+                      onSucces={() => router.refresh()}
+                    />
+                  )
+                ) : a.statut === 'PROPOSE_SORTANT' && estSociete ? (
+                  <span className="text-xs text-muted-foreground">Sortie proposée</span>
+                ) : (
+                  <ConfirmationAction
+                    action="archiver"
+                    element={nom}
+                    consequence={
+                      (estSociete
+                        ? 'Votre société PROPOSE sa sortie : l’assureur doit la valider. '
+                        : 'Il sort du fichier (statut radié) et perd l’accès au parcours de soins. ') +
+                      (nbBenef > 0
+                        ? `Ses ${nbBenef} bénéficiaire${nbBenef > 1 ? 's' : ''} ${estSociete ? 'seront archivés' : 'sont archivés'} avec lui.`
+                        : 'Il n’a aucun bénéficiaire.')
+                    }
+                    verifier={() => verifierAction('adherent', a.id, 'archiver')}
+                    onConfirmer={() => archiverAdherent(a.id)}
+                    onSucces={() => router.refresh()}
+                  />
+                ))}
+              {peutCreer && (
+                <ConfirmationAction
+                  action="supprimer"
+                  element={nom}
+                  consequence="Suppression logique, tracée, possible uniquement sans aucun lien (bénéficiaire, dossier, réclamation, facture, cotisation, code, compte)."
+                  verifier={() => verifierAction('adherent', a.id, 'supprimer')}
+                  onConfirmer={() => supprimerAdherent(a.id)}
+                  onSucces={() => router.refresh()}
+                />
+              )}
+            </span>
+          );
+        }}
         vide="Aucun adhérent pour l’instant."
       />
     </div>

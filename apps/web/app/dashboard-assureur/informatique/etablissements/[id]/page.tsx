@@ -10,6 +10,7 @@ import {
   type ActeDisponible,
   type TarifConventionne,
 } from '@/components/dashboard/tarifs-conventionnes-panneau';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { peutSupprimerDefinitivement, verdictsListe } from '@/app/dependances-actions';
@@ -29,6 +30,8 @@ interface EtablissementDetail {
   ville: string | null;
   commune: string | null;
   statut: string;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export default async function EtablissementPage({
@@ -89,6 +92,20 @@ export default async function EtablissementPage({
             <span className="text-muted-foreground">Localisation</span>
             <span className="font-medium">
               {[etablissement.commune, etablissement.ville].filter(Boolean).join(', ') || '—'}
+            </span>
+          </div>
+          <div className="flex justify-between gap-4 py-1">
+            <span className="text-muted-foreground">Position</span>
+            <span className="font-medium">
+              {etablissement.latitude != null && etablissement.longitude != null ? (
+                `${etablissement.latitude.toFixed(4)}, ${etablissement.longitude.toFixed(4)}`
+              ) : (
+                <span title="Le géocodage automatique a échoué (ou l’adresse manque) : saisissez la latitude et la longitude à la main depuis la liste (Modifier).">
+                  <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                    Position non résolue
+                  </Badge>
+                </span>
+              )}
             </span>
           </div>
         </CardContent>

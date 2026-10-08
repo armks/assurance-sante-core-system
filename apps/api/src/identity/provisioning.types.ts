@@ -26,4 +26,14 @@ export interface CompteOrganisation {
   /** Compte désactivé par un archivage (rétabli à la main) ; null = actif. */
   desactiveLe: Date | null;
   desactiveMotif: string | null;
+  /** ACTIF | REVOQUE (révocation manuelle, jamais de suppression). */
+  statut: string;
+  revoqueLe: Date | null;
+  revoqueMotif: string | null;
+  /** Entité du rôle (ASSUREUR, CENTRE_MEDICAL, PHARMACIE, SOCIETE…) : un changement de rôle reste dans l'entité. */
+  entiteRole: string | null;
+  /** Rattachement : sert à la réactivation groupée d'un périmètre désarchivé. */
+  etablissementId: string | null;
+  pharmacieId: string | null;
+  societeId: string | null;
 }

@@ -4,6 +4,7 @@ import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
 import { CareEpisodeModule } from './care-episode/care-episode.module';
 import { ClaimsModule } from './claims/claims.module';
+import { ComptesModule } from './comptes/comptes.module';
 import { ContestationModule } from './contestation/contestation.module';
 import { EmailModule } from './email/email.module';
 import { IdentityModule } from './identity/identity.module';
@@ -32,6 +33,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     AuthModule,
     IdentityModule,
     InvitationsModule,
+    ComptesModule,
     TenantModule,
     MemberModule,
     PlanModule,

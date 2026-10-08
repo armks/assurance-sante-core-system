@@ -5,9 +5,15 @@ import { useState, useTransition } from 'react';
 
 import {
   ajouterBeneficiaire,
+  archiverAdherent,
+  archiverBeneficiaire,
   changerStatutAdherent,
   changerStatutBeneficiaire,
+  desarchiverAdherent,
+  desarchiverBeneficiaire,
+  modifierAdherent,
   modifierBeneficiaire,
+  supprimerAdherent,
   supprimerBeneficiaire,
   televerserPhotoAdherentPersonnel,
   televerserPhotoBeneficiairePersonnel,
@@ -15,9 +21,11 @@ import {
   validerBeneficiaireAssureur,
   validerBeneficiaireSociete,
 } from '@/app/dashboard-assureur/adherents-actions';
+import { verifierAction } from '@/app/dependances-actions';
 import {
   ChampSelect,
   ChampTexte,
+  ConfirmationAction,
   DataTable,
   FormulaireModal,
   StatutBadge,
@@ -66,6 +74,8 @@ export function AdherentDetail({
   peutModifierPhoto = false,
   photoAdherentUrl = null,
   photosParBeneficiaire = {},
+  estSociete = false,
+  retourHref,
 }: {
   adherent: AdherentDetailType;
   peutGerer: boolean;
@@ -85,6 +95,10 @@ export function AdherentDetail({
    * modifiables seulement si `peutModifierPhoto`. */
   photoAdherentUrl?: string | null;
   photosParBeneficiaire?: Record<string, string | null>;
+  /** Rôle société : « Archiver » PROPOSE la sortie (validée par l'assureur). */
+  estSociete?: boolean;
+  /** Page de liste où revenir après une suppression. */
+  retourHref?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -255,34 +269,50 @@ export function AdherentDetail({
           )}
 
           {peutGerer && (
-            <div className="border-t pt-4">
-              <p className="mb-2 text-sm text-muted-foreground">
-                Changer le statut de l’adhérent :
-              </p>
+            <div className="space-y-3 border-t pt-4">
+              <p className="text-sm text-muted-foreground">Gestion de l’adhérent :</p>
               <div className="flex flex-wrap gap-2">
-                {STATUTS_MEMBRE.filter((s) => s !== adherent.statut).map((s) => (
+                <FormulaireModal
+                  titre="Modifier l’adhérent"
+                  description="Le numéro d’adhérent et le numéro de carte ne changent jamais."
+                  declencheur={
+                    <Button size="sm" variant="outline" disabled={pending || adherent.statut === 'RADIE'} title={adherent.statut === 'RADIE' ? 'Adhérent archivé : désarchivez-le d’abord.' : undefined}>
+                      Modifier
+                    </Button>
+                  }
+                  libelleSoumettre="Enregistrer"
+                  onSoumettre={async (fd) =>
+                    modifierAdherent(adherent.id, {
+                      nom: String(fd.get('nom') ?? ''),
+                      prenom: String(fd.get('prenom') ?? ''),
+                      dateNaissance: String(fd.get('dateNaissance') ?? ''),
+                    })
+                  }
+                  onSucces={() => router.refresh()}
+                >
+                  <ChampTexte name="nom" label="Nom" required defaultValue={adherent.nom} />
+                  <ChampTexte name="prenom" label="Prénom" required defaultValue={adherent.prenom} />
+                  <ChampTexte name="dateNaissance" label="Date de naissance" type="date" required defaultValue={adherent.dateNaissance?.slice(0, 10)} />
+                </FormulaireModal>
+                {(adherent.statut === 'ACTIF' || adherent.statut === 'SUSPENDU') && (
                   <FormulaireModal
-                    key={s}
-                    titre={`Passer l’adhérent à « ${LIBELLE_STATUT_MEMBRE[s]} »`}
+                    titre={adherent.statut === 'ACTIF' ? 'Suspendre l’adhérent' : 'Réactiver l’adhérent'}
                     mode="center"
                     description={
-                      s !== 'ACTIF'
-                        ? 'Un adhérent non ACTIF perd l’accès au parcours de soins et sa carte devient indisponible.'
+                      adherent.statut === 'ACTIF'
+                        ? 'Un adhérent suspendu perd l’accès au parcours de soins et sa carte devient indisponible.'
                         : 'L’adhérent retrouve tous ses droits.'
                     }
                     declencheur={
-                      <Button
-                        size="sm"
-                        variant={s === 'RADIE' ? 'destructive' : 'outline'}
-                        disabled={pending}
-                      >
-                        {LIBELLE_STATUT_MEMBRE[s]}
+                      <Button size="sm" variant="outline" disabled={pending}>
+                        {adherent.statut === 'ACTIF' ? 'Suspendre' : 'Réactiver'}
                       </Button>
                     }
                     libelleSoumettre="Confirmer"
                     onSoumettre={async (fd) => {
+                      const cible = adherent.statut === 'ACTIF' ? 'SUSPENDU' : 'ACTIF';
                       const r = await changerStatutAdherent(adherent.id, {
-                        statut: s,
+                        statut: cible,
                         motif: String(fd.get('motif') ?? '') || undefined,
                       });
                       if (!r.ok) return { ok: false, error: r.error, erreurs: [] };
@@ -290,14 +320,50 @@ export function AdherentDetail({
                     }}
                     onSucces={() => router.refresh()}
                   >
-                    <ChampTexte
-                      name="motif"
-                      label="Motif"
-                      maxLength={400}
-                      aide={s === 'ACTIF' ? 'Optionnel.' : 'Recommandé — tracé dans l’audit.'}
-                    />
+                    <ChampTexte name="motif" label="Motif" maxLength={400} aide="Optionnel — tracé dans l’audit." />
                   </FormulaireModal>
-                ))}
+                )}
+                {adherent.statut === 'RADIE' ? (
+                  !estSociete && (
+                    <ConfirmationAction
+                      action="desarchiver"
+                      element={`l’adhérent « ${adherent.prenom} ${adherent.nom} »`}
+                      consequence="Il redevient actif. Ses bénéficiaires archivés avec lui ne sont PAS réactivés à sa place : réactivez-les un à un."
+                      verifier={() => verifierAction('adherent', adherent.id, 'desarchiver')}
+                      onConfirmer={() => desarchiverAdherent(adherent.id)}
+                      onSucces={() => router.refresh()}
+                      declencheur={<Button size="sm" variant="outline">Désarchiver</Button>}
+                    />
+                  )
+                ) : adherent.statut === 'PROPOSE_SORTANT' && estSociete ? (
+                  <span className="self-center text-xs text-muted-foreground">Sortie proposée : en attente de l’assureur.</span>
+                ) : (
+                  <ConfirmationAction
+                    action="archiver"
+                    element={`l’adhérent « ${adherent.prenom} ${adherent.nom} »`}
+                    consequence={
+                      (estSociete
+                        ? 'Votre société PROPOSE sa sortie : l’assureur doit la valider. '
+                        : 'Il sort du fichier (statut radié) et perd l’accès au parcours de soins. ') +
+                      (adherent.beneficiaires.filter((b) => b.statut !== 'RADIE').length > 0
+                        ? `Ses ${adherent.beneficiaires.filter((b) => b.statut !== 'RADIE').length} bénéficiaire(s) ${estSociete ? 'seront archivés' : 'sont archivés'} avec lui.`
+                        : 'Il n’a aucun bénéficiaire actif.')
+                    }
+                    verifier={() => verifierAction('adherent', adherent.id, 'archiver')}
+                    onConfirmer={() => archiverAdherent(adherent.id)}
+                    onSucces={() => router.refresh()}
+                    declencheur={<Button size="sm" variant="destructive">Archiver</Button>}
+                  />
+                )}
+                <ConfirmationAction
+                  action="supprimer"
+                  element={`l’adhérent « ${adherent.prenom} ${adherent.nom} »`}
+                  consequence="Suppression logique, tracée, possible uniquement sans aucun lien (bénéficiaire, dossier, réclamation, facture, cotisation, code, compte)."
+                  verifier={() => verifierAction('adherent', adherent.id, 'supprimer')}
+                  onConfirmer={() => supprimerAdherent(adherent.id)}
+                  onSucces={() => router.push(retourHref ?? '/dashboard')}
+                  declencheur={<Button size="sm" variant="outline">Supprimer</Button>}
+                />
               </div>
             </div>
           )}
@@ -500,29 +566,35 @@ export function AdherentDetail({
                     {b.statut === 'ACTIF' ? 'Suspendre' : 'Réactiver'}
                   </Button>
                 )}
+                {peutGerer &&
+                  (b.statut === 'RADIE' ? (
+                    <ConfirmationAction
+                      action="desarchiver"
+                      element={`le bénéficiaire « ${b.prenom} ${b.nom} »`}
+                      consequence="Il redevient actif, si l’adhérent titulaire n’est pas lui-même archivé."
+                      verifier={() => verifierAction('beneficiaire', b.id, 'desarchiver')}
+                      onConfirmer={() => desarchiverBeneficiaire(adherent.id, b.id)}
+                      onSucces={() => router.refresh()}
+                    />
+                  ) : (
+                    <ConfirmationAction
+                      action="archiver"
+                      element={`le bénéficiaire « ${b.prenom} ${b.nom} »`}
+                      consequence="Il perd l’accès au parcours de soins ; l’historique est conservé."
+                      verifier={() => verifierAction('beneficiaire', b.id, 'archiver')}
+                      onConfirmer={() => archiverBeneficiaire(adherent.id, b.id)}
+                      onSucces={() => router.refresh()}
+                    />
+                  ))}
                 {peutGerer && (
-                  <FormulaireModal
-                    titre="Supprimer le bénéficiaire"
-                    mode="center"
-                    declencheur={
-                      <Button type="button" size="xs" variant="ghost">
-                        Supprimer
-                      </Button>
-                    }
-                    libelleSoumettre="Supprimer"
-                    onSoumettre={async () => {
-                      const r = await supprimerBeneficiaire(adherent.id, b.id);
-                      return r.ok
-                        ? { ok: true, message: 'Bénéficiaire supprimé.' }
-                        : { ok: false, error: r.error };
-                    }}
+                  <ConfirmationAction
+                    action="supprimer"
+                    element={`le bénéficiaire « ${b.prenom} ${b.nom} »`}
+                    consequence="Suppression logique, tracée, possible uniquement sans dossier, réclamation, facture ni code."
+                    verifier={() => verifierAction('beneficiaire', b.id, 'supprimer')}
+                    onConfirmer={() => supprimerBeneficiaire(adherent.id, b.id)}
                     onSucces={() => router.refresh()}
-                  >
-                    <p className="text-sm text-muted-foreground">
-                      « {b.nom} {b.prenom} » sera retiré du fichier des
-                      membres. Action tracée dans l’audit.
-                    </p>
-                  </FormulaireModal>
+                  />
                 )}
               </div>
             )}

@@ -7,6 +7,7 @@ import {
   type Invitation,
   type RoleProposable,
 } from '@/components/dashboard/utilisateurs-panneau';
+import { verdictsListe } from '@/app/dependances-actions';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
 
@@ -37,6 +38,11 @@ export default async function Utilisateurs() {
       json<{ id: string; nom: string }[]>('/api/v1/tenant/souscripteurs'),
     ]);
 
+  const verdicts = {
+    ...(await verdictsListe('utilisateur', comptes.data.map((c) => c.id))),
+    ...(await verdictsListe('invitation', invitations.data.filter((i) => i.statut === 'REVOQUEE' || i.statut === 'EXPIREE').map((i) => i.id))),
+  };
+
   return (
     <div className="space-y-8">
       <PageTitre
@@ -52,6 +58,7 @@ export default async function Utilisateurs() {
         etablissements={etablissements.data}
         pharmacies={pharmacies.data}
         souscripteurs={souscripteurs.data}
+        verdicts={verdicts}
       />
     </div>
   );

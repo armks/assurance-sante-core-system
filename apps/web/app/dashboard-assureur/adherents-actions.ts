@@ -267,3 +267,77 @@ export async function televerserPhotoBeneficiairePersonnel(
   revalider(`/${adherentId}`);
   return { ok: true, ...(await res.json()) };
 }
+
+/** Modifie l'identité d'un adhérent (refusé s'il est archivé : désarchivez-le d'abord). */
+export async function modifierAdherent(
+  id: string,
+  input: { nom?: string; prenom?: string; dateNaissance?: string; sexe?: string },
+): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
+  const res = await apiFetch(`/api/v1/member/adherents/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalider();
+  revalider(`/${id}`);
+  return { ok: true, message: 'Adhérent modifié.' };
+}
+
+/**
+ * Archivage = SORTIE de l'adhérent (RADIE) et de ses bénéficiaires. Pour une société, c'est une
+ * PROPOSITION de sortie que l'assureur valide (mécanisme sortants).
+ */
+export async function archiverAdherent(
+  id: string,
+  motif?: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/adherents/${id}/archiver`, {
+    method: 'POST',
+    body: JSON.stringify(motif ? { motif } : {}),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  const a = (await res.json()) as { proposition?: boolean };
+  revalider();
+  revalider(`/${id}`);
+  return { ok: true, message: a.proposition ? 'Sortie proposée : elle attend la validation de l’assureur.' : 'Adhérent archivé.' };
+}
+
+/** Réactivation (ACTIF) d'un adhérent sorti — assureur ; ses bénéficiaires restent archivés. */
+export async function desarchiverAdherent(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/adherents/${id}/desarchiver`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider();
+  revalider(`/${id}`);
+  return { ok: true };
+}
+
+/** Suppression (logique) d'un adhérent sans aucun lien. */
+export async function supprimerAdherent(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/adherents/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalider();
+  return { ok: true };
+}
+
+export async function archiverBeneficiaire(
+  adherentId: string,
+  beneficiaireId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/archiver`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider(`/${adherentId}`);
+  return { ok: true };
+}
+
+export async function desarchiverBeneficiaire(
+  adherentId: string,
+  beneficiaireId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/desarchiver`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalider(`/${adherentId}`);
+  return { ok: true };
+}

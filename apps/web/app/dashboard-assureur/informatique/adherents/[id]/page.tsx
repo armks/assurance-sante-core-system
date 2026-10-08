@@ -64,6 +64,7 @@ export default async function AdherentPage({
       />
 
       <AdherentDetail
+        retourHref="/dashboard-assureur/informatique/adherents"
         adherent={sansCheminsPhoto(adherent)}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
         peutValider={peutValiderAdherent(etat.identity.permissions.roleChain)}

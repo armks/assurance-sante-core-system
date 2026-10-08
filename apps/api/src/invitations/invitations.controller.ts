@@ -84,6 +84,16 @@ export class InvitationsController {
 
   // --- Public : parcours d'acceptation --------------------------------
 
+  /** Nouvelle invitation depuis une invitation REVOQUEE ou EXPIREE (aucune suppression). */
+  @Post(':id/renvoyer-nouvelle')
+  @UseGuards(SupabaseAuthGuard)
+  renvoyerNouvelle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.invitations.renvoyerNouvelle(user, id);
+  }
+
   @Get('token/:token')
   consulter(@Param('token') token: string) {
     return this.invitations.consulterParToken(token);

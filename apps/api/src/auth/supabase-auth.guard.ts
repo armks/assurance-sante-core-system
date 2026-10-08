@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -9,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { JwksClient } from 'jwks-rsa';
+import { PrismaService } from '../prisma/prisma.service';
 import type { AuthenticatedUser } from './authenticated-user.interface';
 
 /**
@@ -30,7 +32,10 @@ export class SupabaseAuthGuard implements CanActivate {
   private readonly issuer?: string;
   private readonly audience: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     const jwksUri = this.config.get<string>('SUPABASE_JWKS_URL');
     if (!jwksUri) {
       throw new Error(
@@ -71,6 +76,20 @@ export class SupabaseAuthGuard implements CanActivate {
 
     if (!payload.sub) {
       throw new UnauthorizedException('Jeton sans identifiant utilisateur (sub).');
+    }
+
+    // Compte RÉVOQUÉ : refusé à chaque requête, même avec un jeton encore valide (un jeton signé
+    // ne s'invalide pas de lui-même avant son expiration) — le statut est relu en base.
+    const statut = await this.prisma.profil.findUnique({
+      where: { id: payload.sub },
+      select: { statut: true },
+    });
+    if (statut?.statut === 'REVOQUE') {
+      throw new ForbiddenException({
+        statusCode: 403,
+        code: 'COMPTE_REVOQUE',
+        message: 'Votre accès a été révoqué. Contactez le service informatique de votre assureur.',
+      });
     }
 
     request.user = {

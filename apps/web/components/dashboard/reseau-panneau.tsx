@@ -19,6 +19,7 @@ import {
   type ResultatReseau,
 } from '@/app/dashboard-assureur/informatique/reseau-actions';
 import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
+import { ToutReactiver, type CompteDesactiveResume } from '@/components/dashboard/tout-reactiver';
 import {
   ChampCheckbox,
   ConfirmationAction,
@@ -86,12 +87,17 @@ export function ReseauPanneau({
   lieux: tousLesLieux,
   erreur,
   verdicts = {},
+  desactives = {},
+  peutReactiver = false,
 }: {
   kind: 'etablissements' | 'pharmacies';
   lieux: LieuReseau[];
   erreur: string | null;
   /** Verdicts « action possible ? » par lieu (boutons grisés avec la raison). */
   verdicts?: VerdictsListe;
+  /** Comptes désactivés par l'archivage, par lieu (boutons « Tout réactiver »). */
+  desactives?: Record<string, CompteDesactiveResume[]>;
+  peutReactiver?: boolean;
 }) {
   const router = useRouter();
   const [voirArchives, setVoirArchives] = useState(false);
@@ -436,9 +442,15 @@ export function ReseauPanneau({
                       )}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
-                      {l.latitude != null && l.longitude != null
-                        ? `${l.latitude.toFixed(3)}, ${l.longitude.toFixed(3)}`
-                        : '—'}
+                      {l.latitude != null && l.longitude != null ? (
+                        `${l.latitude.toFixed(3)}, ${l.longitude.toFixed(3)}`
+                      ) : (
+                        <span title="Le géocodage automatique de l’adresse a échoué (ou l’adresse manque) : cet établissement n’apparaît pas sur la carte. Saisissez la latitude et la longitude à la main (Modifier).">
+                          <Badge variant="outline" className="border-amber-400 text-amber-700 dark:text-amber-400">
+                            Position non résolue
+                          </Badge>
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span className="flex justify-end gap-2">
@@ -547,6 +559,14 @@ export function ReseauPanneau({
                             defaultChecked={l.gardeWeekend}
                           />
                         </FormulaireModal>
+                        {!estArchive(l) && peutReactiver && (
+                          <ToutReactiver
+                            cible={estEtab ? 'etablissement' : 'pharmacie'}
+                            id={l.id}
+                            nom={l.nom}
+                            comptes={desactives[l.id] ?? []}
+                          />
+                        )}
                         {estArchive(l) ? (
                           <ConfirmationAction
                             action="desarchiver"

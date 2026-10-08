@@ -741,3 +741,77 @@ pas doublé par une policy RLS comme pour les organisations suspendues (065) —
 direct non couvert. La coupure est totale (lecture comprise) pour les comptes rattachés ; seul
 l'assureur consulte l'historique d'une structure archivée. Un compte créé APRÈS l'archivage d'une
 structure est refusé par `PERIMETRE_ARCHIVE` sans être marqué désactivé.
+
+### Lot 4 « personnes » (2026-10-08) — migration `prisma/sql/076_profils_revocation_rls_actif.sql`
+
+Entités : comptes utilisateurs actifs, adhérents, bénéficiaires, invitations.
+
+1. **Comptes — révoquer / réactiver.** `profils.statut` ∈ {ACTIF, REVOQUE} (+ `revoque_le`,
+   `revoque_par`, `revoque_motif`). Révoquer **ne supprime jamais** le compte : statut REVOQUE
+   (transaction + audit `REVOCATION_COMPTE`), puis sessions Auth supprimées et compte Supabase
+   **bloqué** (`ban_duration`). Réactiver est **explicite** (`POST /identity/comptes/:id/reactiver`,
+   levée du blocage). Distinct de `desactive_le` (désactivation automatique à l'archivage d'une
+   structure, lot 3), que la même action de réactivation lève aussi.
+2. **Un jeton signé reste valide jusqu'à son expiration** : il est donc refusé de trois façons
+   indépendantes, **relues en base à chaque requête** — (a) `SupabaseAuthGuard` (403
+   `COMPTE_REVOQUE`), (b) `IdentityService.getMe`, (c) **RLS** : la fonction réutilisable
+   `profil_appelant_actif()` (faux si le profil est supprimé, révoqué, désactivé ou rattaché à une
+   structure archivée) est exigée par `organisation_appelant_active()` — donc par toutes les
+   policies bâties sur `profil_a_role`, `peut_creer_role`, `peut_inviter_role` — et par une policy
+   **RESTRICTIVE** `profil_actif_exige` posée sur **toutes** les tables du schéma `public` à RLS
+   activée (rôle `authenticated`). Un accès direct PostgREST avec le jeton d'un compte révoqué est
+   refusé immédiatement, en lecture comme en écriture, et rétabli dès la réactivation.
+   Constat préexistant : plusieurs policies lisent `profils` en sous-requête alors que `profils`
+   n'a aucune policy SELECT → pour un client direct elles ne voient aucune ligne ; seules les
+   policies passant par les fonctions SECURITY DEFINER donnent un accès direct réel.
+3. **Changer le rôle** (`PATCH /identity/comptes/:id/role`) : seulement vers un rôle permis par
+   `regles_provisioning` pour l'appelant, **de la même entité** (le périmètre établissement /
+   pharmacie / société ne change pas), jamais au-dessus du niveau de l'appelant ; ancien et nouveau
+   rôle tracés (`CHANGEMENT_ROLE`) ; **effet immédiat** : le rôle est lu en base à chaque requête,
+   il n'est jamais porté par le jeton.
+4. **Garde-fous des comptes** (registre, entité `utilisateur`, libellés « Révocation »,
+   « Réactivation », « Changement de rôle ») : pas d'auto-révocation ni d'auto-suppression ni de
+   changement de son propre rôle ; **dernier administrateur actif protégé** (révocation,
+   suppression, changement de rôle — administrateurs = `ASSUREUR_INFORMATIQUE` et son adjoint ;
+   garde-fou à MOTIF, prioritaire sur les autres règles, via `bloquantSiNul`) ; aucune action sur un
+   compte d'un **niveau supérieur** (niveau d'accès au-dessus du sien, ou son propre rôle parent) ;
+   hors organisation → 404 ; rôle : informatique seulement. **Suppression** d'un compte seulement
+   sans aucune référence ni ligne d'audit (compte Auth supprimé après validation ; la ligne `profils`
+   est retirée avec lui par la cascade de la base).
+5. **Adhérents et bénéficiaires.** Archiver = **sortie** (RADIE), désarchiver = réactivation
+   (ACTIF). Blocages (raison et nombres) : dossier OUVERT, réclamation en cours (SOUMISE,
+   EN_ADJUDICATION, AUTO_ADJUDIQUE, REVUE_MANUELLE), cotisation due (A_PAYER, EN_RETARD) — pour
+   l'adhérent **et ses bénéficiaires**. **Archiver un adhérent archive ses bénéficiaires** dans la
+   même transaction (la confirmation l'annonce) ; le désarchivage **ne les réactive pas** à sa place.
+   **Mécanisme sortants/entrants respecté** : une société ne radie pas, elle **propose** la sortie
+   (`PROPOSE_SORTANT` → RADIE) que l'assureur valide ; la validation d'une sortie par radiation
+   applique les mêmes blocages et entraîne aussi les bénéficiaires. Le changement de statut libre
+   (`PATCH …/statut`) ne pose plus ni ne quitte RADIE. Modifier un archivé : 409. Suppression :
+   logique, sans aucun lien. Rôles : direction, exploitation, informatique ; société pour SES
+   adhérents (réactivation réservée à l'assureur).
+6. **Invitations.** `POST /invitations/:id/renvoyer-nouvelle` depuis REVOQUEE ou EXPIREE (statut,
+   ou échéance dépassée) : **nouvelle** invitation (nouveau jeton, nouvelle échéance, même adresse /
+   rôle / périmètre, règle de provisioning revérifiée), l'ancienne **reste** et pointe vers la
+   nouvelle (`remplacee_par`) ; une invitation déjà remplacée ne se renvoie plus ; jamais de
+   suppression.
+7. **Réactivation groupée** d'un périmètre désarchivé : `GET /identity/comptes/desactives` (liste
+   de la confirmation) et `POST /identity/comptes/reactiver-perimetre` (une transaction, un audit par
+   compte) — refusés tant que le périmètre est archivé ; les comptes **révoqués à la main** ne sont
+   jamais touchés.
+8. **Géocodage en échec** : signal « Position non résolue » sur la liste et la fiche des
+   établissements et pharmacies (côté informatique).
+9. **Journalisation** : succès via `log_audit()` dans la transaction, refus tracés à part. Comptages
+   du registre restreints à l'organisation du jeton (cotisations, consultations, actes prescrits,
+   dispensations, avenants).
+
+Écrans : `ConfirmationAction` sur utilisateurs (révoquer, réactiver, changer le rôle, supprimer ;
+case « Révoqués »), invitations (« Renvoyer l'invitation »), adhérents (liste et fiche : archiver,
+désarchiver, **supprimer — bouton manquant relevé par l'audit** —, modifier ; case « Archivés »),
+bénéficiaires, « Tout réactiver » (la confirmation liste les comptes). `ConfirmationAction` accepte
+des `libelles` propres (Révoquer, Réactiver, Renvoyer, Tout réactiver).
+
+**Limites connues** : la RLS restrictive est appliquée à toutes les tables à RLS activée, pas à
+celles qui n'ont pas la RLS (la table `profils` elle-même n'expose aucun SELECT à un client) ;
+l'invalidation des sessions Auth passe par la base (`auth.sessions`) faute d'endpoint dédié — le
+refus ne dépend pas d'elle ; un compte créé après une révocation de son e-mail suit le parcours
+d'invitation normal (`assertPasDejaCompte`).

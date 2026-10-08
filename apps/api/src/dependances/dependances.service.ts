@@ -136,8 +136,13 @@ export class DependancesService {
     return def;
   }
 
-  private compter(def: DefinitionEntite, rec: unknown, ctx: ContexteDependances): Promise<number[]> {
-    return Promise.all(def.dependances.map((d) => d.compter(this.prisma, rec, ctx)));
+  private async compter(def: DefinitionEntite, rec: unknown, ctx: ContexteDependances): Promise<number[]> {
+    const bruts = await Promise.all(def.dependances.map((d) => d.compter(this.prisma, rec, ctx)));
+    // Garde-fou « aucun autre … » : un décompte NUL bloque (1), sinon le lien ne compte pas (0).
+    return bruts.map((n, i) => {
+      const d = def.dependances[i];
+      return d.bloquantSiNul ? ((d.concerne?.(rec) ?? true) && n === 0 ? 1 : 0) : n;
+    });
   }
 
   /** Verdict d'UNE action à partir des liens déjà comptés : rôle, puis état, puis liens. */
@@ -160,10 +165,11 @@ export class DependancesService {
 
     const nom = def.nom(rec);
     const regle = def.regles[action];
+    const NOM = def.nomsAction?.[action] ?? NOM_ACTION[action];
     let raison: string | null = null;
     let code: Verdict['code'] = null;
     if (!regle) {
-      raison = `${NOM_ACTION[action]} impossible : cette action n'est pas encore disponible pour ${def.designation}.`;
+      raison = `${NOM} impossible : cette action n'est pas encore disponible pour ${def.designation}.`;
       code = 'ETAT';
     } else if (
       action === 'supprimer' &&
@@ -177,19 +183,27 @@ export class DependancesService {
       def.rolesArchivage &&
       !ctx.roleChain.some((r) => (def.rolesArchivage as readonly string[]).includes(r))
     ) {
-      raison = `${NOM_ACTION[action]} impossible : l'archivage est réservé ${def.libelleRolesArchivage ?? 'à un autre rôle'}.`;
+      raison = `${NOM} impossible : l'archivage est réservé ${def.libelleRolesArchivage ?? 'à un autre rôle'}.`;
       code = 'ROLE';
     } else {
-      const etat = regle(rec, ctx);
-      if (etat) {
-        raison = `${NOM_ACTION[action]} impossible : ${etat}`;
+      // Garde-fou à MOTIF (« dernier administrateur… ») : prioritaire sur les règles d'état, car
+      // il protège l'organisation même si une autre règle (auto-révocation…) s'applique aussi.
+      const avecMotif = bloquants
+        .map((l) => def.dependances.find((d) => d.cle === l.type)?.motif)
+        .filter((m): m is string => !!m);
+      const etat = avecMotif.length > 0 ? null : regle(rec, ctx);
+      if (avecMotif.length > 0) {
+        raison = `${NOM} impossible : ${avecMotif[0]}.`;
+        code = 'LIENS';
+      } else if (etat) {
+        raison = `${NOM} impossible : ${etat}`;
         code = 'ETAT';
       } else if (bloquants.length > 0) {
         const conseil =
           def.conseils?.[action] ??
           (action === 'supprimer' && def.regles.archiver ? `Archivez-${def.pronom} plutôt.` : null);
         raison =
-          `${NOM_ACTION[action]} impossible : ${def.designation} « ${nom} » est lié${def.pronom === 'la' ? 'e' : ''} à ${enumerer(bloquants)}.` +
+          `${NOM} impossible : ${def.designation} « ${nom} » est lié${def.pronom === 'la' ? 'e' : ''} à ${enumerer(bloquants)}.` +
           (conseil ? ` ${conseil}` : '');
         code = 'LIENS';
       }
@@ -221,6 +235,7 @@ export class DependancesService {
       roleChain,
       societeId: profil.societeId ?? null,
       estSociete,
+      niveauAcces: permissions?.niveauAcces ?? 'LECTURE_SEULE',
     };
   }
 

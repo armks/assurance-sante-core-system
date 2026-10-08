@@ -6,6 +6,7 @@ import {
   type Souscripteur,
 } from '@/components/dashboard/souscripteurs-ecran';
 import { verdictsListe } from '@/app/dependances-actions';
+import { comptesDesactivesParPerimetre } from '@/lib/comptes-desactives';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
 
@@ -23,6 +24,8 @@ export default async function Souscripteurs() {
   const roles = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
   // Miroir de la règle du registre : archivage et suppression = direction et informatique.
   const peutArchiver = roles.some((r) => ['ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE'].includes(r));
+  const desactives = await comptesDesactivesParPerimetre();
+  const peutReactiver = roles.includes('ASSUREUR_INFORMATIQUE');
   const verdicts = await verdictsListe('souscripteur', souscripteurs.map((s) => s.id));
 
   return (
@@ -34,7 +37,7 @@ export default async function Souscripteurs() {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <SouscripteursEcran souscripteurs={souscripteurs} verdicts={verdicts} peutArchiver={peutArchiver} />
+        <SouscripteursEcran souscripteurs={souscripteurs} verdicts={verdicts} peutArchiver={peutArchiver} desactives={desactives.societes} peutReactiver={peutReactiver} />
       )}
     </div>
   );

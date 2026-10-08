@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { DependancesService } from '../dependances/dependances.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -55,6 +56,7 @@ export class InvitationsService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly admin: SupabaseAdminService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Création / proposition ------------------------------------------
@@ -310,6 +312,78 @@ export class InvitationsService {
     });
 
     return this.presenter(maj, { avecToken: true });
+  }
+
+  /**
+   * Renvoie une NOUVELLE invitation depuis une invitation REVOQUEE ou EXPIREE (ADR-007, lot 4).
+   * Rien n'est supprimé : l'ancienne reste dans l'historique et pointe vers la nouvelle
+   * (`remplacee_par`) ; la nouvelle a un nouveau jeton et une nouvelle échéance. Le rôle est
+   * revérifié contre `regles_provisioning` (les règles ont pu changer depuis), et aucun compte
+   * actif ne doit exister pour cette adresse.
+   */
+  async renvoyerNouvelle(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    const inv = await this.charger(id);
+    if (!this.estGestionnaire(ctx, inv) && !ctx.roleChain.includes('ASSUREUR_INFORMATIQUE')) {
+      throw new ForbiddenException("Seul l'émetteur de l'invitation (ou son validateur, ou l'informatique) peut la renvoyer.");
+    }
+    // ADR-007 : état (révoquée / expirée), déjà remplacée, rôle, périmètre → 403 / 404 / 409 + refus tracé
+    await this.dependances.assertPossible(user, 'invitation', id, 'desarchiver');
+
+    const regle = await this.prisma.regleProvisioning.findFirst({
+      where: { roleCree: inv.rolePropose, deletedAt: null, roleCreateur: { in: ctx.roleChain } },
+    });
+    if (!regle) {
+      throw new ForbiddenException(`Votre rôle ne permet plus d'inviter un compte « ${inv.rolePropose} ».`);
+    }
+    await this.assertPasDejaCompte(inv.email);
+
+    const token = this.genererToken();
+    const scope = {
+      organisationId: inv.organisationId,
+      societeId: inv.societeId,
+      etablissementId: inv.etablissementId,
+      pharmacieId: inv.pharmacieId,
+      adherentId: inv.adherentId,
+    };
+    const proposition = inv.mode === 'PROPOSITION';
+    let authUserId: string | null = null;
+    let emailEnvoye: boolean | null = null;
+    if (!proposition) {
+      ({ authUserId, emailEnvoye } = await this.admin.inviterUtilisateur(
+        inv.email,
+        `${WEB_URL}/accepter-invitation/${token}`,
+        { invitation_token: token, role_propose: inv.rolePropose },
+      ));
+    }
+
+    const nouvelle = await this.prisma.$transaction(async (tx) => {
+      const n = await tx.invitation.create({
+        data: {
+          email: inv.email,
+          telephone: inv.telephone,
+          rolePropose: inv.rolePropose,
+          ...scope,
+          invitePar: ctx.userId,
+          token,
+          statut: proposition ? 'EN_ATTENTE_VALIDATION_INFORMATIQUE' : 'EN_ATTENTE',
+          mode: inv.mode,
+          roleValidateur: inv.roleValidateur,
+          authUserId,
+          emailEnvoye,
+        },
+      });
+      await tx.invitation.update({ where: { id }, data: { remplaceePar: n.id } });
+      await this.audit(tx, ctx.userId, 'RENVOI_NOUVELLE_INVITATION', id, {
+        email: inv.email,
+        ancienneInvitation: id,
+        nouvelleInvitation: n.id,
+        depuis: inv.statut,
+        emailEnvoye,
+      });
+      return n;
+    });
+    return this.presenter(nouvelle, { avecToken: true });
   }
 
   // --- Listing --------------------------------------------------------
@@ -703,6 +777,7 @@ export class InvitationsService {
       expireLe: Date;
       accepteLe: Date | null;
       createdAt: Date;
+      remplaceePar?: string | null;
     },
     opts: { avecToken: boolean },
   ) {
@@ -721,6 +796,7 @@ export class InvitationsService {
       expireLe: inv.expireLe,
       accepteLe: inv.accepteLe,
       createdAt: inv.createdAt,
+      remplaceePar: inv.remplaceePar ?? null,
       ...(opts.avecToken
         ? { token: inv.token, lienAcceptation: `/accepter-invitation/${inv.token}` }
         : {}),

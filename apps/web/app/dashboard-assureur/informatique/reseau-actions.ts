@@ -253,6 +253,54 @@ export async function supprimerTarif(
   return { ok: true };
 }
 
+const prefixeCible = (cible: 'etablissement' | 'pharmacie') => (cible === 'etablissement' ? 'etablissements' : 'pharmacies');
+
+/** « Changer à partir du… » : ferme l'ancien tarif la veille et crée le nouveau, en une action. */
+export async function changerTarif(
+  cible: 'etablissement' | 'pharmacie',
+  cibleId: string,
+  tarifId: string,
+  input: { tarifConvention: number; aPartirDu: string },
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/provider/${prefixeCible(cible)}/${cibleId}/tarifs/${tarifId}/changer`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(`${RACINE}/${prefixeCible(cible)}/${cibleId}`);
+  return { ok: true, message: 'Tarif changé : l’ancien est fermé, le nouveau prend le relais.' };
+}
+
+/** Archivage d'un tarif = fermeture (date de fin, aujourd'hui par défaut). */
+export async function fermerTarif(
+  cible: 'etablissement' | 'pharmacie',
+  cibleId: string,
+  tarifId: string,
+  dateFin?: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/provider/${prefixeCible(cible)}/${cibleId}/tarifs/${tarifId}/fermer`, {
+    method: 'POST',
+    body: JSON.stringify(dateFin ? { dateFin } : {}),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(`${RACINE}/${prefixeCible(cible)}/${cibleId}`);
+  return { ok: true };
+}
+
+/** Désarchivage d'un tarif = réouverture, si aucun tarif suivant n'a pris le relais. */
+export async function rouvrirTarif(
+  cible: 'etablissement' | 'pharmacie',
+  cibleId: string,
+  tarifId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/provider/${prefixeCible(cible)}/${cibleId}/tarifs/${tarifId}/rouvrir`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(`${RACINE}/${prefixeCible(cible)}/${cibleId}`);
+  return { ok: true };
+}
+
 /** Tâche déclenchable : marque « À revérifier » les entrées trop anciennes. */
 export async function reverifierObsoletes(): Promise<ResultatReseau> {
   const res = await apiFetch('/api/v1/provider/verifications/reverifier-obsoletes', {

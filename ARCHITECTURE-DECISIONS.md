@@ -618,3 +618,64 @@ bénéficiaires… si un parent était supprimé physiquement ; des confirmation
 - **À confirmer** : « suppression réelle » est implémentée comme une suppression logique
   (`deleted_at`) permise seulement sans dépendance ; aucune suppression physique n'est faite
   par l'application.
+
+### Lot 2 « entités de configuration » (2026-10-08) — migration `prisma/sql/074_suppression_logique_traces_calcul.sql`
+
+Réponses du propriétaire aux points ouverts du lot 1, désormais **décidées** :
+
+1. **Suppression logique confirmée** (`deleted_at`). Conséquence : toute unicité portant sur un
+   code, un nom ou un slug SAISI par un utilisateur est un **index unique partiel**
+   `WHERE deleted_at IS NULL` (074) — établissements et pharmacies (`code`), organisations
+   (`slug`), produits (`organisation, nom, version`), actes du référentiel et du catalogue
+   national (`code`). Un code, un nom ou un slug supprimé peut être recréé. Les identifiants
+   GÉNÉRÉS (numéros de carte, d'adhérent, de police, de traitement, de consultation, codes de
+   facturation, jetons d'invitation) restent uniques sur toute la table : jamais réattribués.
+2. **Purge définitive des données personnelles = chantier futur.** La suppression logique garde
+   la ligne (nom, date de naissance, contacts…) : elle ne répond pas à une demande d'effacement
+   (RGPD / loi ivoirienne sur les données personnelles). Il faudra une procédure distincte,
+   tracée et réservée à un rôle précis : anonymisation des colonnes personnelles en conservant
+   les montants et les liens comptables. Non réalisée ici.
+3. **Produit BROUILLON sans police** : sa suppression emporte ses garanties (suppression
+   logique), en une transaction, avec une ligne d'audit `SUPPRESSION_PRODUIT` portant
+   `garantiesSupprimees`, et **seulement si aucune garantie n'est utilisée**. La confirmation
+   annonce le nombre de garanties emportées.
+4. **Traces des liens de calcul** (écart n° 9 de l'audit), clés étrangères `ON DELETE RESTRICT` :
+   `cotisations.grille_tarifaire_id` et `tarification_individuelle.grille_tarifaire_id` (grille
+   ayant servi à la prime), `actes_dossier.tarif_conventionne_id` (tarif appliqué à l'acte,
+   renseigné au calcul par la facture, la simulation et le microservice d'adjudication — seule
+   colonne de `actes_dossier` qu'il peut écrire), `lignes_dispensation.tarif_pharmacie_id`.
+   Le registre des dépendances compte ces liens : une grille ou un tarif ayant servi n'est
+   plus supprimable, un tarif ayant servi n'est plus modifiable en montant. La migration
+   rattache l'existant avec la même règle que le calcul et liste par `NOTICE` ce qui ne peut
+   pas l'être. Les cotisations CONSOLIDÉES (société) sont une somme, jamais calculées sur une
+   grille : elles restent sans grille par construction.
+   **Limite connue** : le comptoir de pharmacie calcule au prix du stock ; `tarif_pharmacie_id`
+   reste vide tant qu'un tarif de pharmacie n'est pas rattaché à un médicament (lot ultérieur).
+5. **Règles par entité** (registre + services) :
+   - Produit : modifier en BROUILLON ; supprimer en BROUILLON sans police (avec ses garanties) ;
+     archiver (quel que soit l'état sauf déjà archivé) ; **désarchiver** `ARCHIVE → PUBLIE`
+     refusé (409) si une autre version du même produit est publiée.
+   - Grille tarifaire : modifier **même utilisée** (chaque cotisation garde le montant calculé à
+     sa date) ; supprimer seulement si jamais utilisée.
+   - Tarif conventionné (établissement et pharmacie) : « **Changer à partir du…** » = une action,
+     une transaction (l'ancien est fermé la veille, le nouveau prend le relais) ; archiver =
+     fermer ; désarchiver = rouvrir si aucun tarif suivant n'a pris le relais ; ni suppression
+     ni modification de montant d'un tarif ayant servi.
+   - Acte / médicament du référentiel : retirer = archiver (médecin / pharmacien conseil),
+     re-proposer = désarchiver (informatique), supprimer seulement s'il n'a jamais été
+     homologué et sans lien.
+   - Catalogue national : retirer / réactiver (superadministrateur), suppression refusée si une
+     organisation l'a importé.
+   - Événement : archiver / désarchiver (`actif`), supprimer sans lien.
+6. **Rôles** : suppression réelle réservée au **service informatique** (et à la **direction**
+   pour les produits). Le registre porte `rolesSuppression` ; un autre rôle reçoit le verdict
+   `ROLE` (« la suppression définitive est réservée au service informatique ») et un **403**
+   (jamais un 409). L'archivage garde les rôles de l'entité.
+7. **Écrans** : `ConfirmationAction` partout (produits, garanties, tarifs, grilles, référentiel
+   médical, homologation, catalogue national, événements) ; case **« Archivés »** sur les
+   listes concernées (masqués par défaut) ; les boutons de suppression ne sont montrés qu'au
+   rôle autorisé et la confirmation interroge l'endpoint « action possible ? »
+   (`POST /api/v1/dependances/:entite/verdicts` pour toute une liste).
+
+**Reste à faire** : lots 3 à 5 (comptes utilisateurs, sociétés, comptes financiers, polices et
+avenants) ; purge des données personnelles ; tarifs de pharmacie rattachés aux médicaments.

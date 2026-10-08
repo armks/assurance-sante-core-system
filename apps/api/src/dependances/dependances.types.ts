@@ -43,6 +43,19 @@ export interface DefinitionEntite<R = any> {
   table: string;
   /** Rôles autorisés à consulter et à agir. */
   roles: readonly string[];
+  /**
+   * Rôles autorisés à la SUPPRESSION (lot 2 : service informatique, et direction pour les
+   * produits). Absent : les mêmes que `roles`. Un rôle non autorisé reçoit un verdict
+   * « impossible » (code ROLE) et le serveur répond 403.
+   */
+  rolesSuppression?: readonly string[];
+  /** Libellé humain des rôles de suppression (« le service informatique »). */
+  libelleRolesSuppression?: string;
+  /**
+   * Conseil ajouté à la raison quand des LIENS bloquent l'action (par défaut, pour la
+   * suppression d'une entité archivable : « Archivez-le plutôt. »).
+   */
+  conseils?: Partial<Record<Action, string>>;
   /** SOCIETE_ADMINISTRATION autorisée sur SON périmètre (adhérents, bénéficiaires). */
   roleSociete?: string;
   /** Charge l'enregistrement DANS le périmètre (null → 404, sans rien révéler). */
@@ -73,4 +86,6 @@ export interface Verdict {
   raison: string | null;
   /** Tous les liens non nuls (informatif), quelle que soit l'action. */
   liens: LienCompte[];
+  /** Motif d'un refus : rôle, état de l'élément, ou liens ; null si possible. */
+  code: 'ROLE' | 'ETAT' | 'LIENS' | null;
 }

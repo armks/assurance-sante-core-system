@@ -96,6 +96,20 @@ public interface AdjudicationRepository {
    */
   BigDecimal tarifConvention(UUID etablissementId, String codeActe, java.time.LocalDate date);
 
+  /**
+   * Identifiant du tarif renvoyé par {@link #tarifConvention} (même règle), ou {@code null} —
+   * trace du calcul (prisma/sql/074) : un tarif ayant servi ne se supprime plus.
+   */
+  default UUID tarifConventionneId(UUID etablissementId, String codeActe, java.time.LocalDate date) {
+    return null;
+  }
+
+  /**
+   * Trace sur l'acte adjugé le tarif conventionné appliqué à la réclamation (même règle que
+   * son contexte) — seule écriture autorisée sur {@code actes_dossier} (prisma/sql/074).
+   */
+  default void tracerTarifActe(UUID reclamationId, UUID acteDossierId) {}
+
   /** INSERT dans {@code remboursements} ... RETURNING id. */
   UUID insererRemboursement(
       UUID reclamationId,

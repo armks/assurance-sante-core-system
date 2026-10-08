@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { DependancesModule } from '../dependances/dependances.module';
 import { CategoriesActeService } from './categories-acte.service';
 import { ReferenceController } from './reference.controller';
 import { ReferenceService } from './reference.service';
@@ -12,7 +13,7 @@ import { ReferenceService } from './reference.service';
  * modules plan, preauthorization, claims et superadmin.
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, DependancesModule],
   controllers: [ReferenceController],
   providers: [ReferenceService, CategoriesActeService],
   exports: [ReferenceService, CategoriesActeService],

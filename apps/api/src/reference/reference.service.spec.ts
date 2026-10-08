@@ -6,6 +6,15 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ReferenceService } from './reference.service';
 import { CategoriesActeService } from './categories-acte.service';
 import { categoriesActeServiceDeTest } from './categories-acte.testing';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
+
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -33,6 +42,7 @@ describe('ReferenceService — gouvernance d’homologation', () => {
       referentielActe: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
         findFirst: jest.fn(),
         findMany: jest.fn(),
         update: jest.fn(),
@@ -56,6 +66,7 @@ describe('ReferenceService — gouvernance d’homologation', () => {
         ReferenceService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
+        { provide: DependancesService, useValue: dependances },
       ],
     }).compile();
 
@@ -194,7 +205,7 @@ describe('ReferenceService — gouvernance d’homologation', () => {
     prisma.referentielActe.findFirst
       .mockResolvedValueOnce(null) // pas déjà dans l'org
       .mockResolvedValueOnce({ id: 'a-new', organisationId: 'org-1', code: 'CI-CONS-GEN', statut: 'PROPOSE' }); // chargerActe
-    prisma.referentielActe.findUnique.mockResolvedValue(null); // code libre
+    prisma.referentielActe.count.mockResolvedValue(0); // code libre
     prisma.referentielActe.create.mockResolvedValue({ id: 'a-new' });
 
     const res = await service.importerActeDepuisCatalogueNational(USER, 'nat1');

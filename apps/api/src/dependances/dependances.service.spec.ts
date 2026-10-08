@@ -55,7 +55,7 @@ function baseFactice(rec: unknown, valeurs: Record<number, number> = {}) {
     }),
   };
   const db: any = new Proxy({}, {
-    get: (_t, p) => (p === '$executeRaw' ? executeRaw : p === '$transaction' ? transaction : modele),
+    get: (t: any, p) => (p in t ? t[p] : p === '$executeRaw' ? executeRaw : p === '$transaction' ? transaction : modele),
   });
   const executeRaw = jest.fn().mockResolvedValue(1);
   const transaction = jest.fn();
@@ -197,5 +197,143 @@ describe('DependancesService — messages, rôles, périmètre, refus', () => {
     const { s } = service({ ...fixture('utilisateur', 'supprimer'), id: 'u-appelant' }, 'ASSUREUR_INFORMATIQUE');
     const v = await s.verifier(USER, 'utilisateur', 'u-appelant', 'supprimer');
     expect(v.raison).toBe('Suppression impossible : Vous ne pouvez pas supprimer votre propre compte.');
+  });
+});
+
+describe('DependancesService — lot 2 : entités de configuration', () => {
+  const index = (entite: string, cle: string) => REGISTRE[entite].dependances.findIndex((d) => d.cle === cle);
+
+  describe('suppression réservée au service informatique (et à la direction pour les produits)', () => {
+    const cas: [string, string, boolean][] = [
+      ['referentielActe', 'ASSUREUR_MEDECIN_CONSEIL', false],
+      ['referentielActe', 'ASSUREUR_INFORMATIQUE', true],
+      ['medicament', 'ASSUREUR_PHARMACIEN_CONSEIL', false],
+      ['medicament', 'ASSUREUR_INFORMATIQUE', true],
+      ['produit', 'ASSUREUR_DIRECTION', true],
+      ['produit', 'ASSUREUR_INFORMATIQUE', true],
+      ['garantie', 'ASSUREUR_DIRECTION', true],
+    ];
+    for (const [entite, role, autorise] of cas) {
+      it(`${entite} — ${role} : suppression ${autorise ? 'autorisée' : 'refusée (code ROLE)'}`, async () => {
+        const v = await service(fixture(entite, 'supprimer'), role).s.verifier(USER, entite, 'x-1', 'supprimer');
+        if (autorise) {
+          expect(v).toMatchObject({ possible: true, code: null });
+        } else {
+          expect(v).toMatchObject({
+            possible: false,
+            code: 'ROLE',
+            raison: 'Suppression impossible : la suppression définitive est réservée au service informatique.',
+          });
+        }
+      });
+    }
+
+    it('le même rôle garde les autres actions (archiver un acte : médecin conseil)', async () => {
+      const v = await service(fixture('referentielActe', 'archiver'), 'ASSUREUR_MEDECIN_CONSEIL').s.verifier(USER, 'referentielActe', 'x-1', 'archiver');
+      expect(v.possible).toBe(true);
+    });
+
+    it('assertPossible : rôle non autorisé → 403 (pas 409), refus tracé', async () => {
+      const { s, executeRaw } = service(fixture('referentielActe', 'supprimer'), 'ASSUREUR_MEDECIN_CONSEIL');
+      const err = await s.assertPossible(USER, 'referentielActe', 'x-1', 'supprimer').catch((e) => e);
+      expect(err).toBeInstanceOf(ForbiddenException);
+      expect(err.getResponse()).toMatchObject({ message: expect.stringContaining('service informatique') });
+      expect(executeRaw.mock.calls[0].slice(1, 3)).toEqual(['REFUS_SUPPRIMER', 'referentiel_actes']);
+    });
+  });
+
+  describe('produit en brouillon : ses garanties partent avec lui, sauf si l’une est utilisée', () => {
+    it('3 garanties non utilisées → suppression possible, les garanties sont annoncées dans les liens', async () => {
+      const v = await service(fixture('produit', 'supprimer'), 'ASSUREUR_DIRECTION', { [index('produit', 'garanties')]: 3 })
+        .s.verifier(USER, 'produit', 'x-1', 'supprimer');
+      expect(v).toMatchObject({ possible: true, liens: [{ type: 'garanties', libelle: 'garanties', nombre: 3 }] });
+    });
+
+    it('une garantie utilisée (dossier ou réclamation) → refus nommé', async () => {
+      const v = await service(fixture('produit', 'supprimer'), 'ASSUREUR_DIRECTION', {
+        [index('produit', 'garanties')]: 3,
+        [index('produit', 'garantiesUtilisees')]: 1,
+      }).s.verifier(USER, 'produit', 'x-1', 'supprimer');
+      expect(v.possible).toBe(false);
+      expect(v.raison).toContain('1 garantie utilisée (dossier de soins ou réclamation)');
+      expect(v.raison).not.toContain('3 garanties');
+    });
+
+    it('le comptage des garanties utilisées porte sur les dossiers ET les réclamations, en un seul count', async () => {
+      const { s, appels } = service(fixture('produit', 'supprimer'), 'ASSUREUR_DIRECTION');
+      await s.verifier(USER, 'produit', 'x-1', 'supprimer');
+      expect(appels[index('produit', 'garantiesUtilisees')]).toEqual({
+        where: { produitId: 'x-1', deletedAt: null, OR: [{ dossiersSoins: { some: {} } }, { reclamations: { some: {} } }] },
+      });
+    });
+  });
+
+  describe('liens tracés au calcul (prisma/sql/074)', () => {
+    it('grille : comptée par grilleTarifaireId (cotisations, tarifications) ; modifiable même utilisée', async () => {
+      const valeurs = { [index('grilleTarifaire', 'cotisations')]: 4 };
+      const sup = await service(fixture('grilleTarifaire', 'supprimer'), 'ASSUREUR_INFORMATIQUE', valeurs).s.verifier(USER, 'grilleTarifaire', 'x-1', 'supprimer');
+      expect(sup.raison).toBe('Suppression impossible : la grille tarifaire « 0–10 ans » est liée à 4 cotisations calculées avec cette grille.');
+      const mod = await service(fixture('grilleTarifaire', 'modifier'), 'ASSUREUR_INFORMATIQUE', valeurs).s.verifier(USER, 'grilleTarifaire', 'x-1', 'modifier');
+      expect(mod.possible).toBe(true);
+      const { s, appels } = service(fixture('grilleTarifaire', 'supprimer'), 'ASSUREUR_INFORMATIQUE');
+      await s.verifier(USER, 'grilleTarifaire', 'x-1', 'supprimer');
+      expect(appels).toEqual([
+        { where: { grilleTarifaireId: 'x-1', police: { organisationId: ORG } } },
+        { where: { grilleTarifaireId: 'x-1', police: { organisationId: ORG } } },
+      ]);
+    });
+
+    it('tarif ayant servi : ni suppression (« Fermez-le plutôt ») ni modification (« Changer à partir du… »)', async () => {
+      const valeurs = { [index('tarif', 'actesCalcules')]: 2 };
+      const sup = await service(fixture('tarif', 'supprimer'), 'ASSUREUR_INFORMATIQUE', valeurs).s.verifier(USER, 'tarif', 'x-1', 'supprimer');
+      expect(sup.raison).toBe(
+        "Suppression impossible : le tarif conventionné « Consultation — 1 000 F » est lié à 2 actes calculés avec ce tarif. Fermez-le plutôt (date de fin) : l'historique est conservé.",
+      );
+      const mod = await service(fixture('tarif', 'modifier'), 'ASSUREUR_INFORMATIQUE', valeurs).s.verifier(USER, 'tarif', 'x-1', 'modifier');
+      expect(mod.raison).toContain('Utilisez « Changer à partir du… »');
+      const fermer = await service(fixture('tarif', 'archiver'), 'ASSUREUR_INFORMATIQUE', valeurs).s.verifier(USER, 'tarif', 'x-1', 'archiver');
+      expect(fermer.possible).toBe(true);
+    });
+
+    it('tarif de PHARMACIE : ni suppression ni modification de montant tant que la trace du calcul manque ; fermer et changer restent permis', async () => {
+      const rec = { ...fixture('tarif', 'supprimer'), etablissementId: null, pharmacieId: 'ph-1' };
+      const v = async (action: 'supprimer' | 'modifier' | 'archiver') =>
+        service(rec, 'ASSUREUR_INFORMATIQUE').s.verifier(USER, 'tarif', 'x-1', action);
+      for (const action of ['supprimer', 'modifier'] as const) {
+        const r = await v(action);
+        expect(r.possible).toBe(false);
+        expect(r.code).toBe('ETAT');
+        expect(r.raison).toContain('ne tracent pas encore le tarif utilisé');
+      }
+      expect((await v('archiver')).possible).toBe(true);
+      // un tarif d'établissement sans calcul reste libre
+      const etab = await service(fixture('tarif', 'supprimer'), 'ASSUREUR_INFORMATIQUE').s.verifier(USER, 'tarif', 'x-1', 'supprimer');
+      expect(etab.possible).toBe(true);
+    });
+
+    it('tarif : comptages par tarifConventionneId (actes) et tarifPharmacieId (dispensations), dans l’organisation du jeton', async () => {
+      const { s, appels } = service(fixture('tarif', 'supprimer'), 'ASSUREUR_INFORMATIQUE');
+      await s.verifier(USER, 'tarif', 'x-1', 'supprimer');
+      expect(appels.slice(0, 2)).toEqual([
+        { where: { tarifConventionneId: 'x-1', dossier: { organisationId: ORG } } },
+        { where: { tarifPharmacieId: 'x-1', dispensation: { pharmacie: { organisationId: ORG } } } },
+      ]);
+    });
+  });
+
+  describe('verdicts d’une liste (boutons d’une table)', () => {
+    it('quatre verdicts par élément, liens comptés UNE fois par élément ; hors périmètre absent', async () => {
+      const base = baseFactice(null);
+      const recs: Record<string, unknown> = { a: fixture('evenement', 'supprimer'), b: { ...fixture('evenement', 'supprimer'), actif: false } };
+      base.db.evenement = { findFirst: jest.fn(async ({ where }: any) => recs[where.id] ?? null), count: jest.fn() };
+      const identity = { getMe: jest.fn().mockResolvedValue({ profil: { id: 'u', organisationId: ORG }, permissions: { roleChain: ['ASSUREUR_INFORMATIQUE'] } }) };
+      const s = new DependancesService(base.db, identity as any);
+      const r = await s.verifierListe(USER, 'evenement', ['a', 'b', 'autre-organisation']);
+      expect(Object.keys(r)).toEqual(['a', 'b']);
+      expect(r.a.archiver).toEqual({ possible: true, raison: null, code: null });
+      expect(r.a.desarchiver.possible).toBe(false);
+      expect(r.b.desarchiver.possible).toBe(true);
+      expect(r.b.archiver).toMatchObject({ possible: false, code: 'ETAT' });
+    });
   });
 });

@@ -12,6 +12,7 @@ import {
 } from '@/components/dashboard/tarifs-conventionnes-panneau';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { peutSupprimerDefinitivement, verdictsListe } from '@/app/dependances-actions';
 import { apiFetch } from '@/lib/api';
 import { LIBELLE_STATUT_PHARMACIE } from '@/lib/reseau';
 
@@ -41,6 +42,10 @@ export default async function PharmaciePage({
   const pharmacie = (await resPharma.json()) as PharmacieDetail;
   const tarifs: TarifConventionne[] = resTarifs.ok ? await resTarifs.json() : [];
   const actes: ActeDisponible[] = resActes.ok ? await resActes.json() : [];
+  const [verdicts, peutSupprimer] = await Promise.all([
+    verdictsListe('tarif', tarifs.map((t) => t.id)),
+    peutSupprimerDefinitivement(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -89,6 +94,8 @@ export default async function PharmaciePage({
             cibleId={pharmacie.id}
             tarifs={tarifs}
             actesDisponibles={actes}
+            verdicts={verdicts}
+            peutSupprimer={peutSupprimer}
           />
         </CardContent>
       </Card>

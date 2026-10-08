@@ -155,7 +155,7 @@ describe('OrganisationsService — chemin de la page d’accueil (slug)', () => 
     prisma = {
       organisation: {
         findFirst: jest.fn().mockResolvedValue({ id: ORG, slug: 'ancien-chemin' }),
-        findUnique: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
         update: jest.fn().mockResolvedValue({}),
       },
       $executeRaw: jest.fn().mockResolvedValue(1),
@@ -197,7 +197,7 @@ describe('OrganisationsService — chemin de la page d’accueil (slug)', () => 
   });
 
   it('chemin déjà pris par une autre organisation → 409', async () => {
-    prisma.organisation.findUnique.mockResolvedValue({ id: 'org-2' });
+    prisma.organisation.count.mockResolvedValue(1);
     await expect(service.modifierSlug(USER, ORG, 'pris')).rejects.toThrow('déjà utilisé');
     expect(prisma.organisation.update).not.toHaveBeenCalled();
   });

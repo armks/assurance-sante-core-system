@@ -172,3 +172,26 @@ export async function creerNouvelleVersion(
   revalidatePath(CIBLE);
   return { ok: true, id: p.id };
 }
+
+/** Désarchive le produit (ARCHIVE → PUBLIE) ; 409 si une autre version du même produit est publiée. */
+export async function desarchiverProduit(
+  produitId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/plan/produits/${produitId}/desarchiver`, {
+    method: 'POST',
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(`${CIBLE}/${produitId}`);
+  revalidatePath(CIBLE);
+  return { ok: true };
+}
+
+/** Supprime un brouillon sans police, avec ses garanties non utilisées (une transaction). */
+export async function supprimerProduit(
+  produitId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/plan/produits/${produitId}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}

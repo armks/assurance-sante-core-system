@@ -13,6 +13,8 @@ import {
   suspendreMedicament,
   type ResultatReference,
 } from '@/app/dashboard-assureur/reference-actions';
+import { verifierAction } from '@/app/dependances-actions';
+import { ConfirmationAction } from '@/components/dashboard/patterns';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
@@ -153,14 +155,18 @@ export function HomologationPanneau({
                         </Button>
                       )}
                       {a.statut !== 'RETIRE' && (
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          disabled={pending}
-                          onClick={() => run(() => retirerActe(a.id))}
-                        >
-                          Retirer
-                        </Button>
+                        <ConfirmationAction
+                          action="archiver"
+                          element={`l’acte « ${a.code} — ${a.libelle} »`}
+                          consequence="Il n'est plus proposé ni utilisable pour de nouveaux soins ; l'historique est conservé."
+                          verifier={() => verifierAction('referentielActe', a.id, 'archiver')}
+                          onConfirmer={() => retirerActe(a.id)}
+                          declencheur={
+                            <Button size="xs" variant="outline" disabled={pending}>
+                              Retirer
+                            </Button>
+                          }
+                        />
                       )}
                       {(a.statut === 'SUSPENDU' || a.statut === 'RETIRE') && (
                         <Button
@@ -230,14 +236,18 @@ export function HomologationPanneau({
                         </Button>
                       )}
                       {m.statutHomologation !== 'RETIRE' && (
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          disabled={pending}
-                          onClick={() => run(() => retirerMedicament(m.id))}
-                        >
-                          Retirer
-                        </Button>
+                        <ConfirmationAction
+                          action="archiver"
+                          element={`le médicament « ${m.denominationCommune} »`}
+                          consequence="Il n'est plus proposé ni utilisable pour de nouveaux soins ; l'historique est conservé."
+                          verifier={() => verifierAction('medicament', m.id, 'archiver')}
+                          onConfirmer={() => retirerMedicament(m.id)}
+                          declencheur={
+                            <Button size="xs" variant="outline" disabled={pending}>
+                              Retirer
+                            </Button>
+                          }
+                        />
                       )}
                       {(m.statutHomologation === 'SUSPENDU' ||
                         m.statutHomologation === 'RETIRE') && (

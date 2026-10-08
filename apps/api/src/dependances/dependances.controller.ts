@@ -1,9 +1,18 @@
-import { Controller, Get, NotFoundException, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { ArrayMaxSize, IsArray, IsUUID } from 'class-validator';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { DependancesService } from './dependances.service';
 import { ACTIONS, type Action } from './dependances.types';
+
+/** Corps de `POST /dependances/:entite/verdicts`. */
+export class VerdictsListeDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID('all', { each: true })
+  ids!: string[];
+}
 
 /**
  * « Action possible ? » (ADR-007) — l'écran n'affiche un bouton que si l'action est
@@ -11,12 +20,24 @@ import { ACTIONS, type Action } from './dependances.types';
  *
  * - `GET /dependances/:entite/:id` : verdicts des 4 actions ;
  * - `GET /dependances/:entite/:id/:action` : verdict d'une action
- *   (`supprimer` | `archiver` | `desarchiver` | `modifier`).
+ *   (`supprimer` | `archiver` | `desarchiver` | `modifier`) ;
+ * - `POST /dependances/:entite/verdicts` `{ ids }` : verdicts des 4 actions pour une
+ *   liste (boutons d'une table), `{ [id]: { [action]: { possible, raison, code } } }`.
  */
 @Controller('dependances')
 @UseGuards(SupabaseAuthGuard)
 export class DependancesController {
   constructor(private readonly dependances: DependancesService) {}
+
+  @Post(':entite/verdicts')
+  @HttpCode(200)
+  liste(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('entite') entite: string,
+    @Body() dto: VerdictsListeDto,
+  ) {
+    return this.dependances.verifierListe(user, entite, dto.ids);
+  }
 
   @Get(':entite/:id')
   tout(

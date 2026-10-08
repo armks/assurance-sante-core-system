@@ -121,6 +121,11 @@ public class AdjudicationService {
       throw new MauvaisStatut(reclamationId, "modifié pendant l'adjudication");
     }
 
+    // trace du tarif conventionné appliqué à l'acte (prisma/sql/074)
+    if (ctx.tarifConvention() != null && ctx.acteDossierId() != null) {
+      repo.tracerTarifActe(reclamationId, ctx.acteDossierId());
+    }
+
     // 6) audit
     repo.journaliser(reclamationId, UTILISATEUR_SVC, r);
 

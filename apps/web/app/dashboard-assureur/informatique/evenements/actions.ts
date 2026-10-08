@@ -50,6 +50,22 @@ export async function supprimerEvenement(id: string): Promise<{ ok: true } | { o
   return { ok: true };
 }
 
+/** Archivage : l'événement est masqué de la page publique (actif = false). */
+export async function archiverEvenement(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/vitrine/evenements/${id}/archiver`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  rafraichir();
+  return { ok: true };
+}
+
+/** Désarchivage : l'événement est de nouveau affiché. */
+export async function desarchiverEvenement(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/vitrine/evenements/${id}/desarchiver`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  rafraichir();
+  return { ok: true };
+}
+
 /**
  * Bannière de la page d'accueil de la société (/{slug}). Titre et sous-titre
  * toujours envoyés (vide = retour au texte par défaut de la plateforme) ; image

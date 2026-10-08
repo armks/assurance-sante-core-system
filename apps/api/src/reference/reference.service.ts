@@ -11,6 +11,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from './categories-acte.service';
+import { DependancesService } from '../dependances/dependances.service';
 import {
   HomologuerMedicamentDto,
   ProposerActeDto,
@@ -50,6 +51,7 @@ export class ReferenceService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly categoriesActe: CategoriesActeService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Actes -------------------------------------------------------
@@ -145,6 +147,7 @@ export class ReferenceService {
     if (acte.statut === 'RETIRE') {
       throw new ConflictException('Cet acte est déjà retiré.');
     }
+    await this.dependances.assertPossible(user, 'referentielActe', id, 'archiver');
     return this.changerStatutActe(ctx, id, 'RETIRE', 'RETRAIT_ACTE', motif, true);
   }
 
@@ -158,6 +161,9 @@ export class ReferenceService {
         `Seul un acte SUSPENDU ou RETIRE peut être re-proposé (statut actuel : ${acte.statut}).`,
       );
     }
+    if (acte.statut === 'RETIRE') {
+      await this.dependances.assertPossible(user, 'referentielActe', id, 'desarchiver');
+    }
     return this.changerStatutActe(
       ctx,
       id,
@@ -165,6 +171,20 @@ export class ReferenceService {
       'REPROPOSITION_ACTE',
       undefined,
     );
+  }
+
+  /**
+   * Suppression (logique) d'un acte jamais homologué et sans aucun lien (ADR-007) ;
+   * réservée au service informatique (registre des dépendances). Le code redevient libre.
+   */
+  async supprimerActe(user: AuthenticatedUser, id: string): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    const acte = await this.chargerActe(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'referentielActe', id, 'supprimer');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.referentielActe.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_ACTE', id, { code: acte.code, libelle: acte.libelle }, 'referentiel_actes');
+    });
   }
 
   async listerActes(user: AuthenticatedUser, filtres: { statut?: string }) {
@@ -315,6 +335,7 @@ export class ReferenceService {
     if (m.statutHomologation === 'RETIRE') {
       throw new ConflictException('Ce médicament est déjà retiré.');
     }
+    await this.dependances.assertPossible(user, 'medicament', id, 'archiver');
     return this.changerStatutMedicament(
       ctx,
       id,
@@ -334,6 +355,9 @@ export class ReferenceService {
         `Seul un médicament SUSPENDU ou RETIRE peut être re-proposé (statut actuel : ${m.statutHomologation}).`,
       );
     }
+    if (m.statutHomologation === 'RETIRE') {
+      await this.dependances.assertPossible(user, 'medicament', id, 'desarchiver');
+    }
     return this.changerStatutMedicament(
       ctx,
       id,
@@ -341,6 +365,17 @@ export class ReferenceService {
       'REPROPOSITION_MEDICAMENT',
       undefined,
     );
+  }
+
+  /** Suppression (logique) d'un médicament jamais homologué et sans aucun lien (ADR-007). */
+  async supprimerMedicament(user: AuthenticatedUser, id: string): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    const m = await this.chargerMedicament(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'medicament', id, 'supprimer');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.medicament.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_MEDICAMENT', id, { denominationCommune: m.denominationCommune }, 'medicaments');
+    });
   }
 
   async listerMedicaments(
@@ -382,7 +417,8 @@ export class ReferenceService {
     this.assertRole(ctx, ROLE_PROPOSITION, 'importer un acte du catalogue national');
 
     const national = await this.prisma.referentielNationalActe.findFirst({
-      where: { id: itemId, deletedAt: null },
+      // un acte retiré (archivé) du catalogue national ne s'importe plus (ADR-007)
+      where: { id: itemId, deletedAt: null, statut: { not: 'RETIRE' } },
     });
     if (!national) {
       throw new NotFoundException('Acte introuvable dans le catalogue national.');
@@ -435,7 +471,7 @@ export class ReferenceService {
     );
 
     const national = await this.prisma.referentielNationalMedicament.findFirst({
-      where: { id: itemId, deletedAt: null },
+      where: { id: itemId, deletedAt: null, statutHomologation: { not: 'RETIRE' } },
     });
     if (!national) {
       throw new NotFoundException(
@@ -503,7 +539,8 @@ export class ReferenceService {
     return this.prisma.referentielNationalActe.findMany({
       where: {
         deletedAt: null,
-        ...(filtres.statut ? { statut: filtres.statut } : {}),
+        // vue ORGANISATION : jamais les éléments retirés (archivés) du catalogue
+        ...(filtres.statut ? { statut: filtres.statut } : { statut: { not: 'RETIRE' } }),
       },
       orderBy: [{ categorie: 'asc' }, { libelle: 'asc' }],
     });
@@ -517,7 +554,7 @@ export class ReferenceService {
     return this.prisma.referentielNationalMedicament.findMany({
       where: {
         deletedAt: null,
-        ...(filtres.statut ? { statutHomologation: filtres.statut } : {}),
+        ...(filtres.statut ? { statutHomologation: filtres.statut } : { statutHomologation: { not: 'RETIRE' } }),
       },
       orderBy: [{ classeTherapeutique: 'asc' }, { denominationCommune: 'asc' }],
     });
@@ -629,9 +666,8 @@ export class ReferenceService {
   }
 
   private async assertCodeActeLibre(code: string): Promise<void> {
-    const existe = await this.prisma.referentielActe.findUnique({
-      where: { code },
-    });
+    // unique parmi les NON supprimés (index partiel, prisma/sql/074)
+    const existe = (await this.prisma.referentielActe.count({ where: { code, deletedAt: null } })) > 0;
     if (existe) {
       throw new ConflictException(`Le code d'acte « ${code} » existe déjà.`);
     }

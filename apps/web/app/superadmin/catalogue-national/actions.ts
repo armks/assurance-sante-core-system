@@ -98,3 +98,15 @@ export async function validerImportCatalogue(
   const corps = await res.json();
   return { ok: true, nbCrees: corps.nbCrees, nbMisAJour: corps.nbMisAJour };
 }
+
+/** Archivage (retrait) ou désarchivage (réactivation) d'un élément du catalogue national. */
+export async function changerStatutItemNational(
+  type: 'actes' | 'medicaments',
+  id: string,
+  action: 'retirer' | 'reactiver',
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/superadmin/catalogue-national/${type}/${id}/${action}`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}

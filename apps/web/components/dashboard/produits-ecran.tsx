@@ -3,6 +3,7 @@
 import { FileStack, Package, PackageCheck, PackageOpen } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 import { creerProduit } from '@/app/dashboard-assureur/informatique/produits/actions';
 import {
@@ -42,6 +43,8 @@ const LIBELLE_STATUT: Record<string, string> = {
 
 export function ProduitsEcran({ produits }: { produits: Produit[] }) {
   const router = useRouter();
+  const [voirArchives, setVoirArchives] = useState(false);
+  const visibles = voirArchives ? produits : produits.filter((p) => p.statut !== 'ARCHIVE');
 
   const parStatut = (s: string) => produits.filter((p) => p.statut === s).length;
 
@@ -101,8 +104,15 @@ export function ProduitsEcran({ produits }: { produits: Produit[] }) {
         />
       </GrilleCartes>
 
+      {parStatut('ARCHIVE') > 0 && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
+          Archivés ({parStatut('ARCHIVE')})
+        </label>
+      )}
+
       <DataTable
-        donnees={produits}
+        donnees={visibles}
         cleLigne={(p) => p.id}
         parPage={10}
         recherche={{ placeholder: 'Nom du produit…', champs: ['nom'] }}

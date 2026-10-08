@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -18,6 +21,7 @@ import {
   CreateGrilleDto,
   EnregistrerPaiementDto,
   GenererCotisationsDto,
+  UpdateGrilleDto,
 } from './dto/billing.dto';
 
 /**
@@ -47,6 +51,26 @@ export class BillingController {
     @Query('souscripteurId') souscripteurId?: string,
   ) {
     return this.billing.listerGrilles(user, { produitId, souscripteurId });
+  }
+
+  /** Modification permise même si la grille a servi (ADR-007). */
+  @Patch('grilles-tarifaires/:id')
+  modifierGrille(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateGrilleDto,
+  ) {
+    return this.billing.modifierGrille(user, id, dto);
+  }
+
+  /** Suppression d'une grille jamais utilisée par un calcul (ADR-007). */
+  @Delete('grilles-tarifaires/:id')
+  @HttpCode(204)
+  supprimerGrille(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.billing.supprimerGrille(user, id);
   }
 
   // --- Calcul (ne persiste rien) ---

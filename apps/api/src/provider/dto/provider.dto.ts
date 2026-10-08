@@ -186,6 +186,26 @@ export class CreateTarifConventionneDto {
   dateFin?: string;
 }
 
+/**
+ * « Changer à partir du… » (ADR-007) : en UNE action, l'ancien tarif est fermé la
+ * veille de `aPartirDu` et le nouveau montant prend le relais à cette date.
+ */
+export class ChangerTarifConventionneDto {
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  tarifConvention!: number;
+
+  @IsDateString()
+  aPartirDu!: string;
+}
+
+/** Fermeture d'un tarif (archivage) : date de fin, aujourd'hui par défaut. */
+export class FermerTarifConventionneDto {
+  @IsOptional()
+  @IsDateString()
+  dateFin?: string;
+}
+
 export class UpdateTarifConventionneDto {
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })

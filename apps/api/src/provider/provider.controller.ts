@@ -24,6 +24,8 @@ import {
   UpdateEtablissementDto,
   UpdatePharmacieDto,
   UpdateTarifConventionneDto,
+  ChangerTarifConventionneDto,
+  FermerTarifConventionneDto,
 } from './dto/provider.dto';
 import { ProviderService } from './provider.service';
 
@@ -148,6 +150,38 @@ export class ProviderController {
     return this.provider.modifierTarif(user, 'etablissement', id, tarifId, dto);
   }
 
+/** « Changer à partir du… » : ferme l'ancien tarif et crée le nouveau, une transaction. */
+  @Post('etablissements/:id/tarifs/:tarifId/changer')
+  changerTarifEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+    @Body() dto: ChangerTarifConventionneDto,
+  ) {
+    return this.provider.changerTarif(user, 'etablissement', id, tarifId, dto);
+  }
+
+  /** Archivage d'un tarif = fermeture (date de fin) ; l'historique est conservé. */
+  @Post('etablissements/:id/tarifs/:tarifId/fermer')
+  fermerTarifEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+    @Body() dto: FermerTarifConventionneDto,
+  ) {
+    return this.provider.fermerTarif(user, 'etablissement', id, tarifId, dto);
+  }
+
+  /** Désarchivage = réouverture, si aucun tarif suivant n'a pris le relais. */
+  @Post('etablissements/:id/tarifs/:tarifId/rouvrir')
+  rouvrirTarifEtablissement(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+  ) {
+    return this.provider.rouvrirTarif(user, 'etablissement', id, tarifId);
+  }
+
   @Delete('etablissements/:id/tarifs/:tarifId')
   @HttpCode(204)
   supprimerTarifEtablissement(
@@ -247,6 +281,38 @@ export class ProviderController {
     @Body() dto: UpdateTarifConventionneDto,
   ) {
     return this.provider.modifierTarif(user, 'pharmacie', id, tarifId, dto);
+  }
+
+/** « Changer à partir du… » : ferme l'ancien tarif et crée le nouveau, une transaction. */
+  @Post('pharmacies/:id/tarifs/:tarifId/changer')
+  changerTarifPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+    @Body() dto: ChangerTarifConventionneDto,
+  ) {
+    return this.provider.changerTarif(user, 'pharmacie', id, tarifId, dto);
+  }
+
+  /** Archivage d'un tarif = fermeture (date de fin) ; l'historique est conservé. */
+  @Post('pharmacies/:id/tarifs/:tarifId/fermer')
+  fermerTarifPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+    @Body() dto: FermerTarifConventionneDto,
+  ) {
+    return this.provider.fermerTarif(user, 'pharmacie', id, tarifId, dto);
+  }
+
+  /** Désarchivage = réouverture, si aucun tarif suivant n'a pris le relais. */
+  @Post('pharmacies/:id/tarifs/:tarifId/rouvrir')
+  rouvrirTarifPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('tarifId', ParseUUIDPipe) tarifId: string,
+  ) {
+    return this.provider.rouvrirTarif(user, 'pharmacie', id, tarifId);
   }
 
   @Delete('pharmacies/:id/tarifs/:tarifId')

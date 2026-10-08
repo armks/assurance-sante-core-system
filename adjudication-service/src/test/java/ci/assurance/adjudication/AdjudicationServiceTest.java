@@ -82,6 +82,27 @@ class AdjudicationServiceTest {
   }
 
   @Test
+  @DisplayName("Trace du calcul (prisma/sql/074) : l'acte adjugé reçoit le tarif conventionné appliqué ; aucun tarif → aucune écriture")
+  void tarifTraceSurActe() {
+    when(repo.remboursementExiste(ID)).thenReturn(false);
+    when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
+    when(repo.insererRemboursement(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyLong()))
+        .thenReturn(UUID.randomUUID());
+    when(repo.majStatut(eq(ID), any())).thenReturn(1);
+
+    ContexteAdjudication avecTarif =
+        JeuDeDonneesReference.actifAvecTarifConventionne(new BigDecimal("25000.00"), new BigDecimal("15000.00"));
+    when(repo.chargerContexte(ID)).thenReturn(Optional.of(avecTarif));
+    service.evaluer(ID);
+    verify(repo).tracerTarifActe(ID, avecTarif.acteDossierId());
+
+    org.mockito.Mockito.clearInvocations(repo);
+    when(repo.chargerContexte(ID)).thenReturn(Optional.of(JeuDeDonneesReference.actif(new BigDecimal("25000.00"))));
+    service.evaluer(ID);
+    verify(repo, never()).tracerTarifActe(any(), any());
+  }
+
+  @Test
   @DisplayName("Cas normal complet : insère 18400.00, passe la réclamation à AUTO_ADJUDIQUE, journalise")
   void casNormalComplet() {
     ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));

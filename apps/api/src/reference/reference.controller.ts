@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -138,6 +140,16 @@ export class ReferenceController {
     return this.reference.reproposerActe(user, id);
   }
 
+  /** Acte jamais homologué et sans lien — service informatique (ADR-007). */
+  @Delete('actes/:id')
+  @HttpCode(204)
+  supprimerActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.reference.supprimerActe(user, id);
+  }
+
   // --- Médicaments ------------------------------------------
 
   @Post('medicaments')
@@ -194,6 +206,16 @@ export class ReferenceController {
     @Body() dto: MotifDto,
   ) {
     return this.reference.retirerMedicament(user, id, dto.motif);
+  }
+
+  /** Médicament jamais homologué et sans lien — service informatique (ADR-007). */
+  @Delete('medicaments/:id')
+  @HttpCode(204)
+  supprimerMedicament(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.reference.supprimerMedicament(user, id);
   }
 
   @Post('medicaments/:id/reproposer')

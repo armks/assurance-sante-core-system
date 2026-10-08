@@ -176,7 +176,10 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
   }
 
   it('dossier mixte : seules les catégories couvertes partent au microservice, dans l’ordre', async () => {
-    adjudication.simuler.mockResolvedValueOnce(reponseSimulation(8000, 40000));
+    const reponse = reponseSimulation(8000, 40000);
+    // le microservice renvoie le tarif conventionné appliqué à l'acte codé (trace, prisma/sql/074)
+    (reponse.lignes[1] as any).tarif_conventionne_id = 'tarif-nfs';
+    adjudication.simuler.mockResolvedValueOnce(reponse);
     const r = await (service as any).calculerMontantsPourActes(CONTEXTE, 'prod-1', [
       { id: 'a1', montantPrescrit: '10000', quantite: 1, categorieActe: 'CONSULTATION', codeActe: null, dateRealisation: null, datePrescription: new Date('2026-06-15') },
       { id: 'a2', montantPrescrit: '15000', quantite: 1, categorieActe: 'ACTE_TECHNIQUE', codeActe: null, dateRealisation: null, datePrescription: new Date('2026-06-15') },
@@ -190,6 +193,8 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
       montantPatient: '37000.00',
       montantsActes: ['10000.00', '15000.00', '60000.00'],
       partsAssurance: ['8000.00', '0.00', '40000.00'],
+      // tarif appliqué rapporté à SON acte (a3), dans l'ordre des actes
+      tarifsConventionnes: [null, null, 'tarif-nfs'],
       // aucun acte non couvert à la date des soins (catégorie non couverte ≠ inéligibilité)
       codesIneligibilite: [null, null, null],
     });

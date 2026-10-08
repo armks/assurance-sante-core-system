@@ -36,6 +36,30 @@ export class CreateGrilleDto {
   montantMensuel!: number;
 }
 
+/**
+ * Modification d'une grille (ADR-007) : permise même si la grille a déjà servi —
+ * chaque cotisation garde le montant calculé à sa date ; seule la suppression exige
+ * qu'elle n'ait jamais servi.
+ */
+export class UpdateGrilleDto {
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(150)
+  trancheAgeMin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(150)
+  trancheAgeMax?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  montantMensuel?: number;
+}
+
 export class CalculerCotisationDto {
   @IsUUID()
   policeId!: string;

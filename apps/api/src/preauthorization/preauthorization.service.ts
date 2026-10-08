@@ -1107,6 +1107,8 @@ export class PreauthorizationService {
           montantSimuleAssurance: simulation?.montantSimuleAssurance ?? null,
           montantSimulePatient: simulation?.montantSimulePatient ?? null,
           ticketModerateurSimule: simulation?.ticketModerateurSimule ?? null,
+          // trace du calcul (prisma/sql/074)
+          tarifConventionneId: simulation?.tarifConventionneId ?? null,
           statutPreautorisation,
           dateRealisation: dto.dateRealisation
             ? new Date(dto.dateRealisation)
@@ -1201,6 +1203,7 @@ export class PreauthorizationService {
       montantSimuleAssurance: string;
       montantSimulePatient: string;
       ticketModerateurSimule: string;
+      tarifConventionneId: string | null;
     } | null;
   }> {
     const garantie = await this.prisma.garantie.findFirst({
@@ -1220,11 +1223,13 @@ export class PreauthorizationService {
           montantSimuleAssurance: '0.00',
           montantSimulePatient: montantFacture.toFixed(2),
           ticketModerateurSimule: '0.00',
+          tarifConventionneId: null,
         },
       };
     }
 
     let montantSimuleAssurance: Decimal;
+    let tarifConventionneId: string | null = null;
     try {
       const resultat = await this.adjudication.simuler(
         this.demandeSimulation(contexte, [
@@ -1238,6 +1243,7 @@ export class PreauthorizationService {
         ]),
       );
       montantSimuleAssurance = new Decimal(String(resultat.lignes[0].montant_couvert));
+      tarifConventionneId = resultat.lignes[0].tarif_conventionne_id ?? null;
     } catch (err) {
       this.logger.warn(
         `Simulation de la part assurance indisponible (microservice d'adjudication) : ${
@@ -1261,6 +1267,7 @@ export class PreauthorizationService {
         montantSimuleAssurance: montantSimuleAssurance.toFixed(2),
         montantSimulePatient: montantSimulePatient.toFixed(2),
         ticketModerateurSimule: ticketModerateurSimule.toFixed(2),
+        tarifConventionneId,
       },
     };
   }
@@ -1508,6 +1515,7 @@ export class PreauthorizationService {
       montantSimuleAssurance: string;
       montantSimulePatient: string;
       ticketModerateurSimule: string;
+      tarifConventionneId: string | null;
     } | null = null;
 
     if (params.decision === 'REFUSE') {
@@ -1563,6 +1571,7 @@ export class PreauthorizationService {
                       montantSimuleAssurance: simulation.montantSimuleAssurance,
                       montantSimulePatient: simulation.montantSimulePatient,
                       ticketModerateurSimule: simulation.ticketModerateurSimule,
+                      tarifConventionneId: simulation.tarifConventionneId,
                     }
                   : {}),
               }
@@ -2153,6 +2162,11 @@ export class PreauthorizationService {
         // (la part patient est encaissée au guichet) — même principe que la
         // facture mensuelle pharmacie. Somme des lignes = montantAssurance.
         const montantReclame = calcul.partsAssurance[i];
+        // trace du calcul (prisma/sql/074) : tarif conventionné appliqué à l'acte facturé
+        await tx.acteDossier.update({
+          where: { id: acte.id },
+          data: { tarifConventionneId: calcul.tarifsConventionnes[i] },
+        });
         if (ligneAPayer) {
           // Cycle abandonné réattaché — jamais de doublon pour le même acte.
           await tx.ligneFacturation.update({
@@ -3142,6 +3156,8 @@ export class PreauthorizationService {
     montantsActes: string[];
     /** Part assurance de chaque acte, dans l'ordre de `actes`. */
     partsAssurance: string[];
+    /** Tarif conventionné appliqué à chaque acte (trace, prisma/sql/074), ou null. */
+    tarifsConventionnes: (string | null)[];
     /**
      * Code d'INÉLIGIBILITÉ À LA DATE DES SOINS de chaque acte (E001, E012, E013,
      * E014 — même règle que la réclamation, appliquée par le microservice), ou null.
@@ -3159,6 +3175,7 @@ export class PreauthorizationService {
     );
     const parts = actes.map(() => new Decimal(0));
     const codesIneligibilite: (string | null)[] = actes.map(() => null);
+    const tarifsConventionnes: (string | null)[] = actes.map(() => null);
     const couverts = actes
       .map((a, i) => ({ i, a, garantie: parCategorie.get(a.categorieActe) }))
       .filter((x) => x.garantie !== undefined);
@@ -3188,6 +3205,7 @@ export class PreauthorizationService {
       }
       couverts.forEach(({ i }, k) => {
         parts[i] = new Decimal(String(resultat.lignes[k].montant_couvert));
+        tarifsConventionnes[i] = resultat.lignes[k].tarif_conventionne_id ?? null;
         codesIneligibilite[i] =
           (resultat.lignes[k].codes_rejet ?? []).find((c) => c in MOTIF_INELIGIBILITE) ?? null;
       });
@@ -3203,6 +3221,7 @@ export class PreauthorizationService {
       montantPatient: patient.toFixed(2),
       montantsActes: montants.map((m) => m.toFixed(2)),
       partsAssurance,
+      tarifsConventionnes,
       codesIneligibilite,
     };
   }

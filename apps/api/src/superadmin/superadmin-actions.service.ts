@@ -244,7 +244,7 @@ export class SuperadminActionsService {
     // Chemin de la page d'accueil dédiée (/{slug}) : dérivé du nom, rendu
     // unique (-2, -3…) ; modifiable ensuite par SUPERADMIN_PRINCIPAL.
     const slug = await slugLibre(slugDepuisNom(String(p.nom)), async (s) =>
-      Boolean(await this.prisma.organisation.findUnique({ where: { slug: s }, select: { id: true } })),
+      (await this.prisma.organisation.count({ where: { slug: s, deletedAt: null } })) > 0,
     );
     const organisation = await this.prisma.$transaction(async (tx) => {
       const org = await tx.organisation.create({

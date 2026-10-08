@@ -202,8 +202,8 @@ export class SuperadminConfigService {
 
   async creerActeNational(user: AuthenticatedUser, dto: CreerActeNationalDto) {
     const { userId } = await this.assertSuperadmin(user);
-    const existe = await this.prisma.referentielNationalActe.findUnique({
-      where: { code: dto.code },
+    const existe = await this.prisma.referentielNationalActe.findFirst({
+      where: { code: dto.code, deletedAt: null },
     });
     if (existe) {
       throw new ForbiddenException(
@@ -253,13 +253,57 @@ export class SuperadminConfigService {
       await this.audit(
         tx,
         userId,
-        'RETRAIT_ACTE_CATALOGUE_NATIONAL',
+        'SUPPRESSION_ACTE_CATALOGUE_NATIONAL',
         id,
         { code: acte.code },
         'referentiel_national_actes',
       );
     });
     return { id, retire: true };
+  }
+
+  /**
+   * Archivage (RETIRE) / désarchivage (HOMOLOGUE) d'un élément du catalogue national
+   * (ADR-007) : un élément retiré n'est plus proposé à l'import ; les copies déjà
+   * importées par les organisations ne changent pas.
+   */
+  async changerStatutNational(
+    user: AuthenticatedUser,
+    type: 'actes' | 'medicaments',
+    id: string,
+    action: 'archiver' | 'desarchiver',
+  ) {
+    const { userId } = await this.assertSuperadmin(user);
+    const entite = type === 'actes' ? 'acteNational' : 'medicamentNational';
+    const existe =
+      type === 'actes'
+        ? await this.prisma.referentielNationalActe.findFirst({ where: { id, deletedAt: null } })
+        : await this.prisma.referentielNationalMedicament.findFirst({ where: { id, deletedAt: null } });
+    if (!existe) {
+      throw new NotFoundException(type === 'actes' ? 'Acte national introuvable.' : 'Médicament national introuvable.');
+    }
+    await this.dependances.assertPossible(user, entite, id, action);
+
+    const statut = action === 'archiver' ? 'RETIRE' : 'HOMOLOGUE';
+    const dateRetrait = action === 'archiver' ? new Date() : null;
+    const table = type === 'actes' ? 'referentiel_national_actes' : 'referentiel_national_medicaments';
+    const libelle = type === 'actes' ? 'ACTE' : 'MEDICAMENT';
+    await this.prisma.$transaction(async (tx) => {
+      if (type === 'actes') {
+        await tx.referentielNationalActe.update({ where: { id }, data: { statut, dateRetrait } });
+      } else {
+        await tx.referentielNationalMedicament.update({ where: { id }, data: { statutHomologation: statut, dateRetrait } });
+      }
+      await this.audit(
+        tx,
+        userId,
+        action === 'archiver' ? `RETRAIT_${libelle}_CATALOGUE_NATIONAL` : `REACTIVATION_${libelle}_CATALOGUE_NATIONAL`,
+        id,
+        { statut },
+        table,
+      );
+    });
+    return { id, statut };
   }
 
   async listerMedicamentsNational(
@@ -334,7 +378,7 @@ export class SuperadminConfigService {
       await this.audit(
         tx,
         userId,
-        'RETRAIT_MEDICAMENT_CATALOGUE_NATIONAL',
+        'SUPPRESSION_MEDICAMENT_CATALOGUE_NATIONAL',
         id,
         { dci: m.denominationCommune },
         'referentiel_national_medicaments',

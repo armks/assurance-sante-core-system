@@ -18,6 +18,9 @@ import {
 } from './dependances.types';
 import { REGISTRE } from './registre';
 
+/** Éléments évalués au plus par appel de liste (une page de table). */
+const MAX_LISTE = 200;
+
 const NOM_ACTION: Record<Action, string> = {
   supprimer: 'Suppression',
   archiver: 'Archivage',
@@ -62,23 +65,59 @@ export class DependancesService {
   /** Les quatre actions en une fois (écran : quels boutons afficher). */
   async verifierTout(user: AuthenticatedUser, entite: string, id: string): Promise<Verdict[]> {
     const ctx = await this.contexte(user);
-    return Promise.all(ACTIONS.map((a) => this.verifierDansContexte(ctx, entite, id, a)));
+    const def = this.definition(entite);
+    this.assertRole(ctx, def);
+    const rec = await def.charger(this.prisma, id, ctx);
+    if (!rec) throw new NotFoundException('Élément introuvable.');
+    const comptes = await this.compter(def, rec, ctx);
+    return ACTIONS.map((a) => this.evaluer(ctx, entite, def, rec, id, comptes, a));
   }
 
-  /** Garde serveur : 409 (raison + liens) si l'action est impossible ; refus tracé. */
+  /**
+   * Verdicts d'une LISTE d'éléments (boutons d'une table) : `{ id: { action: verdict } }`.
+   * Les éléments hors périmètre sont simplement absents (rien n'est révélé). Les liens
+   * de chaque élément sont comptés une seule fois pour les quatre actions.
+   */
+  async verifierListe(
+    user: AuthenticatedUser,
+    entite: string,
+    ids: string[],
+  ): Promise<Record<string, Record<Action, Pick<Verdict, 'possible' | 'raison' | 'code'>>>> {
+    const ctx = await this.contexte(user);
+    const def = this.definition(entite);
+    this.assertRole(ctx, def);
+    const resultat: Record<string, Record<Action, Pick<Verdict, 'possible' | 'raison' | 'code'>>> = {};
+    for (const id of [...new Set(ids)].slice(0, MAX_LISTE)) {
+      const rec = await def.charger(this.prisma, id, ctx);
+      if (!rec) continue;
+      const comptes = await this.compter(def, rec, ctx);
+      resultat[id] = Object.fromEntries(
+        ACTIONS.map((a) => {
+          const v = this.evaluer(ctx, entite, def, rec, id, comptes, a);
+          return [a, { possible: v.possible, raison: v.raison, code: v.code }];
+        }),
+      ) as Record<Action, Pick<Verdict, 'possible' | 'raison' | 'code'>>;
+    }
+    return resultat;
+  }
+
+  /**
+   * Garde serveur : action impossible → refus tracé, puis 403 (rôle non autorisé) ou
+   * 409 (état, liens) avec la raison et les nombres.
+   */
   async assertPossible(user: AuthenticatedUser, entite: string, id: string, action: Action): Promise<Verdict> {
     const ctx = await this.contexte(user);
     const verdict = await this.verifierDansContexte(ctx, entite, id, action);
     if (!verdict.possible) {
       await this.tracerRefus(ctx, REGISTRE[entite], verdict);
-      throw new ConflictException({ message: verdict.raison, liens: verdict.liens, action, entite });
+      const corps = { message: verdict.raison, liens: verdict.liens, action, entite };
+      throw verdict.code === 'ROLE' ? new ForbiddenException(corps) : new ConflictException(corps);
     }
     return verdict;
   }
 
   async verifierDansContexte(ctx: ContexteDependances, entite: string, id: string, action: Action): Promise<Verdict> {
-    const def = REGISTRE[entite];
-    if (!def) throw new NotFoundException(`Type d'élément inconnu : ${entite}.`);
+    const def = this.definition(entite);
     if (!(ACTIONS as readonly string[]).includes(action)) {
       throw new NotFoundException(`Action inconnue : ${action}.`);
     }
@@ -87,31 +126,68 @@ export class DependancesService {
     const rec = await def.charger(this.prisma, id, ctx);
     if (!rec) throw new NotFoundException('Élément introuvable.');
 
-    const comptes = await Promise.all(def.dependances.map((d) => d.compter(this.prisma, rec, ctx)));
-    const liens: LienCompte[] = def.dependances
-      .map((d, i) => ({ d, n: comptes[i] }))
-      .filter(({ n }) => n > 0)
-      .map(({ d, n }) => ({ type: d.cle, libelle: n > 1 ? d.pluriel : d.singulier, nombre: n }));
-    const bloquants = def.dependances
-      .map((d, i) => ({ d, n: comptes[i] }))
-      .filter(({ d, n }) => n > 0 && (d.bloque ?? ['supprimer']).includes(action))
-      .map(({ d, n }) => ({ type: d.cle, libelle: n > 1 ? d.pluriel : d.singulier, nombre: n }));
+    const comptes = await this.compter(def, rec, ctx);
+    return this.evaluer(ctx, entite, def, rec, id, comptes, action);
+  }
+
+  private definition(entite: string): DefinitionEntite {
+    const def = REGISTRE[entite];
+    if (!def) throw new NotFoundException(`Type d'élément inconnu : ${entite}.`);
+    return def;
+  }
+
+  private compter(def: DefinitionEntite, rec: unknown, ctx: ContexteDependances): Promise<number[]> {
+    return Promise.all(def.dependances.map((d) => d.compter(this.prisma, rec, ctx)));
+  }
+
+  /** Verdict d'UNE action à partir des liens déjà comptés : rôle, puis état, puis liens. */
+  private evaluer(
+    ctx: ContexteDependances,
+    entite: string,
+    def: DefinitionEntite,
+    rec: unknown,
+    id: string,
+    comptes: number[],
+    action: Action,
+  ): Verdict {
+    const enLien = (filtre: (d: DefinitionEntite['dependances'][number], n: number) => boolean): LienCompte[] =>
+      def.dependances
+        .map((d, i) => ({ d, n: comptes[i] }))
+        .filter(({ d, n }) => n > 0 && filtre(d, n))
+        .map(({ d, n }) => ({ type: d.cle, libelle: n > 1 ? d.pluriel : d.singulier, nombre: n }));
+    const liens = enLien(() => true);
+    const bloquants = enLien((d) => (d.bloque ?? ['supprimer']).includes(action));
 
     const nom = def.nom(rec);
     const regle = def.regles[action];
-    let raison: string | null;
+    let raison: string | null = null;
+    let code: Verdict['code'] = null;
     if (!regle) {
       raison = `${NOM_ACTION[action]} impossible : cette action n'est pas encore disponible pour ${def.designation}.`;
+      code = 'ETAT';
+    } else if (
+      action === 'supprimer' &&
+      def.rolesSuppression &&
+      !ctx.roleChain.some((r) => (def.rolesSuppression as readonly string[]).includes(r))
+    ) {
+      raison = `Suppression impossible : la suppression définitive est réservée ${def.libelleRolesSuppression ?? 'à un autre rôle'}.`;
+      code = 'ROLE';
     } else {
       const etat = regle(rec, ctx);
-      raison = etat
-        ? `${NOM_ACTION[action]} impossible : ${etat}`
-        : bloquants.length > 0
-          ? `${NOM_ACTION[action]} impossible : ${def.designation} « ${nom} » est lié${def.pronom === 'la' ? 'e' : ''} à ${enumerer(bloquants)}.` +
-            (action === 'supprimer' && def.regles.archiver ? ` Archivez-${def.pronom} plutôt.` : '')
-          : null;
+      if (etat) {
+        raison = `${NOM_ACTION[action]} impossible : ${etat}`;
+        code = 'ETAT';
+      } else if (bloquants.length > 0) {
+        const conseil =
+          def.conseils?.[action] ??
+          (action === 'supprimer' && def.regles.archiver ? `Archivez-${def.pronom} plutôt.` : null);
+        raison =
+          `${NOM_ACTION[action]} impossible : ${def.designation} « ${nom} » est lié${def.pronom === 'la' ? 'e' : ''} à ${enumerer(bloquants)}.` +
+          (conseil ? ` ${conseil}` : '');
+        code = 'LIENS';
+      }
     }
-    return { entite, id, nom, action, possible: raison === null, raison, liens };
+    return { entite, id, nom, action, possible: raison === null, raison, liens, code };
   }
 
   private assertRole(ctx: ContexteDependances, def: DefinitionEntite): void {

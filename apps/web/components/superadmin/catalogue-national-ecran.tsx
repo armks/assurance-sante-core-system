@@ -1,9 +1,11 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 import {
   creerActeNational,
+  changerStatutItemNational,
   creerMedicamentNational,
   supprimerItemNational,
   type ImportCatalogueResume,
@@ -55,6 +57,12 @@ export function CatalogueNationalEcran({
 }) {
   const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
+  const [voirArchives, setVoirArchives] = useState(false);
+  const actesVisibles = voirArchives ? actes : actes.filter((a) => a.statut !== 'RETIRE');
+  const medicamentsVisibles = voirArchives ? medicaments : medicaments.filter((m) => m.statutHomologation !== 'RETIRE');
+  const nbArchives =
+    actes.filter((a) => a.statut === 'RETIRE').length +
+    medicaments.filter((m) => m.statutHomologation === 'RETIRE').length;
 
   const colActes: ColonneTable<ActeNational>[] = [
     { cle: 'code', entete: 'Code', triable: true, className: 'font-mono text-xs' },
@@ -105,13 +113,20 @@ export function CatalogueNationalEcran({
         />
       </GrilleCartes>
 
+      {nbArchives > 0 && (
+        <label className="flex items-center gap-2 text-sm text-muted-foreground">
+          <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
+          Archivés (retirés du catalogue : {nbArchives})
+        </label>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Actes</CardTitle>
         </CardHeader>
         <CardContent>
           <DataTable
-            donnees={actes}
+            donnees={actesVisibles}
             cleLigne={(a) => a.id}
             parPage={10}
             recherche={{ placeholder: 'Code, libellé…', champs: ['code', 'libelle'] }}
@@ -150,14 +165,35 @@ export function CatalogueNationalEcran({
             actionLigne={(a) => (
               // Confirmation partagée (ADR-007) : vérifie côté serveur, refusée si un
               // organisme a déjà importé l'acte
-              <ConfirmationAction
-                action="supprimer"
-                element={`l’acte « ${a.code} — ${a.libelle} »`}
-                consequence="Il ne pourra plus être importé par les organisations."
-                verifier={() => verifierAction('acteNational', a.id, 'supprimer')}
-                onConfirmer={() => supprimerItemNational('actes', a.id)}
-                onSucces={() => router.refresh()}
-              />
+              <span className="flex justify-end gap-2">
+                {a.statut === 'RETIRE' ? (
+                  <ConfirmationAction
+                    action="desarchiver"
+                    element={`l’acte « ${a.code} — ${a.libelle} »`}
+                    consequence="Il est de nouveau homologué et importable."
+                    verifier={() => verifierAction('acteNational', a.id, 'desarchiver')}
+                    onConfirmer={() => changerStatutItemNational('actes', a.id, 'reactiver')}
+                    onSucces={() => router.refresh()}
+                  />
+                ) : (
+                  <ConfirmationAction
+                    action="archiver"
+                    element={`l’acte « ${a.code} — ${a.libelle} »`}
+                    consequence="Il n'est plus importable ; les copies déjà importées ne changent pas."
+                    verifier={() => verifierAction('acteNational', a.id, 'archiver')}
+                    onConfirmer={() => changerStatutItemNational('actes', a.id, 'retirer')}
+                    onSucces={() => router.refresh()}
+                  />
+                )}
+                <ConfirmationAction
+                  action="supprimer"
+                  element={`l’acte « ${a.code} — ${a.libelle} »`}
+                  consequence="Il ne pourra plus être importé par les organisations."
+                  verifier={() => verifierAction('acteNational', a.id, 'supprimer')}
+                  onConfirmer={() => supprimerItemNational('actes', a.id)}
+                  onSucces={() => router.refresh()}
+                />
+              </span>
             )}
             vide="Aucun acte dans le catalogue national."
           />
@@ -172,7 +208,7 @@ export function CatalogueNationalEcran({
         </CardHeader>
         <CardContent>
           <DataTable
-            donnees={medicaments}
+            donnees={medicamentsVisibles}
             cleLigne={(m) => m.id}
             parPage={10}
             recherche={{
@@ -222,14 +258,35 @@ export function CatalogueNationalEcran({
               </FormulaireModal>
             }
             actionLigne={(m) => (
-              <ConfirmationAction
-                action="supprimer"
-                element={`le médicament « ${m.denominationCommune} »`}
-                consequence="Il ne pourra plus être importé par les organisations."
-                verifier={() => verifierAction('medicamentNational', m.id, 'supprimer')}
-                onConfirmer={() => supprimerItemNational('medicaments', m.id)}
-                onSucces={() => router.refresh()}
-              />
+              <span className="flex justify-end gap-2">
+                {m.statutHomologation === 'RETIRE' ? (
+                  <ConfirmationAction
+                    action="desarchiver"
+                    element={`le médicament « ${m.denominationCommune} »`}
+                    consequence="Il est de nouveau homologué et importable."
+                    verifier={() => verifierAction('medicamentNational', m.id, 'desarchiver')}
+                    onConfirmer={() => changerStatutItemNational('medicaments', m.id, 'reactiver')}
+                    onSucces={() => router.refresh()}
+                  />
+                ) : (
+                  <ConfirmationAction
+                    action="archiver"
+                    element={`le médicament « ${m.denominationCommune} »`}
+                    consequence="Il n'est plus importable ; les copies déjà importées ne changent pas."
+                    verifier={() => verifierAction('medicamentNational', m.id, 'archiver')}
+                    onConfirmer={() => changerStatutItemNational('medicaments', m.id, 'retirer')}
+                    onSucces={() => router.refresh()}
+                  />
+                )}
+                <ConfirmationAction
+                  action="supprimer"
+                  element={`le médicament « ${m.denominationCommune} »`}
+                  consequence="Il ne pourra plus être importé par les organisations."
+                  verifier={() => verifierAction('medicamentNational', m.id, 'supprimer')}
+                  onConfirmer={() => supprimerItemNational('medicaments', m.id)}
+                  onSucces={() => router.refresh()}
+                />
+              </span>
             )}
             vide="Aucun médicament dans le catalogue national."
           />

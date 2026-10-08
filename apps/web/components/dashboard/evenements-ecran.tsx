@@ -5,9 +5,17 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { creerEvenement, modifierEvenement, supprimerEvenement } from '@/app/dashboard-assureur/informatique/evenements/actions';
+import { verifierAction } from '@/app/dependances-actions';
+import {
+  archiverEvenement,
+  creerEvenement,
+  desarchiverEvenement,
+  modifierEvenement,
+  supprimerEvenement,
+} from '@/app/dashboard-assureur/informatique/evenements/actions';
 import {
   CarteResume,
+  ConfirmationAction,
   ChampCheckbox,
   ChampNombre,
   ChampTexte,
@@ -85,7 +93,6 @@ function ChampsEvenement({ ev }: { ev?: EvenementGestion }) {
 export function EvenementsEcran({ evenements }: { evenements: EvenementGestion[] }) {
   const router = useRouter();
   const [edite, setEdite] = useState<EvenementGestion | null>(null);
-  const [aSupprimer, setASupprimer] = useState<EvenementGestion | null>(null);
 
   const actifs = evenements.filter((e) => e.actif);
   const colonnes: ColonneTable<EvenementGestion>[] = [
@@ -172,9 +179,38 @@ export function EvenementsEcran({ evenements }: { evenements: EvenementGestion[]
             <Button size="xs" variant="ghost" onClick={() => setEdite(e)}>
               Modifier
             </Button>
-            <Button size="xs" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setASupprimer(e)}>
-              Supprimer
-            </Button>
+            {e.actif ? (
+              <ConfirmationAction
+                action="archiver"
+                element={`l’événement « ${e.titre} »`}
+                consequence="Il est masqué de la page d’accueil ; il reste ici sous « Inactif »."
+                verifier={() => verifierAction('evenement', e.id, 'archiver')}
+                onConfirmer={() => archiverEvenement(e.id)}
+                onSucces={() => router.refresh()}
+              />
+            ) : (
+              <ConfirmationAction
+                action="desarchiver"
+                element={`l’événement « ${e.titre} »`}
+                consequence="Il est de nouveau affiché sur la page d’accueil."
+                verifier={() => verifierAction('evenement', e.id, 'desarchiver')}
+                onConfirmer={() => desarchiverEvenement(e.id)}
+                onSucces={() => router.refresh()}
+              />
+            )}
+            <ConfirmationAction
+              action="supprimer"
+              element={`l’événement « ${e.titre} »`}
+              consequence="Son image est supprimée."
+              verifier={() => verifierAction('evenement', e.id, 'supprimer')}
+              onConfirmer={() => supprimerEvenement(e.id)}
+              onSucces={() => router.refresh()}
+              declencheur={
+                <Button size="xs" variant="ghost" className="text-destructive hover:text-destructive">
+                  Supprimer
+                </Button>
+              }
+            />
           </div>
         )}
         vide="Aucun événement pour l’instant. Le bloc « Qui sommes-nous » affiche alors son image habituelle."
@@ -193,28 +229,6 @@ export function EvenementsEcran({ evenements }: { evenements: EvenementGestion[]
           }}
         >
           <ChampsEvenement ev={edite} />
-        </FormulaireModal>
-      )}
-
-      {aSupprimer && (
-        <FormulaireModal
-          key={`suppr-${aSupprimer.id}`}
-          titre="Supprimer l’événement ?"
-          description={`« ${aSupprimer.titre} » sera retiré de la page d’accueil et son image supprimée.`}
-          mode="center"
-          libelleSoumettre="Supprimer"
-          ouvert
-          onOuvertChange={(v) => !v && setASupprimer(null)}
-          onSoumettre={async () => {
-            const r = await supprimerEvenement(aSupprimer.id);
-            return r.ok ? { ok: true, message: 'Événement supprimé.' } : r;
-          }}
-          onSucces={() => {
-            setASupprimer(null);
-            router.refresh();
-          }}
-        >
-          <p className="text-sm text-muted-foreground">Cette action est définitive.</p>
         </FormulaireModal>
       )}
     </div>

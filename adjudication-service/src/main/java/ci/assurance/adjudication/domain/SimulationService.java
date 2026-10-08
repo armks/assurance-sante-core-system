@@ -56,11 +56,16 @@ public class SimulationService {
       LocalDate dateReference,
       List<Ligne> lignes) {}
 
+  /**
+   * Résultat d'une ligne ; {@code tarifConventionneId} = tarif conventionné appliqué au
+   * calcul (null si aucun) — l'appelant le trace sur l'acte (prisma/sql/074).
+   */
   public record ResultatLigne(
       Decision decision,
       BigDecimal montantCouvert,
       BigDecimal plafondRestantApres,
-      List<String> codesRejet) {}
+      List<String> codesRejet,
+      UUID tarifConventionneId) {}
 
   private final AdjudicationRepository repo;
   private final Adjudicateur adjudicateur = new Adjudicateur();
@@ -133,6 +138,9 @@ public class SimulationService {
                   ? BigDecimal.ZERO
                   : repo.sommeConsommeeFamille(titulaire, g.id(), actesExclus, periode));
 
+      final BigDecimal tarif = repo.tarifConvention(d.etablissementId(), l.codeActe(), date);
+      final UUID tarifId =
+          tarif == null ? null : repo.tarifConventionneId(d.etablissementId(), l.codeActe(), date);
       final ContexteAdjudication ctx =
           new ContexteAdjudication(
               null, police.organisationId(), null, null,
@@ -142,7 +150,7 @@ public class SimulationService {
               g.plafondAnnuelPersonne(), g.plafondAnnuelFamille(), g.franchise(),
               g.ticketModerateurPct(), g.delaiCarenceJours(), g.reseauSoins(),
               police.statut(), police.debut(), police.fin(),
-              d.etablissementId(), repo.tarifConvention(d.etablissementId(), l.codeActe(), date),
+              d.etablissementId(), tarif,
               g.produitId(), titulaire, police.periodeCumul(), date,
               police.delaiDeclarationJours());
 
@@ -151,7 +159,8 @@ public class SimulationService {
       cumulPersonne.put(cle, dejaPersonne.add(r.montantRembourse()));
       cumulFamille.put(cle, dejaFamille.add(r.montantRembourse()));
       resultats.add(
-          new ResultatLigne(r.decision(), r.montantRembourse(), r.plafondRestantApres(), r.codesRejet()));
+          new ResultatLigne(
+              r.decision(), r.montantRembourse(), r.plafondRestantApres(), r.codesRejet(), tarifId));
     }
     return resultats;
   }

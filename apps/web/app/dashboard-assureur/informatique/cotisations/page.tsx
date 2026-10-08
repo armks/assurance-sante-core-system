@@ -8,6 +8,7 @@ import {
   type OptionRef,
 } from '@/components/dashboard/cotisations-ecran';
 import { PageTitre } from '@/components/page-titre';
+import { peutSupprimerDefinitivement } from '@/app/dependances-actions';
 import { apiFetch, messageErreur } from '@/lib/api';
 
 export const metadata: Metadata = {
@@ -43,6 +44,7 @@ export default async function Cotisations() {
         <CotisationsEcran
           cotisations={cotisations}
           grilles={grilles}
+          peutSupprimerGrille={await peutSupprimerDefinitivement()}
           polices={polices}
           souscripteurs={souscripteurs}
           produits={produits}

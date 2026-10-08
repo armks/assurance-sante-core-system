@@ -8,13 +8,17 @@ import {
   ajouterGarantie,
   archiverProduit,
   creerNouvelleVersion,
+  desarchiverProduit,
+  supprimerProduit,
   modifierGarantie,
   publierProduit,
   modifierProduit,
   supprimerGarantie,
   type GarantieInput,
 } from '@/app/dashboard-assureur/informatique/produits/actions';
+import { verifierAction } from '@/app/dependances-actions';
 import {
+  ConfirmationAction,
   ChampCheckbox,
   ChampNombre,
   ChampSelect,
@@ -304,14 +308,6 @@ export function ProduitDetail({
       else setErreur(r.error);
     });
 
-  const archiver = () =>
-    start(async () => {
-      setErreur(null);
-      const r = await archiverProduit(produit.id);
-      if (r.ok) router.refresh();
-      else setErreur(r.error);
-    });
-
   return (
     <div className="space-y-6">
       {/* --- Bandeau lecture seule (cohérent avec le 409 de l'API) --- */}
@@ -466,22 +462,19 @@ export function ProduitDetail({
                       >
                         <ChampsGarantie defaut={g} />
                       </FormulaireModal>
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="ghost"
-                        disabled={pending}
-                        onClick={() =>
-                          start(async () => {
-                            setErreur(null);
-                            const r = await supprimerGarantie(produit.id, g.id);
-                            if (r.ok) router.refresh();
-                            else setErreur(r.error);
-                          })
+                      <ConfirmationAction
+                        action="supprimer"
+                        element={`la garantie « ${libelleCategorieActe(g.categorieActe)} »`}
+                        consequence="Le produit est encore en brouillon : la garantie disparaît de sa liste."
+                        verifier={() => verifierAction('garantie', g.id, 'supprimer')}
+                        onConfirmer={() => supprimerGarantie(produit.id, g.id)}
+                        onSucces={() => router.refresh()}
+                        declencheur={
+                          <Button type="button" size="xs" variant="ghost">
+                            Retirer
+                          </Button>
                         }
-                      >
-                        Retirer
-                      </Button>
+                      />
                     </span>
                   )
                 : undefined
@@ -546,9 +539,37 @@ export function ProduitDetail({
           </Button>
         )}
         {!archive && peutGererPlan && (
-          <Button variant="outline" disabled={pending} onClick={archiver}>
-            Archiver
-          </Button>
+          <ConfirmationAction
+            action="archiver"
+            element={`le produit « ${produit.nom} » v${produit.version}`}
+            consequence="Il n'est plus proposé pour de nouvelles polices ; les polices en cours ne changent pas."
+            verifier={() => verifierAction('produit', produit.id, 'archiver')}
+            onConfirmer={() => archiverProduit(produit.id)}
+            onSucces={() => router.refresh()}
+            declencheur={<Button variant="outline">Archiver</Button>}
+          />
+        )}
+        {archive && peutGererPlan && (
+          <ConfirmationAction
+            action="desarchiver"
+            element={`le produit « ${produit.nom} » v${produit.version}`}
+            consequence="Il redevient publié, à condition qu'aucune autre version du même produit ne le soit."
+            verifier={() => verifierAction('produit', produit.id, 'desarchiver')}
+            onConfirmer={() => desarchiverProduit(produit.id)}
+            onSucces={() => router.refresh()}
+            declencheur={<Button variant="outline">Désarchiver</Button>}
+          />
+        )}
+        {brouillon && peutGererPlan && (
+          <ConfirmationAction
+            action="supprimer"
+            element={`le brouillon « ${produit.nom} » v${produit.version}`}
+            consequence={`Ses ${produit.garanties.length} garantie${produit.garanties.length > 1 ? 's' : ''} sont supprimée${produit.garanties.length > 1 ? 's' : ''} avec lui, si aucune n'est utilisée.`}
+            verifier={() => verifierAction('produit', produit.id, 'supprimer')}
+            onConfirmer={() => supprimerProduit(produit.id)}
+            onSucces={() => router.push('/dashboard-assureur/informatique/produits')}
+            declencheur={<Button variant="outline">Supprimer</Button>}
+          />
         )}
       </div>
     </div>

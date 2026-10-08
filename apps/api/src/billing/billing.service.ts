@@ -17,7 +17,9 @@ import {
   CreateGrilleDto,
   EnregistrerPaiementDto,
   GenererCotisationsDto,
+  UpdateGrilleDto,
 } from './dto/billing.dto';
+import { DependancesService } from '../dependances/dependances.service';
 import {
   CalculCotisation,
   ContexteAppelant,
@@ -57,6 +59,7 @@ export class BillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Grilles tarifaires ---------------------------------------------
@@ -134,6 +137,95 @@ export class BillingService {
       );
       return grille;
     });
+  }
+
+  /**
+   * Modification d'une grille (ADR-007) : permise même si elle a servi (chaque
+   * cotisation garde son montant) ; avant / après dans l'audit.
+   */
+  async modifierGrille(user: AuthenticatedUser, id: string, dto: UpdateGrilleDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionGrilles(ctx);
+    const grille = await this.chargerGrille(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'grilleTarifaire', id, 'modifier');
+
+    const min = dto.trancheAgeMin ?? grille.trancheAgeMin;
+    const max = dto.trancheAgeMax ?? grille.trancheAgeMax;
+    if (max < min) {
+      throw new BadRequestException('tranche_age_max doit être ≥ tranche_age_min.');
+    }
+    if (min !== grille.trancheAgeMin || max !== grille.trancheAgeMax) {
+      const existe = await this.prisma.grilleTarifaire.findFirst({
+        where: {
+          id: { not: id },
+          produitId: grille.produitId,
+          souscripteurId: grille.souscripteurId,
+          trancheAgeMin: min,
+          trancheAgeMax: max,
+          deletedAt: null,
+        },
+      });
+      if (existe) {
+        throw new ConflictException(
+          `Une grille ${grille.souscripteurId ? 'négociée' : 'standard'} existe déjà pour ce produit et cette tranche d'âge (${min}-${max}).`,
+        );
+      }
+    }
+    const avant = new Decimal(grille.montantMensuel.toString()).toFixed(2);
+    const montant = dto.montantMensuel !== undefined ? new Decimal(dto.montantMensuel).toFixed(2) : avant;
+
+    return this.prisma.$transaction(async (tx) => {
+      const maj = await tx.grilleTarifaire.update({
+        where: { id },
+        data: { trancheAgeMin: min, trancheAgeMax: max, montantMensuel: montant },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'MODIFICATION_GRILLE_TARIFAIRE',
+        id,
+        {
+          avant: { tranche: [grille.trancheAgeMin, grille.trancheAgeMax], montantMensuel: avant },
+          apres: { tranche: [min, max], montantMensuel: montant },
+        },
+        'grilles_tarifaires',
+      );
+      return maj;
+    });
+  }
+
+  /** Suppression (logique) d'une grille jamais utilisée par un calcul (ADR-007). */
+  async supprimerGrille(user: AuthenticatedUser, id: string): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionGrilles(ctx);
+    const grille = await this.chargerGrille(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'grilleTarifaire', id, 'supprimer');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.grilleTarifaire.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'SUPPRESSION_GRILLE_TARIFAIRE',
+        id,
+        {
+          produitId: grille.produitId,
+          souscripteurId: grille.souscripteurId,
+          tranche: [grille.trancheAgeMin, grille.trancheAgeMax],
+        },
+        'grilles_tarifaires',
+      );
+    });
+  }
+
+  private async chargerGrille(organisationId: string, id: string) {
+    const grille = await this.prisma.grilleTarifaire.findFirst({
+      where: { id, organisationId, deletedAt: null },
+    });
+    if (!grille) {
+      throw new NotFoundException('Grille tarifaire introuvable.');
+    }
+    return grille;
   }
 
   async listerGrilles(
@@ -309,6 +401,8 @@ export class BillingService {
             montantDu: calcul.montantDu,
             dateEcheance,
             statut: 'A_PAYER',
+            // trace du calcul (prisma/sql/074) : une grille utilisée ne se supprime plus
+            grilleTarifaireId: calcul.grilleTarifaireId,
           },
         });
         await this.audit(

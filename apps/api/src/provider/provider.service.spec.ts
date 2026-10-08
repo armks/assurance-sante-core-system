@@ -44,6 +44,7 @@ describe('ProviderService', () => {
       etablissementSante: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
@@ -52,6 +53,7 @@ describe('ProviderService', () => {
       pharmacie: {
         create: jest.fn(),
         findUnique: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
         findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),

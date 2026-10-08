@@ -127,6 +127,7 @@ export class PlanService {
     this.assertGestion(ctx);
     const produit = await this.assertProduitDansPerimetre(ctx.organisationId, id);
     this.assertBrouillon(produit, 'Modification du produit');
+    await this.dependances.assertPossible(user, 'produit', id, 'modifier');
 
     if (dto.nom && dto.nom !== produit.nom) {
       const collision = await this.prisma.produit.findFirst({
@@ -220,9 +221,8 @@ export class PlanService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const produit = await this.assertProduitDansPerimetre(ctx.organisationId, id);
-    if (produit.statut === 'ARCHIVE') {
-      throw new ConflictException('Le produit est déjà archivé.');
-    }
+    // ADR-007 : seul un produit publié s'archive (un brouillon se supprime)
+    await this.dependances.assertPossible(user, 'produit', id, 'archiver');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.produit.update({ where: { id }, data: { statut: 'ARCHIVE' } });
@@ -231,6 +231,50 @@ export class PlanService {
       });
     });
     return this.chargerProduit(ctx.organisationId, id);
+  }
+
+  /**
+   * ARCHIVE → PUBLIE (ADR-007). Une seule version publiée par produit : refusé si une
+   * autre version du même nom est publiée (registre des dépendances, `versionPubliee`).
+   */
+  async desarchiver(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    await this.assertProduitDansPerimetre(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'produit', id, 'desarchiver');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.produit.update({ where: { id }, data: { statut: 'PUBLIE' } });
+      await this.audit(tx, ctx.userId, 'DESARCHIVAGE_PRODUIT', id, { statutPrecedent: 'ARCHIVE' });
+    });
+    return this.chargerProduit(ctx.organisationId, id);
+  }
+
+  /**
+   * Suppression d'un BROUILLON sans police (ADR-007) : ses garanties partent avec lui —
+   * suppression logique, une transaction, une ligne d'audit avec leur nombre. Refusée
+   * si l'une d'elles est déjà utilisée (dossier de soins, réclamation) ou si des grilles
+   * tarifaires y sont rattachées. Réservée à l'informatique et à la direction.
+   */
+  async supprimerProduit(user: AuthenticatedUser, id: string): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const produit = await this.assertProduitDansPerimetre(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'produit', id, 'supprimer');
+
+    await this.prisma.$transaction(async (tx) => {
+      const maintenant = new Date();
+      const garanties = await tx.garantie.updateMany({
+        where: { produitId: id, deletedAt: null },
+        data: { deletedAt: maintenant },
+      });
+      await tx.produit.update({ where: { id }, data: { deletedAt: maintenant } });
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_PRODUIT', id, {
+        nom: produit.nom,
+        version: produit.version,
+        garantiesSupprimees: garanties.count,
+      });
+    });
   }
 
   /** Évolution d'un produit : clone (produit + garanties) en un BROUILLON version+1. */
@@ -354,6 +398,8 @@ export class PlanService {
     if (!garantie) {
       throw new NotFoundException('Garantie introuvable.');
     }
+    // ADR-007 : une garantie déjà utilisée (dossier, réclamation) ne se modifie plus
+    await this.dependances.assertPossible(user, 'garantie', garantieId, 'modifier');
     if (dto.categorieActe !== undefined && dto.categorieActe !== garantie.categorieActe) {
       await this.categoriesActe.exigerActive(dto.categorieActe);
       await this.assertCategorieLibre(produitId, dto.categorieActe);

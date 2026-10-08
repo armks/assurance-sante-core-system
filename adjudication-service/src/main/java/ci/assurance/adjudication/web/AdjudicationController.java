@@ -85,7 +85,8 @@ public class AdjudicationController {
     return new SimulationResponse(
         r.stream()
             .map(x -> new SimulationResponse.Ligne(
-                x.decision().name(), x.montantCouvert(), x.plafondRestantApres(), x.codesRejet()))
+                x.decision().name(), x.montantCouvert(), x.plafondRestantApres(), x.codesRejet(),
+                x.tarifConventionneId()))
             .toList());
   }
 }

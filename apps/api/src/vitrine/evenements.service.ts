@@ -217,6 +217,22 @@ export class EvenementsService {
     return { ok: true };
   }
 
+  /**
+   * Archivage (masqué de la page publique) / désarchivage (affiché de nouveau) d'un
+   * événement (ADR-007) — écriture et audit dans la même transaction.
+   */
+  async changerVisibilite(user: AuthenticatedUser, id: string, action: 'archiver' | 'desarchiver') {
+    const ctx = await this.contexteGestion(user);
+    await this.charger(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'evenement', id, action);
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const e = await tx.evenement.update({ where: { id }, data: { actif: action === 'desarchiver' } });
+      await this.audit(ctx.userId, action === 'archiver' ? 'ARCHIVAGE_EVENEMENT' : 'DESARCHIVAGE_EVENEMENT', id, null, tx);
+      return e;
+    });
+    return this.versSortie(maj, this.maintenant());
+  }
+
   // --- Bannière de la page /{slug} (ASSUREUR_INFORMATIQUE) ---------------
 
   /**

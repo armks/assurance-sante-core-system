@@ -84,6 +84,25 @@ export class PlanController {
     return this.plan.archiver(user, id);
   }
 
+  /** ARCHIVE → PUBLIE, refusé si une autre version du même produit est publiée (ADR-007). */
+  @Post(':id/desarchiver')
+  desarchiver(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.plan.desarchiver(user, id);
+  }
+
+  /** Brouillon sans police : supprimé AVEC ses garanties non utilisées (ADR-007). */
+  @Delete(':id')
+  @HttpCode(204)
+  supprimer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.plan.supprimerProduit(user, id);
+  }
+
   @Post(':id/nouvelle-version')
   nouvelleVersion(
     @CurrentUser() user: AuthenticatedUser,

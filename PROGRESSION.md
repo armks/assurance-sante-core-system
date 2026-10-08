@@ -7787,3 +7787,97 @@ statuts d'archivage, rôles, exemples supprimables ; écarts : suppressions sans
 
 ### Statut
 Terminé — commit et push. Lots 2 à 5 (écrans) non commencés.
+
+## 2026-10-08 — Chantier suppression / modification / archivage — lot 2 « entités de configuration » (ADR-007)
+
+### Réalisé
+- `prisma/sql/074_suppression_logique_traces_calcul.sql` (appliquée, rejouable) : unicité des
+  codes / noms / slugs saisis limitée aux lignes non supprimées (index partiels) ; colonnes de
+  trace `grille_tarifaire_id` (cotisations, tarification individuelle), `tarif_conventionne_id`
+  (actes), `tarif_pharmacie_id` (lignes de dispensation) en RESTRICT, rattachement de l'existant.
+- Services de calcul (facturation, souscription, pré-autorisation, microservice Java) : ils
+  renseignent la trace ; le registre des dépendances la compte.
+- API : produit (modifier, supprimer avec ses garanties, archiver, désarchiver avec règle de
+  version publiée), grille (modifier même utilisée, supprimer si jamais utilisée), tarifs
+  établissement / pharmacie (changer à partir du…, fermer, rouvrir), actes et médicaments
+  (supprimer, re-proposer), catalogue national (retirer / réactiver), événements (archiver /
+  désarchiver), verdicts de liste. Suppression réelle : informatique (+ direction pour les
+  produits), 403 pour les autres rôles.
+- Web : `ConfirmationAction` sur produits, garanties, tarifs (changer à partir du…, fermer,
+  rouvrir, supprimer), grilles (modifier, supprimer), référentiel médical, homologation,
+  catalogue national, événements ; case « Archivés » sur les listes ; boutons grisés avec la
+  raison d'après les verdicts du serveur.
+- ADR-007 complété (décisions du lot 2, purge des données personnelles notée comme chantier futur).
+
+### Tests
+- API 1 125/1 125 (+20), JUnit 91/91, intégration 2/2, typage API et web 0 erreur.
+- HTTP réel (tous les contrôles OK, nettoyage à zéro) : unicité partielle (code recréé après suppression), rôles 403, changer /
+  fermer / rouvrir un tarif, grille utilisée (modifiable, suppression 409, DELETE physique refusé
+  par la base), produit avec police 409 / brouillon 204, acte avec tarifs 409, événement
+  archiver / désarchiver, verdicts de liste. Données supprimées en ordre inverse, 0 ligne.
+- Navigateur (Chromium piloté par Playwright, vrai compte), tous les contrôles OK sur produits, tarifs,
+  cotisations (grilles), référentiel médical, événements, catalogue national — confirmations,
+  raisons de refus, cases « Archivés ». Corrigé au passage : le front interrogeait l'entité
+  « grille » au lieu de « grilleTarifaire ».
+
+### Limites
+- Pas de test HTTP bout en bout de la trace écrite par l'adjudication (couverte par les tests
+  unitaires et JUnit). `tarif_pharmacie_id` reste vide tant que le comptoir calcule au prix du
+  stock. Isolation deux sociétés / deux organisations vérifiée par les tests unitaires du
+  registre (périmètre du jeton) et par le lot 1, pas rejouée en HTTP.
+
+### Statut
+Terminé — en attente de validation pour le commit. Lots 3 à 5 non commencés.
+
+### Complément du lot 2 — vérifications demandées avant commit (2026-10-08)
+
+#### Isolation (HTTP réel, deux organisations, deux sociétés)
+- 79 tentatives par attaquant (modifier, supprimer, archiver, désarchiver, publier, nouvelle
+  version, changer / fermer / rouvrir un tarif — y compris établissement de l'attaquant avec tarif
+  de la victime —, retirer / re-proposer, catalogue national, événements, verdicts unitaires et de
+  liste) : organisation A contre B, puis B contre A ; deux comptes de rôle société (sociétés
+  différentes) contre l'organisation ; médecin conseil, pharmacien conseil et direction de A
+  contre B. Résultat : toutes en 403 / 404, aucune réponse avec comptage, verdicts de liste vides.
+- Instantané complet avant / après (produits, garanties, grilles, tarifs, actes, médicaments,
+  événements, cotisations, établissements, pharmacies, nombre de lignes d'audit, catalogue
+  national) : strictement identique, chez la victime comme chez l'attaquant. Contrôles positifs :
+  le propriétaire réussit les mêmes actions.
+- Comptage des dépendances : le stock d'une pharmacie de B portant la même dénomination qu'un
+  médicament de A n'est pas compté pour A (0 lien) ; les cotisations de B ne bloquent pas une
+  grille de A ; un id étranger dans un verdict de liste est ignoré.
+- Constat hors lot 2 : `referentiel_actes.code` est unique sur TOUTE la table (préexistant :
+  `@unique` dans le schéma d'origine, conservé en index partiel par la 074). Deux organisations ne
+  peuvent donc pas avoir le même code d'acte, et une création en doublon répond 409 en révélant
+  qu'il existe ailleurs. À trancher (unicité par organisation ? la jointure par `code_acte` du
+  registre et de la migration 074 devrait alors être filtrée par organisation) — non modifié.
+
+#### Trace de l'adjudication (HTTP réel + microservice Java, vérification en base)
+- Acte enregistré (simulation) → `tarif_conventionne_id` = tarif de l'établissement ; facture
+  sélectionnée → renseigné ; réclamation soumise et adjugée par le microservice → renseigné ; acte
+  sans code → NULL. Cotisation générée → `grille_tarifaire_id` = grille standard (montant 5 000).
+- Le tarif ayant servi : DELETE 409, modification du montant 409, DELETE physique refusé par la
+  base (RESTRICT) ; « Changer à partir du… » reste possible et l'acte garde la trace de l'ancien
+  tarif. La grille ayant servi : DELETE 409 et refus de la base ; **modification du montant : 200**
+  (règle décidée au lot 2, la cotisation déjà calculée garde son montant et sa grille) — et non 409.
+
+#### Tarif de pharmacie
+- Corrigé : le registre le laissait supprimable / modifiable (aucun lien compté). Désormais un tarif
+  de pharmacie est NON supprimable et NON modifiable en montant (409, raison « les calculs du
+  comptoir ne tracent pas encore le tarif utilisé »), fermer / rouvrir / « Changer à partir du… »
+  restent permis. Vérifié en HTTP réel et par test unitaire.
+- **DETTE** : le comptoir calcule au prix du stock et ne renseigne pas `lignes_dispensation.
+  tarif_pharmacie_id`. À traiter au **lot 4 (circuit pharmacie / comptoir)** — proposition, les lots
+  3 à 5 ne sont pas encore figés : rattacher un tarif de pharmacie à un médicament, le faire utiliser
+  par le calcul de dispensation, renseigner la trace, puis retirer la règle conservatrice du registre.
+
+#### Avertissement d'hydratation (page des événements)
+- Observé une fois dans la console pendant le test navigateur (message React générique : attributs
+  HTML serveur ≠ client). Non reproduit en 3 essais ciblés (chargement, archivage, rechargement,
+  événements actifs et inactifs) ; seule erreur constante : 400 de l'optimiseur d'images sur les
+  images de test inexistantes. Cause non établie ; gravité faible (avertissement de développement,
+  aucun effet fonctionnel, tous les contrôles du navigateur passent). Piste si elle revient : date
+  affichée en `toLocaleDateString` côté client. Pas de correction.
+
+#### Suite complète
+- API 1 126/1 126, JUnit 91/91, intégration 2/2, typage API et web 0 erreur. Scripts de test
+  supprimés ; aucune organisation, compte, ligne nationale ou compte Auth résiduel.

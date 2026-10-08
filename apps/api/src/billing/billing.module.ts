@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { DependancesModule } from '../dependances/dependances.module';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
 
@@ -8,7 +9,7 @@ import { BillingService } from './billing.service';
  * (grilles), génération et suivi des cotisations.
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, DependancesModule],
   controllers: [BillingController],
   providers: [BillingService],
   exports: [BillingService],

@@ -118,3 +118,25 @@ export async function creerGrille(input: {
   revalidatePath(CIBLE);
   return { ok: true, message: 'Grille tarifaire créée.' };
 }
+
+/** Modifie une grille, même déjà utilisée : chaque cotisation garde le montant calculé à sa date. */
+export async function modifierGrille(
+  id: string,
+  input: { trancheAgeMin: number; trancheAgeMax: number; montantMensuel: number },
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/billing/grilles-tarifaires/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Grille modifiée. Les cotisations déjà calculées ne changent pas.' };
+}
+
+/** Supprime une grille jamais utilisée par un calcul. */
+export async function supprimerGrille(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/billing/grilles-tarifaires/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}

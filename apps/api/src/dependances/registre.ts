@@ -31,6 +31,12 @@ const GESTION_REFERENTIEL_MEDICAMENTS = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_PHAR
 const GESTION_UTILISATEURS = ['ASSUREUR_INFORMATIQUE'] as const;
 const GESTION_COMPTES = ['ASSUREUR_COMPTABLE'] as const;
 const ROLE_SOCIETE_MEMBRES = 'SOCIETE_ADMINISTRATION';
+// Suppression définitive des entités de configuration (lot 2) : service informatique,
+// et direction pour les produits et leurs garanties.
+const SUPPRESSION_INFORMATIQUE = { rolesSuppression: ['ASSUREUR_INFORMATIQUE'], libelleRolesSuppression: 'au service informatique' } as const;
+const TARIF_PHARMACIE_NON_TRACE =
+  "les calculs du comptoir de pharmacie ne tracent pas encore le tarif utilisé : on ne peut pas prouver qu'il n'a jamais servi. Fermez-le, ou utilisez « Changer à partir du… ».";
+const SUPPRESSION_PRODUIT = { rolesSuppression: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_DIRECTION'], libelleRolesSuppression: 'au service informatique et à la direction' } as const;
 
 // --- Aides ------------------------------------------------------------------------
 /** Organisation du périmètre (jamais null pour une entité d'organisation). */
@@ -46,12 +52,6 @@ const dep = <R>(
 
 const NON_DISPONIBLE = undefined;
 const dejaArchive = (designation: string) => `${designation} est déjà archivé(e).`;
-
-/** Dates de soins d'un acte dans [debut, fin] — réalisation, à défaut prescription. */
-const acteDansPeriode = (debut: Date, fin: Date | null) => {
-  const borne = { gte: debut, ...(fin ? { lt: new Date(fin.getTime() + 86_400_000) } : {}) };
-  return { OR: [{ dateRealisation: borne }, { dateRealisation: null, datePrescription: borne }] };
-};
 
 // --- Registre ------------------------------------------------------------------------
 export const REGISTRE: Record<string, DefinitionEntite> = {
@@ -206,20 +206,19 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
         include: { referentielActe: { select: { code: true, libelle: true } } },
       }),
     nom: (t) => `${t.referentielActe?.libelle ?? 'acte'} — ${Number(t.tarifConvention).toLocaleString('fr-FR')} F`,
+    ...SUPPRESSION_INFORMATIQUE,
+    conseils: {
+      supprimer: "Fermez-le plutôt (date de fin) : l'historique est conservé.",
+      modifier: "Utilisez « Changer à partir du… » : l'ancien tarif est fermé et le nouveau prend le relais.",
+    },
     dependances: [
-      // lien LOGIQUE : actes de l'établissement, de ce code, dont la date des soins
-      // tombe dans la période du tarif — c'est-à-dire calculés avec ce tarif
+      // liens TRACÉS au moment du calcul (prisma/sql/074) : actes calculés avec ce tarif,
+      // lignes de dispensation d'une pharmacie
       dep('actesCalcules', 'acte calculé avec ce tarif', 'actes calculés avec ce tarif', (db, t, ctx) =>
-        t.etablissementId
-          ? db.acteDossier.count({
-              where: {
-                codeActe: t.referentielActe.code,
-                deletedAt: null,
-                dossier: { organisationId: org(ctx), etablissementId: t.etablissementId },
-                ...acteDansPeriode(t.dateDebut, t.dateFin),
-              },
-            })
-          : Promise.resolve(0),
+        db.acteDossier.count({ where: { tarifConventionneId: t.id, dossier: { organisationId: org(ctx) } } }),
+        ['supprimer', 'modifier']),
+      dep('lignesDispensation', 'ligne de dispensation calculée avec ce tarif', 'lignes de dispensation calculées avec ce tarif', (db, t, ctx) =>
+        db.ligneDispensation.count({ where: { tarifPharmacieId: t.id, dispensation: { pharmacie: { organisationId: org(ctx) } } } }),
         ['supprimer', 'modifier']),
       // un tarif fermé ne se rouvre pas si un tarif suivant a déjà pris le relais
       dep('tarifsSuivants', 'tarif suivant', 'tarifs suivants', (db, t, ctx) =>
@@ -236,11 +235,14 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
         ['desarchiver']),
     ],
     regles: {
-      supprimer: () => null,
+      // Tarif de PHARMACIE : le comptoir ne renseigne pas encore `tarif_pharmacie_id`
+      // (calcul au prix du stock). Tant que la trace manque, on ne peut pas prouver qu'un
+      // tarif n'a pas servi : ni suppression ni modification de montant (dette : lot 4).
+      supprimer: (t) => (t.pharmacieId ? TARIF_PHARMACIE_NON_TRACE : null),
       // archiver = FERMER le tarif (date de fin) ; désarchiver = le rouvrir
       archiver: (t) => (t.dateFin ? 'Le tarif est déjà fermé (date de fin renseignée).' : null),
       desarchiver: (t) => (!t.dateFin ? "Le tarif n'est pas fermé." : null),
-      modifier: () => null,
+      modifier: (t) => (t.pharmacieId ? TARIF_PHARMACIE_NON_TRACE : null),
     },
   },
 
@@ -249,6 +251,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'le',
     table: 'referentiel_actes',
     roles: GESTION_REFERENTIEL_ACTES,
+    ...SUPPRESSION_INFORMATIQUE,
     charger: (db, id, ctx) => db.referentielActe.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (a) => `${a.code} — ${a.libelle}`,
     dependances: [
@@ -270,6 +273,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'le',
     table: 'medicaments',
     roles: GESTION_REFERENTIEL_MEDICAMENTS,
+    ...SUPPRESSION_INFORMATIQUE,
     charger: (db, id, ctx) => db.medicament.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (m) => m.denominationCommune,
     dependances: [
@@ -327,11 +331,16 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'le',
     table: 'produits',
     roles: GESTION_PLAN,
+    ...SUPPRESSION_PRODUIT,
     charger: (db, id, ctx) => db.produit.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (p) => `${p.nom} v${p.version}`,
     dependances: [
       dep('polices', 'police', 'polices', (db, p, ctx) => db.police.count({ where: { produitId: p.id, organisationId: org(ctx) } })),
-      dep('garanties', 'garantie', 'garanties', (db, p) => db.garantie.count({ where: { produitId: p.id, deletedAt: null } })),
+      // les garanties d'un brouillon partent AVEC lui (informatif, ne bloque rien)…
+      dep('garanties', 'garantie', 'garanties', (db, p) => db.garantie.count({ where: { produitId: p.id, deletedAt: null } }), []),
+      // … sauf si l'une d'elles est déjà utilisée (dossier de soins ou réclamation)
+      dep('garantiesUtilisees', 'garantie utilisée (dossier de soins ou réclamation)', 'garanties utilisées (dossiers de soins ou réclamations)', (db, p) =>
+        db.garantie.count({ where: { produitId: p.id, deletedAt: null, OR: [{ dossiersSoins: { some: {} } }, { reclamations: { some: {} } }] } })),
       dep('grilles', 'grille tarifaire', 'grilles tarifaires', (db, p, ctx) => db.grilleTarifaire.count({ where: { produitId: p.id, organisationId: org(ctx), deletedAt: null } })),
       // un produit archivé ne revient pas si une autre version du même nom est publiée
       dep('versionPubliee', 'autre version publiée', 'autres versions publiées', (db, p, ctx) => db.produit.count({ where: { organisationId: org(ctx), nom: p.nom, statut: 'PUBLIE', id: { not: p.id }, deletedAt: null } }), ['desarchiver']),
@@ -349,6 +358,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'la',
     table: 'garanties',
     roles: GESTION_PLAN,
+    ...SUPPRESSION_PRODUIT,
     charger: (db, id, ctx) =>
       db.garantie.findFirst({
         where: { id, deletedAt: null, produit: { organisationId: org(ctx) } },
@@ -356,8 +366,8 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
       }),
     nom: (g) => `${g.produit?.nom ?? ''} — ${g.categorieActe}`,
     dependances: [
-      dep('dossiers', 'dossier de soins', 'dossiers de soins', (db, g, ctx) => db.dossierSoins.count({ where: { planCouvertureId: g.id, organisationId: org(ctx) } })),
-      dep('reclamations', 'réclamation', 'réclamations', (db, g, ctx) => db.reclamation.count({ where: { garantieId: g.id, organisationId: org(ctx) } })),
+      dep('dossiers', 'dossier de soins', 'dossiers de soins', (db, g, ctx) => db.dossierSoins.count({ where: { planCouvertureId: g.id, organisationId: org(ctx) } }), ['supprimer', 'modifier']),
+      dep('reclamations', 'réclamation', 'réclamations', (db, g, ctx) => db.reclamation.count({ where: { garantieId: g.id, organisationId: org(ctx) } }), ['supprimer', 'modifier']),
     ],
     regles: {
       supprimer: (g) => (g.produit?.statut !== 'BROUILLON' ? "La garantie d'un produit publié ou archivé ne se supprime pas : créez une nouvelle version du produit." : null),
@@ -407,10 +417,17 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'la',
     table: 'grilles_tarifaires',
     roles: ['ASSUREUR_INFORMATIQUE'],
+    ...SUPPRESSION_INFORMATIQUE,
     charger: (db, id, ctx) => db.grilleTarifaire.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (g) => `${g.trancheAgeMin}–${g.trancheAgeMax} ans`,
-    // aucune trace des cotisations calculées avec une grille (écart n° 9 de l'audit)
-    dependances: [],
+    // liens TRACÉS au moment du calcul (prisma/sql/074) ; la modification reste permise :
+    // chaque cotisation garde le montant calculé à sa date
+    dependances: [
+      dep('cotisations', 'cotisation calculée avec cette grille', 'cotisations calculées avec cette grille', (db, g, ctx) =>
+        db.cotisation.count({ where: { grilleTarifaireId: g.id, police: { organisationId: org(ctx) } } })),
+      dep('tarifications', 'tarification individuelle calculée avec cette grille', 'tarifications individuelles calculées avec cette grille', (db, g, ctx) =>
+        db.tarificationIndividuelle.count({ where: { grilleTarifaireId: g.id, police: { organisationId: org(ctx) } } })),
+    ],
     regles: { supprimer: () => null, modifier: () => null },
   },
 
@@ -481,6 +498,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     pronom: 'le',
     table: 'evenements',
     roles: ['ASSUREUR_INFORMATIQUE'],
+    ...SUPPRESSION_INFORMATIQUE,
     charger: (db, id, ctx) => db.evenement.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (e) => e.titre,
     dependances: [],

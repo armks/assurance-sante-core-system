@@ -6,6 +6,7 @@ import {
   type MedicamentReferentiel,
 } from '@/components/dashboard/referentiel-medical-ecran';
 import { PageTitre } from '@/components/page-titre';
+import { verdictsListe } from '@/app/dependances-actions';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
 
@@ -33,6 +34,12 @@ export default async function ReferentielMedical() {
     : await messageErreur(resActes);
   const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
   const peutProposer = roleChain.includes(ROLE_PROPOSITION);
+  const [verdictsActes, verdictsMedicaments] = peutProposer
+    ? await Promise.all([
+        verdictsListe('referentielActe', actes.map((a) => a.id)),
+        verdictsListe('medicament', medicaments.map((m) => m.id)),
+      ])
+    : [{}, {}];
 
   return (
     <div className="space-y-8">
@@ -47,6 +54,8 @@ export default async function ReferentielMedical() {
           actes={actes}
           medicaments={medicaments}
           peutProposer={peutProposer}
+          verdictsActes={verdictsActes}
+          verdictsMedicaments={verdictsMedicaments}
         />
       )}
     </div>

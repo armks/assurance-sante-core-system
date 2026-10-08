@@ -67,7 +67,7 @@ export class OrganisationsService {
     });
     if (!organisation) throw new NotFoundException('Organisation introuvable.');
     if (organisation.slug === slug) return { slug };
-    const pris = await this.prisma.organisation.findUnique({ where: { slug }, select: { id: true } });
+    const pris = (await this.prisma.organisation.count({ where: { slug, deletedAt: null } })) > 0;
     if (pris) throw new ConflictException(`Le chemin « /${slug} » est déjà utilisé par une autre organisation.`);
     await this.prisma.organisation.update({ where: { id: organisationId }, data: { slug } });
     await this.audit(userId, organisationId, { slug, ancienSlug: organisation.slug }, 'MODIFICATION_SLUG_ORGANISATION');

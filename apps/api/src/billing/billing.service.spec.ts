@@ -4,6 +4,15 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { BillingService } from './billing.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
+
 
 /** Prisma Decimal-like : suffit d'avoir toFixed / toString pour le service. */
 const dec = (n: number) => ({ toFixed: (d = 2) => n.toFixed(d), toString: () => String(n) });
@@ -71,6 +80,7 @@ describe('BillingService', () => {
         BillingService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
+        { provide: DependancesService, useValue: dependances },
       ],
     }).compile();
 

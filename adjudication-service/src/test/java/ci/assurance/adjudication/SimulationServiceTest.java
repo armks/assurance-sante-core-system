@@ -199,6 +199,19 @@ class SimulationServiceTest {
   }
 
   @Test
+  @DisplayName("Trace du calcul (prisma/sql/074) : la ligne renvoie le tarif conventionné appliqué, null sans tarif")
+  void tarifConventionneTrace() {
+    UUID g = garantie("80", null, null, null);
+    UUID tarif = UUID.fromString("00000000-0000-4000-8000-00000000c0de");
+    when(repo.tarifConvention(eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
+    when(repo.tarifConventionneId(eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(tarif);
+    List<ResultatLigne> r = simuler(
+        new Ligne(g, new BigDecimal("10000"), "CI-CONS"), new Ligne(g, new BigDecimal("1000"), null));
+    assertThat(r.get(0).tarifConventionneId()).isEqualTo(tarif);
+    assertThat(r.get(1).tarifConventionneId()).isNull();
+  }
+
+  @Test
   @DisplayName("Garantie d'un autre produit que celui de la police → 400")
   void garantieAutreProduit() {
     UUID autre = UUID.randomUUID();

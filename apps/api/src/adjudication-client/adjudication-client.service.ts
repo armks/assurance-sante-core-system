@@ -41,6 +41,8 @@ export interface ResultatSimulation {
     montant_couvert: number;
     plafond_restant_apres: number | null;
     codes_rejet: string[];
+    /** Tarif conventionné appliqué au calcul (trace sur l'acte, prisma/sql/074). */
+    tarif_conventionne_id?: string | null;
   }[];
 }
 

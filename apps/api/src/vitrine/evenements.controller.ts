@@ -78,6 +78,18 @@ export class EvenementsController {
     return this.evenements.modifier(user, id, dto, image);
   }
 
+  /** Masqué de la page publique (archivage, ADR-007). */
+  @Post('evenements/:id/archiver')
+  archiverEvenement(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.evenements.changerVisibilite(user, id, 'archiver');
+  }
+
+  /** Affiché de nouveau (désarchivage). */
+  @Post('evenements/:id/desarchiver')
+  desarchiverEvenement(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.evenements.changerVisibilite(user, id, 'desarchiver');
+  }
+
   @Delete('evenements/:id')
   supprimerEvenement(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.evenements.supprimer(user, id);

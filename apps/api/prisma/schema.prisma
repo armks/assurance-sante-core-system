@@ -38,7 +38,7 @@ model Organisation {
   logoUrl          String?   @map("logo_url")
   /// Chemin de la page d'accueil dédiée (/{slug}) — prisma/sql/061. Unique,
   /// généré depuis `nom`, modifiable par SUPERADMIN_PRINCIPAL.
-  slug             String    @unique
+  slug             String // unique parmi les non supprimés : index partiel (prisma/sql/074)
   /// Bannière de la page /{slug} (prisma/sql/062) — ASSUREUR_INFORMATIQUE ; null :
   /// valeur par défaut de la plateforme.
   heroTitre        String?   @map("hero_titre")
@@ -472,7 +472,7 @@ model Produit {
   polices           Police[]
   grillesTarifaires GrilleTarifaire[]
 
-  @@unique([organisationId, nom, version], map: "produits_org_nom_version_unique")
+  // (organisation, nom, version) unique parmi les non supprimés : index partiel (prisma/sql/074)
   @@index([organisationId])
   @@index([organisationId, nom], map: "produits_org_nom_idx")
   @@index([statut])
@@ -503,6 +503,7 @@ model Garantie {
   produit       Produit        @relation(fields: [produitId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   categorie     CategorieActe  @relation(fields: [categorieActe], references: [code], onDelete: NoAction, onUpdate: NoAction)
   dossiersSoins DossierSoins[]
+  reclamations  Reclamation[]
 
   // + index unique partiel (produit_id, categorie_acte) WHERE deleted_at IS NULL
   //   (garanties_produit_categorie_unique, prisma/sql/067 — non exprimable ici)
@@ -582,6 +583,8 @@ model GrilleTarifaire {
   organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   produit      Produit       @relation(fields: [produitId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   souscripteur Souscripteur? @relation(fields: [souscripteurId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  cotisations              Cotisation[]
+  tarificationsIndividuelles TarificationIndividuelle[]
 
   @@index([produitId])
   @@index([souscripteurId])
@@ -617,12 +620,15 @@ model Cotisation {
   dateEcheance      DateTime  @map("date_echeance") @db.Date
   statut            String    @default("A_PAYER") // A_PAYER | PAYEE | EN_RETARD | ANNULEE
   penaliteAppliquee Decimal   @default(0) @map("penalite_appliquee") @db.Decimal(14, 2)
+  /// grille ayant servi au calcul (cotisation individuelle ; null pour une facture société consolidée) — prisma/sql/074
+  grilleTarifaireId String?   @map("grille_tarifaire_id") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   police   Police        @relation(fields: [policeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   societe  Souscripteur? @relation(fields: [societeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  grilleTarifaire GrilleTarifaire? @relation(fields: [grilleTarifaireId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   adherent Adherent?     @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([policeId])
@@ -669,10 +675,13 @@ model TarificationIndividuelle {
   primeBase              Decimal  @map("prime_base") @db.Decimal(14, 2)
   surprimeMedicale       Decimal  @default(0) @map("surprime_medicale") @db.Decimal(14, 2)
   primeFinale            Decimal? @map("prime_finale") @db.Decimal(14, 2) // GENERATED — lecture seule
+  /// grille standard ayant servi au calcul de la prime — prisma/sql/074
+  grilleTarifaireId      String?  @map("grille_tarifaire_id") @db.Uuid
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   police        Police               @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   questionnaire QuestionnaireMedical @relation(fields: [questionnaireMedicalId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  grilleTarifaire GrilleTarifaire?   @relation(fields: [grilleTarifaireId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([policeId])
   @@index([questionnaireMedicalId], map: "tarification_individuelle_questionnaire_id_idx")
@@ -724,7 +733,7 @@ model EtablissementSante {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId    String    @map("organisation_id") @db.Uuid
   nom               String
-  code              String    @unique
+  code              String // unique parmi les non supprimés : index partiel (prisma/sql/074)
   typeEtablissement String    @map("type_etablissement") // HOPITAL_PUBLIC | CLINIQUE_PRIVEE | CABINET_MEDICAL | CENTRE_SANTE | LABORATOIRE | CENTRE_IMAGERIE | OPTICIEN | DENTISTE | MATERNITE
   pays              String    @default("Côte d'Ivoire")
   ville             String?
@@ -771,7 +780,7 @@ model Pharmacie {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId    String    @map("organisation_id") @db.Uuid
   nom               String
-  code              String    @unique
+  code              String // unique parmi les non supprimés : index partiel (prisma/sql/074)
   pays              String    @default("Côte d'Ivoire")
   ville             String?
   commune           String?
@@ -835,7 +844,7 @@ model VerificationEtablissement {
 model ReferentielActe {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   organisationId      String    @map("organisation_id") @db.Uuid
-  code                String    @unique
+  code                String // unique parmi les non supprimés : index partiel (prisma/sql/074)
   libelle             String
   categorie           String?
   versionNomenclature String?   @map("version_nomenclature")
@@ -878,6 +887,8 @@ model TarifConventionne {
   etablissement   EtablissementSante? @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   pharmacie       Pharmacie?         @relation(fields: [pharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   referentielActe ReferentielActe    @relation(fields: [referentielActeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actesCalcules   ActeDossier[]       @relation("ActeTarifConventionne")
+  lignesDispensation LigneDispensation[] @relation("LigneTarifPharmacie")
 
   @@index([organisationId])
   @@index([etablissementId])
@@ -1251,11 +1262,14 @@ model LigneDispensation {
   /// n'est plus en litige (VALIDEE) ; reste définitivement non réclamée si
   /// REJETEE (`STATUTS_CONTESTATION_EN_LITIGE` inclut déjà REJETEE).
   reporteeMoisSuivant Boolean @default(false) @map("reportee_mois_suivant")
+  /// tarif conventionné de la pharmacie appliqué (vide tant que le comptoir calcule au prix du stock) — prisma/sql/074
+  tarifPharmacieId    String?   @map("tarif_pharmacie_id") @db.Uuid
 
   dispensation    DispensationPharmacie      @relation(fields: [dispensationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   ligneOrdonnance LigneOrdonnance            @relation(fields: [ligneOrdonnanceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   substituePar    Profil?                    @relation(fields: [substitueParId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factureMensuelle FactureMensuellePharmacie? @relation(fields: [factureMensuelleId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tarifPharmacie   TarifConventionne?         @relation("LigneTarifPharmacie", fields: [tarifPharmacieId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([dispensationId])
   @@index([ligneOrdonnanceId])
@@ -1418,6 +1432,8 @@ model ActeDossier {
   /// (`simulerMontantActe`) est recherché pour CET établissement, jamais plus
   /// celui d'origine. prisma/sql/042.
   etablissementExecutionId String? @map("etablissement_execution_id") @db.Uuid
+  /// tarif conventionné appliqué au calcul (facture, simulation, adjudication) — prisma/sql/074
+  tarifConventionneId   String?   @map("tarif_conventionne_id") @db.Uuid
   statut                String    @default("PRESCRIT") // PRESCRIT | REALISE | ANNULE | LIQUIDE
   datePrescription      DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
   dateRealisation       DateTime? @map("date_realisation") @db.Timestamptz(6)
@@ -1434,6 +1450,7 @@ model ActeDossier {
   lignesFacturation LigneFacturation[]
   notes NoteDossier[]
   contestations ContestationActe[]
+  tarifConventionne TarifConventionne? @relation("ActeTarifConventionne", fields: [tarifConventionneId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([dossierSoinsId])
   @@index([ticketSoinsId])
@@ -1789,7 +1806,7 @@ model ParametrePlateforme {
 /// l'importe vers le référentiel de SON organisation au statut PROPOSE. prisma/sql/017.
 model ReferentielNationalActe {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  code                String    @unique
+  code                String // unique parmi les non supprimés : index partiel (prisma/sql/074)
   libelle             String
   categorie           String?
   versionNomenclature String?   @map("version_nomenclature")
@@ -1905,6 +1922,7 @@ model Reclamation {
   adherent      Adherent?              @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   beneficiaire  Beneficiaire?          @relation(fields: [beneficiaireId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   dispensation  DispensationPharmacie? @relation(fields: [dispensationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  garantie      Garantie?              @relation(fields: [garantieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([organisationId])
   @@index([statut])

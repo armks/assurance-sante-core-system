@@ -98,3 +98,21 @@ export async function retirerMedicament(id: string) {
 export async function reproposerMedicament(id: string) {
   return poster(`/api/v1/reference/medicaments/${id}/reproposer`, MEDICS);
 }
+
+/** Suppression (logique) d'un acte jamais homologué et sans lien — service informatique. */
+export async function supprimerActe(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/reference/actes/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(ACTES);
+  revalidatePath(REFERENTIEL_INFORMATIQUE);
+  return { ok: true };
+}
+
+/** Suppression (logique) d'un médicament jamais homologué et sans lien — service informatique. */
+export async function supprimerMedicament(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/reference/medicaments/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(MEDICS);
+  revalidatePath(REFERENTIEL_INFORMATIQUE);
+  return { ok: true };
+}

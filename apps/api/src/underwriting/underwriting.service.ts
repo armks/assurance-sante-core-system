@@ -292,6 +292,8 @@ export class UnderwritingService {
           ageASubscription: dto.ageASubscription,
           primeBase: primeBase.toFixed(2),
           surprimeMedicale: surprimeMedicale.toFixed(2),
+          // trace du calcul (prisma/sql/074)
+          grilleTarifaireId: grille.id,
           // prime_finale : colonne GENERATED — ne pas écrire
         },
       });

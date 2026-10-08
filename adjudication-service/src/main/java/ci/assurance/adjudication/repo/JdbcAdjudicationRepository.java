@@ -68,6 +68,7 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         p.date_fin    AS police_fin,
         ds.etablissement_id AS etablissement_id,
         tc.tarif_convention AS tarif_convention,
+        tc.id AS tarif_conventionne_id,
         g.produit_id AS produit_id,
         COALESCE(r.adherent_id, b.adherent_id) AS titulaire_id,
         pr.periode_cumul_plafond AS periode_cumul,
@@ -415,6 +416,48 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         .stream()
         .findFirst()
         .orElse(null);
+  }
+
+  @Override
+  public UUID tarifConventionneId(UUID etablissementId, String codeActe, LocalDate date) {
+    if (etablissementId == null || codeActe == null || codeActe.isBlank()) {
+      return null;
+    }
+    return jdbc
+        .query(
+            """
+            SELECT tc.id
+            FROM referentiel_actes ra
+            JOIN tarifs_conventionnes tc
+              ON tc.referentiel_acte_id = ra.id
+             AND tc.etablissement_id = ?
+             AND tc.deleted_at IS NULL
+             AND tc.date_debut <= ?
+             AND (tc.date_fin IS NULL OR tc.date_fin >= ?)
+            WHERE ra.code = ? AND ra.deleted_at IS NULL
+            LIMIT 1
+            """,
+            (rs, n) -> uuid(rs, "id"),
+            etablissementId,
+            date,
+            date,
+            codeActe)
+        .stream()
+        .findFirst()
+        .orElse(null);
+  }
+
+  @Override
+  public void tracerTarifActe(UUID reclamationId, UUID acteDossierId) {
+    final UUID tarifId =
+        jdbc.query(SQL_CONTEXTE, (rs, n) -> uuid(rs, "tarif_conventionne_id"), reclamationId).stream()
+            .filter(java.util.Objects::nonNull)
+            .findFirst()
+            .orElse(null);
+    if (tarifId != null) {
+      jdbc.update(
+          "UPDATE actes_dossier SET tarif_conventionne_id = ? WHERE id = ?", tarifId, acteDossierId);
+    }
   }
 
   @Override

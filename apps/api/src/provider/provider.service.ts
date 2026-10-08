@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -19,6 +20,8 @@ import {
   UpdateEtablissementDto,
   UpdatePharmacieDto,
   UpdateTarifConventionneDto,
+  ChangerTarifConventionneDto,
+  FermerTarifConventionneDto,
 } from './dto/provider.dto';
 import { GeocodageService } from './geocodage.service';
 import {
@@ -50,6 +53,11 @@ interface PointGeo {
  * Recherche géolocalisée : distance calculée en mémoire (formule de Haversine),
  * pas de PostGIS.
  */
+/** « 2026-03-01 » ou ISO complet → minuit UTC du jour (colonnes @db.Date). */
+function jourUtc(iso: string): Date {
+  return new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
+}
+
 @Injectable()
 export class ProviderService {
   private readonly logger = new Logger(ProviderService.name);
@@ -876,6 +884,8 @@ export class ProviderService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const actuel = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+    // ADR-007 : un tarif ayant servi à un calcul ne se modifie plus — « Changer à partir du… »
+    await this.dependances.assertPossible(user, 'tarif', tarifId, 'modifier');
     if (dto.dateDebut !== undefined || dto.dateFin !== undefined) {
       const acte = await this.prisma.referentielActe.findUnique({
         where: { id: actuel.referentielActeId },
@@ -947,6 +957,139 @@ export class ProviderService {
         'tarifs_conventionnes',
       );
     });
+  }
+
+  /**
+   * « Changer à partir du… » (ADR-007) : UNE action, UNE transaction — l'ancien tarif est
+   * fermé la veille de `aPartirDu`, le nouveau montant vaut à partir de cette date
+   * (jusqu'à l'ancienne date de fin éventuelle). Chaque soin reste remboursé au tarif en
+   * vigueur à sa date ; refusé si des actes déjà calculés avec l'ancien tarif ont des
+   * soins à partir de cette date.
+   */
+  async changerTarif(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+    tarifId: string,
+    dto: ChangerTarifConventionneDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const ancien = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+    const aPartirDu = jourUtc(dto.aPartirDu);
+    const jj = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('/');
+    if (aPartirDu <= ancien.dateDebut) {
+      throw new ConflictException(
+        `Le nouveau tarif doit commencer après le début de l'actuel (${jj(ancien.dateDebut)}). Pour corriger un tarif jamais utilisé, modifiez-le.`,
+      );
+    }
+    if (ancien.dateFin && aPartirDu > ancien.dateFin) {
+      throw new ConflictException(
+        `Ce tarif est fermé depuis le ${jj(ancien.dateFin)} : créez un nouveau tarif plutôt que de le changer.`,
+      );
+    }
+    await this.assertSoinsCalculesAvant(tarifId, aPartirDu, 'changer le tarif');
+
+    const veille = new Date(aPartirDu.getTime() - 86_400_000);
+    const nouveau = await this.prisma.$transaction(async (tx) => {
+      await tx.tarifConventionne.update({ where: { id: tarifId }, data: { dateFin: veille } });
+      const t = await tx.tarifConventionne.create({
+        data: {
+          organisationId: ctx.organisationId,
+          etablissementId: ancien.etablissementId,
+          pharmacieId: ancien.pharmacieId,
+          referentielActeId: ancien.referentielActeId,
+          tarifConvention: dto.tarifConvention,
+          dateDebut: aPartirDu,
+          dateFin: ancien.dateFin,
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'CHANGEMENT_TARIF_CONVENTIONNE',
+        t.id,
+        {
+          cible,
+          cibleId: id,
+          ancienTarifId: tarifId,
+          ancienMontant: ancien.tarifConvention.toFixed(2),
+          nouveauMontant: dto.tarifConvention.toFixed(2),
+          aPartirDu: dto.aPartirDu.slice(0, 10),
+        },
+        'tarifs_conventionnes',
+      );
+      return t;
+    });
+    return this.chargerTarif(ctx.organisationId, nouveau.id);
+  }
+
+  /** Archivage = FERMETURE du tarif (date de fin, aujourd'hui par défaut). */
+  async fermerTarif(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+    tarifId: string,
+    dto: FermerTarifConventionneDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const tarif = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+    await this.dependances.assertPossible(user, 'tarif', tarifId, 'archiver');
+    const dateFin = dto.dateFin ? jourUtc(dto.dateFin) : jourUtc(new Date().toISOString());
+    if (dateFin < tarif.dateDebut) {
+      throw new BadRequestException('La date de fin ne peut pas précéder le début du tarif.');
+    }
+    await this.assertSoinsCalculesAvant(tarifId, new Date(dateFin.getTime() + 86_400_000), 'fermer le tarif à cette date');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tarifConventionne.update({ where: { id: tarifId }, data: { dateFin } });
+      await this.audit(tx, ctx.userId, 'FERMETURE_TARIF_CONVENTIONNE', tarifId,
+        { dateFin: dateFin.toISOString().slice(0, 10) }, 'tarifs_conventionnes');
+    });
+    return this.chargerTarif(ctx.organisationId, tarifId);
+  }
+
+  /** Désarchivage = RÉOUVERTURE (date de fin retirée), si aucun tarif suivant n'existe. */
+  async rouvrirTarif(
+    user: AuthenticatedUser,
+    cible: 'etablissement' | 'pharmacie',
+    id: string,
+    tarifId: string,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const tarif = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+    await this.dependances.assertPossible(user, 'tarif', tarifId, 'desarchiver');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.tarifConventionne.update({ where: { id: tarifId }, data: { dateFin: null } });
+      await this.audit(tx, ctx.userId, 'REOUVERTURE_TARIF_CONVENTIONNE', tarifId,
+        { ancienneDateFin: tarif.dateFin?.toISOString().slice(0, 10) ?? null }, 'tarifs_conventionnes');
+    });
+    return this.chargerTarif(ctx.organisationId, tarifId);
+  }
+
+  /**
+   * Un acte calculé avec ce tarif dont les soins sont postérieurs ou égaux à `limite`
+   * rendrait l'historique faux (il aurait été calculé avec un tarif qui ne valait plus).
+   */
+  private async assertSoinsCalculesAvant(tarifId: string, limite: Date, quoi: string): Promise<void> {
+    const n = await this.prisma.acteDossier.count({
+      where: {
+        tarifConventionneId: tarifId,
+        OR: [
+          { dateRealisation: { gte: limite } },
+          { dateRealisation: null, datePrescription: { gte: limite } },
+        ],
+      },
+    });
+    if (n > 0) {
+      const jj = limite.toISOString().slice(0, 10).split('-').reverse().join('/');
+      throw new ConflictException(
+        `Impossible de ${quoi} : ${n} acte${n > 1 ? 's' : ''} calculé${n > 1 ? 's' : ''} avec ce tarif ${n > 1 ? 'ont' : 'a'} des soins à partir du ${jj}. Choisissez une date postérieure.`,
+      );
+    }
   }
 
   private async chargerTarif(organisationId: string, id: string) {
@@ -1116,10 +1259,11 @@ export class ProviderService {
     modele: 'etablissementSante' | 'pharmacie',
     code: string,
   ): Promise<void> {
+    // unique parmi les NON supprimés (index partiel, prisma/sql/074) : un code supprimé se réutilise
     const existe =
-      modele === 'etablissementSante'
-        ? await this.prisma.etablissementSante.findUnique({ where: { code } })
-        : await this.prisma.pharmacie.findUnique({ where: { code } });
+      (modele === 'etablissementSante'
+        ? await this.prisma.etablissementSante.count({ where: { code, deletedAt: null } })
+        : await this.prisma.pharmacie.count({ where: { code, deletedAt: null } })) > 0;
     if (existe) {
       throw new ConflictException(`Le code « ${code} » est déjà utilisé.`);
     }

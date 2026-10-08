@@ -91,6 +91,24 @@ export class SuperadminConfigController {
     return this.config.supprimerActeNational(user, id);
   }
 
+/** Archivage : retiré du catalogue (plus importable), copies existantes inchangées. */
+  @Post('catalogue-national/actes/:id/retirer')
+  retirerActeNational(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.config.changerStatutNational(user, 'actes', id, 'archiver');
+  }
+
+  /** Désarchivage : de nouveau homologué et importable. */
+  @Post('catalogue-national/actes/:id/reactiver')
+  reactiverActeNational(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.config.changerStatutNational(user, 'actes', id, 'desarchiver');
+  }
+
   // --- Catalogue national : médicaments ---
   @Get('catalogue-national/medicaments')
   listerMedicamentsNational(
@@ -114,6 +132,24 @@ export class SuperadminConfigController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.config.supprimerMedicamentNational(user, id);
+  }
+
+/** Archivage : retiré du catalogue (plus importable), copies existantes inchangées. */
+  @Post('catalogue-national/medicaments/:id/retirer')
+  retirerMedicamentNational(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.config.changerStatutNational(user, 'medicaments', id, 'archiver');
+  }
+
+  /** Désarchivage : de nouveau homologué et importable. */
+  @Post('catalogue-national/medicaments/:id/reactiver')
+  reactiverMedicamentNational(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.config.changerStatutNational(user, 'medicaments', id, 'desarchiver');
   }
 
   // --- Catalogue national : import en masse par Excel (réservé

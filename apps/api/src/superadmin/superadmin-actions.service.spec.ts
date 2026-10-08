@@ -190,8 +190,8 @@ describe('SuperadminActionsService — confirmation à deux temps', () => {
     prisma.organisation.create.mockResolvedValue({ id: 'org-new', nom: 'Nouvelle Mutuelle' });
     prisma.licenceOrganisation.create.mockResolvedValue({ organisationId: 'org-new', plan: 'STARTER' });
     // Chemin /{slug} dérivé du nom ; « nouvelle-mutuelle » déjà pris → suffixe -2.
-    prisma.organisation.findUnique.mockImplementation(({ where }: { where: { slug: string } }) =>
-      Promise.resolve(where.slug === 'nouvelle-mutuelle' ? { id: 'org-existante' } : null),
+    prisma.organisation.count = jest.fn(({ where }: { where: { slug: string } }) =>
+      Promise.resolve(where.slug === 'nouvelle-mutuelle' ? 1 : 0),
     );
 
     const res = await service.confirmerAction(USER, { code: 'AB23CD45' });

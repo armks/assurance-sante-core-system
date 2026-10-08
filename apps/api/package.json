@@ -11,7 +11,8 @@
     "prisma:generate": "prisma generate",
     "prisma:pull": "prisma db pull",
     "lint": "eslint \"src/**/*.ts\" --fix",
-    "test": "jest"
+    "test": "jest",
+    "test:integration": "jest --config test/integration/jest-integration.config.js --runInBand"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

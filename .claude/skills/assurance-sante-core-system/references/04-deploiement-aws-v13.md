@@ -84,7 +84,7 @@ un message en français). Trois niveaux de contrôle, chacun avec son rôle :
 |---|---|---|---|
 | Vivacité du conteneur | Task Definition ECS, `healthCheck` | `GET /healthz` (ne dépend **pas** de la base) | ECS remplace la tâche |
 | Disponibilité de la tâche | Target group de l'ALB interne | `GET /readyz` → 200 (joint Postgres en `svc_adjudication`), 503 sinon | l'ALB retire la tâche de la rotation, sans la tuer |
-| Supervision de bout en bout | Moniteur externe (Route 53 health check, CloudWatch Synthetics…) | `GET /api/v1/sante` de l'API NestJS → 200 `UP`, 503 `DEGRADE` | alerte à l'équipe (SNS / e-mail) |
+| Supervision de bout en bout | Moniteur externe (Route 53 health check, CloudWatch Synthetics…) | `GET /api/v1/sante` de l'API NestJS → 200 `UP`, 503 `DEGRADE` — toutes les 60 s, délai 5 s | alerte à l'équipe (SNS / e-mail) après 2 échecs consécutifs |
 
 - **Pourquoi deux sondes côté Java.** Une coupure de la base ne doit pas faire redémarrer les
   conteneurs en boucle (ils n'y peuvent rien) : la vivacité (`/healthz`) ne teste que le
@@ -99,10 +99,49 @@ un message en français). Trois niveaux de contrôle, chacun avec son rôle :
   2 minutes) **et** sur le moniteur externe de `/api/v1/sante` — c'est ce dernier qui prévient
   avant les utilisateurs, car il vérifie aussi que l'API joint bien le microservice (réseau,
   security groups, `ADJUDICATION_SERVICE_URL`).
+- **Moniteur externe de `/api/v1/sante`** (ajout du 2026-10-07) — c'est la seule sonde qui
+  voit la chaîne complète (API, sa base, réseau jusqu'au microservice, base du microservice) :
+  - requête : `GET https://<api>/api/v1/sante`, **sans authentification** ;
+  - **intervalle 60 s**, **délai de réponse 5 s** (la sonde de l'API attend le microservice
+    3 s au plus, `ADJUDICATION_SANTE_TIMEOUT_MS` : la réponse arrive donc avant le délai même
+    quand le microservice ne répond plus) ;
+  - **succès** : HTTP **200** avec `"statut": "UP"` ;
+  - **échec** : HTTP **503** avec `"statut": "DEGRADE"` — le corps dit quel composant est en
+    cause : `api.baseDeDonnees` (`UP` / `DOWN`), `adjudication.statut` (`UP` / `DOWN` =
+    répond mais sa base est injoignable / `INJOIGNABLE`) et `adjudication.detail` (type
+    d'erreur seulement, jamais d'URL ni de secret) ; ou toute absence de réponse dans les 5 s
+    (API elle-même arrêtée) ;
+  - **alerte après 2 échecs consécutifs** (≈ 2 minutes), et notification de retour à la normale
+    au premier succès — un échec isolé (redémarrage, déploiement) ne réveille personne.
+  - Effet pour les utilisateurs pendant un `DEGRADE` dû au microservice : facturation tiers
+    payant et préparation de dispensation refusées en **503** avec un message en français
+    (« Le calcul de la prise en charge par l'assurance est momentanément indisponible : la
+    facture n'a pas été émise / la dispensation n'a pas été préparée. Réessayez dans quelques
+    minutes. »), aucune donnée créée.
 - Côté API, le délai de la sonde est réglable (`ADJUDICATION_SANTE_TIMEOUT_MS`, 3 s par défaut).
   L'état est aussi affiché au superadmin (écran « Santé système »).
 - Les sondes sont non authentifiées et n'exposent aucune donnée métier ni secret (seulement le
   type d'erreur) ; les routes `/api/v1/adjudication/**` restent protégées par le JWT de service.
+
+### 3.6 Test d'intégration OBLIGATOIRE avant chaque déploiement (ajout du 2026-10-07)
+
+Les tests unitaires (`npm test`, JUnit) ne peuvent pas prouver qu'un verrou de base de
+données protège réellement les plafonds annuels contre deux factures simultanées. Un test
+d'intégration le fait, contre la plateforme réelle :
+
+```bash
+# API et microservice démarrés sur l'environnement de PRÉ-PRODUCTION (jamais la production :
+# le test crée puis supprime ses données) — GET /api/v1/sante doit répondre 200 « UP »
+INTEGRATION_API_URL=https://<api-preprod>/api/v1 npm run test:integration --workspace apps/api
+```
+
+- `apps/api/test/integration/factures-paralleles.int-spec.ts` : deux factures tiers payant
+  lancées **réellement en parallèle** — plafond par personne (même adhérent), puis plafond
+  familial (deux bénéficiaires). Attendu : 20 000 + 10 000 pour un plafond de 30 000 ; si le
+  verrou a disparu, le test échoue (20 000 + 20 000).
+- Il crée ses données dans une organisation dédiée, les supprime dans l'ordre inverse des
+  dépendances et vérifie qu'il ne reste aucune ligne ni compte.
+- **Un test rouge bloque le déploiement.** Détails et variables : `apps/api/test/integration/README.md`.
 
 ## 4. Étape 3 — Sécuriser la communication entre les composants
 
@@ -143,7 +182,8 @@ AWS Amplify (Next.js)                    AWS ECS Fargate (Java)
    d'avoir un MVP qui fonctionne sur votre machine.
 2. Déployez le frontend sur Amplify (§2) — le plus simple, à faire en premier.
 3. Déployez le microservice Java sur ECS Fargate (§3) — une fois les tests JUnit du
-   Prompt 22c tous verts.
+   Prompt 22c tous verts **et le test d'intégration `npm run test:integration` vert sur la
+   pré-production (§3.6)** — à refaire avant CHAQUE déploiement ultérieur.
 4. Sécurisez les échanges (§4) avant d'inviter le moindre vrai utilisateur.
 5. Mettez en place le budget et les logs (§5) — dernière étape avant ouverture réelle.
 

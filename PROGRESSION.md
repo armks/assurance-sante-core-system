@@ -7675,3 +7675,40 @@ fin → rejet E001 ; réclamation tardive → tarif du jour ; divergences récla
 
 ### Statut
 Terminé — commit et push.
+
+## 2026-10-07 — Moniteur de /api/v1/sante documenté, test d'intégration permanent du verrou des factures
+
+### Documentation de déploiement (`04-deploiement-aws-v13.md`)
+- §3.5 : moniteur externe de `GET /api/v1/sante` — intervalle 60 s, délai 5 s (la sonde de
+  l'API attend le microservice 3 s au plus), succès 200 `UP`, échec 503 `DEGRADE` (composant en
+  cause dans le corps) ou absence de réponse, alerte après 2 échecs consécutifs, retour à la
+  normale au premier succès ; effet utilisateur (503 avec message en français, rien de créé).
+- §3.6 (nouveau) : test d'intégration OBLIGATOIRE avant chaque déploiement, sur la
+  pré-production ; §6 (ordre d'exécution) y renvoie.
+
+### Test d'intégration (hors suite normale)
+- `apps/api/test/integration/factures-paralleles.int-spec.ts`, lancé par
+  `npm run test:integration` (apps/api ; config Jest et tsconfig dédiés, `npm test` ne le voit
+  pas) : deux factures RÉELLEMENT simultanées via l'API (et donc le microservice) — plafond
+  personne 30 000 (même adhérent, 2 × 20 000) et plafond famille 30 000 (deux bénéficiaires,
+  20 000 chacun) → attendu 20 000 + 10 000. Vérifie d'abord que `/api/v1/sante` répond `UP`.
+  Crée ses données dans une organisation dédiée, les supprime dans l'ordre inverse des
+  dépendances, vérifie 0 ligne dans 11 tables et 0 compte Auth.
+- Résultats : 2/2 avec le verrou ; **2/2 en échec avec le verrou désactivé temporairement**
+  (20 000 + 20 000 dans les deux cas) ; verrou restauré à l'identique, 2/2 de nouveau ;
+  0 organisation de test restante, y compris après les exécutions en échec.
+- `apps/api/test/integration/README.md` : lancement, variables, « jamais en production ».
+
+### Confirmations demandées
+- Aucun commit intitulé « feat(sante) » : la supervision (sonde `/readyz`,
+  `GET /api/v1/sante`, état dans la santé système) est dans `2ed9d00`
+  (« feat(adjudication): supervision du microservice, messages d'indisponibilité clairs et
+  verrou des factures sur le plafond annuel »).
+- Java arrêté (mesuré en HTTP réel) : facturation et dispensation → HTTP 503, messages en
+  français sans détail technique.
+
+### Suites
+API 978/978, JUnit 89/89, typecheck API et web 0 erreur.
+
+### Statut
+Terminé — commit et push.

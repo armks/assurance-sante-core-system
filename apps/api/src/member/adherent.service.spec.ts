@@ -10,6 +10,14 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdherentService } from './adherent.service';
 import { MemberCarteService } from './carte.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -100,6 +108,7 @@ describe('AdherentService — fichier des membres', () => {
       providers: [
         AdherentService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DependancesService, useValue: dependances },
         { provide: IdentityService, useValue: identity },
         { provide: MemberCarteService, useValue: cartes },
       ],

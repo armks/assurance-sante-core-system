@@ -18,6 +18,7 @@ import {
 } from './dto/garantie.dto';
 import { CreateProduitDto, UpdateProduitDto } from './dto/produit.dto';
 import { ContexteAppelant, ROLES_GESTION_PLAN } from './plan.types';
+import { DependancesService } from '../dependances/dependances.service';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -42,6 +43,7 @@ export class PlanService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly categoriesActe: CategoriesActeService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Produits ----------------------------------------------------------
@@ -393,6 +395,9 @@ export class PlanService {
     if (!garantie) {
       throw new NotFoundException('Garantie introuvable.');
     }
+
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'garantie', garantieId, 'supprimer');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.garantie.update({

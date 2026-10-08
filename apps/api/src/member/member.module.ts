@@ -6,6 +6,7 @@ import { MemberCarteService } from './carte.service';
 import { ImportAdherentsService } from './import-adherents.service';
 import { MemberController } from './member.controller';
 import { PlafondsService } from './plafonds.service';
+import { DependancesModule } from '../dependances/dependances.module';
 
 /**
  * Module `member/` — un domaine métier strict (v18 §4) : fichier des membres,
@@ -17,7 +18,7 @@ import { PlafondsService } from './plafonds.service';
  * l'adhérent (`CareEpisodeService`).
  */
 @Module({
-  imports: [IdentityModule, AdjudicationClientModule],
+  imports: [IdentityModule, DependancesModule, AdjudicationClientModule],
   controllers: [MemberController],
   providers: [AdherentService, MemberCarteService, ImportAdherentsService, PlafondsService],
   exports: [AdherentService],

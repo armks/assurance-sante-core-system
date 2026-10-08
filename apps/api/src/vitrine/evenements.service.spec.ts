@@ -13,6 +13,14 @@ import {
   statutEvenement,
   type FichierImage,
 } from './evenements.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 const USER = { id: 'u-1', email: 'it@assureur.ci' } as unknown as AuthenticatedUser;
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -31,6 +39,7 @@ describe('EvenementsService', () => {
     evenement: { findMany: jest.Mock; findFirst: jest.Mock; create: jest.Mock; update: jest.Mock };
     organisation: { findFirst: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
     $executeRaw: jest.Mock;
+    $transaction: jest.Mock;
   };
   let identity: { getMe: jest.Mock };
   let fetchMock: jest.Mock;
@@ -56,6 +65,8 @@ describe('EvenementsService', () => {
         ),
       },
       $executeRaw: jest.fn().mockResolvedValue(1),
+      // écritures + audit dans une même transaction (ADR-007)
+      $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     identity = { getMe: jest.fn() };
     fetchMock = jest.fn().mockResolvedValue({ ok: true, text: async () => '' });
@@ -64,6 +75,7 @@ describe('EvenementsService', () => {
       providers: [
         EvenementsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DependancesService, useValue: dependances },
         { provide: IdentityService, useValue: identity },
       ],
     }).compile();
@@ -151,6 +163,48 @@ describe('EvenementsService', () => {
       data: { deletedAt: expect.any(Date), actif: false },
     });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ prefixes: ['org/e-1-1.jpg'] });
+  });
+
+  it('suppression : contrôle des dépendances, puis mise à jour ET audit dans la MÊME transaction ; image effacée après validation', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    prisma.evenement.findFirst.mockResolvedValue(ligne());
+    const ordre: string[] = [];
+    prisma.$transaction.mockImplementation(async (cb: any) => {
+      ordre.push('debut-transaction');
+      const r = await cb(prisma);
+      ordre.push('fin-transaction');
+      return r;
+    });
+    prisma.evenement.update.mockImplementation(async () => ordre.push('update'));
+    prisma.$executeRaw.mockImplementation(async () => ordre.push('audit'));
+    fetchMock.mockImplementation(async () => {
+      ordre.push('stockage');
+      return { ok: true, json: async () => [] };
+    });
+
+    await service.supprimer(USER, 'e-1');
+
+    expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'evenement', 'e-1', 'supprimer');
+    expect(ordre).toEqual(['debut-transaction', 'update', 'audit', 'fin-transaction', 'stockage']);
+  });
+
+  it('suppression : échec de la transaction → aucune ligne d’audit validée et image CONSERVÉE', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    prisma.evenement.findFirst.mockResolvedValue(ligne());
+    prisma.$transaction.mockRejectedValueOnce(new Error('base indisponible'));
+
+    await expect(service.supprimer(USER, 'e-1')).rejects.toThrow('base indisponible');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('suppression refusée par la garde des dépendances (409) → rien n’est écrit', async () => {
+    role('ASSUREUR_INFORMATIQUE');
+    prisma.evenement.findFirst.mockResolvedValue(ligne());
+    dependances.assertPossible.mockRejectedValueOnce(new Error('409'));
+
+    await expect(service.supprimer(USER, 'e-1')).rejects.toThrow('409');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('public : VITRINE_ORGANISATION_ID absente ou invalide → liste vide, aucune requête', async () => {

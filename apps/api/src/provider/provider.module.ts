@@ -3,6 +3,7 @@ import { IdentityModule } from '../identity/identity.module';
 import { GeocodageService } from './geocodage.service';
 import { ProviderController } from './provider.controller';
 import { ProviderService } from './provider.service';
+import { DependancesModule } from '../dependances/dependances.module';
 
 /**
  * Module `provider/` — un domaine métier strict (v18 §4) : réseau de soins
@@ -11,7 +12,7 @@ import { ProviderService } from './provider.service';
  * périodique, détection de doublons — v8 §9, PROMPT 15).
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, DependancesModule],
   controllers: [ProviderController],
   providers: [ProviderService, GeocodageService],
   exports: [ProviderService],

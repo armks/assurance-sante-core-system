@@ -7,6 +7,14 @@ import { SuperadminConfigService } from './superadmin-config.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
 import { SanteService } from '../sante/sante.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 const PLATEFORME = {
   statut: 'DEGRADE' as const,
@@ -71,6 +79,7 @@ describe('SuperadminConfigService', () => {
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         SuperadminConfigService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DependancesService, useValue: dependances },
         { provide: IdentityService, useValue: identity },
         { provide: SanteService, useValue: { etat: jest.fn().mockResolvedValue(PLATEFORME) } },
       ],

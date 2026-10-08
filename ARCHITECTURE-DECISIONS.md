@@ -525,3 +525,96 @@ Migrations : `prisma/sql/071_produits_delai_declaration.sql`,
   codes, même montant) et en HTTP réel sur des actes jumeaux, avec contre-épreuve sur la
   version précédente (9 contrôles sur 13 en échec, dont 4 divergences réclamation /
   facture).
+
+---
+
+## ADR-007 — Suppression, archivage et désarchivage : `deleted_at` séparé de l'archivage, RESTRICT en base, refus tracés
+
+**Date :** 2026-10-08 — **Statut :** acceptée (lot 1 « fondations ») — **Migration :** `prisma/sql/073_cascades_sensibles_restrict.sql`
+
+### Contexte
+
+L'audit du 2026-10-08 (lecture seule) a relevé : des suppressions existantes sans aucun
+contrôle des dépendances (établissement, pharmacie, souscripteur, adhérent, tarif) ;
+`deleted_at` utilisé comme une archive, sans retour possible ; des cascades
+`ON DELETE CASCADE` qui effaceraient en silence factures, actes, cotisations,
+bénéficiaires… si un parent était supprimé physiquement ; des confirmations disparates
+(suppression en un clic au catalogue national) ; un audit écrit hors transaction
+(événements).
+
+### Décision
+
+1. **`deleted_at` ≠ archivage.**
+   - `deleted_at` = **suppression** : l'élément sort de l'application. Permise **uniquement
+     sans aucune dépendance** (clés étrangères ET liens logiques). La ligne reste en base
+     (l'audit et les liens logiques restent résolubles) ; l'application ne fait jamais de
+     suppression physique.
+   - **Archivage** = le statut métier existant, **réversible** (désarchivage) : établissement
+     `RESILIE`, pharmacie `RESILIEE`, produit `ARCHIVE` (depuis `PUBLIE`), acte et
+     médicament `RETIRE`, adhérent et bénéficiaire `RADIE`, organisation `ARCHIVEE`,
+     événement `actif = false`, tarif conventionné **fermé** (`date_fin`, il est historisé).
+     Entités sans statut d'archive (société cliente, compte utilisateur, compte financier) :
+     archivage « pas encore disponible », à créer dans les lots suivants.
+   - Règles d'état : produit modifiable / supprimable seulement en `BROUILLON` (sinon
+     nouvelle version) ; police seulement au `DEVIS` sans lien ; garantie seulement si son
+     produit est en brouillon ; avenant seulement en brouillon ; acte / médicament de
+     référentiel supprimable seulement s'il n'a jamais été homologué ; tarif ayant servi à
+     un calcul ni supprimable ni modifiable (on le ferme et on en crée un nouveau) ; une
+     invitation n'est jamais supprimée ; un compte ne se supprime pas lui-même.
+   - Jamais de suppression : réclamations, remboursements, factures, dispensations,
+     dossiers de soins, paiements, lignes d'audit (aucune route, et RESTRICT en base).
+2. **RESTRICT en base** (073) sur les cascades sensibles : `dossiers_soins` →
+   `factures_dossier`, `actes_dossier` ; `polices` → `cotisations`, `avenants` ;
+   `adherents` → `beneficiaires` ; `produits` → `garanties`, `grilles_tarifaires` ;
+   `souscripteurs` → `grilles_tarifaires`, `questionnaires_medicaux`,
+   `plan_paiement_collectivite`. La base refuse elle-même une suppression physique qui
+   emporterait ces enfants (dernier rempart, derrière le contrôle applicatif).
+   **Cascades techniques conservées** (enfant sans existence propre) :
+   `consultations_dossier`, `tickets_soins`, `notes_dossier` → `dossiers_soins` ;
+   `lignes_ordonnance` → `ordonnances` ; `lignes_dispensation` → `dispensations_pharmacie` ;
+   `stock_medicaments_pharmacie`, `verifications_etablissement` → pharmacies /
+   établissements ; `paiements_groupes_factures` → `paiements_groupes` ;
+   `tarification_individuelle` → `polices` / `questionnaires_medicaux` ;
+   `membres_comite_gestion` → `souscripteurs` ; `licences_organisation` → `organisations` ;
+   `audit_log.organisation_id` (SET NULL).
+3. **Service commun des dépendances** (module `dependances/`) : registre déclaratif de
+   20 entités (rôles, chargement dans le périmètre, liens comptés, règles par action).
+   Chaque lien = un `count`, **restreint au périmètre du jeton** (organisation ; sa propre
+   société pour un rôle société ; le superadministrateur, sans organisation, pour le
+   catalogue national et les organisations). Liens logiques comptés : profils et
+   invitations → établissement / pharmacie / société ; `code_acte` → référentiel ;
+   dénomination de médicament (insensible à la casse) → lignes d'ordonnance, stocks ;
+   `audit_log.user_id` → compte utilisateur ; copies importées du catalogue national.
+   `GET /api/v1/dependances/:entite/:id[/:action]` renvoie possible oui / non et la raison
+   en français avec les nombres (« lié à 3 dossiers de soins et 1 tarif conventionné.
+   Archivez-le plutôt. »). Enregistrement hors périmètre : 404, rien n'est compté.
+4. **Le serveur décide** : `assertPossible` est appelé par les services métier avant
+   d'écrire → **409** `{ message, liens }`. Branché dès ce lot sur les suppressions
+   existantes : société cliente, établissement, pharmacie, tarif, adhérent, bénéficiaire,
+   garantie, acte et médicament du catalogue national, événement. Effet : un adhérent qui a
+   un bénéficiaire, un établissement qui a des dossiers ou des comptes rattachés… ne se
+   suppriment plus (ils étaient masqués avec leurs dépendances).
+5. **Journalisation** : action réussie → `log_audit()` dans la transaction métier
+   (l'écriture et sa trace sont validées ou annulées ensemble) ; **refus → tracé HORS
+   transaction** (`REFUS_SUPPRIMER`, `REFUS_ARCHIVER`… : qui, entité, raison, liens), sinon
+   le rollback effacerait la trace. Les écritures des événements (création, modification,
+   suppression) sont passées dans une transaction avec leur audit ; l'image n'est effacée
+   du stockage qu'après validation.
+6. **Un seul composant de confirmation** : `ConfirmationAction`
+   (`components/dashboard/patterns/`), documenté dans le README des patterns et dans le
+   skill `health-insurance-core-ui`. Premier usage : catalogue national (auparavant
+   suppression en un clic, bouton « Retirer » qui supprimait).
+
+### Conséquences et limites connues
+
+- Les écrans des lots 2 à 5 (boutons archiver / désarchiver, révocation des comptes,
+  archivage des sociétés) restent à faire ; l'endpoint et le composant sont prêts.
+- Grilles tarifaires : aucune trace des cotisations calculées avec une grille (écart n° 9
+  de l'audit) — comptées sans dépendance tant que ce lien n'existe pas.
+- Tarifs de pharmacie : pas de lien établi avec un calcul (le comptoir utilise le prix du
+  stock) — comptés sans calcul.
+- Liens par dénomination ou par code : fragiles par nature (variantes d'écriture) ;
+  comparaison insensible à la casse.
+- **À confirmer** : « suppression réelle » est implémentée comme une suppression logique
+  (`deleted_at`) permise seulement sans dépendance ; aucune suppression physique n'est faite
+  par l'application.

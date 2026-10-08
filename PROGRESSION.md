@@ -7747,3 +7747,43 @@ tiers payant, si).
 
 ### Statut
 Terminé — commit et push.
+
+## 2026-10-08 — Chantier suppression / modification / archivage — lot 1 « fondations » (ADR-007)
+
+### Audit préalable (lecture seule)
+62 tables parcourues : actions existantes (API / écran), clés étrangères et liens logiques,
+statuts d'archivage, rôles, exemples supprimables ; écarts : suppressions sans contrôle,
+`deleted_at` utilisé comme archive, cascades dangereuses, confirmations disparates, audit des
+événements hors transaction.
+
+### Réalisé
+- `prisma/sql/073_cascades_sensibles_restrict.sql` (appliquée, rejouable) : 10 cascades
+  sensibles → RESTRICT ; aucune donnée bloquante (changer la règle ne revalide rien) ;
+  14 cascades techniques conservées et listées ; schéma Prisma aligné.
+- Module `dependances/` : registre de 20 entités, `GET /api/v1/dependances/:entite/:id[/:action]`,
+  `assertPossible` (409 avec raison et nombres, refus tracé hors transaction).
+- Garde branchée sur les 10 suppressions existantes (société cliente, établissement, pharmacie,
+  tarif, adhérent, bénéficiaire, garantie, acte / médicament nationaux, événement).
+- Événements : création, modification, suppression + audit dans une transaction ; image effacée
+  du stockage après validation.
+- Web : `ConfirmationAction` (patterns), `verifierAction` (server action), catalogue national
+  passé sur ce composant (plus de suppression en un clic) ; README des patterns et skill
+  `health-insurance-core-ui` documentés.
+
+### Tests
+- API 1 105/1 105 (+122) : matrice du registre — chaque type de dépendance de chaque entité
+  bloque exactement ses actions et aucune autre, sans dépendance tout est possible ; message
+  français, rôles, périmètre (chargement société, comptages dans l'organisation du jeton),
+  409 + audit du refus hors transaction ; événements (ordre transaction → audit → stockage,
+  échec sans effacement d'image, refus sans écriture). Intégration 2/2, JUnit 89/89, typage web 0.
+- HTTP réel 30/30 : verdicts et 409 (établissement lié : 1 tarif et 1 compte), refus tracé,
+  suppression libre journalisée ; isolation inter-organisation (404, lien logique société d'une
+  autre organisation non compté, médicament non compté via le stock d'une autre organisation) ;
+  isolation inter-société (404 sur l'adhérent d'une autre société) ; RESTRICT : DELETE physique
+  refusé par la base sur les 10 relations ; catalogue national (importé → 409, libre → supprimé,
+  403 hors superadmin) ; page du catalogue rendue avec la confirmation partagée. Données
+  supprimées en ordre inverse des dépendances, 0 ligne et 0 compte Auth (restes d'une exécution
+  interrompue supprimés après vérification de l'adresse) ; scripts supprimés.
+
+### Statut
+Terminé — commit et push. Lots 2 à 5 (écrans) non commencés.

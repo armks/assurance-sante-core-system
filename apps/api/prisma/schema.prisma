@@ -373,7 +373,7 @@ model Beneficiaire {
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  adherent          Adherent           @relation(fields: [adherentId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  adherent          Adherent           @relation(fields: [adherentId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   dossiersSoins     DossierSoins[]
   codesConsultation CodeConsultation[]
   codesOrdonnance   CodeOrdonnance[]
@@ -500,7 +500,7 @@ model Garantie {
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  produit       Produit        @relation(fields: [produitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  produit       Produit        @relation(fields: [produitId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   categorie     CategorieActe  @relation(fields: [categorieActe], references: [code], onDelete: NoAction, onUpdate: NoAction)
   dossiersSoins DossierSoins[]
 
@@ -557,7 +557,7 @@ model Avenant {
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  police        Police  @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  police        Police  @relation(fields: [policeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   creeParProfil Profil? @relation(fields: [creePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([policeId])
@@ -580,8 +580,8 @@ model GrilleTarifaire {
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   organisation Organisation  @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  produit      Produit       @relation(fields: [produitId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  souscripteur Souscripteur? @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  produit      Produit       @relation(fields: [produitId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  souscripteur Souscripteur? @relation(fields: [souscripteurId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@index([produitId])
   @@index([souscripteurId])
@@ -600,7 +600,7 @@ model PlanPaiementCollectivite {
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
   @@map("plan_paiement_collectivite")
 }
@@ -621,7 +621,7 @@ model Cotisation {
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  police   Police        @relation(fields: [policeId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  police   Police        @relation(fields: [policeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   societe  Souscripteur? @relation(fields: [societeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   adherent Adherent?     @relation(fields: [adherentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -650,7 +650,7 @@ model QuestionnaireMedical {
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  souscripteur  Souscripteur               @relation(fields: [souscripteurId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  souscripteur  Souscripteur               @relation(fields: [souscripteurId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   validateur    Profil?                    @relation(fields: [validePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tarifications TarificationIndividuelle[]
 
@@ -1425,7 +1425,7 @@ model ActeDossier {
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  dossier      DossierSoins         @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dossier      DossierSoins         @relation(fields: [dossierSoinsId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   ticket       TicketSoins          @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   categorie    CategorieActe        @relation(fields: [categorieActe], references: [code], onDelete: NoAction, onUpdate: NoAction)
   consultation ConsultationDossier? @relation(fields: [consultationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1525,7 +1525,7 @@ model FactureDossier {
   deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   organisation   Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  dossier        DossierSoins       @relation(fields: [dossierSoinsId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  dossier        DossierSoins       @relation(fields: [dossierSoinsId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   ticket         TicketSoins        @relation(fields: [ticketSoinsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   etablissement  EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   regleParProfil Profil?            @relation(fields: [reglePar], references: [id], onDelete: NoAction, onUpdate: NoAction)

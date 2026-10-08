@@ -21,7 +21,7 @@ produits, polices, cotisations, catalogue national, santé système…).
 
 ```tsx
 import {
-  DataTable, StatutBadge, FormulaireModal, GrilleCartes, CarteResume,
+  DataTable, StatutBadge, FormulaireModal, GrilleCartes, CarteResume, ConfirmationAction,
   Champ, ChampTexte, ChampNombre, ChampZone, ChampSelect, ChampCheckbox,
   type ColonneTable, type FiltreSelect, type ResultatSoumission, type OptionChamp,
 } from '@/components/dashboard/patterns';
@@ -237,6 +237,48 @@ Pour « afficher le détail avant de générer » (proratisation d'avenant, tari
 cotisation…) : un bouton `type="button"` dans les `children` appelle une server action
 de **simulation** (qui ne persiste rien) et affiche le résultat ; `onSoumettre` déclenche
 ensuite la vraie création. Ne jamais recalculer côté client ce que l'API sait faire.
+
+---
+
+## `ConfirmationAction` — suppression, archivage, désarchivage (ADR-007)
+
+**Seul** composant de confirmation de ces actions : ne pas en réécrire un par écran, ni
+supprimer en un clic.
+
+```tsx
+import { ConfirmationAction } from '@/components/dashboard/patterns';
+import { verifierAction } from '@/app/dependances-actions';
+
+<ConfirmationAction
+  action="supprimer"                                    // 'supprimer' | 'archiver' | 'desarchiver'
+  element={`l’acte « ${a.code} — ${a.libelle} »`}      // élément NOMMÉ, avec son type
+  consequence="Il ne pourra plus être importé."          // optionnel : effet de l'action
+  verifier={() => verifierAction('acteNational', a.id, 'supprimer')}
+  onConfirmer={() => supprimerItemNational('actes', a.id)} // server action → { ok } | { ok: false; error }
+  onSucces={() => router.refresh()}
+  // declencheur={<Button size="xs" variant="ghost">Supprimer</Button>}  (défaut)
+/>
+```
+
+- **À l'ouverture**, `verifier` interroge le serveur (`GET /api/v1/dependances/:entite/:id/:action`) :
+  action impossible → la raison du serveur s'affiche **avec les nombres** (« lié à
+  3 dossiers de soins et 1 tarif conventionné. Archivez-le plutôt. ») et seul « Fermer »
+  reste ; possible → « Voulez-vous vraiment supprimer l'acte « … » ? Cette action est
+  définitive. ».
+- **Le serveur reste juge** : un refus survenu entre-temps (409) s'affiche tel quel dans la
+  boîte, qui reste ouverte.
+- `entite` = clé du registre des dépendances (`apps/api/src/dependances/registre.ts` :
+  `etablissement`, `pharmacie`, `tarif`, `souscripteur`, `adherent`, `beneficiaire`,
+  `produit`, `garantie`, `police`, `referentielActe`, `medicament`, `acteNational`,
+  `medicamentNational`, `utilisateur`, `evenement`, `compteFinancier`…).
+- **Bouton** : ne l'afficher qu'aux rôles autorisés (comme les autres actions) ; pour
+  n'afficher que les boutons possibles, demander les 4 verdicts en une fois
+  (`GET /api/v1/dependances/:entite/:id`).
+- Libellés des actions : `LIBELLE_ACTION` (Supprimer / Archiver / Désarchiver) ; le type et
+  le nom de l'élément viennent de l'écran (libellés des tables existantes : catégories
+  d'acte, statuts…), jamais un code brut.
+- Modale centrée, bouton rouge pour « Supprimer », annoncée aux lecteurs d'écran
+  (`Alerte`), en français.
 
 ---
 

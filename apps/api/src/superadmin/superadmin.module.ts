@@ -8,6 +8,7 @@ import { SuperadminActionsService } from './superadmin-actions.service';
 import { SuperadminConfigController } from './superadmin-config.controller';
 import { SuperadminConfigService } from './superadmin-config.service';
 import { SuperadminController } from './superadmin.controller';
+import { DependancesModule } from '../dependances/dependances.module';
 
 /**
  * Module `superadmin/` — administration SaaS (v14 §5, PROMPT 22) : licences des
@@ -15,7 +16,7 @@ import { SuperadminController } from './superadmin.controller';
  * (création / suspension / prolongation), avec code envoyé par e-mail.
  */
 @Module({
-  imports: [IdentityModule, InvitationsModule, ReferenceModule, SanteModule],
+  imports: [IdentityModule, DependancesModule, InvitationsModule, ReferenceModule, SanteModule],
   controllers: [SuperadminController, SuperadminConfigController],
   providers: [SuperadminActionsService, SuperadminConfigService, CatalogueImportService],
   exports: [SuperadminActionsService, SuperadminConfigService, CatalogueImportService],

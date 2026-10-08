@@ -8,6 +8,14 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantService } from './tenant.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 const USER: AuthenticatedUser = {
   sub: 'user-1',
@@ -89,6 +97,7 @@ describe('TenantService', () => {
       providers: [
         TenantService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DependancesService, useValue: dependances },
         { provide: IdentityService, useValue: identity },
       ],
     }).compile();

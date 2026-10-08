@@ -1,7 +1,6 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
 
 import {
   creerActeNational,
@@ -11,6 +10,7 @@ import {
 } from '@/app/superadmin/catalogue-national/actions';
 import {
   ChampSelect,
+  ConfirmationAction,
   ChampTexte,
   DataTable,
   FormulaireModal,
@@ -19,7 +19,7 @@ import {
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
-import { Button } from '@/components/ui/button';
+import { verifierAction } from '@/app/dependances-actions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
 import { Stethoscope, Pill } from 'lucide-react';
@@ -55,16 +55,6 @@ export function CatalogueNationalEcran({
 }) {
   const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
-  const [pending, start] = useTransition();
-  const [erreur, setErreur] = useState<string | null>(null);
-
-  const retirer = (type: 'actes' | 'medicaments', id: string) =>
-    start(async () => {
-      setErreur(null);
-      const r = await supprimerItemNational(type, id);
-      if (r.ok) router.refresh();
-      else setErreur(r.error);
-    });
 
   const colActes: ColonneTable<ActeNational>[] = [
     { cle: 'code', entete: 'Code', triable: true, className: 'font-mono text-xs' },
@@ -106,12 +96,6 @@ export function CatalogueNationalEcran({
 
   return (
     <div className="space-y-8">
-      {erreur && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
-          {erreur}
-        </div>
-      )}
-
       <GrilleCartes>
         <CarteResume libelle="Actes nationaux" valeur={actes.length} icon={Stethoscope} />
         <CarteResume
@@ -164,14 +148,16 @@ export function CatalogueNationalEcran({
               </FormulaireModal>
             }
             actionLigne={(a) => (
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={pending}
-                onClick={() => retirer('actes', a.id)}
-              >
-                Retirer
-              </Button>
+              // Confirmation partagée (ADR-007) : vérifie côté serveur, refusée si un
+              // organisme a déjà importé l'acte
+              <ConfirmationAction
+                action="supprimer"
+                element={`l’acte « ${a.code} — ${a.libelle} »`}
+                consequence="Il ne pourra plus être importé par les organisations."
+                verifier={() => verifierAction('acteNational', a.id, 'supprimer')}
+                onConfirmer={() => supprimerItemNational('actes', a.id)}
+                onSucces={() => router.refresh()}
+              />
             )}
             vide="Aucun acte dans le catalogue national."
           />
@@ -236,14 +222,14 @@ export function CatalogueNationalEcran({
               </FormulaireModal>
             }
             actionLigne={(m) => (
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={pending}
-                onClick={() => retirer('medicaments', m.id)}
-              >
-                Retirer
-              </Button>
+              <ConfirmationAction
+                action="supprimer"
+                element={`le médicament « ${m.denominationCommune} »`}
+                consequence="Il ne pourra plus être importé par les organisations."
+                verifier={() => verifierAction('medicamentNational', m.id, 'supprimer')}
+                onConfirmer={() => supprimerItemNational('medicaments', m.id)}
+                onSucces={() => router.refresh()}
+              />
             )}
             vide="Aucun médicament dans le catalogue national."
           />

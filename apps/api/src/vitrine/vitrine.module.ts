@@ -7,6 +7,7 @@ import { EvenementsService } from './evenements.service';
 import { VitrineController } from './vitrine.controller';
 import { StatistiquesService } from './statistiques.service';
 import { VitrineService } from './vitrine.service';
+import { DependancesModule } from '../dependances/dependances.module';
 
 /**
  * Module `vitrine/` — page d'accueil publique (formulaires Contact, Devenir
@@ -16,7 +17,7 @@ import { VitrineService } from './vitrine.service';
  * global `email/`, PrismaService du module global `prisma/`.
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, DependancesModule],
   controllers: [VitrineController, EvenementsController, DemandesAdhesionController],
   providers: [VitrineService, StatistiquesService, EvenementsService, DemandesAdhesionService],
 })

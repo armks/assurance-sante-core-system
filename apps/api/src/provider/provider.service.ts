@@ -28,6 +28,7 @@ import {
   RAYON_DOUBLON_KM,
   ROLES_GESTION_RESEAU,
 } from './provider.types';
+import { DependancesService } from '../dependances/dependances.service';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -57,6 +58,7 @@ export class ProviderService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly geocodage: GeocodageService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Établissements de santé ---------------------------------------
@@ -229,6 +231,9 @@ export class ProviderService {
     this.assertGestion(ctx);
     await this.assertEtablissementDansPerimetre(ctx.organisationId, id);
 
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'etablissement', id, 'supprimer');
+
     await this.prisma.$transaction(async (tx) => {
       await tx.etablissementSante.update({
         where: { id },
@@ -365,6 +370,9 @@ export class ProviderService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     await this.assertPharmacieDansPerimetre(ctx.organisationId, id);
+
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'pharmacie', id, 'supprimer');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.pharmacie.update({
@@ -921,6 +929,9 @@ export class ProviderService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
+
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'tarif', tarifId, 'supprimer');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.tarifConventionne.update({

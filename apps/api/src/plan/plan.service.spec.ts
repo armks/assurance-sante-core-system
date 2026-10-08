@@ -13,6 +13,14 @@ import {
   categoriesActeDeLaMigration,
   categoriesActeServiceDeTest,
 } from '../reference/categories-acte.testing';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 /** Les 11 catégories actives du référentiel (migration 067) hors CONSULTATION. */
 const TOUTES_SAUF_CONSULTATION = categoriesActeDeLaMigration()
@@ -87,6 +95,7 @@ describe('PlanService', () => {
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PlanService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DependancesService, useValue: dependances },
         { provide: IdentityService, useValue: identity },
       ],
     }).compile();

@@ -40,6 +40,7 @@ import {
   STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE,
   TAILLE_MAX_PHOTO_OCTETS,
 } from './member.types';
+import { DependancesService } from '../dependances/dependances.service';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -68,6 +69,7 @@ export class AdherentService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly cartes: MemberCarteService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Adhérents -----------------------------------------------------
@@ -373,6 +375,9 @@ export class AdherentService {
     const actuel = await this.chargerAdherent(ctx, id);
     this.assertGestion(ctx, actuel.souscripteurId);
 
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'adherent', id, 'supprimer');
+
     await this.prisma.$transaction(async (tx) => {
       const maintenant = new Date();
       await tx.adherent.update({
@@ -633,6 +638,9 @@ export class AdherentService {
     const adherent = await this.chargerAdherent(ctx, adherentId);
     this.assertGestion(ctx, adherent.souscripteurId);
     await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'beneficiaire', beneficiaireId, 'supprimer');
 
     await this.prisma.$transaction(async (tx) => {
       await tx.beneficiaire.update({

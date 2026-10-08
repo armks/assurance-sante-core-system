@@ -8,6 +8,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RechercheGeoDto } from './dto/provider.dto';
 import { GeocodageService } from './geocodage.service';
 import { ProviderService } from './provider.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -74,6 +82,7 @@ describe('ProviderService', () => {
       providers: [
         ProviderService,
         { provide: PrismaService, useValue: prisma },
+        { provide: DependancesService, useValue: dependances },
         { provide: IdentityService, useValue: identity },
         { provide: GeocodageService, useValue: geocodage },
       ],

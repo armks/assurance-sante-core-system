@@ -16,6 +16,7 @@ import {
 } from './dto/create-souscripteur.dto';
 import { UpdateSouscripteurDto } from './dto/update-souscripteur.dto';
 import { ContexteAppelant, ROLES_GESTION_SOUSCRIPTEUR } from './tenant.types';
+import { DependancesService } from '../dependances/dependances.service';
 
 /** Client Prisma ou client transactionnel. */
 type Db = PrismaService | Prisma.TransactionClient;
@@ -36,6 +37,7 @@ export class TenantService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Souscripteurs -------------------------------------------------------
@@ -103,6 +105,9 @@ export class TenantService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     await this.assertSouscripteurDansPerimetre(ctx.organisationId, id);
+
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'souscripteur', id, 'supprimer');
 
     await this.prisma.$transaction(async (tx) => {
       const now = new Date();

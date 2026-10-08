@@ -17,6 +17,7 @@ import {
   DefinirParametreDto,
 } from './dto/superadmin-config.dto';
 import { ROLE_SUPERADMIN } from './superadmin.types';
+import { DependancesService } from '../dependances/dependances.service';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
@@ -40,6 +41,7 @@ export class SuperadminConfigService {
     private readonly identity: IdentityService,
     private readonly categoriesActe: CategoriesActeService,
     private readonly sante: SanteService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- 1. Paramètres plateforme -------------------------------------
@@ -240,6 +242,9 @@ export class SuperadminConfigService {
     if (!acte) {
       throw new NotFoundException('Acte national introuvable.');
     }
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'acteNational', id, 'supprimer');
+
     await this.prisma.$transaction(async (tx) => {
       await tx.referentielNationalActe.update({
         where: { id },
@@ -318,6 +323,9 @@ export class SuperadminConfigService {
     if (!m) {
       throw new NotFoundException('Médicament national introuvable.');
     }
+    // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
+    await this.dependances.assertPossible(user, 'medicamentNational', id, 'supprimer');
+
     await this.prisma.$transaction(async (tx) => {
       await tx.referentielNationalMedicament.update({
         where: { id },

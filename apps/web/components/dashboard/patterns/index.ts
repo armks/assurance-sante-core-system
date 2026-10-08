@@ -10,6 +10,7 @@
  *  - `StatutBadge`      — badge de statut coloré (tonalité déduite du jeton, surchargeable par `map`)
  *  - `CarteResume`      — carte de chiffre-clé, + `GrilleCartes` pour la rangée
  *  - `Alerte`           — bandeau succès / erreur / avertissement / info, annoncé aux lecteurs d'écran
+ *  - `ConfirmationAction` — confirmation PARTAGÉE de suppression / archivage / désarchivage (vérifie côté serveur, affiche la raison d'un refus)
  *
  * Doc et exemples : `./README.md`.
  */
@@ -34,3 +35,10 @@ export {
 export { StatutBadge, type TonStatut } from './statut-badge';
 export { CarteResume, GrilleCartes } from './carte-resume';
 export { Alerte, type AnnonceAlerte, type TonAlerte } from './alerte';
+export {
+  ConfirmationAction,
+  LIBELLE_ACTION,
+  type ActionConfirmee,
+  type ResultatAction,
+  type VerdictAction,
+} from './confirmation-action';

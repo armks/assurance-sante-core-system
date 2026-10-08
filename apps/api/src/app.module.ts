@@ -18,6 +18,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ProviderModule } from './provider/provider.module';
 import { ReferenceModule } from './reference/reference.module';
 import { SanteModule } from './sante/sante.module';
+import { DependancesModule } from './dependances/dependances.module';
 import { VitrineModule } from './vitrine/vitrine.module';
 import { SuperadminModule } from './superadmin/superadmin.module';
 import { TenantModule } from './tenant/tenant.module';
@@ -48,6 +49,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     SuperadminModule,
     VitrineModule,
     SanteModule,
+    DependancesModule,
   ],
 })
 export class AppModule {}

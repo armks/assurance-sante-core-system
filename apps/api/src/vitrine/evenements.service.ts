@@ -11,6 +11,8 @@ import {
 import { randomUUID } from 'crypto';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
+import { Prisma } from '@prisma/client';
+import { DependancesService } from '../dependances/dependances.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { CreerEvenementDto, ModifierEvenementDto, ModifierHeroDto } from './dto/evenement.dto';
 import { LimiteurRequetes } from './limiteur-requetes';
@@ -110,6 +112,7 @@ export class EvenementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly dependances: DependancesService,
   ) {}
 
   /** Horloge (surchargée dans les tests). */
@@ -138,7 +141,9 @@ export class EvenementsService {
     const chemin = `${ctx.organisationId}/${id}-${Date.now()}.${image.ext}`;
     await this.televerser(chemin, fichier.buffer, image.mime);
     try {
-      const cree = await this.prisma.evenement.create({
+      // création ET audit dans la même transaction (ADR-007)
+      const cree = await this.prisma.$transaction(async (tx) => {
+        const c = await tx.evenement.create({
         data: {
           id,
           organisationId: ctx.organisationId,
@@ -150,7 +155,9 @@ export class EvenementsService {
           actif: dto.actif ?? true,
         },
       });
-      await this.audit(ctx.userId, 'CREATION_EVENEMENT', id, { titre: dto.titre, chemin });
+        await this.audit(ctx.userId, 'CREATION_EVENEMENT', id, { titre: dto.titre, chemin }, tx);
+        return c;
+      });
       return this.versSortie(cree, this.maintenant());
     } catch (e) {
       await this.supprimerObjet(chemin); // pas d'image orpheline publique
@@ -171,7 +178,10 @@ export class EvenementsService {
       imageUrl = this.urlPublique(nouveauChemin);
     }
 
-    const maj = await this.prisma.evenement.update({
+    // modification ET audit dans la même transaction (ADR-007) ; l'ancienne image
+    // n'est effacée du stockage qu'après validation
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const m = await tx.evenement.update({
       where: { id },
       data: {
         ...(dto.titre !== undefined ? { titre: dto.titre } : {}),
@@ -182,11 +192,13 @@ export class EvenementsService {
         ...(imageUrl ? { imageUrl } : {}),
       },
     });
-    if (nouveauChemin) await this.supprimerObjet(this.cheminDepuisUrl(existant.imageUrl));
-    await this.audit(ctx.userId, 'MODIFICATION_EVENEMENT', id, {
-      champs: Object.keys(dto),
-      ...(nouveauChemin ? { chemin: nouveauChemin } : {}),
+      await this.audit(ctx.userId, 'MODIFICATION_EVENEMENT', id, {
+        champs: Object.keys(dto),
+        ...(nouveauChemin ? { chemin: nouveauChemin } : {}),
+      }, tx);
+      return m;
     });
+    if (nouveauChemin) await this.supprimerObjet(this.cheminDepuisUrl(existant.imageUrl));
     return this.versSortie(maj, this.maintenant());
   }
 
@@ -194,9 +206,14 @@ export class EvenementsService {
   async supprimer(user: AuthenticatedUser, id: string) {
     const ctx = await this.contexteGestion(user);
     const existant = await this.charger(ctx.organisationId, id);
-    await this.prisma.evenement.update({ where: { id }, data: { deletedAt: this.maintenant(), actif: false } });
+    await this.dependances.assertPossible(user, 'evenement', id, 'supprimer');
+    // suppression ET audit dans la même transaction (ADR-007, corrige l'audit écrit
+    // hors transaction) ; l'image n'est effacée du stockage qu'après validation
+    await this.prisma.$transaction(async (tx) => {
+      await tx.evenement.update({ where: { id }, data: { deletedAt: this.maintenant(), actif: false } });
+      await this.audit(ctx.userId, 'SUPPRESSION_EVENEMENT', id, null, tx);
+    });
     await this.supprimerObjet(this.cheminDepuisUrl(existant.imageUrl));
-    await this.audit(ctx.userId, 'SUPPRESSION_EVENEMENT', id, null);
     return { ok: true };
   }
 
@@ -430,8 +447,14 @@ export class EvenementsService {
     }
   }
 
-  private async audit(userId: string, action: string, id: string, details: object | null): Promise<void> {
-    await this.prisma.$executeRaw`
+  private async audit(
+    userId: string,
+    action: string,
+    id: string,
+    details: object | null,
+    db: Pick<PrismaService, '$executeRaw'> | Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    await db.$executeRaw`
       SELECT log_audit(
         ${action}::text,
         ${'evenements'}::text,

@@ -864,3 +864,21 @@ d'invitation normal (`assertPasDejaCompte`).
 - Le stock de la pharmacie ne porte plus de prix (colonne conservée, inutilisée) : il ne sert qu'à signaler un
   médicament indisponible (409). `tarif_pharmacie_id` n'est plus renseigné (jamais utilisé) : le registre traite
   le tarif de pharmacie comme un tarif sans calcul (modifiable, supprimable). Dette `tarif_pharmacie_id` soldée.
+
+### Liste nationale des médicaments remboursables (CMU / MUGEF-CI, éd. novembre 2022) — migration `prisma/sql/079_catalogue_national_liste_cmu.sql` (2026-10-09)
+- La liste officielle (PDF de 22 pages, 736 produits, 99 DCI, 41 groupes thérapeutiques) est chargée en
+  masse dans le **catalogue national** unique `referentiel_national_medicaments` (jamais le PDF : les données).
+  Extraction contrôlée : 736 lignes lues par le tableau = 736 lignes du texte, somme des prix identique en base
+  (2 209 253 F), aucun code en double.
+- Mapping : DCI → `denomination_commune`, nom commercial → `nom_commercial`, groupe thérapeutique →
+  `classe_therapeutique`, prix → `prix_reference_xof` ET `prix_max_remboursable` (la liste donne le prix de
+  référence remboursable), `remboursable = true`, homologué ; nouveaux champs `code_produit` (clé d'import,
+  unique), `categorie_remboursement` (R = remboursable, EP = remboursable après entente préalable — lecture à
+  confirmer avec la MUGEF-CI), `regime_remboursement` (CMU), `source_liste`.
+- Chargement : `node apps/api/scripts/charger-liste-cmu.js` (`--simuler` pour compter) — idempotent (clé = code
+  produit), un seul lot transactionnel, une ligne d'audit. Données : `apps/api/prisma/data/cmu-medicaments-2022-11.json`.
+  L'import Excel existant ne convenait pas (clé = DCI, doublons de DCI refusés alors que la liste a plusieurs
+  produits par DCI).
+- Comptoir : le prix national se retrouve par nom commercial exact d'abord, sinon par DCI (prix le plus élevé
+  de la DCI — l'alerte de majoration n'est levée que si même le produit le plus cher est dépassé).
+- À faire : la prescription du médecin est encore un texte libre ; la faire choisir dans ce catalogue national.

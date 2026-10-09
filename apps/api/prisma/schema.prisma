@@ -1878,6 +1878,11 @@ model ReferentielNationalMedicament {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)
+  /// Liste des médicaments remboursables (CMU / MUGEF-CI) — prisma/sql/079
+  codeProduit           String?   @map("code_produit")
+  categorieRemboursement String?  @map("categorie_remboursement") // R | EP (entente préalable)
+  regimeRemboursement   String?   @map("regime_remboursement")
+  sourceListe           String?   @map("source_liste")
 
   @@index([statutHomologation])
   @@map("referentiel_national_medicaments")

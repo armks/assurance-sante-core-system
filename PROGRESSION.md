@@ -8061,3 +8061,19 @@ Terminé — commit et push à confirmer.
 
 ### Statut
 Terminé — dette `tarif_pharmacie_id` soldée.
+
+## 2026-10-09 — Chargement de la liste nationale des médicaments remboursables (CMU / MUGEF-CI, nov. 2022)
+
+### Réalisé
+- `prisma/sql/079_catalogue_national_liste_cmu.sql` (appliquée deux fois) : `code_produit` (unique), catégorie R / EP, régime, source.
+- Extraction du PDF (22 pages) : 736 produits, 99 DCI, 41 groupes ; 675 R et 61 EP ; contrôles croisés (lignes tableau = lignes texte,
+  somme des prix 2 209 253 F identique en base).
+- `scripts/charger-liste-cmu.js` + `prisma/data/cmu-medicaments-2022-11.json` : chargement idempotent (736 créés, rejeu : 736 mis à jour).
+- Comptoir : prix national retrouvé par nom commercial puis par DCI (prix le plus élevé) ; test unitaire ajouté (API 1 270).
+
+### Limites
+- Forme, dosage et conditionnement ne sont pas décomposés (contenus dans le nom commercial). « EP » interprété comme entente préalable.
+- La prescription reste un texte libre : à rattacher au catalogue national.
+
+### Statut
+Terminé.

@@ -223,35 +223,59 @@ export class PharmacyService {
   }
 
   /**
-   * Prix national de référence par dénomination (insensible à la casse) : médicament homologué de
-   * l'organisation d'abord, référentiel national ensuite. Absent = aucune alerte possible.
+   * Prix national de référence par dénomination saisie (insensible à la casse), dans cet ordre :
+   *  1. le NOM COMMERCIAL exact d'un produit (la liste nationale porte un prix par produit) ;
+   *  2. la DCI : plusieurs produits partagent une DCI à des prix différents, on retient alors le plus
+   *     ÉLEVÉ (bénéfice du doute : une alerte de majoration ne se déclenche que si même le produit le
+   *     plus cher de la DCI est dépassé).
+   * Médicaments homologués de l'organisation d'abord, catalogue national ensuite. Absent = aucune alerte.
    */
   private async prixReferenceParDenomination(
     organisationId: string,
     denominations: string[],
   ): Promise<Map<string, Decimal>> {
-    const uniques = [...new Set(denominations)];
-    const ou = uniques.map((d) => ({ denominationCommune: { equals: d, mode: 'insensitive' as const } }));
+    const uniques = [...new Set(denominations.map((d) => d.trim()).filter(Boolean))];
     const clef = (d: string) => d.trim().toLowerCase();
+    const ou = uniques.flatMap((d) => [
+      { denominationCommune: { equals: d, mode: 'insensitive' as const } },
+      { nomCommercial: { equals: d, mode: 'insensitive' as const } },
+    ]);
     const resultat = new Map<string, Decimal>();
+    const retenir = (rows: { denominationCommune: string; nomCommercial: string | null; prixReferenceXof: unknown }[]) => {
+      const nom = new Map<string, Decimal>();
+      const dci = new Map<string, Decimal>();
+      for (const m of rows) {
+        const prix = new Decimal(String(m.prixReferenceXof));
+        if (m.nomCommercial) nom.set(clef(m.nomCommercial), prix);
+        const k = clef(m.denominationCommune);
+        if (!dci.has(k) || prix.gt(dci.get(k)!)) dci.set(k, prix);
+      }
+      for (const d of uniques) {
+        if (resultat.has(clef(d))) continue;
+        const p = nom.get(clef(d)) ?? dci.get(clef(d));
+        if (p) resultat.set(clef(d), p);
+      }
+    };
     const locaux = await this.prisma.medicament.findMany({
       where: { organisationId, deletedAt: null, statutHomologation: 'HOMOLOGUE', prixReferenceXof: { not: null }, OR: ou },
-      select: { denominationCommune: true, prixReferenceXof: true },
+      select: { denominationCommune: true, nomCommercial: true, prixReferenceXof: true },
     });
-    for (const m of locaux) resultat.set(clef(m.denominationCommune), new Decimal(m.prixReferenceXof!.toString()));
+    retenir(locaux);
     const manquants = uniques.filter((d) => !resultat.has(clef(d)));
     if (manquants.length > 0) {
       const nationaux = await this.prisma.referentielNationalMedicament.findMany({
         where: {
           statutHomologation: 'HOMOLOGUE',
+          deletedAt: null,
           prixReferenceXof: { not: null },
-          OR: manquants.map((d) => ({ denominationCommune: { equals: d, mode: 'insensitive' as const } })),
+          OR: manquants.flatMap((d) => [
+            { denominationCommune: { equals: d, mode: 'insensitive' as const } },
+            { nomCommercial: { equals: d, mode: 'insensitive' as const } },
+          ]),
         },
-        select: { denominationCommune: true, prixReferenceXof: true },
+        select: { denominationCommune: true, nomCommercial: true, prixReferenceXof: true },
       });
-      for (const m of nationaux) {
-        if (!resultat.has(clef(m.denominationCommune))) resultat.set(clef(m.denominationCommune), new Decimal(m.prixReferenceXof!.toString()));
-      }
+      retenir(nationaux);
     }
     return resultat;
   }

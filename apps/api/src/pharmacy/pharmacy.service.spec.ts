@@ -239,6 +239,24 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       expect(ligneEnregistree()).toMatchObject({ prixReference: null, majorationPourcent: null, majorationAnormale: false });
     });
 
+    it('liste CMU : plusieurs produits pour une DCI → le nom commercial exact fait foi, sinon le prix le plus élevé de la DCI', async () => {
+      const produits = [
+        { denominationCommune: 'Amlodipine', nomCommercial: 'AMLO-DENK CPR. 5MG PQ 10', prixReferenceXof: dec(1900) },
+        { denominationCommune: 'Amlodipine', nomCommercial: 'AMLODIS CPR. 5MG 30', prixReferenceXof: dec(5885) },
+      ];
+      prisma.medicament.findMany.mockResolvedValue([]);
+      prisma.referentielNationalMedicament.findMany.mockResolvedValue(produits);
+      prisma.ligneOrdonnance.findMany.mockResolvedValue([
+        { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'amlo-denk cpr. 5mg pq 10', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+        { id: 'ligne-2', ordonnanceId: 'ord-1', denominationMedicament: 'Amlodipine', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+      ]);
+      const res: any = await service.preparerDispensation(USER, 'ord-1', [
+        { ligneOrdonnanceId: 'ligne-1', prixUnitaire: 2500 }, // +31,58 % sur 1 900 : alerte
+        { ligneOrdonnanceId: 'ligne-2', prixUnitaire: 6000 }, // DCI seule : max 5 885 → +1,95 % : pas d'alerte
+      ]);
+      expect(res.alertes).toEqual([{ medicament: 'amlo-denk cpr. 5mg pq 10', prixUnitaire: '2500.00', prixReference: '1900.00', majorationPourcent: '31.58' }]);
+    });
+
     it('prix national pris dans le référentiel national à défaut du médicament de l’organisation', async () => {
       prisma.medicament.findMany.mockResolvedValue([]);
       prisma.referentielNationalMedicament.findMany.mockResolvedValue([{ denominationCommune: 'Paracetamol', prixReferenceXof: dec(5000) }]);

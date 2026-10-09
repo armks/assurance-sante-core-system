@@ -36,6 +36,8 @@ export interface DemandeSimulation {
     code_acte: string | null;
     acte_dossier_id: string | null;
     date_soins: string | null;
+    /** Quantité de l'acte (défaut 1) : tarif reconnu = tarif unitaire × quantité (ADR-008, lot 4). */
+    quantite?: number;
   }[];
 }
 
@@ -45,7 +47,7 @@ export interface DemandeSimulation {
  */
 export interface TraceTarif {
   statut_tarif: 'TARIFABLE' | 'NON_TARIFABLE' | 'NON_APPLICABLE';
-  regle_origine: 'FORFAIT' | 'VALEUR_PROPRE' | 'VALEUR_LETTRE_CLE' | 'AUCUNE_CONVENTION' | null;
+  regle_origine: 'FORFAIT' | 'VALEUR_PROPRE' | 'VALEUR_LETTRE_CLE' | 'AUCUNE_CONVENTION' | 'TARIF_PROPOSE' | null;
   lettre_cle: string | null;
   coefficient: number | null;
   valeur_appliquee: number | null;
@@ -55,6 +57,12 @@ export interface TraceTarif {
   tarif_reconnu: number | null;
   ecart: number | null;
   message: string | null;
+  /** Tarif reconnu par unité (arrondi) et quantité : reconnu = unitaire × quantité. */
+  tarif_unitaire?: number | null;
+  quantite?: number;
+  /** Tarif proposé non décidé : calcul PROVISOIRE (ligne exclue du paiement, mais comptée dans les plafonds). */
+  provisoire?: boolean;
+  tarif_propose_id?: string | null;
 }
 
 /** Réponse de la simulation : une entrée par ligne, dans l'ordre. */

@@ -356,7 +356,7 @@ class ResolveurTarifTest {
   }
 
   @Test
-  @DisplayName("Non tarifable : décision REJETE E016, 0 payé, trace NON_TARIFABLE avec message, jamais de prix par défaut")
+  @DisplayName("Non tarifable : plus de rejet sec — REVUE_MANUELLE E016, 0 payé, trace NON_TARIFABLE avec message, jamais de prix par défaut")
   void nonTarifableRejeteSansPrixParDefaut() {
     UUID g = UUID.randomUUID();
     UUID police = UUID.randomUUID();
@@ -365,7 +365,7 @@ class ResolveurTarifTest {
 
     ResultatLigne r = simuler(repoPourSimulation(police, g, ORG), police, g, "5000", null);
 
-    assertThat(r.decision().name()).isEqualTo("REJETE");
+    assertThat(r.decision().name()).isEqualTo("REVUE_MANUELLE");
     assertThat(r.codesRejet()).containsExactly("E016");
     assertThat(r.montantCouvert()).isEqualByComparingTo("0");
     assertThat(r.trace().statutTarif()).isEqualTo("NON_TARIFABLE");
@@ -438,7 +438,7 @@ class ResolveurTarifTest {
       "valeur propre 1400 × 2,5 = 3500             | PROPRE  | PATIENT | 5000 | AUTO_ADJUDIQUE | | 1200",
       "lettre-clé 1033 × 2,5 → 2583 arrondi        | LETTRE  | PATIENT | 5000 | AUTO_ADJUDIQUE | | 466",
       "lettre-clé hospitalisation 1500 × 2,5       | HOSPIT  | PATIENT | 5000 | AUTO_ADJUDIQUE | | 1400",
-      "non tarifable                               | NONTAR  | PATIENT | 5000 | REJETE         | E016 | 0",
+      "non tarifable                               | NONTAR  | PATIENT | 5000 | REVUE_MANUELLE | E016 | 0",
       "aucune convention                           | AUCUNE  | PATIENT | 5000 | AUTO_ADJUDIQUE | | 2400",
   })
   @DisplayName("Réclamation et facture : MÊME résolveur → mêmes décisions, mêmes codes, mêmes montants")
@@ -492,6 +492,235 @@ class ResolveurTarifTest {
     assertThat(f.decision().name()).as("facture").isEqualTo(r.decision());
     assertThat(f.codesRejet()).as("facture").isEqualTo(r.codesRejet());
     assertThat(f.montantCouvert()).as("facture").isEqualByComparingTo(r.montantRembourse());
+  }
+
+  // ----------------------------------------------------------------------------------------------
+  // quantité : tarif UNITAIRE (arrondi) × quantité, comparé au prix affiché TOTAL (lot 4)
+
+  @ParameterizedTest(name = "forfait 3000 × {0} : prix affiché {1} → reconnu {2} ; part assurance {3} ; patient {4}")
+  @CsvSource({
+      // quantité 1 : montants existants inchangés (5 000 → (3 000 − 2 000) × 80 % = 800)
+      "1, 5000,  3000, 800,  4200",
+      "2, 10000, 6000, 3200, 6800",
+      "3, 15000, 9000, 5600, 9400",
+      // prix affiché inférieur au total reconnu : le prix affiché est retenu
+      "2, 5000,  6000, 2400, 2600",
+  })
+  void quantiteForfait(int q, String prix, String reconnu, String assurance, String patient) {
+    UUID g = UUID.randomUUID();
+    UUID police = UUID.randomUUID();
+    convention("PATIENT", false);
+    forfait("3000.00");
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, prix, null, null, q);
+
+    assertThat(r.trace().tarifReconnu()).isEqualByComparingTo(q == 2 && prix.equals("5000") ? "6000" : reconnu);
+    assertThat(r.trace().quantite()).isEqualTo(q);
+    assertThat(r.trace().tarifUnitaire()).isEqualByComparingTo("3000");
+    assertThat(r.montantCouvert()).isEqualByComparingTo(assurance);
+    assertThat(new BigDecimal(prix).subtract(r.montantCouvert())).isEqualByComparingTo(patient);
+  }
+
+  @Test
+  @DisplayName("Quantité 3 et lettre-clé : le tarif UNITAIRE est arrondi d'abord (2 582,5 → 2 583) puis multiplié : 7 749 → (7 749 − 2 000) × 80 % = 4 599,2 → 4 599")
+  void quantiteArrondiUnitaireAvantMultiplication() {
+    UUID g = UUID.randomUUID();
+    UUID police = UUID.randomUUID();
+    convention("PATIENT", false);
+    cotation("B", "2.5");
+    valeurLettre("B", "AMBULATOIRE", "1033.00");
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "15000", null, null, 3);
+
+    assertThat(r.trace().tarifUnitaire()).isEqualByComparingTo("2583");
+    assertThat(r.trace().tarifReconnu()).isEqualByComparingTo("7749");
+    assertThat(r.montantCouvert()).isEqualByComparingTo("4599");
+  }
+
+  @Test
+  @DisplayName("Quantité 2 et dépassement REJET : 10 000 > 6 000 → rejeté E015 ; 6 000 → accepté 3 200")
+  void quantiteEtRejet() {
+    UUID g = UUID.randomUUID();
+    UUID police = UUID.randomUUID();
+    convention("REJET", false);
+    forfait("3000.00");
+    AdjudicationRepository r0 = repoPourSimulation(police, g, ORG);
+
+    ResultatLigne rejete = simulerQ(r0, police, g, "10000", null, null, 2);
+    assertThat(rejete.decision().name()).isEqualTo("REJETE");
+    assertThat(rejete.codesRejet()).containsExactly("E015");
+    ResultatLigne accepte = simulerQ(r0, police, g, "6000", null, null, 2);
+    assertThat(accepte.decision().name()).isEqualTo("AUTO_ADJUDIQUE");
+    assertThat(accepte.montantCouvert()).isEqualByComparingTo("3200");
+  }
+
+  // ----------------------------------------------------------------------------------------------
+  // tarif proposé par l'établissement (lot 4)
+
+  private void acteNonTarifable() {
+    convention("PATIENT", false);
+    cotation("Z", "2"); // aucune valeur de la lettre-clé Z : non tarifable
+  }
+
+  private AdjudicationRepository.TarifProposeActe propose(UUID acteDossier, String statut, String propose, String decide) {
+    UUID id = UUID.randomUUID();
+    var tp = new AdjudicationRepository.TarifProposeActe(id, statut, new BigDecimal(propose), decide == null ? null : new BigDecimal(decide));
+    when(repo.tarifProposePourActe(ORG, acteDossier)).thenReturn(Optional.of(tp));
+    return tp;
+  }
+
+  @Test
+  @DisplayName("Tarif PROPOSE (en examen) : montant proposé 4 500 = tarif reconnu, règle TARIF_PROPOSE, calcul PROVISOIRE (4 500 − 2 000) × 80 % = 2 000 en REVUE_MANUELLE E017 ; il entame le plafond annuel (100 000 → 98 000)")
+  void tarifProposeEnExamen() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+    var tp = propose(acteDossier, "PROPOSE", "4500", null);
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "5000", acteDossier, null, 1);
+
+    assertThat(r.decision().name()).isEqualTo("REVUE_MANUELLE");
+    assertThat(r.codesRejet()).containsExactly("E017");
+    assertThat(r.montantCouvert()).isEqualByComparingTo("2000");
+    assertThat(r.plafondRestantApres()).isEqualByComparingTo("98000");
+    assertThat(r.trace().regleOrigine()).isEqualTo("TARIF_PROPOSE");
+    assertThat(r.trace().provisoire()).isTrue();
+    assertThat(r.trace().tarifProposeId()).isEqualTo(tp.id());
+    assertThat(r.trace().tarifReconnu()).isEqualByComparingTo("4500");
+    assertThat(r.trace().ecart()).isEqualByComparingTo("500");
+  }
+
+  @Test
+  @DisplayName("Tarif VALIDE : le montant proposé 4 500 devient définitif → AUTO_ADJUDIQUE 2 000, plus provisoire")
+  void tarifProposeValide() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+    propose(acteDossier, "VALIDE", "4500", "4500");
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "5000", acteDossier, null, 1);
+
+    assertThat(r.decision().name()).isEqualTo("AUTO_ADJUDIQUE");
+    assertThat(r.codesRejet()).isEmpty();
+    assertThat(r.montantCouvert()).isEqualByComparingTo("2000");
+    assertThat(r.trace().provisoire()).isFalse();
+    assertThat(r.trace().regleOrigine()).isEqualTo("TARIF_PROPOSE");
+  }
+
+  @Test
+  @DisplayName("Tarif AJUSTE : le montant décidé 3 800 remplace le proposé 4 500 → (3 800 − 2 000) × 80 % = 1 440 ; patient 3 560")
+  void tarifProposeAjuste() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+    propose(acteDossier, "AJUSTE", "4500", "3800");
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "5000", acteDossier, null, 1);
+
+    assertThat(r.montantCouvert()).isEqualByComparingTo("1440");
+    assertThat(new BigDecimal("5000").subtract(r.montantCouvert())).isEqualByComparingTo("3560");
+    assertThat(r.trace().tarifReconnu()).isEqualByComparingTo("3800");
+    assertThat(r.trace().provisoire()).isFalse();
+  }
+
+  @Test
+  @DisplayName("Tarif REFUSE : aucun tarif, l'acte reste non tarifable (E016, message « refusé ») — l'établissement peut en proposer un autre")
+  void tarifProposeRefuse() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+    propose(acteDossier, "REFUSE", "4500", null);
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "5000", acteDossier, null, 1);
+
+    assertThat(r.decision().name()).isEqualTo("REVUE_MANUELLE");
+    assertThat(r.codesRejet()).containsExactly("E016");
+    assertThat(r.montantCouvert()).isEqualByComparingTo("0");
+    assertThat(r.trace().message()).contains("refusé");
+  }
+
+  @Test
+  @DisplayName("Tarif proposé et quantité 3 : le montant proposé est le TOTAL (9 000), unitaire 3 000 ; (9 000 − 2 000) × 80 % = 5 600")
+  void tarifProposeQuantite() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+    propose(acteDossier, "VALIDE", "9000", null);
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "15000", acteDossier, null, 3);
+
+    assertThat(r.trace().tarifReconnu()).isEqualByComparingTo("9000");
+    assertThat(r.trace().tarifUnitaire()).isEqualByComparingTo("3000");
+    assertThat(r.montantCouvert()).isEqualByComparingTo("5600");
+  }
+
+  @Test
+  @DisplayName("Un acte tarifable par la convention ignore tout tarif proposé : le FORFAIT l'emporte")
+  void conventionPrimeSurTarifPropose() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    convention("PATIENT", false);
+    forfait("3000.00");
+    propose(acteDossier, "VALIDE", "4500", null);
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "5000", acteDossier, null, 1);
+
+    assertThat(r.trace().regleOrigine()).isEqualTo("FORFAIT");
+    assertThat(r.montantCouvert()).isEqualByComparingTo("800");
+  }
+
+  @Test
+  @DisplayName("Sans tarif proposé : REVUE_MANUELLE E016, 0 payé — plus de rejet sec")
+  void sansTarifProposeEnRevue() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "5000", acteDossier, null, 1);
+
+    assertThat(r.decision().name()).isEqualTo("REVUE_MANUELLE");
+    assertThat(r.codesRejet()).containsExactly("E016");
+  }
+
+  @Test
+  @DisplayName("Isolation : le tarif proposé n'est cherché que dans l'organisation de la police")
+  void tarifProposeIsoleParOrganisation() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+    when(repo.tarifProposePourActe(AUTRE_ORG, acteDossier)).thenReturn(Optional.of(
+        new AdjudicationRepository.TarifProposeActe(UUID.randomUUID(), "VALIDE", new BigDecimal("4500"), null)));
+
+    ResultatLigne r = simulerQ(repoPourSimulation(police, g, ORG), police, g, "5000", acteDossier, null, 1);
+
+    assertThat(r.codesRejet()).containsExactly("E016");
+    org.mockito.Mockito.verify(repo, org.mockito.Mockito.never()).tarifProposePourActe(AUTRE_ORG, acteDossier);
+  }
+
+  @Test
+  @DisplayName("Réclamation : tarif PROPOSE → REVUE_MANUELLE E017 avec le montant provisoire 2 000 ; sans proposition → REVUE_MANUELLE E016 à 0")
+  void reclamationTarifProposeEtNonTarifable() {
+    acteNonTarifable();
+    UUID acteDossier = UUID.randomUUID();
+    propose(acteDossier, "PROPOSE", "4500", null);
+    ContexteAdjudication ctx = JeuDeDonneesReference.actif(new BigDecimal("5000"));
+    when(repo.chargerContexte(ctx.id())).thenReturn(Optional.of(ctx));
+    when(repo.contexteTarifReclamation(ctx.id())).thenReturn(
+        Optional.of(new ContexteTarif(ORG, ETAB, null, CODE, SOINS, null, acteDossier, 1)));
+    when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(repo.insererRemboursement(any(), any(), any(), any(), anyLong())).thenReturn(UUID.randomUUID());
+    when(repo.majStatut(org.mockito.ArgumentMatchers.eq(ctx.id()), any())).thenReturn(1);
+
+    DecisionResponse r = new AdjudicationService(repo).evaluer(ctx.id());
+    assertThat(r.decision()).isEqualTo("REVUE_MANUELLE");
+    assertThat(r.codesRejet()).containsExactly("E017");
+    assertThat(r.montantRembourse()).isEqualByComparingTo("2000");
+
+    when(repo.tarifProposePourActe(ORG, acteDossier)).thenReturn(Optional.empty());
+    DecisionResponse r2 = new AdjudicationService(repo).evaluer(ctx.id());
+    assertThat(r2.decision()).isEqualTo("REVUE_MANUELLE");
+    assertThat(r2.codesRejet()).containsExactly("E016");
+    assertThat(r2.montantRembourse()).isEqualByComparingTo("0");
+  }
+
+  private ResultatLigne simulerQ(
+      AdjudicationRepository r, UUID police, UUID garantie, String prix, UUID acteDossier, String typeVisite, int quantite) {
+    return new SimulationService(r, Clock.fixed(Instant.parse("2026-06-15T12:00:00Z"), ZoneOffset.UTC))
+        .simuler(new Demande(police, JeuDeDonneesReference.ADHERENT_ID, null, ETAB, SOINS,
+            List.of(new Ligne(garantie, new BigDecimal(prix), CODE, acteDossier, null, quantite)), typeVisite))
+        .get(0);
   }
 
   // ----------------------------------------------------------------------------------------------

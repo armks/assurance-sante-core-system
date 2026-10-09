@@ -24,5 +24,6 @@ public record SimulationRequest(
       @JsonProperty("montant") BigDecimal montant,
       @JsonProperty("code_acte") String codeActe,
       @JsonProperty("acte_dossier_id") UUID acteDossierId,
-      @JsonProperty("date_soins") LocalDate dateSoins) {}
+      @JsonProperty("date_soins") LocalDate dateSoins,
+      @JsonProperty("quantite") Integer quantite) {}
 }

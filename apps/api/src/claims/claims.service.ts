@@ -655,6 +655,34 @@ export class ClaimsService {
       );
     }
 
+    // Tarif proposé (ADR-008, lot 4) : une réclamation sur un acte non tarifable / à tarif en examen ne s'approuve pas
+    // tant que le tarif n'est pas décidé ; le rejet reste possible.
+    if (dto.decision === 'APPROUVE') {
+      const codes = reclamation.codesRejet ?? [];
+      if (codes.includes('E016') || codes.includes('E017')) {
+        const tp = reclamation.acteDossierId
+          ? await this.prisma.tarifPropose.findFirst({
+              where: { acteDossierId: reclamation.acteDossierId, organisationId: ctx.organisationId, deletedAt: null },
+              orderBy: { dateProposition: 'desc' },
+              select: { statut: true },
+            })
+          : null;
+        if (!tp || tp.statut === 'REFUSE') {
+          throw new ConflictException(
+            "Acte non tarifable : la réclamation attend un tarif proposé par l'établissement (comptable ou administratif) et sa décision.",
+          );
+        }
+        if (tp.statut === 'PROPOSE') {
+          throw new ConflictException("Tarif en cours d'examen : la réclamation ne peut pas être approuvée avant la décision sur le tarif proposé.");
+        }
+        if (dto.montantAjuste === undefined) {
+          throw new ConflictException(
+            'Le tarif proposé a été décidé : précisez le montant recalculé à rembourser (le montant provisoire enregistré n’est plus valable).',
+          );
+        }
+      }
+    }
+
     const statutFinal = dto.decision === 'APPROUVE' ? 'AUTO_ADJUDIQUE' : 'REJETE';
     const montantFinal =
       dto.decision === 'REJETE'

@@ -1740,6 +1740,11 @@ model LigneFacturation {
   tarifPrixAffiche       Decimal? @map("tarif_prix_affiche") @db.Decimal(14, 2)
   tarifReconnu           Decimal? @map("tarif_reconnu") @db.Decimal(14, 2)
   tarifEcart             Decimal? @map("tarif_ecart") @db.Decimal(14, 2)
+  tarifUnitaire          Decimal? @map("tarif_unitaire") @db.Decimal(14, 2)
+  tarifQuantite          Int?     @map("tarif_quantite")
+  /// Calcul PROVISOIRE sur un tarif proposé non décidé (prisma/sql/083) : exclue du paiement, mais entame les plafonds.
+  tarifProvisoire        Boolean  @default(false) @map("tarif_provisoire")
+  tarifProposeId         String?  @map("tarif_propose_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tarifConvention Convention? @relation(fields: [tarifConventionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -2177,4 +2182,30 @@ model DemandeAdhesion {
 
   @@index([organisationId, statut, createdAt(sort: Desc)], map: "demandes_adhesion_organisation_idx")
   @@map("demandes_adhesion")
+}
+
+/// tarifs_proposes — montant TOTAL proposé par l'établissement pour un acte NON TARIFABLE (prisma/sql/083, ADR-008
+/// lot 4). Les décisions (file du médecin conseil) arrivent au lot 5. Relations en colonnes seules (FK en base).
+model TarifPropose {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId     String    @map("organisation_id") @db.Uuid
+  etablissementId    String    @map("etablissement_id") @db.Uuid
+  acteDossierId      String    @map("acte_dossier_id") @db.Uuid
+  ligneFacturationId String?   @map("ligne_facturation_id") @db.Uuid
+  montantPropose     Decimal   @map("montant_propose") @db.Decimal(14, 2)
+  justification      String
+  statut             String    @default("PROPOSE") // PROPOSE | VALIDE | AJUSTE | REFUSE
+  proposePar         String    @map("propose_par") @db.Uuid
+  dateProposition    DateTime  @default(now()) @map("date_proposition") @db.Timestamptz(6)
+  decidePar          String?   @map("decide_par") @db.Uuid
+  dateDecision       DateTime? @map("date_decision") @db.Timestamptz(6)
+  montantDecide      Decimal?  @map("montant_decide") @db.Decimal(14, 2)
+  motifDecision      String?   @map("motif_decision")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([acteDossierId])
+  @@index([organisationId, statut])
+  @@map("tarifs_proposes")
 }

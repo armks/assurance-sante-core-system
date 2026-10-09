@@ -236,7 +236,7 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
                                    AND g.deleted_at IS NULL
             WHERE %2$s
               AND g.id = ?
-              AND lf.reportee_mois_suivant = false
+              AND (lf.reportee_mois_suivant = false OR lf.tarif_provisoire)
               AND lf.acte_dossier_id::text <> ALL (string_to_array(?, ','))
               AND (COALESCE(ad.date_realisation, ad.date_prescription)
                      AT TIME ZONE 'UTC')::date >= ?
@@ -467,7 +467,7 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         .query(
             """
             SELECT r.organisation_id, ds.etablissement_id, ra.id AS referentiel_acte_id, ad.code_acte,
-                   ds.type_visite,
+                   ds.type_visite, ad.id AS acte_dossier_id, COALESCE(ad.quantite, 1) AS quantite,
                    (COALESCE(ad.date_realisation, ad.date_prescription,
                              dp.date_paiement, dp.date_preparation, r.created_at)
                       AT TIME ZONE 'UTC')::date AS date_soins
@@ -481,8 +481,27 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
             """,
             (rs, n) -> new ContexteTarif(
                 uuid(rs, "organisation_id"), uuid(rs, "etablissement_id"), uuid(rs, "referentiel_acte_id"),
-                rs.getString("code_acte"), localDate(rs, "date_soins"), rs.getString("type_visite")),
+                rs.getString("code_acte"), localDate(rs, "date_soins"), rs.getString("type_visite"),
+                uuid(rs, "acte_dossier_id"), rs.getInt("quantite")),
             reclamationId)
+        .stream()
+        .findFirst();
+  }
+
+  @Override
+  public Optional<TarifProposeActe> tarifProposePourActe(UUID organisationId, UUID acteDossierId) {
+    return jdbc
+        .query(
+            """
+            SELECT tp.id, tp.statut, tp.montant_propose, tp.montant_decide
+            FROM tarifs_proposes tp
+            WHERE tp.organisation_id = ? AND tp.acte_dossier_id = ? AND tp.deleted_at IS NULL
+            ORDER BY tp.date_proposition DESC
+            LIMIT 1
+            """,
+            (rs, n) -> new TarifProposeActe(
+                uuid(rs, "id"), rs.getString("statut"), rs.getBigDecimal("montant_propose"), rs.getBigDecimal("montant_decide")),
+            organisationId, acteDossierId)
         .stream()
         .findFirst();
   }

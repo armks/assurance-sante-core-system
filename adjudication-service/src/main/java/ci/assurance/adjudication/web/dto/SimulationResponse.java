@@ -28,5 +28,9 @@ public record SimulationResponse(@JsonProperty("lignes") List<Ligne> lignes) {
       @JsonProperty("prix_affiche") BigDecimal prixAffiche,
       @JsonProperty("tarif_reconnu") BigDecimal tarifReconnu,
       @JsonProperty("ecart") BigDecimal ecart,
-      @JsonProperty("message") String message) {}
+      @JsonProperty("message") String message,
+      @JsonProperty("tarif_unitaire") BigDecimal tarifUnitaire,
+      @JsonProperty("quantite") int quantite,
+      @JsonProperty("provisoire") boolean provisoire,
+      @JsonProperty("tarif_propose_id") UUID tarifProposeId) {}
 }

@@ -40,7 +40,13 @@ public class SimulationService {
    * demande).
    */
   public record Ligne(
-      UUID garantieId, BigDecimal montant, String codeActe, UUID acteDossierId, LocalDate dateSoins) {
+      UUID garantieId, BigDecimal montant, String codeActe, UUID acteDossierId, LocalDate dateSoins,
+      /** Quantité de l'acte (défaut 1) : tarif reconnu = tarif unitaire × quantité. */
+      Integer quantite) {
+
+    public Ligne(UUID garantieId, BigDecimal montant, String codeActe, UUID acteDossierId, LocalDate dateSoins) {
+      this(garantieId, montant, codeActe, acteDossierId, dateSoins, null);
+    }
 
     public Ligne(UUID garantieId, BigDecimal montant, String codeActe) {
       this(garantieId, montant, codeActe, null, null);
@@ -160,7 +166,8 @@ public class SimulationService {
       final TarifResolu tarif =
           resolveur.resoudre(
               new ContexteTarif(
-                  police.organisationId(), d.etablissementId(), null, l.codeActe(), date, typeVisite));
+                  police.organisationId(), d.etablissementId(), null, l.codeActe(), date, typeVisite,
+                  l.acteDossierId(), l.quantite() == null ? 1 : l.quantite()));
       final ContexteAdjudication ctx =
           new ContexteAdjudication(
               null, police.organisationId(), null, null,

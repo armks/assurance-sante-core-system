@@ -27,6 +27,7 @@ import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.uti
 import { bornesPage, filtrePeriode, versPage } from '../common/pagination';
 import { STATUTS_CONTESTATION_EN_LITIGE } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
+import { TarifsProposesService, colonnesTrace } from '../tarifs-proposes/tarifs-proposes.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import {
@@ -108,24 +109,6 @@ const MOTIF_INELIGIBILITE: Record<string, string> = {
   E016: 'ACTE_NON_TARIFABLE',
 };
 
-/** Colonnes `tarif_*` de la ligne de facturation à partir de l'instantané du microservice. */
-function traceVersLigne(t: TraceTarif | null | undefined) {
-  if (!t) return {};
-  const dec = (v: number | null) => (v === null || v === undefined ? null : new Decimal(String(v)));
-  return {
-    tarifStatut: t.statut_tarif === 'NON_TARIFABLE' ? null : t.statut_tarif,
-    tarifRegleOrigine: t.regle_origine,
-    tarifLettreCle: t.lettre_cle,
-    tarifCoefficient: dec(t.coefficient),
-    tarifValeurAppliquee: dec(t.valeur_appliquee),
-    tarifConventionId: t.convention_id,
-    tarifPolitiqueDepassement: t.politique_depassement,
-    tarifPrixAffiche: dec(t.prix_affiche),
-    tarifReconnu: dec(t.tarif_reconnu),
-    tarifEcart: dec(t.ecart),
-  };
-}
-
 const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('/');
 
 /** Message clair, daté, pour un acte exclu de la facture car non couvert à la date des soins. */
@@ -141,7 +124,7 @@ function messageIneligibilite(
     case 'E015':
       return `${tete} le prix affiché (${trace?.prix_affiche ?? '?'} F) dépasse le tarif reconnu par la convention (${trace?.tarif_reconnu ?? '?'} F) et la convention de l'établissement rejette les dépassements.`;
     case 'E016':
-      return `${tete} acte non tarifable — ${trace?.message ?? "la convention de l'établissement ne donne aucun tarif pour cet acte"} Aucun prix par défaut n'est appliqué.`;
+      return `${tete} acte non tarifable — ${trace?.message ?? "la convention de l'établissement ne donne aucun tarif pour cet acte"} Aucun prix par défaut n'est appliqué : le comptable ou l'administratif de l'établissement peut proposer un tarif (montant et justification), l'acte sera alors facturé à titre provisoire.`;
     case 'E012':
       return `${tete} soins antérieurs au début de la police${police.dateDebut ? ` (${jjmmaaaa(police.dateDebut)})` : ''}.`;
     case 'E013':
@@ -179,6 +162,7 @@ export class PreauthorizationService {
     private readonly careEpisode: CareEpisodeService,
     private readonly categoriesActe: CategoriesActeService,
     private readonly adjudication: AdjudicationClientService,
+    private readonly tarifsProposes: TarifsProposesService,
   ) {}
 
   // --- Génération (adhérent) ---------------------------------------
@@ -1277,6 +1261,7 @@ export class PreauthorizationService {
             montant: montantFacture.toFixed(2),
             code_acte: dto.codeActe ?? null,
             acte_dossier_id: null,
+            quantite: dto.quantite ?? 1,
             date_soins: null,
           },
         ]),
@@ -2191,8 +2176,11 @@ export class PreauthorizationService {
       }
       const somme = (valeurs: string[]) =>
         valeurs.reduce((s, v) => s.add(v), new Decimal(0));
-      const total = somme(retenus.map(({ i }) => calcul.montantsActes[i]));
-      const assurance = somme(retenus.map(({ i }) => calcul.partsAssurance[i]));
+      // tarif proposé non décidé : l'acte SORT de la facture patient (ligne provisoire, exclue du paiement,
+      // part estimée affichée à titre indicatif) ; le patient règle le reste
+      const fermes = retenus.filter(({ i }) => calcul.traces[i]?.provisoire !== true);
+      const total = somme(fermes.map(({ i }) => calcul.montantsActes[i]));
+      const assurance = somme(fermes.map(({ i }) => calcul.partsAssurance[i]));
       const montantTotal = total.toFixed(2);
       const montantAssurance = assurance.toFixed(2);
       const montantPatient = total.sub(assurance).toFixed(2);
@@ -2220,7 +2208,10 @@ export class PreauthorizationService {
         // facture mensuelle pharmacie. Somme des lignes = montantAssurance.
         const montantReclame = calcul.partsAssurance[i];
         // instantané du tarif appliqué, FIGÉ à l'émission (prisma/sql/082, ADR-008 lot 3)
-        const traceTarif = traceVersLigne(calcul.traces[i]);
+        const traceTarif = colonnesTrace(calcul.traces[i]);
+        const provisoire = calcul.traces[i]?.provisoire === true;
+        // ligne provisoire : exclue du paiement (réutilise reportee_mois_suivant), réintégrée après VALIDE / AJUSTE
+        const etatProvisoire = provisoire ? { reporteeMoisSuivant: true } : {};
         // trace du calcul (prisma/sql/074) : tarif conventionné appliqué à l'acte facturé
         await tx.acteDossier.update({
           where: { id: acte.id },
@@ -2230,7 +2221,7 @@ export class PreauthorizationService {
           // Cycle abandonné réattaché — jamais de doublon pour le même acte.
           await tx.ligneFacturation.update({
             where: { id: ligneAPayer.id },
-            data: { factureDossierId: f.id, montantReclame, ...traceTarif },
+            data: { factureDossierId: f.id, montantReclame, ...traceTarif, ...etatProvisoire },
           });
         } else {
           await tx.ligneFacturation.create({
@@ -2241,8 +2232,17 @@ export class PreauthorizationService {
               montantReclame,
               statut: 'A_PAYER',
               ...traceTarif,
+              ...etatProvisoire,
             },
           });
+        }
+        // tarif proposé retenu : le lien proposition → ligne de facturation
+        const tarifProposeId = calcul.traces[i]?.tarif_propose_id;
+        if (tarifProposeId) {
+          const ligneEmise = await tx.ligneFacturation.findFirst({ where: { acteDossierId: acte.id }, select: { id: true } });
+          if (ligneEmise) {
+            await tx.tarifPropose.update({ where: { id: tarifProposeId }, data: { ligneFacturationId: ligneEmise.id } });
+          }
         }
       }
 
@@ -2253,20 +2253,25 @@ export class PreauthorizationService {
         f.id,
         {
           dossierSoinsId,
-          acteIdsInclus: retenus.map(({ acte }) => acte.id),
+          acteIdsInclus: fermes.map(({ acte }) => acte.id),
+          acteIdsTarifEnExamen: retenus.filter(({ i }) => calcul.traces[i]?.provisoire === true).map(({ acte }) => acte.id),
           acteIdsExclus,
           montantTotal,
           montantPatient,
         },
         'factures_dossier',
       );
-      return { f, acteIdsInclus: retenus.map(({ acte }) => acte.id) };
+      return {
+        f,
+        acteIdsInclus: fermes.map(({ acte }) => acte.id),
+        actesTarifEnExamen: await this.tarifsProposes.actesEnExamen(tx, f.id),
+      };
       // l'appel au microservice se fait verrou tenu : délai au-delà de son timeout
     }, { timeout: DELAI_TRANSACTION_FACTURE_MS });
 
     // Réponse à l'ASSUREUR : montants, PAS le code (transmis à l'adhérent —
     // dashboard dès maintenant, e-mail/SMS à raccorder séparément).
-    const { f: facture, acteIdsInclus } = resultat;
+    const { f: facture, acteIdsInclus, actesTarifEnExamen } = resultat;
     const precisions = exclusions
       .map((e) => ('message' in e ? e.message : null))
       .filter(Boolean)
@@ -2278,6 +2283,8 @@ export class PreauthorizationService {
       montantAssurance: facture.montantAssurance.toFixed(2),
       montantPatient: facture.montantPatient.toFixed(2),
       acteIdsInclus,
+      // tarif proposé en cours d'examen : hors facture patient, part estimée INDICATIVE
+      actesTarifEnExamen,
       acteIdsExclus,
       exclusions,
       message:
@@ -2317,8 +2324,10 @@ export class PreauthorizationService {
         take: limite,
       }),
     ]);
-    const items = factures.map((f) => ({
+    const enExamen = await Promise.all(factures.map((f) => this.tarifsProposes.actesEnExamen(this.prisma, f.id)));
+    const items = factures.map((f, idx) => ({
       id: f.id,
+      actesTarifEnExamen: enExamen[idx],
       ticketSoinsId: f.ticketSoinsId,
       numeroTraitement: f.dossier.numeroTraitement,
       code: f.codeFacturation,
@@ -2562,7 +2571,8 @@ export class PreauthorizationService {
 
     // le code n'est visible que de l'adhérent (via listerMesFactures)
     const { codeFacturation, ...reste } = facture;
-    return estLAdherent ? facture : reste;
+    const actesTarifEnExamen = await this.tarifsProposes.actesEnExamen(this.prisma, facture.id);
+    return estLAdherent ? { ...facture, actesTarifEnExamen } : { ...reste, actesTarifEnExamen };
   }
 
   /**
@@ -2756,6 +2766,8 @@ export class PreauthorizationService {
     // consolidation antérieure (soumission ou `decocherLigneContestee`) reste
     // candidate indéfiniment, quel que soit son `datePaiement` d'origine —
     // seul son statut de litige ACTUEL décide de sa réintégration.
+    // tarifs proposés décidés depuis la dernière consolidation : leurs lignes sont réintégrées (VALIDE / AJUSTE)
+    await this.tarifsProposes.synchroniserLignes(ctx.organisationId, ctx.etablissementId!, ctx.userId);
     const lignesPayees = await this.prisma.ligneFacturation.findMany({
       where: {
         statut: 'PAYE',
@@ -2763,11 +2775,20 @@ export class PreauthorizationService {
         acteDossier: { dossier: { etablissementId: ctx.etablissementId } },
         OR: [{ datePaiement: { gte: debut, lt: fin } }, { reporteeMoisSuivant: true }],
       },
-      select: { id: true, acteDossierId: true, montantReclame: true },
+      select: { id: true, acteDossierId: true, montantReclame: true, tarifProposeId: true, tarifProvisoire: true },
     });
     const enLitige = await this.chargerActesEnLitige(lignesPayees.map((l) => l.acteDossierId));
-    const lignesFacturables = lignesPayees.filter((l) => !enLitige.has(l.acteDossierId));
-    const lignesEncoreEnLitige = lignesPayees.filter((l) => enLitige.has(l.acteDossierId));
+    // une ligne dont le tarif proposé n'est pas VALIDE / AJUSTE est exclue et non payable (REFUSE comprise)
+    const proposes = await this.prisma.tarifPropose.findMany({
+      where: { id: { in: lignesPayees.map((l) => l.tarifProposeId).filter((x): x is string => !!x) } },
+      select: { id: true, statut: true },
+    });
+    const statutPropose = new Map(proposes.map((p) => [p.id, p.statut]));
+    const tarifNonValide = (l: (typeof lignesPayees)[number]) =>
+      l.tarifProvisoire || (!!l.tarifProposeId && !['VALIDE', 'AJUSTE'].includes(statutPropose.get(l.tarifProposeId) ?? ''));
+    const lignesFacturables = lignesPayees.filter((l) => !enLitige.has(l.acteDossierId) && !tarifNonValide(l));
+    // exclues (litige et / ou tarif non validé) : marquées reportées, retentées à la prochaine consolidation
+    const lignesEncoreEnLitige = lignesPayees.filter((l) => enLitige.has(l.acteDossierId) || tarifNonValide(l));
     const montantTotal = lignesFacturables.reduce(
       (acc, l) => acc.add(new Decimal(l.montantReclame.toString())),
       new Decimal(0),
@@ -3255,6 +3276,7 @@ export class PreauthorizationService {
               montant: montants[i].toFixed(2),
               code_acte: a.codeActe,
               acte_dossier_id: a.id,
+              quantite: a.quantite,
               date_soins: (a.dateRealisation ?? a.datePrescription).toISOString().slice(0, 10),
             })),
           ),

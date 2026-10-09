@@ -18,6 +18,7 @@ import { PreauthorizationModule } from './preauthorization/preauthorization.modu
 import { PrismaModule } from './prisma/prisma.module';
 import { ProviderModule } from './provider/provider.module';
 import { ConventionsModule } from './conventions/conventions.module';
+import { TarifsProposesModule } from './tarifs-proposes/tarifs-proposes.module';
 import { ReferenceModule } from './reference/reference.module';
 import { SanteModule } from './sante/sante.module';
 import { DependancesModule } from './dependances/dependances.module';
@@ -44,6 +45,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     ProviderModule,
     ReferenceModule,
     ConventionsModule,
+    TarifsProposesModule,
     CareEpisodeModule,
     PreauthorizationModule,
     PharmacyModule,

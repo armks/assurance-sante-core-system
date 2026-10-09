@@ -255,6 +255,8 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${CENTRE_MEDICAL}/contestations`,
       icon: Scale,
     },
+    // Tarifs proposés pour les actes non tarifables (lot barème 4) : comptable et administratif
+    { label: 'Tarifs proposés', href: `${CENTRE_MEDICAL}/tarifs-proposes`, icon: FileSignature },
   ],
   [MEDECIN_CONSEIL]: [
     { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard, largeur: 'dashboard' },

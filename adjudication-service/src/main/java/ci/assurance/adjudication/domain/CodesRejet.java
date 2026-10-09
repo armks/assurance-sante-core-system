@@ -38,4 +38,7 @@ public final class CodesRejet {
 
   /** Acte non tarifable : la convention en vigueur ne donne ni forfait ni valeur de lettre-clé pour lui. */
   public static final String ACTE_NON_TARIFABLE = "E016";
+
+  /** Tarif proposé par l'établissement en cours d'examen : montant provisoire, en revue (ADR-008, lot 4). */
+  public static final String TARIF_EN_EXAMEN = "E017";
 }

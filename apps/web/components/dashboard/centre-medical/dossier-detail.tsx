@@ -192,21 +192,21 @@ export function DossierDetail({
     },
     {
       cle: 'ticketModerateurSimule',
-      entete: 'Ticket modérateur (simulé)',
+      entete: 'Ticket modérateur (estimation)',
       aligneDroite: true,
       valeur: (a) => Number(a.ticketModerateurSimule ?? 0),
       rendu: (a) => montant(a.ticketModerateurSimule),
     },
     {
       cle: 'montantSimulePatient',
-      entete: 'Part assuré (simulée)',
+      entete: 'Part assuré (estimation)',
       aligneDroite: true,
       valeur: (a) => Number(a.montantSimulePatient ?? 0),
       rendu: (a) => montant(a.montantSimulePatient),
     },
     {
       cle: 'montantSimuleAssurance',
-      entete: 'Part assurance (simulée)',
+      entete: 'Part assurance (estimation)',
       aligneDroite: true,
       valeur: (a) => Number(a.montantSimuleAssurance ?? 0),
       rendu: (a) => montant(a.montantSimuleAssurance),
@@ -504,9 +504,10 @@ export function DossierDetail({
         </CardHeader>
         <CardContent>
           <p className="mb-3 text-sm text-muted-foreground">
-            Les montants simulés sont indicatifs — le calcul définitif est
-            établi par l’adjudication (microservice dédié) à la clôture du
-            ticket de soins.
+            <strong>Estimation, calculée au jour de la facture</strong> : ces montants sont indicatifs, calculés à
+            l’ajout de l’acte sans connaître la date des soins ni le tarif
+            définitif. Le calcul définitif est établi par le microservice
+            d’adjudication à la facturation, à la date des soins.
           </p>
           <DataTable
             donnees={dossier.actes}

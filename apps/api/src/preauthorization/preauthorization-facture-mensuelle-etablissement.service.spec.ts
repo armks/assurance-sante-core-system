@@ -8,6 +8,8 @@ import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
+import { TarifsProposesService } from '../tarifs-proposes/tarifs-proposes.service';
+import { tarifsProposesDeTest } from '../tarifs-proposes/tarifs-proposes.testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
@@ -66,6 +68,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
       etablissementSante: { findUnique: jest.fn().mockResolvedValue({ nom: 'Centre A', statut: 'ACTIF', deletedAt: null }) },
       acteDossier: { findMany: jest.fn().mockResolvedValue([]) },
       contestationActe: { findMany: jest.fn().mockResolvedValue([]) },
+      tarifPropose: { findMany: jest.fn().mockResolvedValue([]) },
       ligneFacturation: {
         findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
@@ -87,6 +90,7 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
     const moduleRef = await Test.createTestingModule({
       providers: [
         { provide: AdjudicationClientService, useValue: adjudication },
+        { provide: TarifsProposesService, useValue: tarifsProposesDeTest() },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },

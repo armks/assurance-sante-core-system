@@ -8,6 +8,8 @@ import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
+import { TarifsProposesService } from '../tarifs-proposes/tarifs-proposes.service';
+import { tarifsProposesDeTest } from '../tarifs-proposes/tarifs-proposes.testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
@@ -80,6 +82,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         { provide: AdjudicationClientService, useValue: adjudication },
+        { provide: TarifsProposesService, useValue: tarifsProposesDeTest() },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },

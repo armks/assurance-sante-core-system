@@ -193,8 +193,8 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `reclamations` | `UPDATE` | `statut` *(uniquement)* |
 | `remboursements` | `SELECT` | `id`, `reclamation_id`, `montant_rembourse`, `created_at` *(4 colonnes)* |
 | `dossiers_soins` | `SELECT` | `id`, `etablissement_id` *(034)* ; `adherent_id`, `beneficiaire_id`, `police_id` *(068)* ; `type_visite` *(082 — contexte ambulatoire / hospitalisation du tarif)* |
-| `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* ; `date_realisation`, `date_prescription` *(070 — date des soins)* ; `referentiel_acte_id` *(080 — lien fort vers le référentiel)* |
-| `lignes_facturation` | `SELECT` | `id`, `acte_dossier_id`, `montant_reclame`, `reportee_mois_suivant`, `created_at` *(068)* |
+| `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* ; `date_realisation`, `date_prescription` *(070 — date des soins)* ; `referentiel_acte_id` *(080 — lien fort vers le référentiel)* ; `quantite` *(083 — tarif unitaire × quantité)* |
+| `lignes_facturation` | `SELECT` | `id`, `acte_dossier_id`, `montant_reclame`, `reportee_mois_suivant`, `created_at` *(068)* ; `tarif_provisoire` *(083 — une ligne provisoire entame les plafonds ; le reste de la trace reste illisible)* |
 | `beneficiaires` | `SELECT` | `id`, `adherent_id`, `deleted_at` *(069 — rattachement au titulaire, clé de famille)* |
 | `produits` | `SELECT` | `id`, `periode_cumul_plafond` *(069 — période de cumul des plafonds)* ; `delai_declaration_jours` *(071 — délai de déclaration après la fin de la police)* |
 | `dispensations_pharmacie` | `SELECT` | `id`, `date_paiement`, `date_preparation` *(070 — date des soins d'une dispensation)* |
@@ -202,6 +202,7 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `conventions` | `SELECT` | `id`, `organisation_id`, `etablissement_id`, `numero`, `version`, `statut`, `date_debut`, `date_fin`, `politique_depassement`, `historique`, `deleted_at` *(082 — jamais le document, les auteurs, les dates de saisie / validation, ni le motif de refus)* |
 | `convention_actes` | `SELECT` | `id`, `convention_id`, `referentiel_acte_id`, `prix_forfaitaire`, `valeur_lettre_cle`, `date_debut`, `date_fin`, `deleted_at` *(082)* |
 | `convention_valeurs` | `SELECT` | `convention_id`, `lettre_cle_code`, `contexte`, `valeur`, `deleted_at` *(082)* |
+| `tarifs_proposes` | `SELECT` | `id`, `organisation_id`, `acte_dossier_id`, `statut`, `montant_propose`, `montant_decide`, `date_proposition`, `deleted_at` *(083 — jamais la justification, les auteurs ni le motif de décision)* |
 
 > `SELECT(id)` sur `remboursements` est requis par `INSERT … RETURNING id`
 > (le `RETURNING` est évalué comme un `SELECT` sur les colonnes renvoyées).
@@ -992,3 +993,37 @@ tarif reconnu, le taux restant dans la garantie du produit. Le lot 1 pose la cou
   l'ajout d'un acte (date des soins encore inconnue) prend la date du jour ; la facture et la réclamation recalculent à la
   date des soins ; (3) la réclamation trace le forfait sur l'acte (`tarif_conventionne_id`) mais pas encore l'instantané
   complet (il vit sur la ligne de facturation).
+
+### Lot 4 « tarif proposé » (2026-10-09) — migration `prisma/sql/083_tarifs_proposes.sql` (ADR-008)
+- **Quantité** (point laissé ouvert au lot 3) : le résolveur calcule le tarif UNITAIRE (arrondi HALF_UP), puis multiplie par la
+  quantité ; le prix affiché (total de la ligne) est comparé au total reconnu. Quantité 1 : montants inchangés. Forfait 3 000 :
+  quantité 2 → reconnu 6 000, quantité 3 → 9 000. Unitaire 2 582,5 → 2 583 puis × 3 = 7 749 (l'arrondi précède la multiplication).
+- **Acte non tarifable (E016) ne bloque plus** : le comptable ou l'administratif de l'établissement propose un montant TOTAL avec
+  une justification (10 caractères au moins). Table `tarifs_proposes` : acte, ligne de facturation, montant, justification, statut
+  `PROPOSE | VALIDE | AJUSTE | REFUSE`, proposé par / décidé par, montant décidé, motif, dates, `deleted_at`. Garde-fous en base :
+  le proposant ne décide jamais (`decide_par ≠ propose_par`), décision tracée (qui, quand), `AJUSTE` chiffré et motivé, `REFUSE`
+  motivé, une proposition décidée ne se modifie plus (trigger), UNE seule proposition vivante par acte (index unique partiel
+  `WHERE deleted_at IS NULL AND statut <> 'REFUSE'` : un refus permet d'en proposer une autre). La proposition n'est acceptée que
+  si le Java confirme que l'acte est réellement non tarifable (aucun contournement d'un tarif négocié).
+- **Calcul provisoire** : le Java prend le montant proposé comme tarif reconnu (règle `TARIF_PROPOSE`, dernière de la liste : la
+  convention l'emporte toujours si elle tarife l'acte). `PROPOSE` → provisoire (revue manuelle, code **E017**) ; `VALIDE` → montant
+  proposé ; `AJUSTE` → montant décidé ; `REFUSE` → l'acte reste non tarifable. Sans proposition, E016 passe de « rejet » à
+  **REVUE_MANUELLE à 0** : plus de rejet sec (le rejet E015 de la politique REJET est inchangé).
+- **Plafonds** : une ligne provisoire est exclue du paiement (`reportee_mois_suivant`) mais ENTAME les plafonds personne et famille
+  (le cumul compte `tarif_provisoire`) ; un refus restitue le plafond. Colonnes ajoutées à `lignes_facturation` : `tarif_unitaire`,
+  `tarif_quantite`, `tarif_provisoire`, `tarif_propose_id`. La trace provisoire peut être remplacée UNE fois par la décision, puis se
+  fige (trigger).
+- **Facture patient** : l'acte à tarif proposé non décidé sort de la facture (montants hors facture), le patient règle le reste ; la
+  facture renvoie `actesTarifEnExamen` avec la part estimée, INDICATIVE, et la mention « tarif en cours d'examen » (affichée aussi
+  dans « Mes factures » du patient).
+- **Facture mensuelle** : une ligne dont le tarif n'est pas `VALIDE` / `AJUSTE` est exclue et non payable (reportée) ; à la
+  consolidation, `synchroniserLignes` réintègre les lignes décidées (nouveau calcul avec le montant retenu) ; double exclusion avec un
+  litige testée (une ligne ajustée reste dehors tant que le litige dure, puis est réintégrée).
+- **Réclamation** : même circuit (REVUE_MANUELLE avec le montant provisoire sous E017). L'approbation manuelle est refusée tant que
+  le tarif est en examen ; une fois décidé, le montant recalculé doit être précisé (le montant provisoire n'est plus valable).
+- **Droits et traces** : lecture et proposition réservées à l'établissement de l'acte (404 hors établissement / organisation) ;
+  l'assureur (médecin conseil, direction, informatique) lit ; les sociétés n'ont aucun accès ; `log_audit()` dans la transaction
+  (`PROPOSITION_TARIF`, `REINTEGRATION_LIGNE_TARIF_PROPOSE`), refus métier tracés à part (`REFUS_PROPOSITION_TARIF`).
+- **Hors périmètre (lot 5)** : la file du médecin conseil et les décisions (VALIDE / AJUSTE / REFUSE) ; la part patient d'un acte
+  décidé après coup ; l'archivage / suppression de propositions.
+- **Attention aux migrations** : 083 redéfinit `lignes_facturation_tarif_fige()` (déjà définie en 082) ; les appliquer dans l'ordre.

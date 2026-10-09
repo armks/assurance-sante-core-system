@@ -60,7 +60,7 @@ export function PreautorisationsFile({ actes }: { actes: ActeEnAttente[] }) {
     },
     {
       cle: 'montantSimule',
-      entete: 'Montant simulé',
+      entete: 'Montant estimé',
       aligneDroite: true,
       valeur: (a) => Number(a.montantSimuleAssurance ?? 0),
       rendu: (a) => (

@@ -30,7 +30,23 @@ public record TarifResolu(
     UUID tarifConventionneId,
     /** {@code PATIENT} | {@code REJET} ; {@code null} sans convention. */
     String politiqueDepassement,
-    String message) {
+    String message,
+    /** Tarif reconnu par UNITÉ (arrondi) ; {@code tarifReconnu} = unitaire × quantité. */
+    BigDecimal tarifUnitaire,
+    int quantite,
+    /** Tarif proposé encore non décidé : calcul PROVISOIRE (la ligne est exclue du paiement). */
+    boolean provisoire,
+    /** Tarif proposé retenu (règle TARIF_PROPOSE). */
+    UUID tarifProposeId) {
+
+  /** Forme sans quantité : unitaire = total, quantité 1, définitif. */
+  public TarifResolu(
+      Statut statut, Regle regle, BigDecimal tarifReconnu, String lettreCle, BigDecimal coefficient,
+      BigDecimal valeurAppliquee, UUID conventionId, UUID tarifConventionneId, String politiqueDepassement,
+      String message) {
+    this(statut, regle, tarifReconnu, lettreCle, coefficient, valeurAppliquee, conventionId, tarifConventionneId,
+        politiqueDepassement, message, tarifReconnu, 1, false, null);
+  }
 
   public enum Statut {
     /** Pas d'établissement ni de date (pharmacie…) : aucun tarif conventionné n'est cherché. */
@@ -43,7 +59,9 @@ public record TarifResolu(
     FORFAIT,
     VALEUR_PROPRE,
     VALEUR_LETTRE_CLE,
-    AUCUNE_CONVENTION
+    AUCUNE_CONVENTION,
+    /** Montant saisi par l'établissement pour un acte non tarifable (ADR-008, lot 4). */
+    TARIF_PROPOSE
   }
 
   public static TarifResolu nonApplicable() {
@@ -57,6 +75,26 @@ public record TarifResolu(
 
   public static TarifResolu nonTarifable(UUID conventionId, String politique, String message) {
     return new TarifResolu(Statut.NON_TARIFABLE, null, null, null, null, null, conventionId, null, politique, message);
+  }
+
+  /** Même tarif pour {@code quantite} unités : le reconnu devient unitaire × quantité (unitaire déjà arrondi). */
+  public TarifResolu pourQuantite(int q) {
+    if (q <= 1 || tarifUnitaire == null) {
+      return this;
+    }
+    return new TarifResolu(statut, regle, tarifUnitaire.multiply(BigDecimal.valueOf(q)), lettreCle, coefficient,
+        valeurAppliquee, conventionId, tarifConventionneId, politiqueDepassement, message, tarifUnitaire, q,
+        provisoire, tarifProposeId);
+  }
+
+  /** Tarif proposé par l'établissement : le montant TOTAL de l'acte est le tarif reconnu. */
+  public static TarifResolu propose(BigDecimal totalReconnu, int quantite, UUID conventionId, String politique,
+      boolean provisoire, UUID tarifProposeId) {
+    final int q = Math.max(quantite, 1);
+    final BigDecimal total = arrondi(totalReconnu);
+    return new TarifResolu(Statut.TARIFABLE, Regle.TARIF_PROPOSE, total, null, null, null, conventionId, null,
+        politique, provisoire ? "Tarif proposé par l'établissement, en cours d'examen : calcul provisoire." : null,
+        total.divide(BigDecimal.valueOf(q), 0, RoundingMode.HALF_UP), q, provisoire, tarifProposeId);
   }
 
   /** Forfait / tarif simple (tests, reprises) : règle FORFAIT, politique PATIENT. */

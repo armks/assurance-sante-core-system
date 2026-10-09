@@ -2,6 +2,8 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
+import { TarifsProposesService } from '../tarifs-proposes/tarifs-proposes.service';
+import { tarifsProposesDeTest } from '../tarifs-proposes/tarifs-proposes.testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import {
@@ -117,6 +119,7 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
     const moduleRef = await Test.createTestingModule({
       providers: [
         { provide: AdjudicationClientService, useValue: adjudication },
+        { provide: TarifsProposesService, useValue: tarifsProposesDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: {} },
@@ -166,7 +169,7 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
         });
         expect(facturee.lignes).toEqual([
           { garantie_id: `g-${categorie}`, montant: `${attendu.montant}.00`, code_acte: null,
-            acte_dossier_id: 'acte-1', date_soins: '2026-06-15' },
+            acte_dossier_id: 'acte-1', quantite: 1, date_soins: '2026-06-15' },
         ]);
       } else {
         // non couvert : 0, sans appel au microservice

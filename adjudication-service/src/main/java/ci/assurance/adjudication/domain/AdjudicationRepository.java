@@ -128,6 +128,14 @@ public interface AdjudicationRepository {
     return Optional.empty();
   }
 
+  /** Tarif proposé par l'établissement pour un acte (ADR-008, lot 4). */
+  record TarifProposeActe(UUID id, String statut, java.math.BigDecimal montantPropose, java.math.BigDecimal montantDecide) {}
+
+  /** Dernier tarif proposé non supprimé de l'acte, dans l'organisation (REFUSE compris : il ne donne aucun tarif). */
+  default Optional<TarifProposeActe> tarifProposePourActe(UUID organisationId, UUID acteDossierId) {
+    return Optional.empty();
+  }
+
   /** Données de tarification de la réclamation (acte, établissement, date des soins, type de visite). */
   default Optional<ContexteTarif> contexteTarifReclamation(UUID reclamationId) {
     return Optional.empty();

@@ -8194,3 +8194,44 @@ Terminé — lots 3 (résolution du tarif côté Java) à 6 non commencés.
 
 ### Statut
 Terminé — lots 4 (tarif proposé, circuit médecin conseil) à 6 non commencés.
+
+
+## 2026-10-09 — Chantier barème, lot 4 « tarif proposé » (ADR-008, ADR-003)
+
+### Préalables
+- Quantité : tarif unitaire arrondi × quantité, comparé au prix affiché total (quantités 1, 2, 3 chiffrées ; quantité 1 inchangée).
+- Simulation à l'ajout d'un acte : mention « Estimation, calculée au jour de la facture » et colonnes « (estimation) ».
+- Compte `inv-info-…@assurance-sante.test` : constat — organisation « Inv 1791565844500 » créée à 17h10 UTC par mon test d'envoi
+  d'invitations du lot 5 (préfixe `inv`), un seul profil (ASSUREUR_INFORMATIQUE), AUCUNE donnée rattachée (vérifié sur toutes les
+  colonnes organisation / utilisateur / profil). Reste de test : supprimé dans l'ordre inverse (profil, organisation, compte Auth) ;
+  plus aucun compte `@assurance-sante.test` ni organisation `inv-%`.
+
+### Réalisé
+- Migration 083 : `tarifs_proposes` (statuts PROPOSE / VALIDE / AJUSTE / REFUSE, CHECK de non auto-décision, index unique partiel,
+  trigger d'immutabilité, RLS) ; colonnes `tarif_unitaire`, `tarif_quantite`, `tarif_provisoire`, `tarif_propose_id` sur la ligne ;
+  droits `svc_adjudication` réduits (ADR-003 mis à jour).
+- Java : quantité, règle `TARIF_PROPOSE`, calcul provisoire (E017), non tarifable → revue manuelle (E016), plafonds entamés.
+- Core NestJS : module `tarifs-proposes` (proposer, lister, actes à proposer), facture sans l'acte provisoire + `actesTarifEnExamen`,
+  facture mensuelle (exclusion et réintégration), garde sur l'approbation manuelle d'une réclamation.
+- Web : écran « Tarifs proposés » (comptable et administratif), mention « tarif en cours d'examen » chez le patient, mention
+  « estimation ».
+
+### Tests
+- Java 137/137 (+15 : quantités 1-2-3, arrondi avant multiplication, REJET avec quantité, PROPOSE / VALIDE / AJUSTE / REFUSE,
+  quantité avec tarif proposé, convention prioritaire, isolation, réclamation). API 1 370 (voir suite ×3), intégration 2/2.
+- HTTP réel : 78 contrôles OK, zéro ligne restante (Auth et Storage compris) — quantités, rôles (403 / 404), validation, doublon,
+  non-contournement d'un tarif négocié, facture provisoire, plafonds personne et famille, facture mensuelle (double exclusion avec
+  litige), refus et nouvelle proposition, réclamation, isolation 2 organisations × 2 sociétés × 2 établissements, CHECK de
+  non auto-décision, triggers, droits colonne par colonne de `svc_adjudication`.
+- Contre-épreuve : même test contre l'ancienne version du Java : échecs (quantité non multipliée, rejet sec, aucune proposition
+  possible), puis retour à 78/78.
+- Navigateur : estimation, saisie d'une proposition par le comptable, facture, vue du patient, lecture du médecin conseil ; aucune
+  erreur console.
+
+### Limites
+- Les décisions et la file du médecin conseil (lot 5) : en attendant, la décision est simulée en base dans les tests.
+- La part patient d'un acte décidé après coup n'est pas encore réclamée au patient (lot 5).
+- Rejouer 082 après 083 écrase la fonction d'immutabilité : appliquer les migrations dans l'ordre (083 la remet à jour).
+
+### Statut
+Terminé — lots 5 (file et décisions du médecin conseil) et 6 non commencés.

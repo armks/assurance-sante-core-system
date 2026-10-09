@@ -36,6 +36,41 @@ public class ResolveurTarif {
     if (d == null || d.organisationId() == null || d.etablissementId() == null || d.dateSoins() == null) {
       return TarifResolu.nonApplicable();
     }
+    return avecQuantite(resoudreUnitaire(d), d);
+  }
+
+  /** Tarif unitaire × quantité ; un acte NON TARIFABLE cherche son tarif proposé par l'établissement. */
+  private TarifResolu avecQuantite(TarifResolu t, ContexteTarif d) {
+    final int q = Math.max(d.quantite(), 1);
+    if (t.nonTarifable()) {
+      return tarifPropose(t, d, q);
+    }
+    return t.pourQuantite(q);
+  }
+
+  private TarifResolu tarifPropose(TarifResolu nonTarifable, ContexteTarif d, int q) {
+    if (d.acteDossierId() == null) {
+      return nonTarifable;
+    }
+    final Optional<AdjudicationRepository.TarifProposeActe> p = repo.tarifProposePourActe(d.organisationId(), d.acteDossierId());
+    if (p == null || p.isEmpty()) {
+      return nonTarifable;
+    }
+    final AdjudicationRepository.TarifProposeActe tp = p.get();
+    switch (tp.statut()) {
+      case "PROPOSE":
+        return TarifResolu.propose(tp.montantPropose(), q, nonTarifable.conventionId(), nonTarifable.politiqueDepassement(), true, tp.id());
+      case "VALIDE":
+        return TarifResolu.propose(tp.montantPropose(), q, nonTarifable.conventionId(), nonTarifable.politiqueDepassement(), false, tp.id());
+      case "AJUSTE":
+        return TarifResolu.propose(tp.montantDecide(), q, nonTarifable.conventionId(), nonTarifable.politiqueDepassement(), false, tp.id());
+      default: // REFUSE : aucun tarif — l'établissement peut en proposer un autre
+        return TarifResolu.nonTarifable(nonTarifable.conventionId(), nonTarifable.politiqueDepassement(),
+            nonTarifable.message() + " Le tarif proposé par l'établissement a été refusé.");
+    }
+  }
+
+  private TarifResolu resoudreUnitaire(ContexteTarif d) {
     final Optional<ConventionApplicable> trouvee =
         repo.conventionEnVigueur(d.organisationId(), d.etablissementId(), d.dateSoins());
     if (trouvee == null || trouvee.isEmpty()) {

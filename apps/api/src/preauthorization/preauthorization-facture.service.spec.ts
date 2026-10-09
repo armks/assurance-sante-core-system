@@ -8,6 +8,8 @@ import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { IdentityService } from '../identity/identity.service';
+import { TarifsProposesService } from '../tarifs-proposes/tarifs-proposes.service';
+import { tarifsProposesDeTest } from '../tarifs-proposes/tarifs-proposes.testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { PreauthorizationService } from './preauthorization.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
@@ -120,6 +122,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
     const moduleRef = await Test.createTestingModule({
       providers: [
         { provide: AdjudicationClientService, useValue: adjudication },
+        { provide: TarifsProposesService, useValue: tarifsProposesDeTest() },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PreauthorizationService,
         { provide: PrismaService, useValue: prisma },
@@ -519,7 +522,8 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       expect(res.exclusions[0]).toMatchObject({ acteId: 'acte-1', motif: 'ACTE_NON_TARIFABLE' });
       expect(res.exclusions[0].message).toContain('acte non tarifable');
       expect(res.exclusions[0].message).toContain('lettre-clé Z');
-      expect(res.exclusions[0].message).toContain("Aucun prix par défaut n'est appliqué.");
+      expect(res.exclusions[0].message).toContain("Aucun prix par défaut n'est appliqué");
+      expect(res.exclusions[0].message).toContain('peut proposer un tarif');
       expect(prisma.ligneFacturation.create).toHaveBeenCalledTimes(1);
       expect(prisma.ligneFacturation.create.mock.calls[0][0].data.acteDossierId).toBe('acte-2');
     });

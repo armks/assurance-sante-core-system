@@ -13,4 +13,15 @@ public record ContexteTarif(
     UUID referentielActeId,
     String codeActe,
     LocalDate dateSoins,
-    String typeVisite) {}
+    String typeVisite,
+    /** Acte de dossier (cherche son éventuel tarif proposé) ; {@code null} hors dossier de soins. */
+    UUID acteDossierId,
+    /** Quantité de l'acte : le tarif reconnu de la ligne = tarif unitaire × quantité. */
+    int quantite) {
+
+  /** Forme historique : un acte, quantité 1, sans tarif proposé. */
+  public ContexteTarif(UUID organisationId, UUID etablissementId, UUID referentielActeId, String codeActe,
+      LocalDate dateSoins, String typeVisite) {
+    this(organisationId, etablissementId, referentielActeId, codeActe, dateSoins, typeVisite, null, 1);
+  }
+}

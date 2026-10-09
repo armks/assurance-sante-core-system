@@ -100,8 +100,9 @@ public class Adjudicateur {
     }
 
     // 1 bis) tarif : acte non tarifable, ou dépassement refusé par la convention (jamais de prix par défaut)
+    // non tarifable : plus de rejet sec (lot 4) — en revue, l'établissement peut proposer un montant
     if (tarif != null && tarif.nonTarifable()) {
-      return new Resultat(Decision.REJETE, zero(), List.of(CodesRejet.ACTE_NON_TARIFABLE), plafondRestantAvant);
+      return new Resultat(Decision.REVUE_MANUELLE, zero(), List.of(CodesRejet.ACTE_NON_TARIFABLE), plafondRestantAvant);
     }
     if (depassement && "REJET".equals(tarif.politiqueDepassement())) {
       return new Resultat(Decision.REJETE, zero(), List.of(CodesRejet.TARIF_DEPASSE), plafondRestantAvant);
@@ -152,6 +153,11 @@ public class Adjudicateur {
       decision = Decision.AUTO_ADJUDIQUE;
     }
 
+    // tarif proposé non décidé : montant PROVISOIRE (il entame les plafonds), jamais adjugé automatiquement
+    if (tarif != null && tarif.provisoire() && decision != Decision.REJETE) {
+      codes.add(CodesRejet.TARIF_EN_EXAMEN);
+      return new Resultat(Decision.REVUE_MANUELLE, montantRembourse, List.copyOf(codes), plafondRestantApres);
+    }
     return new Resultat(decision, montantRembourse, List.copyOf(codes), plafondRestantApres);
   }
 

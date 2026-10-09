@@ -25,6 +25,15 @@ export interface FactureAdherent {
   montantAssurance: string;
   montantPatient: string;
   createdAt: string;
+  /** Actes dont le tarif proposé est en cours d'examen : sortis de cette facture, part estimée INDICATIVE. */
+  actesTarifEnExamen?: {
+    acteId: string;
+    libelle: string;
+    tarifPropose: string | null;
+    partEstimeeAssurance: string;
+    partEstimeePatient: string;
+    mention: string;
+  }[];
 }
 
 const LIBELLE_STATUT: Record<string, string> = {
@@ -66,6 +75,24 @@ export function FacturesEcran({
       aligneDroite: true,
       valeur: (f) => Number(f.montantPatient),
       rendu: (f) => montant(f.montantPatient),
+    },
+    {
+      cle: 'tarifEnExamen',
+      entete: 'Tarif en cours d’examen',
+      rendu: (f) =>
+        f.actesTarifEnExamen && f.actesTarifEnExamen.length > 0 ? (
+          <ul className="space-y-1 text-xs" data-testid="actes-tarif-en-examen">
+            {f.actesTarifEnExamen.map((a) => (
+              <li key={a.acteId}>
+                <span className="font-medium">{a.libelle}</span> — {a.mention}. Part estimée (à titre indicatif) :
+                assurance {montant(a.partEstimeeAssurance)}, vous {montant(a.partEstimeePatient)}. Cet acte n’est pas
+                inclus dans cette facture.
+              </li>
+            ))}
+          </ul>
+        ) : (
+          '—'
+        ),
     },
     {
       cle: 'statut',

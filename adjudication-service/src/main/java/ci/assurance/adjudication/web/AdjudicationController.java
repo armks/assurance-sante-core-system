@@ -75,7 +75,7 @@ public class AdjudicationController {
             ? List.of()
             : req.lignes().stream()
                 .map(l -> new SimulationService.Ligne(
-                    l.garantieId(), l.montant(), l.codeActe(), l.acteDossierId(), l.dateSoins()))
+                    l.garantieId(), l.montant(), l.codeActe(), l.acteDossierId(), l.dateSoins(), l.quantite()))
                 .toList();
     final List<SimulationService.ResultatLigne> r =
         simulation.simuler(
@@ -95,6 +95,7 @@ public class AdjudicationController {
         ? null
         : new SimulationResponse.Trace(
             t.statutTarif(), t.regleOrigine(), t.lettreCle(), t.coefficient(), t.valeurAppliquee(),
-            t.conventionId(), t.politiqueDepassement(), t.prixAffiche(), t.tarifReconnu(), t.ecart(), t.message());
+            t.conventionId(), t.politiqueDepassement(), t.prixAffiche(), t.tarifReconnu(), t.ecart(), t.message(),
+            t.tarifUnitaire(), t.quantite(), t.provisoire(), t.tarifProposeId());
   }
 }

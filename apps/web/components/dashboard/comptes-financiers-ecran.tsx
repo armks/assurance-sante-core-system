@@ -5,10 +5,16 @@ import { useRouter } from 'next/navigation';
 
 import {
   approvisionnerCompte,
+  archiverCompteFinancier,
   creerCompteFinancier,
+  desarchiverCompteFinancier,
+  modifierCompteFinancier,
+  supprimerCompteFinancier,
 } from '@/app/dashboard-assureur/comptable/comptes-financiers/actions';
+import { verifierAction } from '@/app/dependances-actions';
 import {
   Alerte,
+  ConfirmationAction,
   ChampNombre,
   ChampSelect,
   ChampTexte,
@@ -18,6 +24,7 @@ import {
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
+import { Button } from '@/components/ui/button';
 import { dateFr, montantF } from '@/lib/format';
 
 export interface CompteFinancier {
@@ -27,6 +34,7 @@ export interface CompteFinancier {
   banqueNom: string | null;
   numeroCompte: string | null;
   soldeActuel: string;
+  statut?: string;
   creePar: string | null;
   createdAt: string;
   updatedAt: string;
@@ -98,9 +106,18 @@ function ApprovisionnerForm({
   );
 }
 
-export function ComptesFinanciersEcran({ comptes }: { comptes: CompteFinancier[] }) {
+export function ComptesFinanciersEcran({
+  comptes,
+  mode = 'comptable',
+}: {
+  comptes: CompteFinancier[];
+  /** `informatique` : cycle de vie seulement (libellé, archivage, suppression) — l'argent reste au comptable. */
+  mode?: 'comptable' | 'informatique';
+}) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
+  const [avecArchives, setAvecArchives] = useState(false);
+  const visibles = avecArchives ? comptes : comptes.filter((c) => c.statut !== 'ARCHIVE');
 
   function succes(msg: string) {
     setMessage(msg);
@@ -125,6 +142,16 @@ export function ComptesFinanciersEcran({ comptes }: { comptes: CompteFinancier[]
       rendu: (c) => <span className="font-medium tabular-nums">{montantF(c.soldeActuel)}</span>,
     },
     {
+      cle: 'statut',
+      entete: 'Statut',
+      rendu: (c) =>
+        c.statut === 'ARCHIVE' ? (
+          <StatutBadge statut="ARCHIVE" ton="neutre" libelles={{ ARCHIVE: 'Archivé' }} />
+        ) : (
+          <StatutBadge statut="ACTIF" ton="succes" libelles={{ ACTIF: 'Actif' }} />
+        ),
+    },
+    {
       cle: 'updatedAt',
       entete: 'Mis à jour le',
       triable: true,
@@ -136,13 +163,22 @@ export function ComptesFinanciersEcran({ comptes }: { comptes: CompteFinancier[]
   return (
     <div className="space-y-6">
       {message && <Alerte ton="succes">{message}</Alerte>}
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={avecArchives}
+          onChange={(e) => setAvecArchives(e.target.checked)}
+        />
+        Archivés ({comptes.filter((c) => c.statut === 'ARCHIVE').length})
+      </label>
       <DataTable
-        donnees={comptes}
+        donnees={visibles}
         cleLigne={(c) => c.id}
         parPage={12}
         recherche={{ placeholder: 'Nom, banque…', champs: ['nom', 'banqueNom'] }}
         colonnes={colonnes}
         actions={
+          mode === 'informatique' ? undefined : (
           <FormulaireModal
             titre="Nouveau compte financier"
             declencheurLabel="Nouveau compte"
@@ -171,8 +207,54 @@ export function ComptesFinanciersEcran({ comptes }: { comptes: CompteFinancier[]
             <ChampTexte name="numeroCompte" label="Numéro de compte" placeholder="CI001234567890" />
             <ChampNombre name="fondsInitial" label="Fonds initial (F)" required min={0} step="0.01" />
           </FormulaireModal>
+          )
         }
-        actionLigne={(c) => <ApprovisionnerForm compte={c} autresComptes={comptes} onSucces={succes} />}
+        actionLigne={(c) => (
+          <span className="inline-flex items-center gap-1">
+            {mode === 'comptable' && c.statut !== 'ARCHIVE' && (
+              <ApprovisionnerForm compte={c} autresComptes={comptes.filter((x) => x.statut !== 'ARCHIVE')} onSucces={succes} />
+            )}
+            {c.statut !== 'ARCHIVE' && (
+              <FormulaireModal
+                titre={`Modifier le libellé — ${c.nom}`}
+                mode="center"
+                description={`Le solde (${montantF(c.soldeActuel)}) ne se modifie jamais directement : il ne bouge que par mouvement.`}
+                declencheur={<Button size="xs" variant="ghost">Modifier</Button>}
+                libelleSoumettre="Enregistrer"
+                onSoumettre={async (fd) => modifierCompteFinancier(c.id, String(fd.get('nom') ?? ''))}
+                onSucces={() => succes('Libellé modifié.')}
+              >
+                <ChampTexte name="nom" label="Libellé du compte" required defaultValue={c.nom} />
+              </FormulaireModal>
+            )}
+            {c.statut === 'ARCHIVE' ? (
+              <ConfirmationAction
+                action="desarchiver"
+                element={`le compte « ${c.nom} »`}
+                verifier={() => verifierAction('compteFinancier', c.id, 'desarchiver')}
+                onConfirmer={() => desarchiverCompteFinancier(c.id)}
+                onSucces={() => succes('Compte désarchivé.')}
+              />
+            ) : (
+              <ConfirmationAction
+                action="archiver"
+                element={`le compte « ${c.nom} »`}
+                consequence="Il ne recevra ni ne servira plus aucun mouvement ; son historique reste consultable."
+                verifier={() => verifierAction('compteFinancier', c.id, 'archiver')}
+                onConfirmer={() => archiverCompteFinancier(c.id)}
+                onSucces={() => succes('Compte archivé.')}
+              />
+            )}
+            <ConfirmationAction
+              action="supprimer"
+              element={`le compte « ${c.nom} »`}
+              consequence="Possible seulement s’il n’a aucun mouvement."
+              verifier={() => verifierAction('compteFinancier', c.id, 'supprimer')}
+              onConfirmer={() => supprimerCompteFinancier(c.id)}
+              onSucces={() => succes('Compte supprimé.')}
+            />
+          </span>
+        )}
         vide="Aucun compte financier pour l’instant."
       />
     </div>

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DependancesModule } from '../dependances/dependances.module';
 import { IdentityModule } from '../identity/identity.module';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
@@ -12,7 +13,7 @@ import { PaymentService } from './payment.service';
  * déjà en place ailleurs (`ContestationService` lit `pharmacy`/`preauthorization`).
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, DependancesModule],
   controllers: [PaymentController],
   providers: [PaymentService],
   exports: [PaymentService],

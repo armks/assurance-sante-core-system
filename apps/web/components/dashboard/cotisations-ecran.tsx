@@ -28,6 +28,7 @@ import {
   type ColonneTable,
   type ResultatSoumission,
 } from '@/components/dashboard/patterns';
+import { annulerCotisation } from '@/app/dashboard-assureur/informatique/cotisations/actions';
 import { verifierAction } from '@/app/dependances-actions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +44,7 @@ export interface Cotisation {
   penaliteAppliquee: string;
   dateEcheance: string;
   statut: string;
+  motifAnnulation?: string | null;
   police: {
     numeroPolice: string;
     souscripteur: { nom: string; type: string } | null;
@@ -288,6 +290,19 @@ export function CotisationsEcran({
         }
         actionLigne={(c) =>
           c.statut === 'A_PAYER' || c.statut === 'EN_RETARD' ? (
+            <span className="inline-flex items-center gap-1">
+            {c.statut === 'A_PAYER' && Number(c.montantPaye) === 0 && (
+              <ConfirmationAction
+                action="archiver"
+                element={`la cotisation ${c.police?.numeroPolice ?? ''} · ${periodeFr(c.periode)} (${montantF(c.montantDu)})`}
+                consequence="Elle reste dans l’historique avec son motif ; elle ne bloquera plus l’archivage de la société."
+                libelles={{ titre: 'Annuler', bouton: 'Annuler la cotisation', verbe: 'annuler' }}
+                motif={{ libelle: 'Motif de l’annulation' }}
+                verifier={() => verifierAction('cotisation', c.id, 'archiver')}
+                onConfirmer={(motif) => annulerCotisation(c.id, motif ?? '')}
+                onSucces={() => router.refresh()}
+              />
+            )}
             <FormulaireModal
               titre="Enregistrer un paiement"
               mode="center"
@@ -317,6 +332,11 @@ export function CotisationsEcran({
                 aide="Le statut ne passe à PAYÉE qu’au règlement complet."
               />
             </FormulaireModal>
+            </span>
+          ) : c.statut === 'ANNULEE' ? (
+            <span className="text-xs text-muted-foreground" title={c.motifAnnulation ?? undefined}>
+              Annulée{c.motifAnnulation ? ` — ${c.motifAnnulation}` : ''}
+            </span>
           ) : null
         }
         vide="Aucune cotisation."

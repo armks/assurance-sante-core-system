@@ -114,3 +114,13 @@ export async function soumettrePourValidation(
   const corps = await res.json();
   return { ok: true, statut: corps.statut };
 }
+
+/** Supprime la liste entière (BROUILLON seulement — vérifié par le registre des dépendances). */
+export async function supprimerListePropositions(
+  importId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/member/imports-adherents/${importId}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  revalider();
+  return { ok: true };
+}

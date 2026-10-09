@@ -11,6 +11,7 @@ import { isEmail } from 'class-validator';
 import ExcelJS from 'exceljs';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.util';
+import { DependancesService } from '../dependances/dependances.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AdherentService } from './adherent.service';
@@ -124,6 +125,7 @@ export class ImportAdherentsService {
     private readonly identity: IdentityService,
     private readonly cartes: MemberCarteService,
     private readonly adherents: AdherentService,
+    private readonly dependances: DependancesService,
   ) {}
 
   private async contexteAppelant(user: AuthenticatedUser): Promise<ContexteAppelant> {
@@ -376,6 +378,7 @@ export class ImportAdherentsService {
     return this.prisma.importAdherents.findMany({
       where: {
         organisationId: ctx.organisationId,
+        deletedAt: null,
         ...(estAssureur && !estSociete ? { statut: { not: 'BROUILLON' } } : {}),
         ...(estSociete && !estAssureur ? { souscripteurId: ctx.societeId ?? '__aucun__' } : {}),
       },
@@ -393,14 +396,14 @@ export class ImportAdherentsService {
     const ctx = await this.contexteAppelant(user);
     this.assertProposition(ctx, souscripteurId);
     return this.prisma.importAdherents.findFirst({
-      where: { organisationId: ctx.organisationId, souscripteurId, statut: 'BROUILLON' },
+      where: { organisationId: ctx.organisationId, souscripteurId, statut: 'BROUILLON', deletedAt: null },
     });
   }
 
   /** Trouve le brouillon ouvert de la société, ou en crée un. */
   private async brouillonSociete(ctx: ContexteAppelant, souscripteurId: string) {
     const existant = await this.prisma.importAdherents.findFirst({
-      where: { organisationId: ctx.organisationId, souscripteurId, statut: 'BROUILLON' },
+      where: { organisationId: ctx.organisationId, souscripteurId, statut: 'BROUILLON', deletedAt: null },
     });
     if (existant) return existant;
     return this.prisma.importAdherents.create({
@@ -423,7 +426,7 @@ export class ImportAdherentsService {
    * est encore éditable — 404 si absent/pas le sien, 409 si déjà soumis. */
   private async chargerBrouillonPourEdition(ctx: ContexteAppelant, importId: string) {
     const imp = await this.prisma.importAdherents.findFirst({
-      where: { id: importId, organisationId: ctx.organisationId },
+      where: { id: importId, organisationId: ctx.organisationId, deletedAt: null },
     });
     if (!imp) {
       throw new NotFoundException('Proposition introuvable.');
@@ -652,6 +655,7 @@ export class ImportAdherentsService {
   async supprimerProposition(user: AuthenticatedUser, importId: string, index: number) {
     const ctx = await this.contexteAppelant(user);
     const imp = await this.chargerBrouillonPourEdition(ctx, importId);
+    await this.dependances.assertPossible(user, 'propositionImport', importId, 'modifier');
     const lignes = (imp.lignesValides as unknown as LigneValide[]) ?? [];
     if (index < 0 || index >= lignes.length) {
       throw new NotFoundException('Ligne introuvable.');
@@ -663,6 +667,19 @@ export class ImportAdherentsService {
     });
     await this.audit(this.prisma, ctx.userId, 'SUPPRESSION_PROPOSITION', imp2.id, { index });
     return imp2;
+  }
+
+  /** Supprime (logique) la liste entière — BROUILLON seulement (registre) ; soumise ou validée, elle est conservée. */
+  async supprimerListe(user: AuthenticatedUser, importId: string): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    const imp = await this.prisma.importAdherents.findFirst({ where: { id: importId, organisationId: ctx.organisationId, deletedAt: null } });
+    if (!imp) throw new NotFoundException('Proposition introuvable.');
+    this.assertProposition(ctx, imp.souscripteurId);
+    await this.dependances.assertPossible(user, 'propositionImport', importId, 'supprimer');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.importAdherents.update({ where: { id: importId }, data: { deletedAt: new Date() } });
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_LISTE_PROPOSITIONS', importId, { nbLignes: imp.nbLignesTotal });
+    });
   }
 
   /**
@@ -699,7 +716,7 @@ export class ImportAdherentsService {
     this.assertValidation(ctx);
 
     const imp = await this.prisma.importAdherents.findFirst({
-      where: { id: importId, organisationId: ctx.organisationId },
+      where: { id: importId, organisationId: ctx.organisationId, deletedAt: null },
     });
     if (!imp) {
       throw new NotFoundException('Import introuvable.');

@@ -9,10 +9,13 @@ import {
   proposerAdherent,
   proposerBeneficiaire,
   soumettrePourValidation,
+  supprimerListePropositions,
   supprimerProposition,
 } from '@/app/dashboard-societe/propositions-actions';
+import { verifierAction } from '@/app/dependances-actions';
 import {
   ChampSelect,
+  ConfirmationAction,
   ChampTexte,
   FormulaireModal,
   StatutBadge,
@@ -224,6 +227,20 @@ export function PropositionsAdherentsPanel({
           >
             <ChampsBeneficiaire adherents={adherents} />
           </FormulaireModal>
+          {brouillon && (
+            <ConfirmationAction
+              action="supprimer"
+              element={`la liste en brouillon (${lignes.length} proposition${lignes.length > 1 ? 's' : ''})`}
+              consequence="Seul un brouillon peut être supprimé ; une liste soumise ou validée est conservée."
+              verifier={() => verifierAction('propositionImport', brouillon.id, 'supprimer')}
+              onConfirmer={async () => {
+                const r = await supprimerListePropositions(brouillon.id);
+                return r.ok ? { ok: true } : r;
+              }}
+              onSucces={() => router.refresh()}
+              declencheur={<Button size="sm" variant="outline">Supprimer la liste</Button>}
+            />
+          )}
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

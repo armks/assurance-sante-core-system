@@ -12,6 +12,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AdherentService } from './adherent.service';
 import { MemberCarteService } from './carte.service';
 import { ImportAdherentsService } from './import-adherents.service';
+import { DependancesService } from '../dependances/dependances.service';
+import { dependancesDeTest } from '../dependances/dependances.testing';
+
+/** Garde des dépendances (ADR-007) : tout est possible par défaut. */
+let dependances: ReturnType<typeof dependancesDeTest>;
+beforeEach(() => {
+  dependances = dependancesDeTest();
+});
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -98,6 +106,7 @@ describe('ImportAdherentsService', () => {
         ImportAdherentsService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
+        { provide: DependancesService, useValue: dependances },
         { provide: MemberCarteService, useValue: cartes },
         { provide: AdherentService, useValue: adherents },
       ],

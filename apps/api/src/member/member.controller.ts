@@ -337,6 +337,13 @@ export class MemberController {
     return this.imports.modifierPropositionBeneficiaire(user, id, Number(index), dto);
   }
 
+  /** Supprime la liste entière (BROUILLON seulement). */
+  @Delete('imports-adherents/:id')
+  @HttpCode(204)
+  supprimerListeImport(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.imports.supprimerListe(user, id);
+  }
+
   @Delete('imports-adherents/:id/propositions/:index')
   supprimerProposition(
     @CurrentUser() user: AuthenticatedUser,

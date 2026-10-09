@@ -87,3 +87,11 @@ export class PayerFactureDto {
   @MaxLength(500, { each: true })
   preuvePaiement?: string[];
 }
+
+/** Libellé seulement : le solde d'un compte n'est jamais modifiable directement. */
+export class ModifierCompteFinancierDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  nom!: string;
+}

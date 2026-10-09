@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 
 import type { ResultatSoumission } from '@/components/dashboard/patterns';
-import { apiFetch, detailErreur } from '@/lib/api';
+import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
 
 /**
  * Réservé EXCLUSIVEMENT à ASSUREUR_COMPTABLE côté API (jamais son adjoint —
@@ -13,6 +13,11 @@ import { apiFetch, detailErreur } from '@/lib/api';
  * `comptable-adjoint`.
  */
 const CIBLE = '/dashboard-assureur/comptable/comptes-financiers';
+const CIBLE_INFO = '/dashboard-assureur/informatique/comptes-financiers';
+const rafraichir = () => {
+  revalidatePath(CIBLE);
+  revalidatePath(CIBLE_INFO);
+};
 
 export async function creerCompteFinancier(
   type: 'BANCAIRE' | 'CAISSE_INTERNE',
@@ -54,4 +59,38 @@ export async function approvisionnerCompte(
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(CIBLE);
   return { ok: true, message: 'Compte approvisionné.' };
+}
+
+type ResultatCycle = { ok: true; message?: string } | { ok: false; error: string };
+
+/** Libellé seulement : le solde d'un compte ne se modifie jamais directement. */
+export async function modifierCompteFinancier(id: string, nom: string): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/payment/comptes-financiers/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ nom }),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  rafraichir();
+  return { ok: true, message: 'Libellé modifié.' };
+}
+
+export async function archiverCompteFinancier(id: string): Promise<ResultatCycle> {
+  const res = await apiFetch(`/api/v1/payment/comptes-financiers/${id}/archiver`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  rafraichir();
+  return { ok: true, message: 'Compte archivé.' };
+}
+
+export async function desarchiverCompteFinancier(id: string): Promise<ResultatCycle> {
+  const res = await apiFetch(`/api/v1/payment/comptes-financiers/${id}/desarchiver`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  rafraichir();
+  return { ok: true, message: 'Compte désarchivé.' };
+}
+
+export async function supprimerCompteFinancier(id: string): Promise<ResultatCycle> {
+  const res = await apiFetch(`/api/v1/payment/comptes-financiers/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 204) return { ok: false, error: await messageErreur(res) };
+  rafraichir();
+  return { ok: true, message: 'Compte supprimé.' };
 }

@@ -373,7 +373,12 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     },
   ],
   [COMPTABLE_ADJOINT]: navComptable(COMPTABLE_ADJOINT),
-  [INFORMATIQUE]: navInformatique(INFORMATIQUE),
+  // « Comptes financiers » (cycle de vie : libellé, archivage, suppression — ADR-007 lot 5) : rôle EXACT
+  // informatique seulement, jamais l'adjoint (ROLES_CYCLE_COMPTES_FINANCIERS, payment.types.ts).
+  [INFORMATIQUE]: [
+    ...navInformatique(INFORMATIQUE),
+    { label: 'Comptes financiers', href: `${INFORMATIQUE}/comptes-financiers`, icon: Wallet },
+  ],
   // Informatique adjoint : rôle hérité de l'informatique (roleChain, niveauAcces).
   // Mêmes écrans, seule la vue d'ensemble pointe vers sa propre route ; les
   // boutons de validation finale sont retirés dans les écrans eux-mêmes via

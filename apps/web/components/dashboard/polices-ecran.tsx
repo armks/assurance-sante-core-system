@@ -4,9 +4,13 @@ import { FileText, ShieldCheck, ShieldX, FileClock } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-import { creerDevis } from '@/app/dashboard-assureur/informatique/polices/actions';
+import { useState } from 'react';
+
+import { creerDevis, supprimerPolice } from '@/app/dashboard-assureur/informatique/polices/actions';
+import { verifierAction } from '@/app/dependances-actions';
 import {
   CarteResume,
+  ConfirmationAction,
   ChampSelect,
   ChampTexte,
   DataTable,
@@ -36,6 +40,9 @@ export interface OptionRef {
 }
 
 
+/** Statuts FINAUX = archive définitive (miroir de STATUTS_POLICE_FINAUX côté API). */
+const STATUTS_FINAUX = ['RENOUVELEE', 'RESILIEE', 'NON_RENOUVELEE'];
+
 const dateFr = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('fr-FR') : '—';
 
@@ -49,6 +56,9 @@ export function PolicesEcran({
   produitsPublies: OptionRef[];
 }) {
   const router = useRouter();
+  const [avecArchivees, setAvecArchivees] = useState(false);
+  const archivees = polices.filter((p) => STATUTS_FINAUX.includes(p.statut));
+  const visibles = avecArchivees ? polices : polices.filter((p) => !STATUTS_FINAUX.includes(p.statut));
   const compte = (s: string) => polices.filter((p) => p.statut === s).length;
 
   const colonnes: ColonneTable<PoliceListe>[] = [
@@ -103,8 +113,12 @@ export function PolicesEcran({
         />
       </GrilleCartes>
 
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={avecArchivees} onChange={(e) => setAvecArchivees(e.target.checked)} />
+        Archivées ({archivees.length}) — polices terminées
+      </label>
       <DataTable
-        donnees={polices}
+        donnees={visibles}
         cleLigne={(p) => p.id}
         parPage={10}
         recherche={{
@@ -173,11 +187,26 @@ export function PolicesEcran({
           </FormulaireModal>
         }
         actionLigne={(p) => (
-          <Button asChild size="xs" variant="ghost">
-            <Link href={`/dashboard-assureur/informatique/polices/${p.id}`}>
-              Détails
-            </Link>
-          </Button>
+          <span className="inline-flex items-center gap-1">
+            <Button asChild size="xs" variant="ghost">
+              <Link href={`/dashboard-assureur/informatique/polices/${p.id}`}>
+                Détails
+              </Link>
+            </Button>
+            {p.statut === 'DEVIS' && (
+              <ConfirmationAction
+                action="supprimer"
+                element={`le devis ${p.numeroPolice}`}
+                consequence="Possible seulement s’il n’a aucun adhérent, dossier, cotisation, avenant ni réclamation."
+                verifier={() => verifierAction('police', p.id, 'supprimer')}
+                onConfirmer={async () => {
+                  const r = await supprimerPolice(p.id);
+                  return r.ok ? { ok: true } : r;
+                }}
+                onSucces={() => router.refresh()}
+              />
+            )}
+          </span>
         )}
         vide="Aucune police pour l’instant."
       />

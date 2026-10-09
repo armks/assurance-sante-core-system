@@ -7995,3 +7995,43 @@ Terminé — commit et push. Lots 4 et 5 non commencés (dette `tarif_pharmacie_
 
 ### Statut
 Terminé — commit et push. Lot 5 non commencé (dette `tarif_pharmacie_id` : lot « pharmacie / comptoir »).
+
+
+## 2026-10-08 — Chantier suppression / modification / archivage — lot 5 « finance » (ADR-007)
+
+### Réalisé
+- `prisma/sql/077_finance_archivage_annulations.sql` (appliquée deux fois, idempotente) : `comptes_financiers.statut`,
+  motif / date / auteur d'annulation sur `cotisations` et `avenants`, `imports_adherents.deleted_at`.
+- Polices : modifier / supprimer un DEVIS sans lien, statuts finaux = archive définitive, « Dupliquer en devis ».
+- Avenants : modifier / supprimer en BROUILLON ; annuler un APPLIQUE avec motif (aucun effet sur police ni cotisations
+  déjà calculées — décision documentée dans l'ADR-007).
+- Cotisations : annulation (A_PAYER sans paiement, motif, comptable + informatique), jamais supprimées ; une annulée
+  ne bloque plus l'archivage de la société.
+- Comptes financiers : libellé, archiver (solde nul, aucun paiement programmé), désarchiver, supprimer (aucun mouvement,
+  solde nul) ; solde jamais modifiable ; compte archivé refusé par tous les mouvements ; écran informatique dédié.
+- Propositions d'import : suppression du brouillon (liste entière) branchée sur le registre.
+- Garde-fou administrateur rejoué dans la transaction sous verrou (courses de révocations / rôles croisées).
+- Web : confirmation avec motif obligatoire ; cotisations, comptes financiers (comptable + informatique), liste et détail des
+  polices (filtre « Archivées », modifier, supprimer, dupliquer), avenants (modifier, supprimer, annuler), propositions.
+
+### Tests
+- API 1 263/1 263 (+18 : un cas par règle avec montants chiffrés), JUnit 91/91, intégration 2/2, typage API et web 0 erreur.
+- HTTP réel (tous les contrôles OK, nettoyage à zéro, comptes Auth compris) : règles des polices, avenants, cotisations
+  (12 500 F annulable, 5 000 F déjà payés refusés, payée / en retard refusées, société A3 archivable une fois ses
+  cotisations annulées), comptes (150 000 F refusé avec le montant, 2 mouvements, paiement programmé, archivé = mouvements
+  refusés) ; isolation : 19 tentatives B → A et société A2 → A1 en 403 / 404, base inchangée, comptages sans fuite ;
+  garde-fou administrateur : 2 administrateurs, 6 tours de révocations croisées simultanées et 6 de changements de rôle,
+  jamais moins d'un administrateur actif, 409 explicite ; après la policy RLS globale : photo et carte (URLs signées Storage
+  servies en 200) et adjudication par le microservice Java (AUTO_ADJUDIQUE).
+- Navigateur (Chromium / Playwright, vrais comptes) : cotisations, comptes financiers, polices, détail et avenants,
+  comptable — tous les contrôles OK.
+- Corrigés grâce aux tests : suppression d'un compte détenant de l'argent sans mouvement ; course sur le dernier administrateur.
+
+### Limites / à arbitrer
+- Avertissement d'hydratation React revu sur `/dashboard-assureur/informatique/cotisations` (même message qu'au lot 2, cause
+  non établie, sans effet fonctionnel).
+- Une cotisation annulée occupe sa période (unicité) : pas de régénération pour la même période.
+- Dette `tarif_pharmacie_id` : **en attente d'arbitrage** (analyse transmise, rien codé).
+
+### Statut
+Terminé — commit et push à confirmer.

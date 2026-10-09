@@ -836,6 +836,47 @@ export class BillingService {
     return police;
   }
 
+  /**
+   * Annule une cotisation A_PAYER SANS paiement (ADR-007, lot 5) — motif obligatoire, comptable et
+   * informatique ; JAMAIS supprimée : elle reste dans l'historique (statut ANNULEE) et ne bloque
+   * plus l'archivage de la société. Le motif, l'auteur et les montants concernés sont tracés.
+   */
+  async annulerCotisation(user: AuthenticatedUser, cotisationId: string, motif: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const cotisation = await this.chargerCotisationGestion(ctx.organisationId, cotisationId);
+    await this.dependances.assertPossible(user, 'cotisation', cotisationId, 'archiver');
+    if (!motif || motif.trim().length < 5) {
+      throw new BadRequestException("Le motif d'annulation est obligatoire (5 caractères minimum).");
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const maj = await tx.cotisation.update({
+        where: { id: cotisationId },
+        data: { statut: 'ANNULEE', motifAnnulation: motif.trim(), annuleeLe: new Date(), annuleePar: ctx.userId },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'ANNULATION_COTISATION',
+        cotisationId,
+        {
+          motif: motif.trim(),
+          annuleePar: ctx.userId,
+          policeId: cotisation.policeId,
+          adherentId: cotisation.adherentId,
+          societeId: cotisation.societeId,
+          periode: cotisation.periode.toISOString().slice(0, 10),
+          montantDu: cotisation.montantDu.toString(),
+          montantPaye: cotisation.montantPaye.toString(),
+          penaliteAppliquee: cotisation.penaliteAppliquee.toString(),
+          statutAvant: cotisation.statut,
+        },
+        'cotisations',
+      );
+      return maj;
+    });
+  }
+
   private async chargerCotisationGestion(organisationId: string, id: string) {
     const cotisation = await this.prisma.cotisation.findFirst({
       where: {

@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -12,11 +15,14 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
+  AnnulerMotifDto,
   ChangerStatutDto,
   CreateAvenantDto,
   CreateDevisDto,
   SimulerAvenantDto,
   SouscrireDto,
+  UpdateAvenantDto,
+  UpdatePoliceDto,
 } from './dto/policy.dto';
 import { PolicyService } from './policy.service';
 
@@ -62,6 +68,29 @@ export class PolicyController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.policy.actionsDisponibles(user, id);
+  }
+
+  /** Modification libre d'une police au stade du DEVIS. */
+  @Patch(':id')
+  modifier(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePoliceDto,
+  ) {
+    return this.policy.modifierPolice(user, id, dto);
+  }
+
+  /** Suppression (logique) d'un devis sans aucun lien. */
+  @Delete(':id')
+  @HttpCode(204)
+  supprimer(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.policy.supprimerPolice(user, id);
+  }
+
+  /** « Dupliquer en devis » depuis une police terminée. */
+  @Post(':id/dupliquer')
+  dupliquer(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.policy.dupliquerEnDevis(user, id);
   }
 
   @Post(':id/souscrire')
@@ -117,12 +146,36 @@ export class PolicyController {
     return this.policy.appliquerAvenant(user, id, avenantId);
   }
 
+  /** Annulation d'un avenant APPLIQUE — motif obligatoire, jamais de suppression (ADR-007). */
   @Post(':id/avenants/:avenantId/annuler')
   annulerAvenant(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('avenantId', ParseUUIDPipe) avenantId: string,
+    @Body() dto: AnnulerMotifDto,
   ) {
-    return this.policy.annulerAvenant(user, id, avenantId);
+    return this.policy.annulerAvenant(user, id, avenantId, dto.motif);
+  }
+
+  /** Modification d'un avenant en BROUILLON. */
+  @Patch(':id/avenants/:avenantId')
+  modifierAvenant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('avenantId', ParseUUIDPipe) avenantId: string,
+    @Body() dto: UpdateAvenantDto,
+  ) {
+    return this.policy.modifierAvenant(user, id, avenantId, dto);
+  }
+
+  /** Suppression (logique) d'un avenant en BROUILLON. */
+  @Delete(':id/avenants/:avenantId')
+  @HttpCode(204)
+  supprimerAvenant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('avenantId', ParseUUIDPipe) avenantId: string,
+  ) {
+    return this.policy.supprimerAvenant(user, id, avenantId);
   }
 }

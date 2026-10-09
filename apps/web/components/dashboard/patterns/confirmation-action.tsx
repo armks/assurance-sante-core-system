@@ -56,6 +56,7 @@ export function ConfirmationAction({
   onSucces,
   declencheur,
   libelles,
+  motif,
 }: {
   action: ActionConfirmee;
   /** Élément nommé, avec son type : « l’acte « CI-CONS-GEN — Consultation » ». */
@@ -64,17 +65,21 @@ export function ConfirmationAction({
   consequence?: string;
   /** Vérification serveur à l'ouverture (« action possible ? »). */
   verifier?: () => Promise<VerdictAction | { erreur: string }>;
-  onConfirmer: () => Promise<ResultatAction>;
+  /** `motif` : saisi dans la confirmation quand la prop `motif` est fournie (annulations). */
+  onConfirmer: (motif?: string) => Promise<ResultatAction>;
   onSucces?: () => void;
   /** Bouton déclencheur (un bouton fantôme « Supprimer » par défaut). */
   declencheur?: React.ReactNode;
   /** Libellés propres à un cas particulier (ex. « Réactiver » un compte au lieu de « Désarchiver »). */
   libelles?: Partial<{ titre: string; bouton: string; verbe: string }>;
+  /** Motif OBLIGATOIRE demandé dans la confirmation (annulation d'un avenant, d'une cotisation). */
+  motif?: { libelle: string; minimum?: number };
 }) {
   const libelle = { ...LIBELLE_ACTION[action], ...libelles };
   const [ouvert, setOuvert] = useState(false);
   const [verdict, setVerdict] = useState<VerdictAction | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [saisieMotif, setSaisieMotif] = useState('');
   const [verification, startVerification] = useTransition();
   const [execution, startExecution] = useTransition();
 
@@ -83,6 +88,7 @@ export function ConfirmationAction({
     if (!v) return;
     setVerdict(null);
     setErreur(null);
+    setSaisieMotif('');
     if (verifier) {
       startVerification(async () => {
         const r = await verifier();
@@ -97,7 +103,7 @@ export function ConfirmationAction({
   const confirmer = () =>
     startExecution(async () => {
       setErreur(null);
-      const r = await onConfirmer();
+      const r = await onConfirmer(motif ? saisieMotif.trim() : undefined);
       if (r.ok) {
         setOuvert(false);
         onSucces?.();
@@ -107,6 +113,8 @@ export function ConfirmationAction({
     });
 
   const impossible = verdict !== null && !verdict.possible;
+  const minimumMotif = motif?.minimum ?? 5;
+  const motifManquant = Boolean(motif) && saisieMotif.trim().length < minimumMotif;
 
   return (
     <Dialog open={ouvert} onOpenChange={ouvrir}>
@@ -142,6 +150,24 @@ export function ConfirmationAction({
             {verdict.raison}
           </Alerte>
         )}
+        {!impossible && verdict && motif && (
+          <div className="space-y-1">
+            <label htmlFor="motif-confirmation" className="text-sm font-medium">
+              {motif.libelle} <span className="text-destructive">*</span>
+            </label>
+            <textarea
+              id="motif-confirmation"
+              name="motif"
+              value={saisieMotif}
+              onChange={(e) => setSaisieMotif(e.target.value)}
+              maxLength={500}
+              rows={3}
+              required
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+              placeholder={`Obligatoire (${minimumMotif} caractères minimum) — conservé dans l'historique`}
+            />
+          </div>
+        )}
         {erreur && <Alerte ton="erreur">{erreur}</Alerte>}
 
         <DialogFooter>
@@ -154,7 +180,7 @@ export function ConfirmationAction({
             <Button
               type="button"
               variant={action === 'supprimer' ? 'destructive' : 'default'}
-              disabled={execution || verification || verdict === null}
+              disabled={execution || verification || verdict === null || motifManquant}
               onClick={confirmer}
             >
               {execution && <Loader2 className="size-4 animate-spin" />}

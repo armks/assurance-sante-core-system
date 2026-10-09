@@ -9,6 +9,9 @@ export const STATUTS_POLICE = [
 ] as const;
 export type StatutPolice = (typeof STATUTS_POLICE)[number];
 
+/** Statuts FINAUX : police terminée = archivée définitivement (pas de désarchivage ; on duplique en devis). */
+export const STATUTS_POLICE_FINAUX: readonly string[] = ['RENOUVELEE', 'RESILIEE', 'NON_RENOUVELEE'];
+
 /**
  * Machine à états STRICTE (v3 §3). Toute transition absente de cette table est
  * refusée explicitement — pas de saut d'étape (ex. DEVIS → ACTIVE interdit).

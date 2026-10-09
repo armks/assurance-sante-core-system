@@ -19,6 +19,7 @@ import {
   CalculerCotisationDto,
   ConsoliderFactureSocieteDto,
   CreateGrilleDto,
+  AnnulerCotisationDto,
   EnregistrerPaiementDto,
   GenererCotisationsDto,
   UpdateGrilleDto,
@@ -113,6 +114,16 @@ export class BillingController {
     @Param('policeId', ParseUUIDPipe) policeId: string,
   ) {
     return this.billing.listerCotisationsPolice(user, policeId);
+  }
+
+  /** Annulation (A_PAYER sans paiement) — motif obligatoire ; une cotisation n'est jamais supprimée. */
+  @Post('cotisations/:id/annuler')
+  annulerCotisation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AnnulerCotisationDto,
+  ) {
+    return this.billing.annulerCotisation(user, id, dto.motif);
   }
 
   @Post('cotisations/:id/paiement')

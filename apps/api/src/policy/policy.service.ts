@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { DependancesService } from '../dependances/dependances.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -16,6 +17,8 @@ import {
   CreateDevisDto,
   SimulerAvenantDto,
   SouscrireDto,
+  UpdateAvenantDto,
+  UpdatePoliceDto,
 } from './dto/policy.dto';
 import {
   ActionPolice,
@@ -23,6 +26,7 @@ import {
   LIBELLE_TRANSITION,
   ROLES_GESTION_POLICE,
   STATUTS_POLICE,
+  STATUTS_POLICE_FINAUX,
   StatutPolice,
   TRANSITIONS_POLICE,
 } from './policy.types';
@@ -52,6 +56,7 @@ export class PolicyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly dependances: DependancesService,
   ) {}
 
   // --- Polices ---------------------------------------------------------
@@ -380,19 +385,193 @@ export class PolicyService {
     );
   }
 
+  /**
+   * Annule un avenant APPLIQUE (motif OBLIGATOIRE) — jamais de suppression. Décision (ADR-007,
+   * lot 5) : appliquer un avenant ne modifie ni la police, ni les adhérents, ni les cotisations
+   * (statut seulement ; `impact_cotisation` est indicatif), donc l'annuler n'a AUCUN effet sur la
+   * police ni sur les cotisations déjà calculées : aucun recalcul, aucune compensation. L'audit
+   * garde le motif, l'auteur, l'impact et l'état des cotisations de la police à cet instant.
+   */
   async annulerAvenant(
     user: AuthenticatedUser,
     policeId: string,
     avenantId: string,
+    motif: string,
   ) {
-    return this.changerStatutAvenant(
-      user,
-      policeId,
-      avenantId,
-      'ANNULE',
-      ['BROUILLON', 'APPLIQUE'],
-      'ANNULATION_AVENANT',
-    );
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    await this.assertPoliceDansPerimetre(ctx.organisationId, policeId);
+    const avenant = await this.avenantDeLaPolice(policeId, avenantId);
+    await this.dependances.assertPossible(user, 'avenant', avenantId, 'archiver');
+    if (!motif || motif.trim().length < 5) {
+      throw new BadRequestException("Le motif d'annulation est obligatoire (5 caractères minimum).");
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const maj = await tx.avenant.update({
+        where: { id: avenantId },
+        data: { statut: 'ANNULE', motifAnnulation: motif.trim(), annuleLe: new Date(), annulePar: ctx.userId },
+      });
+      const cot = await tx.cotisation.aggregate({
+        where: { policeId, deletedAt: null, statut: { not: 'ANNULEE' } },
+        _count: true,
+        _sum: { montantDu: true },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'ANNULATION_AVENANT',
+        policeId,
+        {
+          avenantId,
+          type: avenant.type,
+          dateEffet: avenant.dateEffet.toISOString().slice(0, 10),
+          motif: motif.trim(),
+          annulePar: ctx.userId,
+          impactCotisation: avenant.impactCotisation ? avenant.impactCotisation.toString() : null,
+          cotisationsPolice: { nombre: cot._count, montantDuTotal: (cot._sum.montantDu ?? 0).toString() },
+          effetSurCotisations: 'aucun (recalcul non applicable : un avenant appliqué ne modifie pas les cotisations)',
+        },
+        'avenants',
+      );
+      return maj;
+    });
+  }
+
+  private async avenantDeLaPolice(policeId: string, avenantId: string) {
+    const avenant = await this.prisma.avenant.findFirst({ where: { id: avenantId, policeId, deletedAt: null } });
+    if (!avenant) throw new NotFoundException('Avenant introuvable.');
+    return avenant;
+  }
+
+  /** Modification d'un avenant en BROUILLON : type et date d'effet, impact recalculé. */
+  async modifierAvenant(user: AuthenticatedUser, policeId: string, avenantId: string, dto: UpdateAvenantDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const police = await this.assertPoliceDansPerimetre(ctx.organisationId, policeId);
+    const avant = await this.avenantDeLaPolice(policeId, avenantId);
+    await this.dependances.assertPossible(user, 'avenant', avenantId, 'modifier');
+
+    const dateEffet = dto.dateEffet ? new Date(dto.dateEffet) : avant.dateEffet;
+    this.assertDateEffetDansPeriode(police, dateEffet);
+    const recalcule = dto.tarifMensuelFormule !== undefined || dto.impactCotisation !== undefined;
+    const calcul = recalcule ? this.calculerImpact(police, dateEffet, dto) : null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const maj = await tx.avenant.update({
+        where: { id: avenantId },
+        data: {
+          ...(dto.type ? { type: dto.type } : {}),
+          dateEffet,
+          ...(calcul
+            ? { proratisationAppliquee: calcul.proratisationAppliquee, impactCotisation: calcul.impact ? calcul.impact.toString() : null }
+            : {}),
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'MODIFICATION_AVENANT',
+        policeId,
+        { avenantId, avant: { type: avant.type, dateEffet: avant.dateEffet.toISOString().slice(0, 10) }, apres: { type: maj.type, dateEffet: dateEffet.toISOString().slice(0, 10) } },
+        'avenants',
+      );
+      return maj;
+    });
+  }
+
+  /** Suppression (logique) d'un avenant en BROUILLON uniquement. */
+  async supprimerAvenant(user: AuthenticatedUser, policeId: string, avenantId: string): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    await this.assertPoliceDansPerimetre(ctx.organisationId, policeId);
+    const avenant = await this.avenantDeLaPolice(policeId, avenantId);
+    await this.dependances.assertPossible(user, 'avenant', avenantId, 'supprimer');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.avenant.update({ where: { id: avenantId }, data: { deletedAt: new Date() } });
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_AVENANT', policeId, { avenantId, type: avenant.type }, 'avenants');
+    });
+  }
+
+  // --- Polices : modifier, supprimer, dupliquer en devis (ADR-007, lot 5) -----------------
+
+  /** Modification libre — AU STADE DU DEVIS seulement ; ensuite, un avenant. */
+  async modifierPolice(user: AuthenticatedUser, id: string, dto: UpdatePoliceDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const avant = await this.assertPoliceDansPerimetre(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'police', id, 'modifier');
+
+    if (dto.produitId) {
+      const produit = await this.prisma.produit.findFirst({ where: { id: dto.produitId, organisationId: ctx.organisationId, deletedAt: null } });
+      if (!produit) throw new NotFoundException('Produit introuvable.');
+      if (produit.statut !== 'PUBLIE') {
+        throw new BadRequestException(`Une police ne peut référencer qu'un produit PUBLIE (produit « ${produit.nom} » v${produit.version} : statut ${produit.statut}).`);
+      }
+    }
+    const dateDebut = dto.dateDebut ? new Date(dto.dateDebut) : avant.dateDebut;
+    const dateFin = dto.dateFin ? new Date(dto.dateFin) : avant.dateFin;
+    if (dateDebut && dateFin && dateFin <= dateDebut) {
+      throw new BadRequestException('date_fin doit être postérieure à date_debut.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.police.update({
+        where: { id },
+        data: { ...(dto.produitId ? { produitId: dto.produitId } : {}), dateDebut, dateFin },
+      });
+      await this.audit(tx, ctx.userId, 'MODIFICATION_POLICE', id, {
+        produitId: { avant: avant.produitId, apres: dto.produitId ?? avant.produitId },
+        dateDebut: { avant: avant.dateDebut?.toISOString().slice(0, 10) ?? null, apres: dateDebut?.toISOString().slice(0, 10) ?? null },
+        dateFin: { avant: avant.dateFin?.toISOString().slice(0, 10) ?? null, apres: dateFin?.toISOString().slice(0, 10) ?? null },
+      });
+    });
+    return this.chargerPolice(ctx, id);
+  }
+
+  /** Suppression (logique) — DEVIS sans aucun lien (adhérent, dossier, cotisation, avenant, réclamation…). */
+  async supprimerPolice(user: AuthenticatedUser, id: string): Promise<void> {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const police = await this.assertPoliceDansPerimetre(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'police', id, 'supprimer');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.police.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_POLICE', id, { numeroPolice: police.numeroPolice, statut: police.statut });
+    });
+  }
+
+  /**
+   * « Dupliquer en devis » depuis une police TERMINÉE (renouvelée, résiliée, non renouvelée —
+   * statuts finaux, archivés définitivement) : nouveau DEVIS pour le même souscripteur et la même
+   * formule, sans dates. Aucune donnée n'est reprise (adhérents, cotisations, avenants).
+   */
+  async dupliquerEnDevis(user: AuthenticatedUser, id: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const source = await this.assertPoliceDansPerimetre(ctx.organisationId, id);
+    if (!STATUTS_POLICE_FINAUX.includes(source.statut)) {
+      throw new ConflictException(`Duplication impossible : seule une police terminée (${STATUTS_POLICE_FINAUX.join(', ')}) se duplique ; celle-ci est ${source.statut}.`);
+    }
+    const [souscripteur, produit] = await Promise.all([
+      this.prisma.souscripteur.findFirst({ where: { id: source.souscripteurId, organisationId: ctx.organisationId, deletedAt: null } }),
+      this.prisma.produit.findFirst({ where: { id: source.produitId, organisationId: ctx.organisationId, deletedAt: null } }),
+    ]);
+    if (!souscripteur) throw new NotFoundException('Souscripteur introuvable.');
+    if (souscripteur.statut === 'ARCHIVE') {
+      throw new ConflictException(`Duplication impossible : la société cliente « ${souscripteur.nom} » est archivée. Désarchivez-la d'abord.`);
+    }
+    if (!produit || produit.statut !== 'PUBLIE') {
+      throw new ConflictException(`Duplication impossible : la formule « ${produit?.nom ?? 'inconnue'} » n'est plus publiée (statut ${produit?.statut ?? 'introuvable'}). Créez un devis sur une formule publiée.`);
+    }
+    const id2 = await this.prisma.$transaction(async (tx) => {
+      const p = await tx.police.create({
+        data: { organisationId: ctx.organisationId, souscripteurId: source.souscripteurId, produitId: source.produitId, statut: 'DEVIS' },
+      });
+      await this.audit(tx, ctx.userId, 'DUPLICATION_POLICE', p.id, { source: id, numeroSource: source.numeroPolice, statutSource: source.statut });
+      return p.id;
+    });
+    return this.chargerPolice(ctx, id2);
   }
 
   private async changerStatutAvenant(

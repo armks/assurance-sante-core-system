@@ -10,6 +10,7 @@ import {
 import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { DependancesService } from '../dependances/dependances.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -23,6 +24,7 @@ import {
   CATEGORIE_ACTE_PHARMACIE,
   ContexteAppelant,
   MIME_TYPES_PIECE_JOINTE_AUTORISES,
+  ROLES_CYCLE_COMPTES_FINANCIERS,
   ROLES_GESTION_COMPTES_FINANCIERS,
   ROLE_COMPTABLE_PAIEMENT_GROUPE,
   STATUT_FACTURE_MENSUELLE_GROUPABLE,
@@ -55,6 +57,7 @@ export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly dependances: DependancesService,
   ) {}
 
   private async contexteAppelant(user: AuthenticatedUser): Promise<ContexteAppelant> {
@@ -315,6 +318,7 @@ export class PaymentService {
     if (!compte) {
       throw new NotFoundException('Compte financier introuvable.');
     }
+    this.assertCompteActif(compte);
 
     const preuvePaiement = dto.preuvePaiement ?? [];
 
@@ -748,7 +752,7 @@ export class PaymentService {
   /** Liste des comptes financiers de l'organisation, solde à jour. */
   async listerComptesFinanciers(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
-    this.assertGestionComptesFinanciers(ctx);
+    this.assertGestionCyclePeComptes(ctx);
 
     const comptes = await this.prisma.compteFinancier.findMany({
       where: { organisationId: ctx.organisationId, deletedAt: null },
@@ -763,10 +767,90 @@ export class PaymentService {
       banqueNom: c.banqueNom,
       numeroCompte: c.numeroCompte,
       soldeActuel: c.soldeActuel.toFixed(2),
+      statut: c.statut,
       creePar: c.creePar.role,
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     }));
+  }
+
+  // --- Cycle de vie des comptes financiers (ADR-007, lot 5) ---------------------------------
+  // Modifier le LIBELLÉ, archiver (solde nul et aucun paiement programmé), désarchiver, supprimer
+  // (aucun mouvement). Le solde ne se modifie JAMAIS directement : il ne bouge que par mouvement.
+
+  /** Comptable et informatique (cycle de vie) ; créer / mouvementer l'argent reste réservé au comptable. */
+  private assertGestionCyclePeComptes(ctx: ContexteAppelant): void {
+    if (!(ROLES_CYCLE_COMPTES_FINANCIERS as readonly string[]).includes(ctx.role ?? '')) {
+      throw new ForbiddenException('Réservé à ASSUREUR_COMPTABLE et ASSUREUR_INFORMATIQUE (jamais leurs adjoints).');
+    }
+  }
+
+  /** Un compte archivé ne reçoit ni ne sert plus aucun mouvement. */
+  private assertCompteActif(compte: { nom?: string; statut?: string }): void {
+    if (compte.statut === 'ARCHIVE') {
+      throw new ConflictException(`Le compte « ${compte.nom ?? ''} » est archivé : aucun mouvement ni paiement n'est possible. Désarchivez-le d'abord.`);
+    }
+  }
+
+  private async chargerCompteCycle(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionCyclePeComptes(ctx);
+    return ctx;
+  }
+
+  private async compteDeLOrganisation(organisationId: string, id: string) {
+    const c = await this.prisma.compteFinancier.findFirst({ where: { id, organisationId, deletedAt: null } });
+    if (!c) throw new NotFoundException('Compte financier introuvable.');
+    return c;
+  }
+
+  /** Modifie le LIBELLÉ (nom) — le solde est intouchable. */
+  async modifierCompteFinancier(user: AuthenticatedUser, id: string, nom: string) {
+    const ctx = await this.chargerCompteCycle(user);
+    const avant = await this.compteDeLOrganisation(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'compteFinancier', id, 'modifier');
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.compteFinancier.update({ where: { id }, data: { nom } });
+      await this.audit(tx, ctx.userId, 'MODIFICATION_COMPTE_FINANCIER', id, { nom: { avant: avant.nom, apres: nom }, soldeActuel: avant.soldeActuel.toFixed(2) }, 'comptes_financiers');
+      return c;
+    });
+    return { ...maj, soldeActuel: maj.soldeActuel.toFixed(2) };
+  }
+
+  /** Archive : solde NUL et aucun paiement programmé (registre) — 409 avec le solde / les nombres sinon. */
+  async archiverCompteFinancier(user: AuthenticatedUser, id: string) {
+    const ctx = await this.chargerCompteCycle(user);
+    const avant = await this.compteDeLOrganisation(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'compteFinancier', id, 'archiver');
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.compteFinancier.update({ where: { id }, data: { statut: 'ARCHIVE' } });
+      await this.audit(tx, ctx.userId, 'ARCHIVAGE_COMPTE_FINANCIER', id, { nom: avant.nom, soldeActuel: avant.soldeActuel.toFixed(2) }, 'comptes_financiers');
+      return c;
+    });
+    return { ...maj, soldeActuel: maj.soldeActuel.toFixed(2) };
+  }
+
+  async desarchiverCompteFinancier(user: AuthenticatedUser, id: string) {
+    const ctx = await this.chargerCompteCycle(user);
+    const avant = await this.compteDeLOrganisation(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'compteFinancier', id, 'desarchiver');
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const c = await tx.compteFinancier.update({ where: { id }, data: { statut: 'ACTIF' } });
+      await this.audit(tx, ctx.userId, 'DESARCHIVAGE_COMPTE_FINANCIER', id, { nom: avant.nom }, 'comptes_financiers');
+      return c;
+    });
+    return { ...maj, soldeActuel: maj.soldeActuel.toFixed(2) };
+  }
+
+  /** Suppression (logique) — seulement un compte SANS aucun mouvement ni paiement lié. */
+  async supprimerCompteFinancier(user: AuthenticatedUser, id: string): Promise<void> {
+    const ctx = await this.chargerCompteCycle(user);
+    const avant = await this.compteDeLOrganisation(ctx.organisationId, id);
+    await this.dependances.assertPossible(user, 'compteFinancier', id, 'supprimer');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.compteFinancier.update({ where: { id }, data: { deletedAt: new Date() } });
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_COMPTE_FINANCIER', id, { nom: avant.nom, soldeActuel: avant.soldeActuel.toFixed(2) }, 'comptes_financiers');
+    });
   }
 
   /** Crée un compte financier avec son solde de départ — journalisé via log_audit(). */
@@ -818,10 +902,11 @@ export class PaymentService {
     if (!compte) {
       throw new NotFoundException('Compte financier introuvable.');
     }
+    this.assertCompteActif(compte);
 
     const montant = new Decimal(dto.montant);
 
-    let compteSource: { id: string; soldeActuel: Prisma.Decimal } | null = null;
+    let compteSource: { id: string; soldeActuel: Prisma.Decimal; nom: string; statut: string } | null = null;
     if (dto.source === 'AUTRE_COMPTE') {
       if (!dto.compteSourceId) {
         throw new BadRequestException(
@@ -833,11 +918,12 @@ export class PaymentService {
       }
       compteSource = await this.prisma.compteFinancier.findFirst({
         where: { id: dto.compteSourceId, organisationId: ctx.organisationId, deletedAt: null },
-        select: { id: true, soldeActuel: true },
+        select: { id: true, soldeActuel: true, nom: true, statut: true },
       });
       if (!compteSource) {
         throw new NotFoundException('Compte source introuvable.');
       }
+      this.assertCompteActif(compteSource);
       if (new Decimal(compteSource.soldeActuel.toString()).lt(montant)) {
         throw new ConflictException(
           `Solde insuffisant sur le compte source (${new Decimal(compteSource.soldeActuel.toString()).toFixed(2)} F) pour débiter ${montant.toFixed(2)} F.`,
@@ -976,6 +1062,8 @@ export class PaymentService {
     ]);
     if (!source) throw new NotFoundException('Compte source introuvable.');
     if (!destination) throw new NotFoundException('Compte destination introuvable.');
+    this.assertCompteActif(source);
+    this.assertCompteActif(destination);
 
     const soldeSource = new Decimal(source.soldeActuel.toString());
     if (soldeSource.lt(montant)) {
@@ -1049,6 +1137,7 @@ export class PaymentService {
     if (!compte) {
       throw new NotFoundException('Compte financier introuvable.');
     }
+    this.assertCompteActif(compte);
 
     const solde = new Decimal(compte.soldeActuel.toString());
     if (solde.lt(montant)) {

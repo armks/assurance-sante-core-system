@@ -45,6 +45,8 @@ export type SourceApprovisionnement = (typeof SOURCES_APPROVISIONNEMENT)[number]
  * partager `peutValider = true`/`false` sans rapport avec cette autorisation).
  */
 export const ROLES_GESTION_COMPTES_FINANCIERS = ['ASSUREUR_COMPTABLE'] as const;
+/** Cycle de vie des comptes (libellé, archivage, suppression — ADR-007 lot 5) : comptable et informatique (rôle PROPRE, jamais l'adjoint). */
+export const ROLES_CYCLE_COMPTES_FINANCIERS = ['ASSUREUR_COMPTABLE', 'ASSUREUR_INFORMATIQUE'] as const;
 
 export interface ContexteAppelant {
   userId: string;

@@ -17,6 +17,9 @@ import { CIBLES_PERIMETRE, type CiblePerimetre } from './dto/comptes.dto';
 
 type Db = PrismaService | Prisma.TransactionClient;
 
+/** Rôles « administrateur de l'organisation » (miroir du garde-fou du registre). */
+const ROLES_ADMINISTRATEUR = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_INFORMATIQUE_ADJOINT'];
+
 /** Rôle d'administration des comptes (miroir de GESTION_UTILISATEURS du registre). */
 const ROLE_ADMIN_COMPTES = 'ASSUREUR_INFORMATIQUE';
 
@@ -57,6 +60,7 @@ export class ComptesService {
     await this.dependances.assertPossible(user, 'utilisateur', id, 'archiver');
 
     await this.prisma.$transaction(async (tx) => {
+      await this.garantirAdministrateurRestant(tx, ctx.organisationId, id, cible.role, false);
       await tx.profil.update({
         where: { id },
         data: { statut: 'REVOQUE', revoqueLe: new Date(), revoquePar: ctx.userId, revoqueMotif: motif ?? null },
@@ -131,6 +135,7 @@ export class ComptesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await this.garantirAdministrateurRestant(tx, ctx.organisationId, id, cible.role, ROLES_ADMINISTRATEUR.includes(nouveauRole));
       await tx.profil.update({ where: { id }, data: { role: nouveauRole } });
       await this.audit(tx, ctx.userId, 'CHANGEMENT_ROLE', id, { ancienRole: cible.role, nouveauRole });
     });
@@ -146,6 +151,7 @@ export class ComptesService {
     await this.dependances.assertPossible(user, 'utilisateur', id, 'supprimer');
 
     await this.prisma.$transaction(async (tx) => {
+      await this.garantirAdministrateurRestant(tx, ctx.organisationId, id, cible.role, false);
       await tx.profil.update({ where: { id }, data: { deletedAt: new Date() } });
       await this.audit(tx, ctx.userId, 'SUPPRESSION_COMPTE', id, { role: cible.role });
     });
@@ -191,6 +197,40 @@ export class ComptesService {
   }
 
   // --- Helpers -------------------------------------------------------------------------
+
+  /**
+   * Garde-fou « au moins un administrateur actif » rejoué DANS la transaction, sous verrou : deux
+   * révocations (ou changements de rôle) croisées lancées en même temps passent toutes deux le
+   * contrôle du registre (chacune voit l'autre administrateur actif) ; le verrou consultatif par
+   * organisation les sérialise et la seconde voit la première validée → 409.
+   * `resteAdministrateur` : le compte garde un rôle d'administrateur (changement de rôle vers un
+   * autre rôle administrateur).
+   */
+  private async garantirAdministrateurRestant(
+    tx: Prisma.TransactionClient,
+    organisationId: string,
+    cibleId: string,
+    roleActuel: string | null,
+    resteAdministrateur: boolean,
+  ): Promise<void> {
+    if (!roleActuel || !ROLES_ADMINISTRATEUR.includes(roleActuel) || resteAdministrateur) return;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'admins:' + organisationId}))`;
+    const autres = await tx.profil.count({
+      where: {
+        organisationId,
+        id: { not: cibleId },
+        role: { in: ROLES_ADMINISTRATEUR },
+        deletedAt: null,
+        statut: 'ACTIF',
+        desactiveLe: null,
+      },
+    });
+    if (autres === 0) {
+      throw new ConflictException(
+        "Action impossible : ce compte est le dernier administrateur actif de l'organisation — nommez-en un autre d'abord.",
+      );
+    }
+  }
 
   private async contexte(user: AuthenticatedUser) {
     const { profil, permissions } = await this.identity.getMe(user);

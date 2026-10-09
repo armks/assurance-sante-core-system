@@ -29,7 +29,12 @@ const GESTION_MEMBRE = ['ASSUREUR_DIRECTION', 'ASSUREUR_EXPLOITATION', 'ASSUREUR
 const GESTION_REFERENTIEL_ACTES = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_MEDECIN_CONSEIL'] as const;
 const GESTION_REFERENTIEL_MEDICAMENTS = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_PHARMACIEN_CONSEIL'] as const;
 const GESTION_UTILISATEURS = ['ASSUREUR_INFORMATIQUE'] as const;
-const GESTION_COMPTES = ['ASSUREUR_COMPTABLE'] as const;
+// Comptes financiers (lot 5) : modifier le libellé, archiver, désarchiver, supprimer — comptable et informatique
+// (créer et mouvementer l'argent restent réservés au comptable, payment/).
+const GESTION_COMPTES = ['ASSUREUR_COMPTABLE', 'ASSUREUR_INFORMATIQUE'] as const;
+// Annulation des cotisations (lot 5) : comptable et informatique.
+const GESTION_COTISATIONS = ['ASSUREUR_COMPTABLE', 'ASSUREUR_INFORMATIQUE'] as const;
+const STATUTS_POLICE_FINAUX = ['RENOUVELEE', 'RESILIEE', 'NON_RENOUVELEE'];
 const ROLE_SOCIETE_MEMBRES = 'SOCIETE_ADMINISTRATION';
 // Suppression définitive des entités de configuration (lot 2) : service informatique,
 // et direction pour les produits et leurs garanties.
@@ -57,6 +62,9 @@ const auDessusDeLAppelant = (p: any, ctx: ContexteDependances): boolean =>
   (RANG_NIVEAU[p._niveau] ?? 0) > (RANG_NIVEAU[ctx.niveauAcces] ?? 0) ||
   (!!p.role && ctx.roleChain.slice(1).includes(p.role));
 const MESSAGE_NIVEAU_SUPERIEUR = "ce compte est d'un niveau supérieur au vôtre.";
+
+/** « 12 500,00 F » */
+const francs = (v: unknown) => `${Number(v).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} F`;
 
 // --- Aides ------------------------------------------------------------------------
 /** Organisation du périmètre (jamais null pour une entité d'organisation). */
@@ -484,8 +492,8 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     nom: (p) => p.numeroPolice ?? String(p.id).slice(0, 8),
     dependances: [
       dep('adherents', 'adhérent', 'adhérents', (db, p, ctx) => db.adherent.count({ where: { policeId: p.id, organisationId: org(ctx) } }), ['supprimer', 'modifier']),
-      dep('avenants', 'avenant', 'avenants', (db, p) => db.avenant.count({ where: { policeId: p.id } }), ['supprimer', 'modifier']),
-      dep('cotisations', 'cotisation', 'cotisations', (db, p) => db.cotisation.count({ where: { policeId: p.id } }), ['supprimer', 'modifier']),
+      dep('avenants', 'avenant', 'avenants', (db, p) => db.avenant.count({ where: { policeId: p.id, deletedAt: null } }), ['supprimer', 'modifier']),
+      dep('cotisations', 'cotisation', 'cotisations', (db, p) => db.cotisation.count({ where: { policeId: p.id, deletedAt: null } }), ['supprimer', 'modifier']),
       dep('dossiers', 'dossier de soins', 'dossiers de soins', (db, p, ctx) => db.dossierSoins.count({ where: { policeId: p.id, organisationId: org(ctx) } }), ['supprimer', 'modifier']),
       dep('reclamations', 'réclamation', 'réclamations', (db, p, ctx) => db.reclamation.count({ where: { policeId: p.id, organisationId: org(ctx) } }), ['supprimer', 'modifier']),
       dep('codesConsultation', 'code de consultation', 'codes de consultation', (db, p, ctx) => db.codeConsultation.count({ where: { policeId: p.id, organisationId: org(ctx) } }), ['supprimer', 'modifier']),
@@ -494,6 +502,8 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     regles: {
       supprimer: (p) => (p.statut !== 'DEVIS' ? 'Seule une police au stade du devis peut être supprimée ; une police en cours se résilie.' : null),
       modifier: (p) => (p.statut !== 'DEVIS' ? 'Seule une police au stade du devis se modifie librement ; ensuite, passez par un avenant.' : null),
+      // Statuts finaux (renouvelée, résiliée, non renouvelée) = archive DÉFINITIVE (STATUTS_POLICE_FINAUX) :
+      // aucune route d'archivage ni de désarchivage ; on repart d'un devis (« Dupliquer en devis »).
     },
   },
 
@@ -505,9 +515,19 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     charger: (db, id, ctx) => db.avenant.findFirst({ where: { id, deletedAt: null, police: { organisationId: org(ctx) } } }),
     nom: (a) => `${a.type} (${String(a.id).slice(0, 8)})`,
     dependances: [],
+    // archiver = ANNULER (motif obligatoire, jamais de suppression) ; pas de désarchivage
+    nomsAction: { archiver: 'Annulation' },
     regles: {
-      supprimer: (a) => (a.statut !== 'BROUILLON' ? 'Un avenant appliqué ou annulé est conservé ; seul un brouillon peut être supprimé.' : null),
-      archiver: (a) => (a.statut !== 'BROUILLON' ? 'Seul un avenant en brouillon peut être annulé.' : null),
+      supprimer: (a) =>
+        a.statut === 'BROUILLON'
+          ? null
+          : 'Un avenant appliqué ou annulé est conservé (historique) ; seul un brouillon peut être supprimé. Un avenant appliqué s’annule.',
+      archiver: (a) =>
+        a.statut === 'APPLIQUE'
+          ? null
+          : a.statut === 'ANNULE'
+            ? 'cet avenant est déjà annulé.'
+            : 'un avenant en brouillon se supprime, il ne s’annule pas ; seul un avenant appliqué s’annule.',
       modifier: (a) => (a.statut !== 'BROUILLON' ? 'Un avenant appliqué ou annulé ne se modifie pas.' : null),
     },
   },
@@ -634,13 +654,75 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     roles: GESTION_COMPTES,
     charger: (db, id, ctx) => db.compteFinancier.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
     nom: (c) => c.nom,
+    conseils: { supprimer: 'Archivez-le plutôt : son historique de mouvements est conservé.' },
     dependances: [
       dep('mouvements', 'mouvement financier', 'mouvements financiers', (db, c, ctx) => db.mouvementFinancier.count({ where: { organisationId: org(ctx), OR: [{ compteSourceId: c.id }, { compteDestinationId: c.id }] } })),
-      dep('facturesEtablissement', 'facture mensuelle (établissement) programmée', 'factures mensuelles (établissements) programmées', (db, c, ctx) => db.factureMensuelleEtablissement.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx) } })),
-      dep('facturesPharmacie', 'facture mensuelle (pharmacie) programmée', 'factures mensuelles (pharmacies) programmées', (db, c, ctx) => db.factureMensuellePharmacie.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx) } })),
-      dep('paiementsGroupes', 'paiement groupé', 'paiements groupés', (db, c, ctx) => db.paiementGroupe.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx) } })),
+      // références (même payées) : bloquent la SUPPRESSION ; les paiements encore PROGRAMMÉS bloquent l'ARCHIVAGE
+      dep('facturesEtablissement', 'facture mensuelle (établissement) liée', 'factures mensuelles (établissements) liées', (db, c, ctx) => db.factureMensuelleEtablissement.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx) } })),
+      dep('facturesPharmacie', 'facture mensuelle (pharmacie) liée', 'factures mensuelles (pharmacies) liées', (db, c, ctx) => db.factureMensuellePharmacie.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx) } })),
+      dep('paiementsGroupes', 'paiement groupé lié', 'paiements groupés liés', (db, c, ctx) => db.paiementGroupe.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx) } })),
+      dep('programmeesEtablissement', 'paiement programmé (facture mensuelle établissement)', 'paiements programmés (factures mensuelles établissements)', (db, c, ctx) => db.factureMensuelleEtablissement.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx), statut: { not: 'PAYEE' } } }), ['archiver']),
+      dep('programmeesPharmacie', 'paiement programmé (facture mensuelle pharmacie)', 'paiements programmés (factures mensuelles pharmacies)', (db, c, ctx) => db.factureMensuellePharmacie.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx), statut: { not: 'PAYEE' } } }), ['archiver']),
+      dep('groupesProgrammes', 'paiement groupé programmé', 'paiements groupés programmés', (db, c, ctx) => db.paiementGroupe.count({ where: { paiementProgrammeCompteId: c.id, organisationId: org(ctx), statut: { not: 'PAYE' } } }), ['archiver']),
     ],
-    regles: { supprimer: () => null, modifier: () => null },
+    regles: {
+      // jamais de suppression d'un compte qui détient de l'argent (le solde ne disparaît pas en silence)
+      supprimer: (c) => (Number(c.soldeActuel) !== 0 ? `le solde n'est pas nul (${francs(c.soldeActuel)}) : transférez ou dépensez-le d'abord.` : null),
+      // le solde ne se modifie JAMAIS directement : archiver exige un solde nul
+      archiver: (c) =>
+        c.statut === 'ARCHIVE'
+          ? dejaArchive('Le compte')
+          : Number(c.soldeActuel) !== 0
+            ? `le solde n'est pas nul (${francs(c.soldeActuel)}) : transférez ou dépensez-le d'abord.`
+            : null,
+      desarchiver: (c) => (c.statut !== 'ARCHIVE' ? "Le compte n'est pas archivé." : null),
+      modifier: (c) => (c.statut === 'ARCHIVE' ? 'le compte est archivé : désarchivez-le d’abord.' : null),
+    },
+  },
+
+  // Cotisation (lot 5) : archiver = ANNULER (A_PAYER sans paiement, motif obligatoire) ; jamais supprimée.
+  cotisation: {
+    designation: 'la cotisation',
+    pronom: 'la',
+    table: 'cotisations',
+    roles: GESTION_COTISATIONS,
+    nomsAction: { archiver: 'Annulation' },
+    charger: (db, id, ctx) => db.cotisation.findFirst({ where: { id, deletedAt: null, police: { organisationId: org(ctx) } } }),
+    nom: (c) => `${String(c.periode instanceof Date ? c.periode.toISOString() : c.periode).slice(0, 7)} — ${francs(c.montantDu)}`,
+    dependances: [],
+    regles: {
+      supprimer: (c) =>
+        c.statut === 'PAYEE' || Number(c.montantPaye) > 0
+          ? `une cotisation payée (${francs(c.montantPaye)} encaissés) n'est jamais supprimée : elle fait partie de l'historique comptable.`
+          : "une cotisation n'est jamais supprimée : annulez-la (motif obligatoire), elle reste dans l'historique.",
+      archiver: (c) =>
+        c.statut === 'ANNULEE'
+          ? 'cette cotisation est déjà annulée.'
+          : Number(c.montantPaye) > 0
+            ? `un paiement de ${francs(c.montantPaye)} a déjà été enregistré : une cotisation payée, même en partie, ne s'annule pas.`
+            : c.statut !== 'A_PAYER'
+              ? `seule une cotisation à payer sans paiement s'annule (statut actuel : ${c.statut}).`
+              : null,
+    },
+  },
+
+  // Propositions d'import (lot 5) : un BROUILLON de propositions se modifie et se supprime (logique) ;
+  // soumis ou validé, il est conservé.
+  propositionImport: {
+    designation: 'la liste de propositions',
+    pronom: 'la',
+    table: 'imports_adherents',
+    roles: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION', 'SOCIETE_ADMINISTRATION', 'SOCIETE_ASSUREE'],
+    charger: (db, id, ctx) =>
+      db.importAdherents.findFirst({
+        where: { id, organisationId: org(ctx), deletedAt: null, ...(ctx.estSociete ? { souscripteurId: ctx.societeId ?? '' } : {}) },
+      }),
+    nom: (i) => i.fichierNom ?? `Liste de ${i.nbLignesTotal} proposition(s)`,
+    dependances: [],
+    regles: {
+      supprimer: (i) => (i.statut !== 'BROUILLON' ? `seule une liste en brouillon peut être supprimée ; une liste ${i.statut === 'VALIDE' ? 'validée' : 'soumise'} est conservée.` : null),
+      modifier: (i) => (i.statut !== 'BROUILLON' ? `cette liste n'est plus modifiable (statut ${i.statut}).` : null),
+    },
   },
 };
 

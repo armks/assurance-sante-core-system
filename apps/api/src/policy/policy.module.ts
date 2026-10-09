@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { DependancesModule } from '../dependances/dependances.module';
 import { IdentityModule } from '../identity/identity.module';
 import { PolicyController } from './policy.controller';
 import { PolicyService } from './policy.service';
@@ -8,7 +9,7 @@ import { PolicyService } from './policy.service';
  * polices (machine à états) et des avenants.
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, DependancesModule],
   controllers: [PolicyController],
   providers: [PolicyService],
   exports: [PolicyService],

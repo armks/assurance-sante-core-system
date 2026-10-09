@@ -4,11 +4,15 @@ import {
   IsArray,
   IsInt,
   IsISO8601,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
+  MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 
@@ -111,4 +115,13 @@ export class ConsoliderFactureSocieteDto {
   @IsOptional()
   @IsISO8601()
   dateEcheance?: string;
+}
+
+/** Annulation d'une cotisation A_PAYER sans paiement : motif OBLIGATOIRE (tracé), jamais de suppression. */
+export class AnnulerCotisationDto {
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(5, { message: 'Le motif doit comporter au moins 5 caractères.' })
+  @MaxLength(500)
+  motif!: string;
 }

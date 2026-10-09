@@ -8,12 +8,19 @@ import {
   appliquerAvenant,
   changerStatut,
   creerAvenant,
+  dupliquerEnDevis,
+  modifierAvenant,
+  modifierPolice,
   simulerAvenant,
   souscrirePolice,
+  supprimerAvenant,
+  supprimerPolice,
 } from '@/app/dashboard-assureur/informatique/polices/actions';
 import type { Simulation } from '@/app/dashboard-assureur/informatique/polices/types';
+import { verifierAction } from '@/app/dependances-actions';
 import {
   ChampNombre,
+  ConfirmationAction,
   ChampSelect,
   ChampTexte,
   DataTable,
@@ -30,6 +37,7 @@ interface Avenant {
   type: string;
   dateEffet: string;
   statut: string;
+  motifAnnulation?: string | null;
   proratisationAppliquee: boolean;
   impactCotisation: string | null;
   dateCreation: string;
@@ -58,6 +66,9 @@ export interface ActionsPolice {
   transitions: string[];
   actions: ActionPolice[];
 }
+
+/** Statuts FINAUX : police terminée = archive définitive (miroir de STATUTS_POLICE_FINAUX côté API). */
+const STATUTS_FINAUX = ['RENOUVELEE', 'RESILIEE', 'NON_RENOUVELEE'];
 
 const TYPES_AVENANT = [
   'AJOUT_ADHERENT',
@@ -162,6 +173,73 @@ export function PoliceDetail({
           <Ligne label="Créée le">{dateFr(police.createdAt)}</Ligne>
         </CardContent>
       </Card>
+
+      {/* --- Modifier / supprimer un devis ; police terminée = archivée, dupliquer en devis (ADR-007) --- */}
+      {(police.statut === 'DEVIS' || STATUTS_FINAUX.includes(police.statut)) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">
+              {police.statut === 'DEVIS' ? 'Gérer le devis' : 'Police archivée'}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {police.statut === 'DEVIS' ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <FormulaireModal
+                  titre="Modifier le devis"
+                  mode="center"
+                  description="Un devis se modifie librement ; une fois la police souscrite, passez par un avenant."
+                  declencheur={<Button size="sm" variant="outline">Modifier le devis</Button>}
+                  libelleSoumettre="Enregistrer"
+                  onSoumettre={async (fd) =>
+                    modifierPolice(police.id, {
+                      dateDebut: String(fd.get('dateDebut') ?? ''),
+                      dateFin: String(fd.get('dateFin') ?? ''),
+                    })
+                  }
+                  onSucces={() => router.refresh()}
+                >
+                  <ChampTexte name="dateDebut" label="Date de début" type="date" defaultValue={police.dateDebut?.slice(0, 10) ?? ''} />
+                  <ChampTexte name="dateFin" label="Date de fin" type="date" defaultValue={police.dateFin?.slice(0, 10) ?? ''} />
+                </FormulaireModal>
+                <ConfirmationAction
+                  action="supprimer"
+                  element={`le devis ${police.numeroPolice}`}
+                  consequence="Possible seulement s’il n’a aucun adhérent, dossier, cotisation, avenant ni réclamation."
+                  verifier={() => verifierAction('police', police.id, 'supprimer')}
+                  onConfirmer={async () => {
+                    const r = await supprimerPolice(police.id);
+                    return r.ok ? { ok: true } : r;
+                  }}
+                  onSucces={() => router.push('/dashboard-assureur/informatique/polices')}
+                  declencheur={<Button size="sm" variant="outline">Supprimer le devis</Button>}
+                />
+              </div>
+            ) : (
+              <div className="space-y-2 text-sm">
+                <p className="text-muted-foreground">
+                  Cette police est terminée : elle est archivée définitivement et ne se désarchive pas.
+                  Repartez d’un devis pour le même souscripteur et la même formule.
+                </p>
+                <Button
+                  size="sm"
+                  disabled={pending}
+                  onClick={() =>
+                    start(async () => {
+                      setErreur(null);
+                      const r = await dupliquerEnDevis(police.id);
+                      if (r.ok) router.push(`/dashboard-assureur/informatique/polices/${r.id}`);
+                      else setErreur(r.error);
+                    })
+                  }
+                >
+                  Dupliquer en devis
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* --- Machine à états : boutons calculés côté API --- */}
       <Card>
@@ -271,48 +349,84 @@ export function PoliceDetail({
                 </FormulaireModal>
               ) : undefined
             }
-            actionLigne={
-              active
-                ? (a) => (
-                    <>
-                      {a.statut === 'BROUILLON' && (
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          disabled={pending}
-                          onClick={() =>
-                            start(async () => {
-                              setErreur(null);
-                              const r = await appliquerAvenant(police.id, a.id);
-                              if (r.ok) router.refresh();
-                              else setErreur(r.error);
-                            })
-                          }
-                        >
-                          Appliquer
-                        </Button>
-                      )}
-                      {a.statut !== 'ANNULE' && (
-                        <Button
-                          size="xs"
-                          variant="ghost"
-                          disabled={pending}
-                          onClick={() =>
-                            start(async () => {
-                              setErreur(null);
-                              const r = await annulerAvenant(police.id, a.id);
-                              if (r.ok) router.refresh();
-                              else setErreur(r.error);
-                            })
-                          }
-                        >
-                          Annuler
-                        </Button>
-                      )}
-                    </>
-                  )
-                : undefined
-            }
+            actionLigne={(a) => (
+              <span className="inline-flex items-center gap-1">
+                {a.statut === 'BROUILLON' && (
+                  <>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={() =>
+                        start(async () => {
+                          setErreur(null);
+                          const r = await appliquerAvenant(police.id, a.id);
+                          if (r.ok) router.refresh();
+                          else setErreur(r.error);
+                        })
+                      }
+                    >
+                      Appliquer
+                    </Button>
+                    <FormulaireModal
+                      titre="Modifier l’avenant"
+                      mode="center"
+                      description="Seul un avenant en brouillon se modifie."
+                      declencheur={<Button size="xs" variant="ghost">Modifier</Button>}
+                      libelleSoumettre="Enregistrer"
+                      onSoumettre={async (fd) => {
+                        const tarif = fd.get('tarifMensuelFormule');
+                        return modifierAvenant(police.id, a.id, {
+                          type: String(fd.get('type') ?? ''),
+                          dateEffet: String(fd.get('dateEffet') ?? ''),
+                          tarifMensuelFormule: tarif && tarif !== '' ? Number(tarif) : undefined,
+                        });
+                      }}
+                      onSucces={() => router.refresh()}
+                    >
+                      <ChampSelect
+                        name="type"
+                        label="Type d’avenant"
+                        defaultValue={a.type}
+                        options={TYPES_AVENANT.map((t) => ({ valeur: t, libelle: t.replace(/_/g, ' ') }))}
+                      />
+                      <ChampTexte name="dateEffet" label="Date d’effet" type="date" required defaultValue={a.dateEffet.slice(0, 10)} />
+                      <ChampNombre name="tarifMensuelFormule" label="Tarif mensuel de la formule (FCFA) — pour recalculer l’impact" min={0} />
+                    </FormulaireModal>
+                    <ConfirmationAction
+                      action="supprimer"
+                      element={`l’avenant « ${a.type.replace(/_/g, ' ')} » du ${dateFr(a.dateEffet)}`}
+                      verifier={() => verifierAction('avenant', a.id, 'supprimer')}
+                      onConfirmer={async () => {
+                        const r = await supprimerAvenant(police.id, a.id);
+                        return r.ok ? { ok: true } : r;
+                      }}
+                      onSucces={() => router.refresh()}
+                    />
+                  </>
+                )}
+                {a.statut === 'APPLIQUE' && (
+                  <ConfirmationAction
+                    action="archiver"
+                    element={`l’avenant « ${a.type.replace(/_/g, ' ')} » du ${dateFr(a.dateEffet)}`}
+                    consequence="L’avenant est conservé dans l’historique avec son motif. Cette annulation n’a aucun effet sur la police ni sur les cotisations déjà calculées."
+                    libelles={{ titre: 'Annuler', bouton: 'Annuler l’avenant', verbe: 'annuler' }}
+                    motif={{ libelle: 'Motif de l’annulation' }}
+                    verifier={() => verifierAction('avenant', a.id, 'archiver')}
+                    onConfirmer={async (motif) => {
+                      const r = await annulerAvenant(police.id, a.id, motif ?? '');
+                      return r.ok ? { ok: true } : r;
+                    }}
+                    onSucces={() => router.refresh()}
+                  />
+                )}
+                {a.statut === 'ANNULE' && (
+                  <span className="text-xs text-muted-foreground" title={a.motifAnnulation ?? undefined}>
+                    Annulé{a.motifAnnulation ? ` — ${a.motifAnnulation}` : ''}
+                  </span>
+                )}
+              </span>
+            )}
             vide="Aucun avenant."
           />
         </CardContent>

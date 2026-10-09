@@ -19,7 +19,7 @@ function fixture(entite: string, action: Action): Record<string, unknown> {
     denominationCommune: 'Paracétamol', version: 1, role: 'ROLE', type: 'TYPE', trancheAgeMin: 0, trancheAgeMax: 10,
     tarifConvention: 1000, dateDebut: new Date('2026-01-01'), dateFin: archive ? new Date('2026-06-30') : null,
     etablissementId: 'etab-1', pharmacieId: null, referentielActeId: 'ra-1', referentielActe: { code: 'C01', libelle: 'Consultation' },
-    produit: { nom: 'Formule', statut: 'BROUILLON' }, categorieActe: 'CONSULTATION', numeroPolice: 'POL-1', actif: !archive,
+    produit: { nom: 'Formule', statut: 'BROUILLON' }, categorieActe: 'CONSULTATION', numeroPolice: 'POL-1', actif: !archive, soldeActuel: 0, montantPaye: 0, montantDu: 5000, periode: new Date('2026-03-01'), nbLignesTotal: 3, fichierNom: null,
   };
   const statut: Record<string, string> = {
     organisation: archive ? 'ARCHIVEE' : 'ACTIVE',
@@ -32,7 +32,10 @@ function fixture(entite: string, action: Action): Record<string, unknown> {
     acteNational: archive ? 'RETIRE' : 'HOMOLOGUE',
     produit: action === 'archiver' ? 'PUBLIE' : archive ? 'ARCHIVE' : 'BROUILLON',
     police: 'DEVIS',
-    avenant: 'BROUILLON',
+    avenant: action === 'archiver' ? 'APPLIQUE' : 'BROUILLON',
+    compteFinancier: archive ? 'ARCHIVE' : 'ACTIF',
+    cotisation: 'A_PAYER',
+    propositionImport: 'BROUILLON',
     adherent: archive ? 'RADIE' : 'ACTIF',
     beneficiaire: archive ? 'RADIE' : 'ACTIF',
   };
@@ -86,6 +89,7 @@ describe('DependancesService — registre : chaque type de dépendance, pour cha
         it(`« ${d.cle} » (1 ${d.singulier}) bloque ${bloque.join(', ')} — et aucune autre action`, async () => {
           for (const action of ACTIONS) {
             if (!def.regles[action]) continue; // action non disponible pour cette entité
+            if (entite === 'cotisation' && action === 'supprimer') continue; // jamais supprimée : testé à part
             const { s } = service(fixture(entite, action), def.roles[0], { [index]: 1 });
             const v = await s.verifier(USER, entite, 'x-1', action);
             expect(v.liens).toContainEqual({ type: d.cle, libelle: d.singulier, nombre: 1 });
@@ -102,6 +106,7 @@ describe('DependancesService — registre : chaque type de dépendance, pour cha
       it('aucune dépendance → toute action disponible et permise par l’état est possible', async () => {
         for (const action of ACTIONS) {
           if (!def.regles[action]) continue;
+          if (entite === 'cotisation' && action === 'supprimer') continue; // jamais supprimée : testé à part
           const { s } = service(fixture(entite, action), def.roles[0]);
           const v = await s.verifier(USER, entite, 'x-1', action);
           if (entite === 'invitation' && action === 'supprimer') {

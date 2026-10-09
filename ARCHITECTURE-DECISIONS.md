@@ -815,3 +815,36 @@ celles qui n'ont pas la RLS (la table `profils` elle-même n'expose aucun SELECT
 l'invalidation des sessions Auth passe par la base (`auth.sessions`) faute d'endpoint dédié — le
 refus ne dépend pas d'elle ; un compte créé après une révocation de son e-mail suit le parcours
 d'invitation normal (`assertPasDejaCompte`).
+
+### Lot 5 « finance » (2026-10-08) — migration `prisma/sql/077_finance_archivage_annulations.sql`
+- **Polices** : modifier librement et supprimer (logique) seulement au stade DEVIS sans aucun lien
+  vivant (adhérents, avenants, cotisations, dossiers, réclamations — les lignes supprimées ne comptent
+  plus). Statuts finaux (renouvelée, résiliée, non renouvelée) = archive DÉFINITIVE : ni archivage ni
+  désarchivage par le registre ; « Dupliquer en devis » repart d'un nouveau DEVIS (même société, même
+  formule publiée, sans dates ni donnée reprise ; refusé si la société est archivée ou la formule n'est
+  plus publiée).
+- **Avenants** : modifier / supprimer (logique) en BROUILLON seulement. **Annuler un avenant APPLIQUE**
+  = statut ANNULE + motif obligatoire + auteur + date, jamais de suppression. Décision : appliquer un
+  avenant ne modifie ni la police, ni les adhérents, ni les cotisations (statut seul ; `impact_cotisation`
+  est informatif) ; l'annuler n'a donc AUCUN effet sur la police ni sur les cotisations déjà calculées :
+  pas de recalcul ni de compensation. L'audit garde motif, auteur, impact et l'état (nombre, total dû)
+  des cotisations de la police à cet instant.
+- **Cotisations** : `POST /billing/cotisations/:id/annuler` (A_PAYER sans aucun paiement, motif
+  obligatoire, comptable et informatique — l'adjoint hérite des droits de facturation comme ailleurs
+  dans `billing`) ; jamais supprimées (aucune route). Une ANNULEE ne bloque plus l'archivage de la
+  société (seules A_PAYER / EN_RETARD comptent) mais reste dans l'historique. EN_RETARD non annulable
+  (lettre de la demande). Limite : une cotisation annulée occupe sa période (unicité police / adhérent
+  ou société / période, sans condition de statut).
+- **Comptes financiers** : `statut` ACTIF | ARCHIVE. Modifier le libellé ; archiver (solde nul et aucun
+  paiement programmé — facture mensuelle ou paiement groupé non payé) ; désarchiver ; supprimer
+  (logique) seulement sans mouvement, sans paiement lié et **solde nul** (règle ajoutée : un compte à
+  150 000 F sans mouvement — les fonds initiaux n'en créent pas — était supprimable). Le solde ne se
+  modifie jamais directement. Un compte archivé ne reçoit ni ne sert plus aucun mouvement (409).
+  Rôles : cycle de vie = comptable et informatique (rôle propre, jamais les adjoints) ; créer et
+  mouvementer l'argent restent au comptable.
+- **Propositions d'import** : `imports_adherents.deleted_at` ; la liste en BROUILLON se supprime
+  (entière ou ligne à ligne), soumise ou validée elle est conservée ; entité `propositionImport` du registre.
+- **Garde-fou administrateur durci** : le contrôle « au moins un administrateur actif » est rejoué dans
+  la transaction sous verrou consultatif par organisation (révocations / changements de rôle / suppression
+  croisés simultanés : le second voit le premier validé → 409 explicite).
+- UI : la confirmation partagée accepte un motif obligatoire (annulations).

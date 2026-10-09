@@ -335,6 +335,8 @@ model ImportAdherents {
   importeParId    String    @map("importe_par") @db.Uuid
   valideParId     String?   @map("valide_par") @db.Uuid
   dateValidation  DateTime? @map("date_validation") @db.Timestamptz(6)
+  /// Suppression logique d'un brouillon de propositions (prisma/sql/077)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
   /// Mouvements de personnel à effet différé (prisma/sql/056) : mois auquel
   /// les ADHERENT de ce lot doivent devenir éligibles à la facturation (1er du
   /// mois). Quand renseigné, `validerImportAdherents` stampe directement
@@ -564,6 +566,10 @@ model Avenant {
   proratisationAppliquee Boolean   @default(false) @map("proratisation_appliquee")
   impactCotisation       Decimal?  @map("impact_cotisation") @db.Decimal(14, 2)
   statut                 String    @default("BROUILLON") // BROUILLON | APPLIQUE | ANNULE
+  /// Annulation d'un avenant APPLIQUE : motif obligatoire, jamais de suppression (prisma/sql/077)
+  motifAnnulation        String?   @map("motif_annulation")
+  annuleLe               DateTime? @map("annule_le") @db.Timestamptz(6)
+  annulePar              String?   @map("annule_par") @db.Uuid
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -632,6 +638,10 @@ model Cotisation {
   penaliteAppliquee Decimal   @default(0) @map("penalite_appliquee") @db.Decimal(14, 2)
   /// grille ayant servi au calcul (cotisation individuelle ; null pour une facture société consolidée) — prisma/sql/074
   grilleTarifaireId String?   @map("grille_tarifaire_id") @db.Uuid
+  /// Annulation (A_PAYER sans paiement) : motif obligatoire, jamais de suppression (prisma/sql/077)
+  motifAnnulation   String?   @map("motif_annulation")
+  annuleeLe         DateTime? @map("annulee_le") @db.Timestamptz(6)
+  annuleePar        String?   @map("annulee_par") @db.Uuid
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -1716,6 +1726,8 @@ model CompteFinancier {
   banqueNom      String?   @map("banque_nom")
   numeroCompte   String?   @map("numero_compte")
   soldeActuel    Decimal   @default(0) @map("solde_actuel") @db.Decimal(14, 2)
+  /// ACTIF | ARCHIVE — archivage réversible (prisma/sql/077) ; le solde ne se modifie jamais directement
+  statut         String    @default("ACTIF")
   creeParId      String    @map("cree_par") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

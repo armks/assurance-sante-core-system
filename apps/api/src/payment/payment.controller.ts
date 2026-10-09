@@ -1,9 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UploadedFile,
   UseGuards,
@@ -17,6 +20,7 @@ import {
   ApprovisionnerCompteDto,
   AssocierFacturesPourPaiementDto,
   CreerCompteFinancierDto,
+  ModifierCompteFinancierDto,
   PayerFactureDto,
 } from './dto/payment.dto';
 import { PaymentService, type FichierTeleverse } from './payment.service';
@@ -80,6 +84,32 @@ export class PaymentController {
     @Body() dto: CreerCompteFinancierDto,
   ) {
     return this.payment.creerCompteFinancier(user, dto);
+  }
+
+  /** Libellé seulement (le solde n'est jamais modifiable directement). */
+  @Patch('comptes-financiers/:id')
+  modifierCompteFinancier(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModifierCompteFinancierDto,
+  ) {
+    return this.payment.modifierCompteFinancier(user, id, dto.nom);
+  }
+
+  @Post('comptes-financiers/:id/archiver')
+  archiverCompteFinancier(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payment.archiverCompteFinancier(user, id);
+  }
+
+  @Post('comptes-financiers/:id/desarchiver')
+  desarchiverCompteFinancier(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payment.desarchiverCompteFinancier(user, id);
+  }
+
+  @Delete('comptes-financiers/:id')
+  @HttpCode(204)
+  supprimerCompteFinancier(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.payment.supprimerCompteFinancier(user, id);
   }
 
   @Post('comptes-financiers/:id/approvisionner')

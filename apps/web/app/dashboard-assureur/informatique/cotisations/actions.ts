@@ -140,3 +140,17 @@ export async function supprimerGrille(id: string): Promise<{ ok: true } | { ok: 
   revalidatePath(CIBLE);
   return { ok: true };
 }
+
+/** Annule une cotisation A_PAYER sans paiement (motif obligatoire) — jamais supprimée, reste dans l'historique. */
+export async function annulerCotisation(
+  id: string,
+  motif: string,
+): Promise<{ ok: true; message?: string } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/billing/cotisations/${id}/annuler`, {
+    method: 'POST',
+    body: JSON.stringify({ motif }),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Cotisation annulée (conservée dans l’historique).' };
+}

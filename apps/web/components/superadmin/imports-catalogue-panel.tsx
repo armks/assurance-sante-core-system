@@ -28,7 +28,7 @@ const dateHeureFr = (d: string) => new Date(d).toLocaleString('fr-FR');
 function ImporterExcelForm({ type }: { type: 'actes' | 'medicaments' }) {
   const description =
     type === 'actes'
-      ? "Colonnes attendues : code, libellé, catégorie. Un code déjà présent dans le catalogue national est mis à jour (jamais une erreur) — son statut d'homologation n'est pas modifié."
+      ? "Colonnes attendues : code, libellé ; facultatives : catégorie, lettre_cle, coefficient, mode (ISOLE ou GROUPE), categorie_garantie, groupe_code. Chaque ligne est vérifiée (lettre-clé active, coefficient positif, groupe pour un acte groupé…) et les erreurs sont rapportées ligne par ligne. Un code déjà présent dans le catalogue national est mis à jour (jamais une erreur) — son statut d'homologation n'est pas modifié."
       : "Colonnes attendues : denomination_commune, nom_commercial, classe_therapeutique, prix_reference_xof, medicament_essentiel. Une dénomination déjà présente (insensible à la casse) est mise à jour (jamais une erreur) — son statut d'homologation n'est pas modifié.";
   return (
     <FormulaireModal
@@ -57,17 +57,27 @@ function ImporterExcelForm({ type }: { type: 'actes' | 'medicaments' }) {
   );
 }
 
+/** « B × 12,5 · Isolé · Analyses de laboratoire » — « Non cotée » ou « inchangée » selon le fichier. */
+function libelleCotation(c: unknown): string {
+  if (!c || typeof c !== 'object') return 'Inchangée (colonnes absentes du fichier)';
+  const x = c as { lettreCleCode?: string | null; coefficient?: string | null; modeCotation?: string; categorieGarantie?: string | null; groupeCode?: string | null };
+  if (!x.lettreCleCode) return x.categorieGarantie ? `Non cotée · garantie ${x.categorieGarantie}` : 'Non cotée';
+  const mode = x.modeCotation === 'GROUPE' ? `Groupé (${x.groupeCode ?? '—'})` : 'Isolé';
+  return `${x.lettreCleCode} × ${Number(x.coefficient ?? 0).toLocaleString('fr-FR')} · ${mode}${x.categorieGarantie ? ` · ${x.categorieGarantie}` : ''}`;
+}
+
 function DetailImport({ imp }: { imp: ImportCatalogueResume }) {
   const nouvelles = imp.lignesValides.filter((l) => !l.estMiseAJour);
   const misesAJour = imp.lignesValides.filter((l) => l.estMiseAJour);
   const colonnes =
     imp.type === 'ACTES'
-      ? (['code', 'libelle', 'categorie'] as const)
+      ? (['code', 'libelle', 'categorie', 'cotation'] as const)
       : (['denominationCommune', 'nomCommercial', 'classeTherapeutique', 'prixReferenceXof', 'medicamentEssentiel'] as const);
   const entetes: Record<string, string> = {
     code: 'Code',
     libelle: 'Libellé',
-    categorie: 'Catégorie',
+    categorie: 'Chapitre',
+    cotation: 'Cotation',
     denominationCommune: 'DCI',
     nomCommercial: 'Nom commercial',
     classeTherapeutique: 'Classe',
@@ -91,7 +101,7 @@ function DetailImport({ imp }: { imp: ImportCatalogueResume }) {
             <tr key={i} className="border-b last:border-0">
               {colonnes.map((c) => (
                 <td key={c} className="py-1">
-                  {typeof l[c] === 'boolean' ? (l[c] ? 'Oui' : 'Non') : String(l[c] ?? '—')}
+                  {c === 'cotation' ? libelleCotation(l.cotation) : typeof l[c] === 'boolean' ? (l[c] ? 'Oui' : 'Non') : String(l[c] ?? '—')}
                 </td>
               ))}
             </tr>

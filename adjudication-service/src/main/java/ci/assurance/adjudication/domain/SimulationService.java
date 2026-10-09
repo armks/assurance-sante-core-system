@@ -138,9 +138,9 @@ public class SimulationService {
                   ? BigDecimal.ZERO
                   : repo.sommeConsommeeFamille(titulaire, g.id(), actesExclus, periode));
 
-      final BigDecimal tarif = repo.tarifConvention(d.etablissementId(), l.codeActe(), date);
+      final BigDecimal tarif = repo.tarifConvention(police.organisationId(), d.etablissementId(), l.codeActe(), date);
       final UUID tarifId =
-          tarif == null ? null : repo.tarifConventionneId(d.etablissementId(), l.codeActe(), date);
+          tarif == null ? null : repo.tarifConventionneId(police.organisationId(), d.etablissementId(), l.codeActe(), date);
       final ContexteAdjudication ctx =
           new ContexteAdjudication(
               null, police.organisationId(), null, null,

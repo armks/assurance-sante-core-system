@@ -442,6 +442,23 @@ model RegleProvisioning {
 /// categories_acte — référentiel UNIQUE des catégories d'acte (prisma/sql/067) :
 /// garanties, actes de dossier, référentiels d'actes, type de réclamation et
 /// rôle de revue manuelle. Lecture seule hors migration.
+/// lettres_cles — référentiel paramétrable des lettres-clés de la nomenclature (prisma/sql/080), géré par le
+/// superadmin. Aucune valeur chiffrée : les valeurs en FCFA se négocient par établissement.
+model LettreCle {
+  code       String   @id
+  id         String   @unique @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  libelle    String
+  actif      Boolean  @default(true)
+  ordre      Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  actesNationaux ReferentielNationalActe[]
+  actes          ReferentielActe[]
+
+  @@map("lettres_cles")
+}
+
 model CategorieActe {
   code            String     @id
   libelle         String
@@ -452,6 +469,8 @@ model CategorieActe {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  actesNationauxGarantie ReferentielNationalActe[] @relation("ReferentielNationalActeCategorieGarantie")
+  actesGarantie          ReferentielActe[]         @relation("ReferentielActeCategorieGarantie")
   garanties Garantie[]
   actes     ActeDossier[]
 
@@ -877,12 +896,22 @@ model ReferentielActe {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  /// Cotation (prisma/sql/080) : lettre-clé + coefficient (aucun prix en FCFA ici), mode isolé / groupé,
+  /// catégorie de GARANTIE (distincte du chapitre `categorie`), code de groupe.
+  lettreCleCode       String?   @map("lettre_cle_code")
+  coefficient         Decimal?  @db.Decimal(8, 2)
+  modeCotation        String    @default("ISOLE") @map("mode_cotation") // ISOLE | GROUPE
+  categorieGarantie   String?   @map("categorie_garantie")
+  groupeCode          String?   @map("groupe_code")
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   homologateur Profil?      @relation(fields: [homologuePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actesDossier        ActeDossier[]
   tarifsConventionnes TarifConventionne[]
 
   @@index([organisationId])
+  lettreCle           LettreCle?     @relation(fields: [lettreCleCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  categorieGarantieRef CategorieActe? @relation("ReferentielActeCategorieGarantie", fields: [categorieGarantie], references: [code], onDelete: Restrict, onUpdate: Cascade)
   @@index([statut])
   @@map("referentiel_actes")
 }
@@ -1425,6 +1454,8 @@ model ActeDossier {
   categorieActe         String    @map("categorie_acte")
   libelle               String
   codeActe              String?   @map("code_acte")
+  /// Acte du référentiel de l'organisation (prisma/sql/080) — remplace la jointure par `code_acte`
+  referentielActeId     String?   @map("referentiel_acte_id") @db.Uuid
   quantite              Int       @default(1)
   montantPrescrit       Decimal?  @map("montant_prescrit") @db.Decimal(14, 2)
   /// Simulation INDICATIVE calculée à l'ajout de l'acte (tarif conventionné si
@@ -1479,6 +1510,7 @@ model ActeDossier {
   contestations ContestationActe[]
   tarifConventionne TarifConventionne? @relation("ActeTarifConventionne", fields: [tarifConventionneId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
+  referentielActe ReferentielActe? @relation(fields: [referentielActeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   @@index([dossierSoinsId])
   @@index([ticketSoinsId])
   @@index([statut])
@@ -1846,7 +1878,16 @@ model ReferentielNationalActe {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime? @map("deleted_at") @db.Timestamptz(6)
+  /// Cotation (prisma/sql/080) : lettre-clé + coefficient (aucun prix en FCFA ici), mode isolé / groupé,
+  /// catégorie de GARANTIE (distincte du chapitre `categorie`), code de groupe.
+  lettreCleCode       String?   @map("lettre_cle_code")
+  coefficient         Decimal?  @db.Decimal(8, 2)
+  modeCotation        String    @default("ISOLE") @map("mode_cotation") // ISOLE | GROUPE
+  categorieGarantie   String?   @map("categorie_garantie")
+  groupeCode          String?   @map("groupe_code")
 
+  lettreCle           LettreCle?     @relation(fields: [lettreCleCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  categorieGarantieRef CategorieActe? @relation("ReferentielNationalActeCategorieGarantie", fields: [categorieGarantie], references: [code], onDelete: Restrict, onUpdate: Cascade)
   @@index([statut])
   @@map("referentiel_national_actes")
 }

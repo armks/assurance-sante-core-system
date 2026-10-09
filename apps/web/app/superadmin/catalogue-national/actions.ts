@@ -7,12 +7,21 @@ import { apiFetch, detailErreur, messageErreur } from '@/lib/api';
 
 const CIBLE = '/superadmin/catalogue-national';
 
+/** Cotation d'un acte (prisma/sql/080) : lettre-clé + coefficient, mode isolé / groupé, garantie, groupe. */
+export interface CotationActe {
+  lettreCleCode?: string | null;
+  coefficient?: string | null;
+  modeCotation?: string | null;
+  categorieGarantie?: string | null;
+  groupeCode?: string | null;
+}
+
 export async function creerActeNational(input: {
   code: string;
   libelle: string;
   categorie?: string;
   versionNomenclature?: string;
-}): Promise<ResultatSoumission> {
+} & CotationActe): Promise<ResultatSoumission> {
   const body = Object.fromEntries(
     Object.entries(input).filter(([, v]) => v !== undefined && v !== ''),
   );
@@ -23,6 +32,20 @@ export async function creerActeNational(input: {
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(CIBLE);
   return { ok: true, message: `Acte « ${input.code} » ajouté au catalogue.` };
+}
+
+/** Modifie libellé, chapitre et cotation d'un acte du catalogue national. `null` = effacer la valeur. */
+export async function modifierActeNational(
+  id: string,
+  input: { libelle?: string; categorie?: string | null; versionNomenclature?: string | null } & CotationActe,
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/superadmin/catalogue-national/actes/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Acte modifié.' };
 }
 
 export async function creerMedicamentNational(input: {

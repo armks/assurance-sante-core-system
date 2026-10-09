@@ -59,7 +59,7 @@ export class ReferenceService {
   async proposerActe(user: AuthenticatedUser, dto: ProposerActeDto) {
     const ctx = await this.contexteAppelant(user);
     this.assertRole(ctx, ROLE_PROPOSITION, 'proposer un acte');
-    await this.assertCodeActeLibre(dto.code);
+    await this.assertCodeActeLibre(ctx.organisationId, dto.code);
     // code ou libellé du référentiel unique (prisma/sql/067), jamais du texte libre
     const categorie = await this.categoriesActe.normaliser(dto.categorie);
 
@@ -70,6 +70,7 @@ export class ReferenceService {
           code: dto.code,
           libelle: dto.libelle,
           categorie,
+          categorieGarantie: categorie, // la catégorie validée est aussi la catégorie de garantie (prisma/sql/080)
           versionNomenclature: dto.versionNomenclature ?? null,
           statut: 'PROPOSE',
         },
@@ -431,8 +432,8 @@ export class ReferenceService {
         `L'acte « ${national.code} » est déjà présent dans votre référentiel (statut ${existe.statut}).`,
       );
     }
-    // contrainte UNIQUE globale sur referentiel_actes.code
-    await this.assertCodeActeLibre(national.code);
+    // code unique PAR ORGANISATION (prisma/sql/080)
+    await this.assertCodeActeLibre(ctx.organisationId, national.code);
 
     const id = await this.prisma.$transaction(async (tx) => {
       const acte = await tx.referentielActe.create({
@@ -443,6 +444,12 @@ export class ReferenceService {
           categorie: national.categorie,
           versionNomenclature: national.versionNomenclature,
           statut: 'PROPOSE',
+          // cotation du catalogue national (prisma/sql/080) : lettre-clé, coefficient, mode, garantie, groupe
+          lettreCleCode: national.lettreCleCode,
+          coefficient: national.coefficient,
+          modeCotation: national.modeCotation,
+          categorieGarantie: national.categorieGarantie,
+          groupeCode: national.groupeCode,
         },
       });
       await this.audit(
@@ -665,9 +672,9 @@ export class ReferenceService {
     return this.chargerMedicament(ctx.organisationId, id);
   }
 
-  private async assertCodeActeLibre(code: string): Promise<void> {
-    // unique parmi les NON supprimés (index partiel, prisma/sql/074)
-    const existe = (await this.prisma.referentielActe.count({ where: { code, deletedAt: null } })) > 0;
+  private async assertCodeActeLibre(organisationId: string, code: string): Promise<void> {
+    // unique PAR ORGANISATION parmi les NON supprimés (index partiel, prisma/sql/080)
+    const existe = (await this.prisma.referentielActe.count({ where: { organisationId, code, deletedAt: null } })) > 0;
     if (existe) {
       throw new ConflictException(`Le code d'acte « ${code} » existe déjà.`);
     }

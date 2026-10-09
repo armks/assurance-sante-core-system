@@ -7,6 +7,7 @@ import {
   Library,
   ShieldCheck,
   SlidersHorizontal,
+  Type,
 } from 'lucide-react';
 
 import { Brand } from '@/components/brand';
@@ -38,6 +39,7 @@ const NAV: (EntreeNav & { largeur?: LargeurPage })[] = [
     href: '/superadmin/catalogue-national',
     icon: Library,
   },
+  { label: 'Lettres-clés', href: '/superadmin/lettres-cles', icon: Type },
 ];
 
 export function SuperadminShell({

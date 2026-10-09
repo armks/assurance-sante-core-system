@@ -48,9 +48,9 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
   }
 
   // Tarif conventionné (v3 §5) : jointure dossiers_soins -> etablissement_id,
-  // puis actes_dossier.code_acte -> referentiel_actes.code (seul lien existant
-  // entre un acte réclamé et le référentiel, code_acte étant optionnel côté
-  // saisie) -> tarifs_conventionnes sur (etablissement_id, referentiel_acte_id),
+  // puis actes_dossier.referentiel_acte_id (FK, prisma/sql/080 ; remplace la jointure par
+  // code en texte libre) -> referentiel_actes DE LA MÊME ORGANISATION que la réclamation
+  // -> tarifs_conventionnes sur (etablissement_id, referentiel_acte_id),
   // filtré sur la période de validité du tarif. LEFT JOIN partout : absence de
   // tarif négocié (ou de code_acte renseigné) -> tarif_convention NULL ->
   // comportement de calcul inchangé (Adjudicateur).
@@ -86,7 +86,10 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
       LEFT JOIN dossiers_soins    ds ON ds.id = r.dossier_soins_id
       LEFT JOIN actes_dossier     ad ON ad.id = r.acte_dossier_id AND ad.deleted_at IS NULL
       LEFT JOIN dispensations_pharmacie dp ON dp.id = r.dispensation_id
-      LEFT JOIN referentiel_actes ra ON ra.code = ad.code_acte AND ra.deleted_at IS NULL
+      LEFT JOIN referentiel_actes ra
+        ON ra.id = ad.referentiel_acte_id
+        AND ra.organisation_id = r.organisation_id
+        AND ra.deleted_at IS NULL
       LEFT JOIN tarifs_conventionnes tc
         ON tc.etablissement_id = ds.etablissement_id
         AND tc.referentiel_acte_id = ra.id
@@ -388,8 +391,9 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
   }
 
   @Override
-  public BigDecimal tarifConvention(UUID etablissementId, String codeActe, LocalDate date) {
-    if (etablissementId == null || codeActe == null || codeActe.isBlank()) {
+  public BigDecimal tarifConvention(
+      UUID organisationId, UUID etablissementId, String codeActe, LocalDate date) {
+    if (organisationId == null || etablissementId == null || codeActe == null || codeActe.isBlank()) {
       return null;
     }
     // Même lien que SQL_CONTEXTE : code d'acte → referentiel_actes → tarif de
@@ -405,22 +409,24 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
              AND tc.deleted_at IS NULL
              AND tc.date_debut <= ?
              AND (tc.date_fin IS NULL OR tc.date_fin >= ?)
-            WHERE ra.code = ? AND ra.deleted_at IS NULL
+            WHERE ra.code = ? AND ra.organisation_id = ? AND ra.deleted_at IS NULL
             LIMIT 1
             """,
             (rs, n) -> rs.getBigDecimal("tarif_convention"),
             etablissementId,
             date,
             date,
-            codeActe)
+            codeActe,
+            organisationId)
         .stream()
         .findFirst()
         .orElse(null);
   }
 
   @Override
-  public UUID tarifConventionneId(UUID etablissementId, String codeActe, LocalDate date) {
-    if (etablissementId == null || codeActe == null || codeActe.isBlank()) {
+  public UUID tarifConventionneId(
+      UUID organisationId, UUID etablissementId, String codeActe, LocalDate date) {
+    if (organisationId == null || etablissementId == null || codeActe == null || codeActe.isBlank()) {
       return null;
     }
     return jdbc
@@ -434,14 +440,15 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
              AND tc.deleted_at IS NULL
              AND tc.date_debut <= ?
              AND (tc.date_fin IS NULL OR tc.date_fin >= ?)
-            WHERE ra.code = ? AND ra.deleted_at IS NULL
+            WHERE ra.code = ? AND ra.organisation_id = ? AND ra.deleted_at IS NULL
             LIMIT 1
             """,
             (rs, n) -> uuid(rs, "id"),
             etablissementId,
             date,
             date,
-            codeActe)
+            codeActe,
+            organisationId)
         .stream()
         .findFirst()
         .orElse(null);

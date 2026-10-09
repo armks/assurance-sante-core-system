@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
 import { DependancesModule } from '../dependances/dependances.module';
 import { CategoriesActeService } from './categories-acte.service';
+import { LettresClesService } from './lettres-cles.service';
 import { ReferenceController } from './reference.controller';
 import { ReferenceService } from './reference.service';
 
@@ -15,7 +16,7 @@ import { ReferenceService } from './reference.service';
 @Module({
   imports: [IdentityModule, DependancesModule],
   controllers: [ReferenceController],
-  providers: [ReferenceService, CategoriesActeService],
-  exports: [ReferenceService, CategoriesActeService],
+  providers: [ReferenceService, CategoriesActeService, LettresClesService],
+  exports: [ReferenceService, CategoriesActeService, LettresClesService],
 })
 export class ReferenceModule {}

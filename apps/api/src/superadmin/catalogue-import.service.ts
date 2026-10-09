@@ -13,6 +13,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
+import { LettresClesService } from '../reference/lettres-cles.service';
 import { ROLE_SUPERADMIN } from './superadmin.types';
 
 /** Forme minimale d'un fichier téléversé (multer, mémoire) — même convention
@@ -27,10 +28,21 @@ export interface FichierTeleverse {
 export const TYPES_CATALOGUE = ['ACTES', 'MEDICAMENTS'] as const;
 export type TypeCatalogue = (typeof TYPES_CATALOGUE)[number];
 
+/** Cotation d'une ligne d'import (prisma/sql/080) ; `null` = le fichier ne porte AUCUNE colonne de cotation :
+ * un acte existant garde alors sa cotation. */
+interface CotationLigne {
+  lettreCleCode: string | null;
+  coefficient: string | null;
+  modeCotation: string;
+  categorieGarantie: string | null;
+  groupeCode: string | null;
+}
+
 interface LigneActeCatalogue {
   code: string;
   libelle: string;
   categorie: string | null;
+  cotation: Partial<CotationLigne> | null;
   /** Un code déjà présent dans `referentiel_national_actes` (non supprimé) —
    * mise à jour à la validation, jamais une erreur bloquante. */
   estMiseAJour: boolean;
@@ -72,12 +84,33 @@ function normaliserEntete(s: string): string {
     .replace(/[\s_-]/g, '');
 }
 
-type ColonneActe = 'code' | 'libelle' | 'categorie';
+type ColonneActe =
+  | 'code'
+  | 'libelle'
+  | 'categorie'
+  | 'lettreCle'
+  | 'coefficient'
+  | 'modeCotation'
+  | 'categorieGarantie'
+  | 'groupeCode';
 const ALIAS_ENTETES_ACTES: Record<string, ColonneActe> = {
   code: 'code',
   libelle: 'libelle',
   categorie: 'categorie',
+  chapitre: 'categorie',
+  lettrecle: 'lettreCle',
+  lettre: 'lettreCle',
+  coefficient: 'coefficient',
+  coef: 'coefficient',
+  mode: 'modeCotation',
+  modecotation: 'modeCotation',
+  isolegroupe: 'modeCotation',
+  categoriegarantie: 'categorieGarantie',
+  garantie: 'categorieGarantie',
+  groupe: 'groupeCode',
+  groupecode: 'groupeCode',
 };
+const COLONNES_COTATION: ColonneActe[] = ['lettreCle', 'coefficient', 'modeCotation', 'categorieGarantie', 'groupeCode'];
 
 type ColonneMedicament = 'denominationCommune' | 'nomCommercial' | 'classeTherapeutique' | 'prixReferenceXof' | 'medicamentEssentiel';
 const ALIAS_ENTETES_MEDICAMENTS: Record<string, ColonneMedicament> = {
@@ -123,6 +156,7 @@ export class CatalogueImportService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly categoriesActe: CategoriesActeService,
+    private readonly lettresCles: LettresClesService,
   ) {}
 
   private async assertSuperadmin(user: AuthenticatedUser): Promise<{ userId: string }> {
@@ -166,7 +200,7 @@ export class CatalogueImportService {
     if (nbLignesTotal === 0) {
       throw new BadRequestException(
         type === 'ACTES'
-          ? 'Fichier vide ou colonnes non reconnues (attendues : code, libelle, categorie).'
+          ? 'Fichier vide ou colonnes non reconnues (attendues : code, libelle ; facultatives : categorie, lettre_cle, coefficient, mode, categorie_garantie, groupe_code).'
           : 'Fichier vide ou colonnes non reconnues (attendues : denomination_commune, nom_commercial, classe_therapeutique, prix_reference_xof, medicament_essentiel).',
       );
     }
@@ -244,7 +278,7 @@ export class CatalogueImportService {
           if (ligne.estMiseAJour && ligne.idExistant) {
             const a = await tx.referentielNationalActe.update({
               where: { id: ligne.idExistant },
-              data: { libelle: ligne.libelle, categorie: ligne.categorie },
+              data: { libelle: ligne.libelle, categorie: ligne.categorie, ...(ligne.cotation ?? {}) },
             });
             await this.audit(
               tx,
@@ -262,6 +296,7 @@ export class CatalogueImportService {
               libelle: ligne.libelle,
               categorie: ligne.categorie,
               statut: 'PROPOSE',
+              ...(ligne.cotation ?? {}),
             },
           });
           await this.audit(
@@ -388,12 +423,22 @@ export class CatalogueImportService {
       return String(valeur).trim();
     };
 
+    // le fichier porte-t-il des colonnes de cotation ? sinon un acte existant garde la sienne
+    const avecCotation = COLONNES_COTATION.some((c) => colonnes.has(c));
+    // `categorie_garantie` présente : `categorie` est le CHAPITRE (texte libre) ; sinon comportement historique
+    // (la catégorie, validée, vaut aussi catégorie de garantie)
+    const chapitreLibre = colonnes.has('categorieGarantie');
+    const lettresActives = new Set(
+      (await this.lettresCles.lister()).filter((l) => l.actif).map((l) => l.code),
+    );
+
     const candidats: {
       ligne: number;
       donnees: Record<string, string>;
       code: string;
       libelle: string;
       categorie: string | null;
+      cotation: Partial<CotationLigne> | null;
       erreurs: string[];
     }[] = [];
 
@@ -403,21 +448,48 @@ export class CatalogueImportService {
       const code = brut(n, 'code');
       const libelle = brut(n, 'libelle');
       const categorie = brut(n, 'categorie');
-      if (!code && !libelle && !categorie) continue; // ligne vide, ignorée silencieusement
+      const brutCotation = {
+        lettreCleCode: brut(n, 'lettreCle'),
+        coefficient: brut(n, 'coefficient'),
+        modeCotation: brut(n, 'modeCotation'),
+        categorieGarantie: brut(n, 'categorieGarantie'),
+        groupeCode: brut(n, 'groupeCode'),
+      };
+      if (!code && !libelle && !categorie && !Object.values(brutCotation).some(Boolean)) continue; // ligne vide, ignorée silencieusement
 
-      const donnees = { code, libelle, categorie };
+      const donnees: Record<string, string> = { code, libelle, categorie };
+      if (avecCotation) {
+        donnees.lettre_cle = brutCotation.lettreCleCode;
+        donnees.coefficient = brutCotation.coefficient;
+        donnees.mode = brutCotation.modeCotation;
+        donnees.categorie_garantie = brutCotation.categorieGarantie;
+        donnees.groupe_code = brutCotation.groupeCode;
+      }
       const erreurs: string[] = [];
       if (!code) erreurs.push('code manquant');
       if (!libelle) erreurs.push('libellé manquant');
-      // code ou libellé du référentiel unique des catégories (prisma/sql/067)
-      let categorieCode: string | null = null;
-      try {
-        categorieCode = await this.categoriesActe.normaliser(categorie);
-      } catch {
-        erreurs.push(`catégorie inconnue (${categorie})`);
+      let categorieCode: string | null = categorie || null;
+      if (!chapitreLibre) {
+        // code ou libellé du référentiel unique des catégories (prisma/sql/067)
+        try {
+          categorieCode = await this.categoriesActe.normaliser(categorie);
+        } catch {
+          erreurs.push(`catégorie inconnue (${categorie})`);
+        }
+      }
+      let cotation: Partial<CotationLigne> | null = null;
+      if (avecCotation) {
+        const analyse = await this.lettresCles.analyser(
+          { ...brutCotation, categorieGarantie: chapitreLibre ? brutCotation.categorieGarantie : categorieCode ?? '' },
+          lettresActives,
+        );
+        erreurs.push(...analyse.erreurs);
+        cotation = analyse.valide;
+      } else if (!chapitreLibre && categorieCode) {
+        cotation = { categorieGarantie: categorieCode }; // historique : la catégorie validée est aussi la catégorie de garantie
       }
 
-      candidats.push({ ligne: n, donnees, code, libelle, categorie: categorieCode, erreurs });
+      candidats.push({ ligne: n, donnees, code, libelle, categorie: categorieCode, cotation, erreurs });
     }
 
     // Doublon de code DANS le fichier — toutes les lignes concernées en erreur.
@@ -453,6 +525,7 @@ export class CatalogueImportService {
           code: c.code,
           libelle: c.libelle,
           categorie: c.categorie,
+          cotation: c.cotation,
           estMiseAJour: idExistant !== null,
           idExistant,
         });

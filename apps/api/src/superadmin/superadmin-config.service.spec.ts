@@ -6,6 +6,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SuperadminConfigService } from './superadmin-config.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { LettresClesService } from '../reference/lettres-cles.service';
+import { lettresClesServiceDeTest } from '../reference/lettres-cles.testing';
 import { SanteService } from '../sante/sante.service';
 import { DependancesService } from '../dependances/dependances.service';
 import { dependancesDeTest } from '../dependances/dependances.testing';
@@ -77,6 +79,7 @@ describe('SuperadminConfigService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
+        { provide: LettresClesService, useValue: lettresClesServiceDeTest() },
         SuperadminConfigService,
         { provide: PrismaService, useValue: prisma },
         { provide: DependancesService, useValue: dependances },
@@ -85,6 +88,78 @@ describe('SuperadminConfigService', () => {
       ],
     }).compile();
     service = moduleRef.get(SuperadminConfigService);
+  });
+
+  describe('lettres-clés et cotation du catalogue (prisma/sql/080)', () => {
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(superadmin());
+      prisma.lettreCle = {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'l-1', actif: true, ...data })),
+        update: jest.fn().mockImplementation(async ({ data }: any) => ({ id: 'l-1', code: 'KC', libelle: 'Libellé', actif: true, ordre: 0, ...data })),
+        delete: jest.fn(),
+      };
+    });
+
+    it('creerLettreCle : code normalisé en majuscules, tracé dans l’audit ; format, doublon de code et de libellé refusés', async () => {
+      const l = await service.creerLettreCle(USER, { code: ' ami ', libelle: 'Actes médico-infirmiers (fictif)' });
+      expect(l).toMatchObject({ code: 'AMI' });
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      await expect(service.creerLettreCle(USER, { code: 'K1', libelle: 'x' })).rejects.toThrow(/1 à 4 lettres majuscules/);
+      prisma.lettreCle.findUnique.mockResolvedValue({ code: 'B' });
+      await expect(service.creerLettreCle(USER, { code: 'B', libelle: 'autre' })).rejects.toThrow(/existe déjà/);
+      prisma.lettreCle.findUnique.mockResolvedValue(null);
+      prisma.lettreCle.count.mockResolvedValue(1);
+      await expect(service.creerLettreCle(USER, { code: 'QQ', libelle: 'Libellé déjà pris' })).rejects.toThrow(/porte déjà le libellé/);
+    });
+
+    it('un non-superadmin est refusé (403) sur toutes les opérations', async () => {
+      identity.getMe.mockResolvedValue(informatique());
+      await expect(service.creerLettreCle(USER, { code: 'B', libelle: 'x' })).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.listerLettresCles(USER)).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.supprimerLettreCle(USER, 'l-1')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.lettreCle.create).not.toHaveBeenCalled();
+    });
+
+    it('désactiver / supprimer passent par le registre des dépendances (refus si des actes la portent)', async () => {
+      prisma.lettreCle.findUnique.mockResolvedValue({ id: 'l-1', code: 'KC', libelle: 'Lettre-clé KC', actif: true });
+      await service.changerStatutLettreCle(USER, 'l-1', 'archiver');
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'lettreCle', 'l-1', 'archiver');
+      expect(prisma.lettreCle.update).toHaveBeenCalledWith(expect.objectContaining({ data: { actif: false } }));
+      await service.supprimerLettreCle(USER, 'l-1');
+      expect(dependances.assertPossible).toHaveBeenCalledWith(USER, 'lettreCle', 'l-1', 'supprimer');
+      expect(prisma.lettreCle.delete).toHaveBeenCalledWith({ where: { id: 'l-1' } });
+      dependances.assertPossible.mockRejectedValueOnce(new Error('Suppression impossible : lié à 2 actes'));
+      await expect(service.supprimerLettreCle(USER, 'l-1')).rejects.toThrow(/lié à 2 actes/);
+      expect(prisma.lettreCle.delete).toHaveBeenCalledTimes(1);
+    });
+
+    it('creerActeNational : la cotation est validée (400 si incohérente) et enregistrée', async () => {
+      prisma.referentielNationalActe.findFirst.mockResolvedValue(null);
+      prisma.referentielNationalActe.create.mockImplementation(async ({ data }: any) => ({ id: 'a1', ...data }));
+      await expect(
+        service.creerActeNational(USER, { code: 'FICTIF-1', libelle: 'Fictif', lettreCleCode: 'B' } as any),
+      ).rejects.toThrow(/coefficient manquant/);
+      const a = await service.creerActeNational(USER, { code: 'FICTIF-1', libelle: 'Fictif', lettreCleCode: 'B', coefficient: 12, categorieGarantie: 'ANALYSES' } as any);
+      expect(a).toMatchObject({ lettreCleCode: 'B', coefficient: '12.00', modeCotation: 'ISOLE', categorieGarantie: 'ANALYSES', groupeCode: null });
+    });
+
+    it('modifierActeNational : fusionne avec l’existant, valide, trace l’avant et l’après ; null efface', async () => {
+      prisma.referentielNationalActe.findFirst.mockResolvedValue({
+        id: 'a1', code: 'FICTIF-1', categorie: null, lettreCleCode: 'B', coefficient: { toString: () => '12.00' },
+        modeCotation: 'ISOLE', categorieGarantie: 'ANALYSES', groupeCode: null,
+      });
+      prisma.referentielNationalActe.update.mockImplementation(async ({ data }: any) => ({ id: 'a1', ...data }));
+      let maj: any = await service.modifierActeNational(USER, 'a1', { coefficient: '15,5' });
+      expect(maj).toMatchObject({ lettreCleCode: 'B', coefficient: '15.50' }); // la lettre-clé existante est conservée
+      await expect(service.modifierActeNational(USER, 'a1', { modeCotation: 'GROUPE' })).rejects.toThrow(/code de groupe manquant/);
+      maj = await service.modifierActeNational(USER, 'a1', { lettreCleCode: null, coefficient: null });
+      expect(maj).toMatchObject({ lettreCleCode: null, coefficient: null });
+      const audit = prisma.$executeRaw.mock.calls.map((c: any[]) => JSON.stringify(c)).join('');
+      expect(audit).toContain('MODIFICATION_ACTE_CATALOGUE_NATIONAL');
+    });
   });
 
   it('definirParametre : un ASSUREUR_INFORMATIQUE est refusé (403)', async () => {

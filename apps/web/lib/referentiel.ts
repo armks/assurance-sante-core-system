@@ -10,6 +10,15 @@ export const LIBELLE_STATUT_HOMOLOGATION: Record<string, string> = {
   RETIRE: 'Retiré',
 };
 
+/**
+ * Mode de cotation d'un acte (nomenclature) — SOURCE UNIQUE des libellés.
+ * MIROIR du schéma (`ISOLE | GROUPE`, prisma/sql/080).
+ */
+export const LIBELLE_MODE_COTATION: Record<string, string> = {
+  ISOLE: 'Isolé',
+  GROUPE: 'Groupé',
+};
+
 /*
  * Catégories d'acte : plus de liste ici. Libellés et listes viennent du
  * référentiel unique `categories_acte` (API `GET /reference/categories-acte`,

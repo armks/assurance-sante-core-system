@@ -362,7 +362,8 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     dependances: [
       dep('tarifs', 'tarif conventionné', 'tarifs conventionnés', (db, a, ctx) => db.tarifConventionne.count({ where: { referentielActeId: a.id, organisationId: org(ctx), deletedAt: null } })),
       // liens LOGIQUES par code d'acte
-      dep('actes', 'acte de dossier', 'actes de dossier', (db, a, ctx) => db.acteDossier.count({ where: { codeActe: a.code, dossier: { organisationId: org(ctx) } } })),
+      // lien FORT (prisma/sql/080) : `referentiel_acte_id` ; le code en texte libre reste compté pour l'historique
+      dep('actes', 'acte de dossier', 'actes de dossier', (db, a, ctx) => db.acteDossier.count({ where: { dossier: { organisationId: org(ctx) }, OR: [{ referentielActeId: a.id }, { codeActe: a.code }] } })),
       dep('autorisationsRepetition', 'autorisation de répétition', 'autorisations de répétition', (db, a, ctx) => db.autorisationRepetitionActe.count({ where: { codeActe: a.code, organisationId: org(ctx) } })),
     ],
     regles: {
@@ -410,6 +411,27 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
       archiver: (a) => (a.statut === 'RETIRE' ? dejaArchive("L'acte") : null),
       desarchiver: (a) => (a.statut !== 'RETIRE' ? "L'acte n'est pas retiré." : null),
       modifier: () => null,
+    },
+  },
+
+  // Lettres-clés (lot barème 1) : référentiel paramétrable du superadmin ; archiver = DÉSACTIVER.
+  lettreCle: {
+    designation: 'la lettre-clé',
+    pronom: 'la',
+    table: 'lettres_cles',
+    roles: SUPERADMIN,
+    nomsAction: { archiver: 'Désactivation', desarchiver: 'Réactivation' },
+    charger: (db, id) => db.lettreCle.findFirst({ where: { id } }),
+    nom: (l) => `${l.code} — ${l.libelle}`,
+    conseils: { supprimer: 'Désactivez-la plutôt : elle n’est plus proposée à la cotation, les actes déjà cotés sont conservés.' },
+    dependances: [
+      dep('actesNationaux', 'acte du catalogue national coté', 'actes du catalogue national cotés', (db, l) => db.referentielNationalActe.count({ where: { lettreCleCode: l.code, deletedAt: null } })),
+      dep('actesOrganisations', 'acte d’organisation coté', 'actes d’organisations cotés', (db, l) => db.referentielActe.count({ where: { lettreCleCode: l.code, deletedAt: null } })),
+    ],
+    regles: {
+      supprimer: () => null,
+      archiver: (l) => (!l.actif ? 'La lettre-clé est déjà désactivée.' : null),
+      desarchiver: (l) => (l.actif ? "La lettre-clé n'est pas désactivée." : null),
     },
   },
 

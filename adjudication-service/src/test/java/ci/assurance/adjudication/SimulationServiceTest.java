@@ -42,6 +42,7 @@ class SimulationServiceTest {
   private static final UUID PRODUIT = UUID.fromString("77777777-7777-4777-8777-777777777777");
   private static final UUID ADHERENT = UUID.fromString("22222222-2222-4222-8222-222222222222");
   private static final UUID ETAB = UUID.fromString("55555555-5555-4555-8555-555555555555");
+  private static final UUID ORG = UUID.fromString("88888888-8888-4888-8888-888888888888");
   private static final UUID BENEFICIAIRE = UUID.fromString("66666666-6666-4666-8666-666666666666");
   private static final LocalDate DATE = LocalDate.of(2026, 6, 15);
   /** Période du produit de test (année civile) contenant la date des soins {@link #DATE}. */
@@ -57,7 +58,7 @@ class SimulationServiceTest {
     service = new SimulationService(repo, java.time.Clock.fixed(
         java.time.Instant.parse("2026-06-20T12:00:00Z"), ZoneOffset.UTC));
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
-        new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE",
+        new PoliceApplicable(POLICE, ORG, PRODUIT, "ACTIVE",
             LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), "ANNEE_CIVILE", 90)));
     when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
     when(repo.sommeConsommeeFamille(any(), any(), any(), any())).thenReturn(new BigDecimal("0.00"));
@@ -155,7 +156,7 @@ class SimulationServiceTest {
   @DisplayName("Date des soins par ligne : police échue à cette date → REJETE E001")
   void dateDeSoinsParLigne() {
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
-        new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "ACTIVE",
+        new PoliceApplicable(POLICE, ORG, PRODUIT, "ACTIVE",
             LocalDate.of(2026, 1, 1), LocalDate.of(2026, 3, 31), "ANNEE_CIVILE", 90)));
     UUID g = garantie("80", null, null, null);
     ResultatLigne r = service.simuler(new Demande(POLICE, ADHERENT, null, ETAB, DATE,
@@ -181,7 +182,7 @@ class SimulationServiceTest {
   @DisplayName("Police non active → REJETE E001, 0.00")
   void policeInactive() {
     when(repo.chargerPolice(POLICE)).thenReturn(Optional.of(
-        new PoliceApplicable(POLICE, UUID.randomUUID(), PRODUIT, "SUSPENDUE", null, null, "ANNEE_CIVILE", 90)));
+        new PoliceApplicable(POLICE, ORG, PRODUIT, "SUSPENDUE", null, null, "ANNEE_CIVILE", 90)));
     UUID g = garantie("80", null, null, null);
     ResultatLigne r = simuler(new Ligne(g, new BigDecimal("10000"), null)).get(0);
     assertThat(r.decision()).isEqualTo(Decision.REJETE);
@@ -193,9 +194,23 @@ class SimulationServiceTest {
   @DisplayName("Tarif conventionné : 10000 facturés plafonnés à 8000 avant le taux → 6400.00")
   void tarifConventionne() {
     UUID g = garantie("80", null, null, null);
-    when(repo.tarifConvention(eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
+    when(repo.tarifConvention(eq(ORG), eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
     assertThat(simuler(new Ligne(g, new BigDecimal("10000"), "CI-CONS")).get(0).montantCouvert())
         .isEqualByComparingTo("6400.00");
+  }
+
+  @Test
+  @DisplayName("Deux organisations avec le MÊME code d'acte : le tarif est celui de l'organisation de la police, jamais de l'autre (prisma/sql/080)")
+  void memeCodeActeDeuxOrganisations() {
+    UUID g = garantie("80", null, null, null);
+    UUID autreOrg = UUID.fromString("99999999-9999-4999-8999-999999999999");
+    // FICTIF : tarif de l'organisation de la police 8000, tarif de l'autre organisation 2000, même code d'acte
+    when(repo.tarifConvention(eq(ORG), eq(ETAB), eq("FICTIF-ACTE"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
+    when(repo.tarifConvention(eq(autreOrg), eq(ETAB), eq("FICTIF-ACTE"), eq(DATE))).thenReturn(new BigDecimal("2000.00"));
+    assertThat(simuler(new Ligne(g, new BigDecimal("10000"), "FICTIF-ACTE")).get(0).montantCouvert())
+        .isEqualByComparingTo("6400.00"); // 8000 x 80 %, pas 2000 x 80 % = 1600
+    org.mockito.Mockito.verify(repo, org.mockito.Mockito.never())
+        .tarifConvention(eq(autreOrg), any(), any(), any());
   }
 
   @Test
@@ -203,8 +218,8 @@ class SimulationServiceTest {
   void tarifConventionneTrace() {
     UUID g = garantie("80", null, null, null);
     UUID tarif = UUID.fromString("00000000-0000-4000-8000-00000000c0de");
-    when(repo.tarifConvention(eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
-    when(repo.tarifConventionneId(eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(tarif);
+    when(repo.tarifConvention(eq(ORG), eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
+    when(repo.tarifConventionneId(eq(ORG), eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(tarif);
     List<ResultatLigne> r = simuler(
         new Ligne(g, new BigDecimal("10000"), "CI-CONS"), new Ligne(g, new BigDecimal("1000"), null));
     assertThat(r.get(0).tarifConventionneId()).isEqualTo(tarif);

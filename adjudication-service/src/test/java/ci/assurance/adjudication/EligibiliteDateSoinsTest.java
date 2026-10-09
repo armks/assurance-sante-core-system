@@ -45,6 +45,7 @@ class EligibiliteDateSoinsTest {
 
   private static final LocalDate DEBUT = LocalDate.of(2025, 3, 1);
   private static final UUID ETAB = JeuDeDonneesReference.ETABLISSEMENT_ID;
+  private static final UUID ORG = UUID.fromString("88888888-8888-4888-8888-888888888888");
 
   private static LocalDate date(String v) {
     return v == null || v.isBlank() ? null : LocalDate.parse(v.trim());
@@ -80,7 +81,7 @@ class EligibiliteDateSoinsTest {
     UUID adherent = JeuDeDonneesReference.ADHERENT_ID;
     UUID g = UUID.randomUUID();
     when(repo.chargerPolice(police)).thenReturn(Optional.of(
-        new PoliceApplicable(police, UUID.randomUUID(), produit, statut, DEBUT, fin, "ANNEE_CIVILE", delai)));
+        new PoliceApplicable(police, ORG, produit, statut, DEBUT, fin, "ANNEE_CIVILE", delai)));
     when(repo.chargerGarantie(g)).thenReturn(Optional.of(new GarantieApplicable(
         g, produit, "CONSULTATION", JeuDeDonneesReference.TAUX_PCT, JeuDeDonneesReference.PLAFOND_PAR_ACTE,
         JeuDeDonneesReference.PLAFOND_ANNUEL, null, JeuDeDonneesReference.FRANCHISE, null, 0, "TOUT_RESEAU")));
@@ -130,14 +131,14 @@ class EligibiliteDateSoinsTest {
     AdjudicationRepository repo = mock(AdjudicationRepository.class);
     LocalDate soins = LocalDate.of(2026, 1, 20);
     LocalDate facture = LocalDate.of(2026, 3, 10);
-    when(repo.tarifConvention(ETAB, "CI-CONS", soins)).thenReturn(new BigDecimal("15000.00"));
-    when(repo.tarifConvention(ETAB, "CI-CONS", facture)).thenReturn(new BigDecimal("22000.00"));
+    when(repo.tarifConvention(ORG, ETAB, "CI-CONS", soins)).thenReturn(new BigDecimal("15000.00"));
+    when(repo.tarifConvention(ORG, ETAB, "CI-CONS", facture)).thenReturn(new BigDecimal("22000.00"));
 
     ResultatLigne f = facture("ACTIVE", null, 90, soins, facture, repo, "CI-CONS");
 
     // (min(25000, 15000) − 2000) × 80 % = 10400 ; avec le tarif du jour : (22000 − 2000) × 80 % = 16000
     assertThat(f.montantCouvert()).isEqualByComparingTo("10400.00");
-    verify(repo, never()).tarifConvention(ETAB, "CI-CONS", facture);
+    verify(repo, never()).tarifConvention(ORG, ETAB, "CI-CONS", facture);
 
     // la réclamation reçoit le tarif de la date des soins (résolu en SQL, prisma/sql/070) :
     // à tarif égal, même montant que la facture

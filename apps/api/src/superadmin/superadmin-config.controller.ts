@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -19,8 +20,11 @@ import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { CatalogueImportService, type FichierTeleverse } from './catalogue-import.service';
 import {
   CreerActeNationalDto,
+  CreerLettreCleDto,
   CreerMedicamentNationalDto,
   DefinirParametreDto,
+  ModifierActeNationalDto,
+  ModifierLettreCleDto,
 } from './dto/superadmin-config.dto';
 import { SuperadminConfigService } from './superadmin-config.service';
 
@@ -81,6 +85,52 @@ export class SuperadminConfigController {
     @Body() dto: CreerActeNationalDto,
   ) {
     return this.config.creerActeNational(user, dto);
+  }
+
+  /** Modification (libellé, chapitre, cotation) d'un acte du catalogue national. */
+  @Patch('catalogue-national/actes/:id')
+  modifierActeNational(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModifierActeNationalDto,
+  ) {
+    return this.config.modifierActeNational(user, id, dto);
+  }
+
+  // --- Lettres-clés de la nomenclature (aucune valeur chiffrée) ---
+
+  @Get('lettres-cles')
+  listerLettresCles(@CurrentUser() user: AuthenticatedUser) {
+    return this.config.listerLettresCles(user);
+  }
+
+  @Post('lettres-cles')
+  creerLettreCle(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreerLettreCleDto) {
+    return this.config.creerLettreCle(user, dto);
+  }
+
+  @Patch('lettres-cles/:id')
+  modifierLettreCle(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModifierLettreCleDto,
+  ) {
+    return this.config.modifierLettreCle(user, id, dto);
+  }
+
+  @Post('lettres-cles/:id/desactiver')
+  desactiverLettreCle(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.config.changerStatutLettreCle(user, id, 'archiver');
+  }
+
+  @Post('lettres-cles/:id/reactiver')
+  reactiverLettreCle(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.config.changerStatutLettreCle(user, id, 'desarchiver');
+  }
+
+  @Delete('lettres-cles/:id')
+  supprimerLettreCle(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.config.supprimerLettreCle(user, id);
   }
 
   @Delete('catalogue-national/actes/:id')

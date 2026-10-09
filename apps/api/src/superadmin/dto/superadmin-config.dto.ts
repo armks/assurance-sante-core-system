@@ -38,6 +38,38 @@ export class CreerActeNationalDto {
   @IsOptional() @IsString() @MaxLength(120) categorie?: string;
   @IsOptional() @IsString() @MaxLength(40) versionNomenclature?: string;
   @IsOptional() @IsIn(STATUTS_HOMOLOGATION) statut?: string;
+
+  // --- cotation (prisma/sql/080) : lettre-clé + coefficient, mode, catégorie de garantie, groupe ---
+  @IsOptional() @IsString() @MaxLength(4) lettreCleCode?: string | null;
+  @IsOptional() coefficient?: number | string | null;
+  @IsOptional() @IsString() @MaxLength(10) modeCotation?: string | null;
+  @IsOptional() @IsString() @MaxLength(60) categorieGarantie?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) groupeCode?: string | null;
+}
+
+/** Modification d'un acte du catalogue national : libellé, chapitre, version et cotation. */
+export class ModifierActeNationalDto {
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(300) libelle?: string;
+  @IsOptional() @IsString() @MaxLength(120) categorie?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) versionNomenclature?: string | null;
+
+  @IsOptional() @IsString() @MaxLength(4) lettreCleCode?: string | null;
+  @IsOptional() coefficient?: number | string | null;
+  @IsOptional() @IsString() @MaxLength(10) modeCotation?: string | null;
+  @IsOptional() @IsString() @MaxLength(60) categorieGarantie?: string | null;
+  @IsOptional() @IsString() @MaxLength(40) groupeCode?: string | null;
+}
+
+/** Création d'une lettre-clé (aucune valeur chiffrée). */
+export class CreerLettreCleDto {
+  @IsString() @IsNotEmpty() @MaxLength(4) code!: string;
+  @IsString() @IsNotEmpty() @MaxLength(120) libelle!: string;
+  @IsOptional() ordre?: number;
+}
+
+export class ModifierLettreCleDto {
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(120) libelle?: string;
+  @IsOptional() ordre?: number;
 }
 
 /** Médicament du catalogue national — mêmes champs que ProposerMedicamentDto + statut. */

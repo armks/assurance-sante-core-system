@@ -1,4 +1,6 @@
 import {
+  BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -10,11 +12,15 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
+import { FORMAT_CODE_LETTRE_CLE, LettresClesService } from '../reference/lettres-cles.service';
 import { SanteService } from '../sante/sante.service';
 import {
   CreerActeNationalDto,
+  CreerLettreCleDto,
   CreerMedicamentNationalDto,
   DefinirParametreDto,
+  ModifierActeNationalDto,
+  ModifierLettreCleDto,
 } from './dto/superadmin-config.dto';
 import { ROLE_SUPERADMIN } from './superadmin.types';
 import { DependancesService } from '../dependances/dependances.service';
@@ -42,6 +48,7 @@ export class SuperadminConfigService {
     private readonly categoriesActe: CategoriesActeService,
     private readonly sante: SanteService,
     private readonly dependances: DependancesService,
+    private readonly lettresCles: LettresClesService,
   ) {}
 
   // --- 1. Paramètres plateforme -------------------------------------
@@ -210,8 +217,14 @@ export class SuperadminConfigService {
         `Un acte national de code « ${dto.code} » existe déjà.`,
       );
     }
-    // code ou libellé du référentiel unique des catégories (prisma/sql/067)
-    const categorie = await this.categoriesActe.normaliser(dto.categorie);
+    // `categorie` = CHAPITRE de la nomenclature (texte libre) ; la catégorie de GARANTIE est distincte
+    // (prisma/sql/080). Compatibilité : sans catégorie de garantie, un chapitre qui est un code ou un
+    // libellé du référentiel des catégories (prisma/sql/067) en tient lieu.
+    const categorie = dto.categorie?.trim() || null;
+    const cotation = await this.lettresCles.valider({
+      ...dto,
+      categorieGarantie: dto.categorieGarantie ?? (await this.categorieSiConnue(categorie)),
+    });
     return this.prisma.$transaction(async (tx) => {
       const acte = await tx.referentielNationalActe.create({
         data: {
@@ -220,6 +233,7 @@ export class SuperadminConfigService {
           categorie,
           versionNomenclature: dto.versionNomenclature ?? null,
           statut: dto.statut ?? 'HOMOLOGUE',
+          ...cotation,
         },
       });
       await this.audit(
@@ -227,11 +241,153 @@ export class SuperadminConfigService {
         userId,
         'CREATION_ACTE_CATALOGUE_NATIONAL',
         acte.id,
-        { code: dto.code },
+        { code: dto.code, cotation: { ...cotation } },
         'referentiel_national_actes',
       );
       return acte;
     });
+  }
+
+  /** Modification d'un acte du catalogue national : libellé, chapitre, version, cotation (tracée avant / après). */
+  async modifierActeNational(user: AuthenticatedUser, id: string, dto: ModifierActeNationalDto) {
+    const { userId } = await this.assertSuperadmin(user);
+    const avant = await this.prisma.referentielNationalActe.findFirst({ where: { id, deletedAt: null } });
+    if (!avant) throw new NotFoundException('Acte national introuvable.');
+    await this.dependances.assertPossible(user, 'acteNational', id, 'modifier');
+
+    const cle = <K extends keyof ModifierActeNationalDto>(k: K) => (k in dto ? dto[k] : undefined);
+    const fusion = {
+      lettreCleCode: cle('lettreCleCode') !== undefined ? dto.lettreCleCode : avant.lettreCleCode,
+      coefficient: cle('coefficient') !== undefined ? dto.coefficient : avant.coefficient?.toString() ?? null,
+      modeCotation: cle('modeCotation') !== undefined ? dto.modeCotation : avant.modeCotation,
+      categorieGarantie: cle('categorieGarantie') !== undefined ? dto.categorieGarantie : avant.categorieGarantie,
+      groupeCode: cle('groupeCode') !== undefined ? dto.groupeCode : avant.groupeCode,
+    };
+    const cotation = await this.lettresCles.valider(fusion);
+    const categorie = dto.categorie === undefined ? avant.categorie : dto.categorie?.trim() || null;
+    return this.prisma.$transaction(async (tx) => {
+      const acte = await tx.referentielNationalActe.update({
+        where: { id },
+        data: {
+          ...(dto.libelle !== undefined ? { libelle: dto.libelle } : {}),
+          categorie,
+          ...(dto.versionNomenclature !== undefined ? { versionNomenclature: dto.versionNomenclature } : {}),
+          ...cotation,
+        },
+      });
+      await this.audit(
+        tx,
+        userId,
+        'MODIFICATION_ACTE_CATALOGUE_NATIONAL',
+        id,
+        {
+          code: avant.code,
+          avant: {
+            lettreCleCode: avant.lettreCleCode,
+            coefficient: avant.coefficient?.toString() ?? null,
+            modeCotation: avant.modeCotation,
+            categorieGarantie: avant.categorieGarantie,
+            groupeCode: avant.groupeCode,
+          },
+          apres: { ...cotation },
+        },
+        'referentiel_national_actes',
+      );
+      return acte;
+    });
+  }
+
+  // --- Lettres-clés (prisma/sql/080) : paramétrables, sans valeur chiffrée ------------------
+
+  async listerLettresCles(user: AuthenticatedUser) {
+    await this.assertSuperadmin(user);
+    const [lettres, nationaux, organisations] = await Promise.all([
+      this.lettresCles.lister(),
+      this.prisma.referentielNationalActe.groupBy({ by: ['lettreCleCode'], where: { deletedAt: null, lettreCleCode: { not: null } }, _count: true }),
+      this.prisma.referentielActe.groupBy({ by: ['lettreCleCode'], where: { deletedAt: null, lettreCleCode: { not: null } }, _count: true }),
+    ]);
+    const n = new Map(nationaux.map((x) => [x.lettreCleCode, x._count]));
+    const o = new Map(organisations.map((x) => [x.lettreCleCode, x._count]));
+    return lettres.map((l) => ({ ...l, nbActesNationaux: n.get(l.code) ?? 0, nbActesOrganisations: o.get(l.code) ?? 0 }));
+  }
+
+  async creerLettreCle(user: AuthenticatedUser, dto: CreerLettreCleDto) {
+    const { userId } = await this.assertSuperadmin(user);
+    const code = dto.code.trim().toUpperCase();
+    if (!FORMAT_CODE_LETTRE_CLE.test(code)) {
+      throw new BadRequestException('Le code d’une lettre-clé comporte 1 à 4 lettres majuscules (ex. B, KC, AMI).');
+    }
+    if (await this.prisma.lettreCle.findUnique({ where: { code } })) {
+      throw new ConflictException(`La lettre-clé « ${code} » existe déjà.`);
+    }
+    const libelle = dto.libelle.trim();
+    if (await this.libelleLettrePris(libelle)) {
+      throw new ConflictException(`Une lettre-clé porte déjà le libellé « ${libelle} ».`);
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const l = await tx.lettreCle.create({ data: { code, libelle, ordre: dto.ordre ?? 0 } });
+      await this.audit(tx, userId, 'CREATION_LETTRE_CLE', userId, { code, libelle }, 'lettres_cles');
+      return l;
+    });
+  }
+
+  async modifierLettreCle(user: AuthenticatedUser, id: string, dto: ModifierLettreCleDto) {
+    const { userId } = await this.assertSuperadmin(user);
+    const l = await this.prisma.lettreCle.findUnique({ where: { id } });
+    if (!l) throw new NotFoundException('Lettre-clé introuvable.');
+    const code = l.code;
+    if (dto.libelle !== undefined && dto.libelle.trim().toLowerCase() !== l.libelle.toLowerCase() && (await this.libelleLettrePris(dto.libelle.trim()))) {
+      throw new ConflictException(`Une lettre-clé porte déjà le libellé « ${dto.libelle.trim()} ».`);
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const maj = await tx.lettreCle.update({
+        where: { id },
+        data: { ...(dto.libelle !== undefined ? { libelle: dto.libelle.trim() } : {}), ...(dto.ordre !== undefined ? { ordre: dto.ordre } : {}) },
+      });
+      await this.audit(tx, userId, 'MODIFICATION_LETTRE_CLE', userId, { code, avant: { libelle: l.libelle, ordre: l.ordre }, apres: { libelle: maj.libelle, ordre: maj.ordre } }, 'lettres_cles');
+      return maj;
+    });
+  }
+
+  /** Désactiver (archiver) / réactiver (désarchiver) : une lettre inactive n'est plus proposée à la cotation. */
+  async changerStatutLettreCle(user: AuthenticatedUser, id: string, action: 'archiver' | 'desarchiver') {
+    const { userId } = await this.assertSuperadmin(user);
+    const l = await this.prisma.lettreCle.findUnique({ where: { id } });
+    if (!l) throw new NotFoundException('Lettre-clé introuvable.');
+    const code = l.code;
+    await this.dependances.assertPossible(user, 'lettreCle', id, action);
+    return this.prisma.$transaction(async (tx) => {
+      const maj = await tx.lettreCle.update({ where: { id }, data: { actif: action === 'desarchiver' } });
+      await this.audit(tx, userId, action === 'archiver' ? 'DESACTIVATION_LETTRE_CLE' : 'REACTIVATION_LETTRE_CLE', userId, { code }, 'lettres_cles');
+      return maj;
+    });
+  }
+
+  /** Suppression : seulement une lettre-clé qu'aucun acte (national ou d'organisation) ne porte (registre). */
+  async supprimerLettreCle(user: AuthenticatedUser, id: string) {
+    const { userId } = await this.assertSuperadmin(user);
+    const l = await this.prisma.lettreCle.findUnique({ where: { id } });
+    if (!l) throw new NotFoundException('Lettre-clé introuvable.');
+    const code = l.code;
+    await this.dependances.assertPossible(user, 'lettreCle', id, 'supprimer');
+    await this.prisma.$transaction(async (tx) => {
+      await this.audit(tx, userId, 'SUPPRESSION_LETTRE_CLE', userId, { code, libelle: l.libelle }, 'lettres_cles');
+      await tx.lettreCle.delete({ where: { id } });
+    });
+    return { code, supprimee: true };
+  }
+
+  private async categorieSiConnue(valeur: string | null): Promise<string | null> {
+    if (!valeur) return null;
+    try {
+      return await this.categoriesActe.normaliser(valeur);
+    } catch {
+      return null;
+    }
+  }
+
+  private async libelleLettrePris(libelle: string): Promise<boolean> {
+    return (await this.prisma.lettreCle.count({ where: { libelle: { equals: libelle, mode: 'insensitive' } } })) > 0;
   }
 
   async supprimerActeNational(user: AuthenticatedUser, id: string) {

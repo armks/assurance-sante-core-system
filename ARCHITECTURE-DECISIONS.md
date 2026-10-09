@@ -882,3 +882,42 @@ d'invitation normal (`assertPasDejaCompte`).
 - Comptoir : le prix national se retrouve par nom commercial exact d'abord, sinon par DCI (prix le plus élevé
   de la DCI — l'alerte de majoration n'est levée que si même le produit le plus cher est dépassé).
 - À faire : la prescription du médecin est encore un texte libre ; la faire choisir dans ce catalogue national.
+
+## ADR-008 — Barème conventionnel : quatre couches séparées ; lot 1 « nomenclature » (2026-10-09)
+
+**Contexte.** Le tarif d'un acte résulte de quatre couches séparées : (1) la nomenclature nationale des actes
+(code, libellé, lettre-clé, coefficient, isolé / groupé, catégorie de garantie) — AUCUN prix en FCFA ; (2) la
+convention de l'établissement avec l'assureur (valeurs négociées) ; (3) le tarif reconnu (forfait de l'acte, sinon
+valeur de lettre-clé propre à l'acte, sinon valeur de lettre-clé de la convention par contexte, sinon tarif
+proposé — jamais de prix par défaut) ; (4) le remboursement (taux, franchise, plafonds), calculé par le Java sur le
+tarif reconnu, le taux restant dans la garantie du produit. Le lot 1 pose la couche 1 ; les couches 2 à 4 suivent.
+
+**Décisions du lot 1** (migration `prisma/sql/080_nomenclature_lettres_cles_cotation.sql`) :
+- `lettres_cles` : référentiel paramétrable, géré par le superadmin (B, Z, K, D, KA, KC, KE, P, AMI, AMK),
+  **sans valeur chiffrée**. Libellés d'amorçage neutres (« Lettre-clé B »…) : la signification officielle est à
+  saisir par le superadmin, rien n'est inventé. Désactiver = ne plus proposer à la cotation (actes déjà cotés
+  conservés) ; supprimer = seulement si aucun acte (national ou d'organisation) ne la porte (ADR-007).
+  `code` est la clé étrangère des actes ; `id` (uuid) sert aux écrans et au registre des dépendances.
+- Cotation sur `referentiel_national_actes` ET `referentiel_actes` : `lettre_cle_code` (FK), `coefficient`
+  (numeric 8,2 > 0), `mode_cotation` (ISOLE par défaut | GROUPE), `categorie_garantie` (FK `categories_acte`),
+  `groupe_code`. CHECK en base : lettre-clé et coefficient vont ensemble ; GROUPE ⇔ code de groupe. La même
+  validation sert l'API et l'import (`LettresClesService.analyser`, toutes les erreurs d'une ligne remontées).
+- **Chapitre ≠ catégorie de garantie** : `categorie` redevient un chapitre de nomenclature en texte libre (les clés
+  étrangères vers `categories_acte` de la migration 067 sont supprimées sur `categorie`) ; l'existant est copié
+  dans `categorie_garantie`. Compatibilité : un chapitre qui est un code ou un libellé de catégorie tient lieu de
+  catégorie de garantie quand celle-ci n'est pas fournie.
+- **Code d'acte unique PAR ORGANISATION** (et non plus globalement) : deux organisations peuvent avoir le même
+  code ; l'index `(organisation_id, code)` remplace l'index global. Le code unique global révélait en outre
+  l'existence d'un code dans une autre organisation (409).
+- `actes_dossier.referentiel_acte_id` (FK, RESTRICT) remplace la jointure par `code_acte` en texte libre ; posé à
+  l'ajout de l'acte dans l'organisation du dossier. Rattachement de l'existant par (organisation du dossier, code)
+  : base de développement vide d'actes de dossier ; cas non rattachables (code absent, code inconnu de
+  l'organisation, code présent seulement dans une autre organisation) restent NULL — vérifié par test.
+- **Java** : la recherche du tarif est filtrée par organisation — réclamation : `ra.id = acte.referentiel_acte_id
+  AND ra.organisation_id = réclamation.organisation_id` ; simulation : `(code, organisation de la police)`.
+  `svc_adjudication` ne lit que des colonnes (migration 070) : deux GRANT de colonnes ajoutés.
+- Import Excel du catalogue national étendu (`lettre_cle`, `coefficient`, `mode`, `categorie_garantie`,
+  `groupe_code`) : validation ligne par ligne avec rapport d'erreurs ; fichier sans colonne de cotation = ancien
+  format (une mise à jour ne touche pas la cotation existante) ; l'import vers une organisation copie la cotation.
+- Données : jeux de test FICTIFS uniquement ; ni la vraie nomenclature NGAMBCI (à importer depuis la source
+  officielle) ni les valeurs CMU (B 100, K 250, Z 300, D 200), jamais défaut en production.

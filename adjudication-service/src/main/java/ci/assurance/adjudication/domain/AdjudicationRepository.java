@@ -92,15 +92,19 @@ public interface AdjudicationRepository {
   /**
    * Tarif conventionné établissement × acte valable à {@code date} (même règle que
    * le contexte d'une réclamation), ou {@code null} : pas d'établissement, pas de
-   * code d'acte, ou pas de tarif négocié.
+   * code d'acte, ou pas de tarif négocié. L'acte du référentiel est cherché DANS
+   * L'ORGANISATION {@code organisationId} (le code d'acte est unique par organisation,
+   * pas globalement : jamais le tarif d'une autre organisation).
    */
-  BigDecimal tarifConvention(UUID etablissementId, String codeActe, java.time.LocalDate date);
+  BigDecimal tarifConvention(
+      UUID organisationId, UUID etablissementId, String codeActe, java.time.LocalDate date);
 
   /**
    * Identifiant du tarif renvoyé par {@link #tarifConvention} (même règle), ou {@code null} —
    * trace du calcul (prisma/sql/074) : un tarif ayant servi ne se supprime plus.
    */
-  default UUID tarifConventionneId(UUID etablissementId, String codeActe, java.time.LocalDate date) {
+  default UUID tarifConventionneId(
+      UUID organisationId, UUID etablissementId, String codeActe, java.time.LocalDate date) {
     return null;
   }
 

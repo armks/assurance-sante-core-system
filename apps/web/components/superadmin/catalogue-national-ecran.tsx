@@ -7,6 +7,7 @@ import {
   creerActeNational,
   changerStatutItemNational,
   creerMedicamentNational,
+  modifierActeNational,
   supprimerItemNational,
   type ImportCatalogueResume,
 } from '@/app/superadmin/catalogue-national/actions';
@@ -25,7 +26,9 @@ import { verifierAction } from '@/app/dependances-actions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
 import { Stethoscope, Pill } from 'lucide-react';
-import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import { LIBELLE_MODE_COTATION, LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
+import { Button } from '@/components/ui/button';
+import { ChampNombre } from '@/components/dashboard/patterns';
 import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface ActeNational {
@@ -35,6 +38,17 @@ export interface ActeNational {
   categorie: string | null;
   versionNomenclature: string | null;
   statut: string;
+  // cotation (prisma/sql/080)
+  lettreCleCode?: string | null;
+  coefficient?: string | null;
+  modeCotation?: string;
+  categorieGarantie?: string | null;
+  groupeCode?: string | null;
+}
+export interface LettreCleOption {
+  code: string;
+  libelle: string;
+  actif: boolean;
 }
 export interface MedicamentNational {
   id: string;
@@ -50,10 +64,12 @@ export function CatalogueNationalEcran({
   actes,
   medicaments,
   imports,
+  lettresCles = [],
 }: {
   actes: ActeNational[];
   medicaments: MedicamentNational[];
   imports: ImportCatalogueResume[];
+  lettresCles?: LettreCleOption[];
 }) {
   const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
@@ -69,9 +85,32 @@ export function CatalogueNationalEcran({
     { cle: 'libelle', entete: 'Libellé', triable: true },
     {
       cle: 'categorie',
-      entete: 'Catégorie',
-      valeur: (a) => libelleCategorieActe(a.categorie),
-      rendu: (a) => libelleCategorieActe(a.categorie),
+      entete: 'Chapitre',
+      valeur: (a) => a.categorie ?? '',
+      rendu: (a) => a.categorie ?? '—',
+    },
+    {
+      cle: 'cotation',
+      entete: 'Cotation',
+      valeur: (a) => (a.lettreCleCode ? `${a.lettreCleCode} ${a.coefficient ?? ''}` : ''),
+      rendu: (a) =>
+        a.lettreCleCode ? (
+          <span>
+            <span className="font-mono font-semibold">{a.lettreCleCode}</span> × {Number(a.coefficient ?? 0).toLocaleString('fr-FR')}
+            <span className="block text-xs text-muted-foreground">
+              {LIBELLE_MODE_COTATION[a.modeCotation ?? 'ISOLE'] ?? a.modeCotation}
+              {a.groupeCode ? ` · groupe ${a.groupeCode}` : ''}
+            </span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground">Non cotée</span>
+        ),
+    },
+    {
+      cle: 'categorieGarantie',
+      entete: 'Garantie',
+      valeur: (a) => libelleCategorieActe(a.categorieGarantie ?? null),
+      rendu: (a) => libelleCategorieActe(a.categorieGarantie ?? null),
     },
     {
       cle: 'statut',
@@ -79,6 +118,17 @@ export function CatalogueNationalEcran({
       rendu: (a) => <StatutBadge statut={a.statut} libelles={LIBELLE_STATUT_HOMOLOGATION} />,
     },
   ];
+
+  const optionsLettres = lettresCles.filter((l) => l.actif).map((l) => ({ valeur: l.code, libelle: `${l.code} — ${l.libelle}` }));
+  const optionsMode = Object.entries(LIBELLE_MODE_COTATION).map(([valeur, libelle]) => ({ valeur, libelle }));
+  const lire = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
+  const cotationDe = (fd: FormData) => ({
+    lettreCleCode: lire(fd, 'lettreCleCode') || null,
+    coefficient: lire(fd, 'coefficient') || null,
+    modeCotation: lire(fd, 'modeCotation') || 'ISOLE',
+    categorieGarantie: lire(fd, 'categorieGarantie') || null,
+    groupeCode: lire(fd, 'groupeCode') || null,
+  });
 
   const colMed: ColonneTable<MedicamentNational>[] = [
     { cle: 'denominationCommune', entete: 'DCI', triable: true },
@@ -143,29 +193,49 @@ export function CatalogueNationalEcran({
                     categorie: String(fd.get('categorie') ?? '') || undefined,
                     versionNomenclature:
                       String(fd.get('versionNomenclature') ?? '') || undefined,
+                    ...Object.fromEntries(Object.entries(cotationDe(fd)).filter(([, v]) => v !== null)),
                   })
                 }
                 onSucces={() => router.refresh()}
               >
                 <ChampTexte name="code" label="Code" required placeholder="CI-CONS-GEN" />
                 <ChampTexte name="libelle" label="Libellé" required />
-                <ChampSelect
-                  name="categorie"
-                  label="Catégorie"
-                  placeholder="Choisir…"
-                  options={optionsCategories()}
-                />
+                <ChampTexte name="categorie" label="Chapitre de la nomenclature" placeholder="Ex. Biologie médicale" />
                 <ChampTexte
                   name="versionNomenclature"
                   label="Version de nomenclature"
                   placeholder="CI-2026"
                 />
+                <ChampsCotation optionsLettres={optionsLettres} optionsMode={optionsMode} optionsGarantie={optionsCategories()} />
               </FormulaireModal>
             }
             actionLigne={(a) => (
               // Confirmation partagée (ADR-007) : vérifie côté serveur, refusée si un
               // organisme a déjà importé l'acte
               <span className="flex justify-end gap-2">
+                <FormulaireModal
+                  titre={`Modifier l’acte ${a.code}`}
+                  mode="center"
+                  declencheur={<Button size="xs" variant="ghost">Modifier</Button>}
+                  libelleSoumettre="Enregistrer"
+                  onSoumettre={async (fd) =>
+                    modifierActeNational(a.id, {
+                      libelle: lire(fd, 'libelle'),
+                      categorie: lire(fd, 'categorie') || null,
+                      ...cotationDe(fd),
+                    })
+                  }
+                  onSucces={() => router.refresh()}
+                >
+                  <ChampTexte name="libelle" label="Libellé" required defaultValue={a.libelle} />
+                  <ChampTexte name="categorie" label="Chapitre de la nomenclature" defaultValue={a.categorie ?? ''} />
+                  <ChampsCotation
+                    optionsLettres={optionsLettres}
+                    optionsMode={optionsMode}
+                    optionsGarantie={optionsCategories()}
+                    defauts={a}
+                  />
+                </FormulaireModal>
                 {a.statut === 'RETIRE' ? (
                   <ConfirmationAction
                     action="desarchiver"
@@ -295,5 +365,47 @@ export function CatalogueNationalEcran({
 
       <ImportsCataloguePanel type="medicaments" imports={imports} />
     </div>
+  );
+}
+
+/** Champs de cotation (lettre-clé × coefficient, mode, garantie, groupe) — aucun prix en FCFA. */
+function ChampsCotation({
+  optionsLettres,
+  optionsMode,
+  optionsGarantie,
+  defauts,
+}: {
+  optionsLettres: { valeur: string; libelle: string }[];
+  optionsMode: { valeur: string; libelle: string }[];
+  optionsGarantie: { valeur: string; libelle: string }[];
+  defauts?: ActeNational;
+}) {
+  const [mode, setMode] = useState(defauts?.modeCotation ?? 'ISOLE');
+  return (
+    <>
+      <ChampSelect
+        name="lettreCleCode"
+        label="Lettre-clé"
+        defaultValue={defauts?.lettreCleCode ?? ''}
+        options={[{ valeur: '', libelle: 'Aucune (acte non coté)' }, ...optionsLettres]}
+      />
+      <ChampNombre name="coefficient" label="Coefficient" min={0} step="0.01" defaultValue={defauts?.coefficient ?? undefined} aide="Obligatoire avec une lettre-clé." />
+      <ChampSelect
+        name="modeCotation"
+        label="Mode de cotation"
+        value={mode}
+        onChange={(e) => setMode(e.target.value)}
+        options={optionsMode}
+      />
+      {mode === 'GROUPE' && (
+        <ChampTexte name="groupeCode" label="Code du groupe" required defaultValue={defauts?.groupeCode ?? ''} />
+      )}
+      <ChampSelect
+        name="categorieGarantie"
+        label="Catégorie de garantie"
+        defaultValue={defauts?.categorieGarantie ?? ''}
+        options={[{ valeur: '', libelle: 'Non renseignée' }, ...optionsGarantie]}
+      />
+    </>
   );
 }

@@ -7,6 +7,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CatalogueImportService } from './catalogue-import.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { LettresClesService } from '../reference/lettres-cles.service';
+import { lettresClesServiceDeTest } from '../reference/lettres-cles.testing';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -33,6 +35,15 @@ async function fabriquerClasseurActes(lignes: (string | undefined)[][]): Promise
   for (const ligne of lignes) feuille.addRow(ligne);
   const buffer = await workbook.xlsx.writeBuffer();
   return Buffer.from(buffer);
+}
+
+/** Classeur d'actes AVEC colonnes de cotation (valeurs FICTIVES — jamais la vraie nomenclature NGAMBCI). */
+async function fabriquerClasseurCotation(lignes: (string | number | undefined)[][]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const feuille = workbook.addWorksheet('Actes');
+  feuille.addRow(['code', 'libelle', 'categorie', 'lettre_cle', 'coefficient', 'mode', 'categorie_garantie', 'groupe_code']);
+  for (const ligne of lignes) feuille.addRow(ligne);
+  return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
 async function fabriquerClasseurMedicaments(lignes: (string | undefined)[][]): Promise<Buffer> {
@@ -86,6 +97,7 @@ describe('CatalogueImportService', () => {
     const moduleRef = await Test.createTestingModule({
       providers: [
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
+        { provide: LettresClesService, useValue: lettresClesServiceDeTest() },
         CatalogueImportService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
@@ -127,6 +139,54 @@ describe('CatalogueImportService', () => {
       const lignes = prisma.importCatalogueNational.create.mock.calls[0][0].data.lignesValides;
       expect(lignes.every((l: any) => l.estMiseAJour === false)).toBe(true);
       expect(res.id).toBe('imp-1');
+    });
+
+    describe('cotation (prisma/sql/080) — validation ligne par ligne', () => {
+      beforeEach(() => {
+        identity.getMe.mockResolvedValue(superadmin());
+        prisma.referentielNationalActe.findMany.mockResolvedValue([]);
+        prisma.importCatalogueNational.create.mockResolvedValue({ id: 'imp-c' });
+      });
+      const enregistre = () => prisma.importCatalogueNational.create.mock.calls[0][0].data;
+
+      it('lignes cotées valides : lettre-clé, coefficient, mode, catégorie de garantie et groupe sont retenus ; le chapitre reste libre', async () => {
+        const buf = await fabriquerClasseurCotation([
+          ['FICTIF-001', 'Acte fictif isolé', 'Chapitre fictif I', 'B', 10, 'ISOLE', 'ANALYSES', undefined],
+          ['FICTIF-002', 'Acte fictif groupé', 'Chapitre fictif II', 'z', '2,5', 'Groupé', 'IMAGERIE', 'fictif-g1'],
+        ]);
+        await service.importerCatalogueExcel(USER, 'ACTES', fichier(buf));
+        expect(enregistre().nbLignesValides).toBe(2);
+        expect(enregistre().nbLignesErreur).toBe(0);
+        const [a, b] = enregistre().lignesValides;
+        expect(a).toMatchObject({ code: 'FICTIF-001', categorie: 'Chapitre fictif I', cotation: { lettreCleCode: 'B', coefficient: '10.00', modeCotation: 'ISOLE', categorieGarantie: 'ANALYSES', groupeCode: null } });
+        expect(b.cotation).toEqual({ lettreCleCode: 'Z', coefficient: '2.50', modeCotation: 'GROUPE', categorieGarantie: 'IMAGERIE', groupeCode: 'FICTIF-G1' });
+      });
+
+      it('rapport d’erreurs ligne par ligne : chaque ligne invalide liste TOUTES ses erreurs, les lignes valides passent', async () => {
+        const buf = await fabriquerClasseurCotation([
+          ['FICTIF-OK', 'Acte valide', 'Chapitre', 'B', 4, 'ISOLE', 'ANALYSES', undefined],
+          ['FICTIF-E1', 'Lettre inconnue', 'Chapitre', 'XX', 4, 'ISOLE', 'ANALYSES', undefined],
+          ['FICTIF-E2', 'Coefficient absent', 'Chapitre', 'B', undefined, 'ISOLE', 'ANALYSES', undefined],
+          ['FICTIF-E3', 'Groupé sans groupe', 'Chapitre', 'K', 3, 'GROUPE', 'ANALYSES', undefined],
+          ['FICTIF-E4', 'Plusieurs erreurs', 'Chapitre', 'XX', -1, 'DOUBLE', 'INCONNUE', undefined],
+        ]);
+        await service.importerCatalogueExcel(USER, 'ACTES', fichier(buf));
+        expect(enregistre().nbLignesValides).toBe(1);
+        expect(enregistre().nbLignesErreur).toBe(4);
+        const erreurs = enregistre().erreursDetail as { ligne: number; donnees: Record<string, string>; erreurs: string[] }[];
+        expect(erreurs.map((e) => e.ligne)).toEqual([3, 4, 5, 6]);
+        expect(erreurs[0].erreurs).toEqual(['lettre-clé inconnue ou inactive (XX)']);
+        expect(erreurs[1].erreurs).toEqual(['coefficient manquant (obligatoire avec une lettre-clé)']);
+        expect(erreurs[2].erreurs).toEqual(['code de groupe manquant (obligatoire pour un acte groupé)']);
+        expect(erreurs[3].erreurs.length).toBeGreaterThanOrEqual(4);
+        expect(erreurs[3].donnees).toMatchObject({ code: 'FICTIF-E4', lettre_cle: 'XX', mode: 'DOUBLE' });
+      });
+
+      it('fichier SANS colonne de cotation (ancien format) : la catégorie validée vaut catégorie de garantie, aucune lettre-clé n’est touchée', async () => {
+        const buf = await fabriquerClasseurActes([['FICTIF-OLD', 'Acte ancien format', 'CONSULTATION']]);
+        await service.importerCatalogueExcel(USER, 'ACTES', fichier(buf));
+        expect(enregistre().lignesValides[0].cotation).toEqual({ categorieGarantie: 'CONSULTATION' });
+      });
     });
 
     it('un code déjà existant dans le catalogue national est signalé comme mise à jour, pas une erreur', async () => {
@@ -323,6 +383,26 @@ describe('CatalogueImportService', () => {
       expect(prisma.referentielNationalActe.update).not.toHaveBeenCalled();
       expect(res.nbCrees).toBe(1);
       expect(res.nbMisAJour).toBe(0);
+    });
+
+    it('ACTES : la cotation validée est enregistrée à la création ; une mise à jour sans cotation ne l’efface pas', async () => {
+      identity.getMe.mockResolvedValue(superadmin());
+      prisma.importCatalogueNational.findFirst.mockResolvedValue({
+        id: 'imp-c', statut: 'EN_ATTENTE_VALIDATION', type: 'ACTES',
+        lignesValides: [
+          { code: 'FICTIF-N', libelle: 'Nouveau', categorie: 'Chap', cotation: { lettreCleCode: 'B', coefficient: '10.00', modeCotation: 'ISOLE', categorieGarantie: 'ANALYSES', groupeCode: null }, estMiseAJour: false, idExistant: null },
+          { code: 'FICTIF-M', libelle: 'MAJ', categorie: 'Chap', cotation: null, estMiseAJour: true, idExistant: 'acte-x' },
+        ],
+      });
+      prisma.referentielNationalActe.create.mockResolvedValue({ id: 'n1' });
+      prisma.referentielNationalActe.update.mockResolvedValue({ id: 'acte-x' });
+      prisma.importCatalogueNational.update.mockResolvedValue({ id: 'imp-c', statut: 'VALIDE' });
+
+      await service.validerImportCatalogue(USER, 'imp-c');
+
+      expect(prisma.referentielNationalActe.create.mock.calls[0][0].data).toMatchObject({ lettreCleCode: 'B', coefficient: '10.00', categorieGarantie: 'ANALYSES' });
+      const maj = prisma.referentielNationalActe.update.mock.calls[0][0].data;
+      expect(maj).toEqual({ libelle: 'MAJ', categorie: 'Chap' }); // aucune clé de cotation : l'existante est conservée
     });
 
     it('ACTES : met à jour un doublon SANS toucher au statut d’homologation existant', async () => {

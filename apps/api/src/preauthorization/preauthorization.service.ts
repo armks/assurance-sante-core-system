@@ -1089,6 +1089,14 @@ export class PreauthorizationService {
       ? 'EN_ATTENTE_EXPLOITATION'
       : 'NON_REQUISE';
 
+    // acte du référentiel de l'ORGANISATION portant ce code (prisma/sql/080) : lien fort, jamais un code
+    // d'une autre organisation ; absent → l'acte n'a pas de tarif négocié possible
+    const acteReferentiel = dto.codeActe
+      ? await this.prisma.referentielActe.findFirst({
+          where: { organisationId: ctx.organisationId, code: dto.codeActe, deletedAt: null },
+          select: { id: true },
+        })
+      : null;
     const id = await this.prisma.$transaction(async (tx) => {
       const acte = await tx.acteDossier.create({
         data: {
@@ -1099,6 +1107,7 @@ export class PreauthorizationService {
           categorieActe: dto.categorieActe,
           libelle: dto.libelle,
           codeActe: dto.codeActe ?? null,
+          referentielActeId: acteReferentiel?.id ?? null,
           quantite: dto.quantite ?? 1,
           montantPrescrit:
             dto.montantPrescrit === undefined

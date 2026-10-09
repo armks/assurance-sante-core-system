@@ -8078,3 +8078,38 @@ Terminé — dette `tarif_pharmacie_id` soldée.
 
 ### Statut
 Terminé.
+
+## 2026-10-09 — Chantier barème, lot 1 « nomenclature » (ADR-008)
+
+### Réalisé
+- `prisma/sql/080_nomenclature_lettres_cles_cotation.sql` (appliquée plusieurs fois, idempotente) : table `lettres_cles`
+  (10 codes, aucune valeur chiffrée) ; cotation (lettre-clé FK, coefficient, mode ISOLE / GROUPE, catégorie de garantie FK,
+  code de groupe, CHECK de cohérence) sur le catalogue national et `referentiel_actes` ; chapitre `categorie` libéré de la
+  FK ; code d'acte unique PAR organisation ; `actes_dossier.referentiel_acte_id` (FK) avec rattachement de l'existant ;
+  GRANT de colonnes pour `svc_adjudication`.
+- API : `LettresClesService` (validation commune API / import), gestion des lettres-clés et modification de la cotation du
+  catalogue (superadmin, audit avant / après), import Excel étendu avec rapport d'erreurs ligne par ligne, copie de la
+  cotation à l'import vers l'organisation, lien fort à l'ajout d'un acte, registre des dépendances (lettre-clé).
+- Java : tarif recherché dans l'organisation de la police / de la réclamation (jointure par clé étrangère).
+- Web (superadmin) : écran « Lettres-clés » (créer, modifier, désactiver / réactiver, supprimer avec ConfirmationAction),
+  cotation et chapitre dans le catalogue (colonnes, création, modification), aperçu d'import avec cotation.
+
+### Tests
+- API 1 301/1 301 (+31), JUnit 92/92 (+1 : même code d'acte dans deux organisations), intégration 2/2, typage API et web 0 erreur.
+- HTTP réel (tous OK, zéro ligne restante, comptes Auth compris) : même code dans deux organisations (409 dans la même) ;
+  tarifs 8 000 F (A) et 2 000 F (B) → simulation Java 6 400 et 1 600 ; tarif d'une autre organisation planté sur
+  l'établissement de B ignoré ; adjudication de A à 6 400 ; lien fort vers l'acte de A + tarif planté ignoré ; lettres-clés
+  (403 organisation, doublons, désactivée refusée à la cotation, suppression refusée « 2 actes cotés ») ; cotation
+  (400 incohérences, CHECK et FK en base) ; import Excel 2 lignes valides + 3 en erreur avec rapport, ancien format ;
+  import vers A et B sans fuite.
+- Rattachement de l'existant (rejeu de l'UPDATE de la migration en transaction annulée) : rattaché seulement dans son
+  organisation ; code d'une autre organisation, absent ou inconnu → non rattaché. Base réelle : 0 acte de dossier.
+- Navigateur (Chromium / Playwright, superadmin) : lettres-clés (création, modification, désactivation avec confirmation
+  nommée, réactivation), catalogue (création et modification de cotation, libellés accentués, panneau d'import).
+
+### Limites
+- Libellés des lettres-clés à compléter par le superadmin (valeurs neutres d'amorçage). Nomenclature NGAMBCI à importer.
+- Un avertissement de console de développement (« script tag ») vu une seule fois pendant un passage navigateur, non reproduit.
+
+### Statut
+Terminé — lots 2 à 6 du chantier barème non commencés.

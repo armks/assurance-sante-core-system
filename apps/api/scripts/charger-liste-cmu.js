@@ -62,7 +62,8 @@ const prixEntier = (s) => Number(String(s).replace(/\s/g, ''));
     classeTherapeutique: p.classeTherapeutique,
     remboursable: true,
     prixReferenceXof: p.prix,
-    prixMaxRemboursable: p.prix,
+    // le prix de la liste ne sert QU'AUX ALERTES de majoration du comptoir : aucun plafond de remboursement
+    prixMaxRemboursable: null,
     categorieRemboursement: p.categorie,
     regimeRemboursement: p.regime,
     sourceListe: SOURCE,

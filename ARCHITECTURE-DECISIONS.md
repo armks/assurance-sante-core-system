@@ -871,8 +871,8 @@ d'invitation normal (`assertPasDejaCompte`).
   Extraction contrôlée : 736 lignes lues par le tableau = 736 lignes du texte, somme des prix identique en base
   (2 209 253 F), aucun code en double.
 - Mapping : DCI → `denomination_commune`, nom commercial → `nom_commercial`, groupe thérapeutique →
-  `classe_therapeutique`, prix → `prix_reference_xof` ET `prix_max_remboursable` (la liste donne le prix de
-  référence remboursable), `remboursable = true`, homologué ; nouveaux champs `code_produit` (clé d'import,
+  `classe_therapeutique`, prix → `prix_reference_xof` UNIQUEMENT (`prix_max_remboursable` reste vide) : ce prix ne sert
+  qu'aux ALERTES de majoration du comptoir, il ne plafonne ni ne calcule aucun remboursement, `remboursable = true`, homologué ; nouveaux champs `code_produit` (clé d'import,
   unique), `categorie_remboursement` (R = remboursable, EP = remboursable après entente préalable — lecture à
   confirmer avec la MUGEF-CI), `regime_remboursement` (CMU), `source_liste`.
 - Chargement : `node apps/api/scripts/charger-liste-cmu.js` (`--simuler` pour compter) — idempotent (clé = code

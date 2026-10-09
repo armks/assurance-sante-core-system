@@ -20,6 +20,8 @@ export interface LignePrescriptionActive {
   duree: string | null;
   quantitePrescrite: number;
   statut: StatutLignePrescription;
+  /** Prix national unique de référence (référentiel des médicaments), s'il est connu. */
+  prixReference?: string | null;
 }
 
 export interface PrescriptionActive {
@@ -40,6 +42,8 @@ export interface PatientRecherche {
 }
 
 export interface RecherchePrescriptionsResultat {
+  /** Seuil (%) de majoration au-delà duquel le comptoir alerte (paramètre de la plateforme). */
+  seuilMajorationPourcent?: number;
   patient: PatientRecherche;
   ordonnances: PrescriptionActive[];
 }
@@ -63,6 +67,9 @@ export interface LigneDispensationDetail {
   /** Remboursement pharmacie : garanties.tauxCouverture appliqué (catégorie PHARMACIE). */
   montantAssurance: string;
   montantPatient: string;
+  prixReference?: string | null;
+  majorationPourcent?: string | null;
+  majorationAnormale?: boolean;
 }
 
 export interface ReclamationDispensation {

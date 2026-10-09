@@ -13,6 +13,10 @@ export interface LigneFactureMensuelle {
   denominationMedicament: string;
   quantite: number;
   montantAssurance: string;
+  prixUnitaire?: string;
+  prixReference?: string | null;
+  majorationPourcent?: string | null;
+  majorationAnormale?: boolean;
 }
 export interface FactureMensuelleAValider {
   id: string;
@@ -124,6 +128,9 @@ export function PharmacienConseilFacturesMensuellesEcran({
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="py-1.5">Médicament</th>
                   <th className="py-1.5 text-right">Quantité</th>
+                  <th className="py-1.5 text-right">Prix pratiqué</th>
+                  <th className="py-1.5 text-right">Prix national</th>
+                  <th className="py-1.5 text-right">Majoration</th>
                   <th className="py-1.5 text-right">Part assurance</th>
                 </tr>
               </thead>
@@ -132,6 +139,11 @@ export function PharmacienConseilFacturesMensuellesEcran({
                   <tr key={l.id} className="border-b last:border-0">
                     <td className="py-1.5">{l.denominationMedicament}</td>
                     <td className="py-1.5 text-right">{l.quantite}</td>
+                    <td className="py-1.5 text-right">{l.prixUnitaire ? montant(l.prixUnitaire) : '—'}</td>
+                    <td className="py-1.5 text-right">{l.prixReference ? montant(l.prixReference) : '—'}</td>
+                    <td className={`py-1.5 text-right ${l.majorationAnormale ? 'font-medium text-amber-600' : ''}`}>
+                      {l.majorationPourcent ? `${l.majorationPourcent} %${l.majorationAnormale ? ' ⚠ anormale' : ''}` : '—'}
+                    </td>
                     <td className="py-1.5 text-right">{montant(l.montantAssurance)}</td>
                   </tr>
                 ))}

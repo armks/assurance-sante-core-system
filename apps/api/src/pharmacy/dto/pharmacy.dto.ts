@@ -32,6 +32,11 @@ export class LigneChoisieDto {
   @IsInt()
   @Min(1)
   quantite?: number;
+
+  /** Prix unitaire PRATIQUÉ par la pharmacie, saisi par le caissier (majoration comprise). */
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  prixUnitaire!: number;
 }
 
 export class PreparerDispensationDto {
@@ -57,11 +62,6 @@ export class DefinirPrixStockDto {
   @IsString()
   @IsNotEmpty()
   denominationMedicament!: string;
-
-  @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
-  prixPharmacie?: number;
 
   @IsOptional()
   @IsBoolean()

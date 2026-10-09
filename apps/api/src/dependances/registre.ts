@@ -39,8 +39,6 @@ const ROLE_SOCIETE_MEMBRES = 'SOCIETE_ADMINISTRATION';
 // Suppression définitive des entités de configuration (lot 2) : service informatique,
 // et direction pour les produits et leurs garanties.
 const SUPPRESSION_INFORMATIQUE = { rolesSuppression: ['ASSUREUR_INFORMATIQUE'], libelleRolesSuppression: 'au service informatique' } as const;
-const TARIF_PHARMACIE_NON_TRACE =
-  "les calculs du comptoir de pharmacie ne tracent pas encore le tarif utilisé : on ne peut pas prouver qu'il n'a jamais servi. Fermez-le, ou utilisez « Changer à partir du… ».";
 // Sociétés clientes (lot 3) : suppression ET archivage réservés à la direction et à l'informatique.
 const GESTION_ARCHIVAGE_SOUSCRIPTEUR = {
   rolesSuppression: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_DIRECTION'],
@@ -343,14 +341,13 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
         ['desarchiver']),
     ],
     regles: {
-      // Tarif de PHARMACIE : le comptoir ne renseigne pas encore `tarif_pharmacie_id`
-      // (calcul au prix du stock). Tant que la trace manque, on ne peut pas prouver qu'un
-      // tarif n'a pas servi : ni suppression ni modification de montant (dette : lot 4).
-      supprimer: (t) => (t.pharmacieId ? TARIF_PHARMACIE_NON_TRACE : null),
+      // Tarif de PHARMACIE : le comptoir ne l'utilise plus (le prix est saisi par le caissier à partir du
+      // prix national unique, migration 078) — il n'est donc jamais « utilisé » et se gère librement.
+      supprimer: () => null,
+      modifier: () => null,
       // archiver = FERMER le tarif (date de fin) ; désarchiver = le rouvrir
       archiver: (t) => (t.dateFin ? 'Le tarif est déjà fermé (date de fin renseignée).' : null),
       desarchiver: (t) => (!t.dateFin ? "Le tarif n'est pas fermé." : null),
-      modifier: (t) => (t.pharmacieId ? TARIF_PHARMACIE_NON_TRACE : null),
     },
   },
 

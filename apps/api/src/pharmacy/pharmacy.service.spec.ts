@@ -90,6 +90,9 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       ordonnance: { findFirst: jest.fn() },
       ligneOrdonnance: { findMany: jest.fn(), updateMany: jest.fn() },
       garantie: { findFirst: jest.fn().mockResolvedValue(null) },
+      parametrePlateforme: { findUnique: jest.fn().mockResolvedValue(null) },
+      medicament: { findMany: jest.fn().mockResolvedValue([]) },
+      referentielNationalMedicament: { findMany: jest.fn().mockResolvedValue([]) },
       stockMedicamentPharmacie: {
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn(),
@@ -149,12 +152,12 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     ]);
 
     await expect(
-      service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]),
+      service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 500 }]),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(prisma.dispensationPharmacie.create).not.toHaveBeenCalled();
   });
 
-  it('REFUSE si le prix n’est pas défini dans le stock de CETTE pharmacie', async () => {
+  it('REFUSE un médicament marqué indisponible dans CETTE pharmacie (le prix n’est plus lu dans une base de la pharmacie)', async () => {
     identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
     prisma.ordonnance.findFirst.mockResolvedValue({
       id: 'ord-1', organisationId: 'org-1', statut: 'ACTIVE', deletedAt: null,
@@ -163,11 +166,85 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     prisma.ligneOrdonnance.findMany.mockResolvedValue([
       { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'DISPONIBLE', quantitePrescrite: 1 },
     ]);
-    prisma.stockMedicamentPharmacie.findMany.mockResolvedValue([]); // aucun prix défini
+    prisma.stockMedicamentPharmacie.findMany.mockResolvedValue([
+      { denominationMedicament: 'Paracetamol', prixPharmacie: null, disponible: false },
+    ]);
 
     await expect(
-      service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]),
+      service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 500 }]),
     ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.dispensationPharmacie.create).not.toHaveBeenCalled();
+  });
+
+  it('aucune ligne de stock n’est exigée : le prix saisi par le caissier suffit', async () => {
+    identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+    prisma.ordonnance.findFirst.mockResolvedValue({
+      id: 'ord-1', organisationId: 'org-1', statut: 'ACTIVE', deletedAt: null,
+      dossier: { adherentId: 'adh-1', beneficiaireId: null, police: { produitId: 'prod-1' } },
+    });
+    prisma.ligneOrdonnance.findMany.mockResolvedValue([
+      { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'DISPONIBLE', quantitePrescrite: 3 },
+    ]);
+    prisma.stockMedicamentPharmacie.findMany.mockResolvedValue([]);
+    prisma.dispensationPharmacie.create.mockResolvedValue({ id: 'disp-1' });
+    prisma.dispensationPharmacie.update.mockResolvedValue({ id: 'disp-1', statut: 'EN_ATTENTE_VALIDATION_PATIENT', montantTotal: dec(1950) });
+    const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 650 }]);
+    expect(res.montantTotal).toBe('1950.00');
+    expect(prisma.ligneDispensation.createMany.mock.calls[0][0].data[0]).toMatchObject({ prixUnitaire: '650.00', quantite: 3, montantLigne: '1950.00' });
+  });
+
+  describe('majoration par rapport au prix national unique (alerte, jamais un blocage)', () => {
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+      prisma.ordonnance.findFirst.mockResolvedValue({
+        id: 'ord-1', organisationId: 'org-1', statut: 'ACTIVE', deletedAt: null,
+        dossier: { adherentId: 'adh-1', beneficiaireId: null, police: { produitId: 'prod-1' } },
+      });
+      prisma.ligneOrdonnance.findMany.mockResolvedValue([
+        { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Paracetamol', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+      ]);
+      prisma.medicament.findMany.mockResolvedValue([{ denominationCommune: 'paracetamol', prixReferenceXof: dec(5000) }]);
+      prisma.dispensationPharmacie.create.mockResolvedValue({ id: 'disp-1' });
+      prisma.dispensationPharmacie.update.mockResolvedValue({ id: 'disp-1', statut: 'EN_ATTENTE_VALIDATION_PATIENT', montantTotal: dec(1) });
+    });
+    const ligneEnregistree = () => prisma.ligneDispensation.createMany.mock.calls[0][0].data[0];
+
+    it('6 500 F pour un prix national de 5 000 F → +30 % > 20 % : alerte et ligne marquée', async () => {
+      const res: any = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 6500 }]);
+      expect(res.alertes).toEqual([{ medicament: 'Paracetamol', prixUnitaire: '6500.00', prixReference: '5000.00', majorationPourcent: '30.00' }]);
+      expect(res.seuilMajorationPourcent).toBe(20);
+      expect(ligneEnregistree()).toMatchObject({ prixReference: '5000.00', majorationPourcent: '30.00', majorationAnormale: true });
+    });
+
+    it('6 000 F (+20 % exactement) : pas d’alerte ; 4 500 F (−10 %) : pas d’alerte', async () => {
+      for (const [prix, pct] of [[6000, '20.00'], [4500, '-10.00']] as const) {
+        prisma.ligneDispensation.createMany.mockClear();
+        const res: any = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: prix }]);
+        expect(res.alertes).toEqual([]);
+        expect(ligneEnregistree()).toMatchObject({ majorationPourcent: pct, majorationAnormale: false });
+      }
+    });
+
+    it('seuil réglé à 10 % par la plateforme : 5 600 F (+12 %) déclenche l’alerte', async () => {
+      prisma.parametrePlateforme.findUnique.mockResolvedValue({ valeur: 10 });
+      const res: any = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 5600 }]);
+      expect(res.seuilMajorationPourcent).toBe(10);
+      expect(res.alertes).toHaveLength(1);
+    });
+
+    it('prix national absent du référentiel : aucune alerte possible, la vente se fait', async () => {
+      prisma.medicament.findMany.mockResolvedValue([]);
+      const res: any = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 99999 }]);
+      expect(res.alertes).toEqual([]);
+      expect(ligneEnregistree()).toMatchObject({ prixReference: null, majorationPourcent: null, majorationAnormale: false });
+    });
+
+    it('prix national pris dans le référentiel national à défaut du médicament de l’organisation', async () => {
+      prisma.medicament.findMany.mockResolvedValue([]);
+      prisma.referentielNationalMedicament.findMany.mockResolvedValue([{ denominationCommune: 'Paracetamol', prixReferenceXof: dec(5000) }]);
+      const res: any = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 7000 }]);
+      expect(res.alertes).toHaveLength(1);
+    });
   });
 
   it('CAISSIÈRE peut préparer une dispensation (droit partagé, confirmé à l’audit précédent)', async () => {
@@ -187,7 +264,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       id: 'disp-1', statut: 'EN_ATTENTE_VALIDATION_PATIENT', montantTotal: dec(1000),
     });
 
-    const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+    const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 500 }]);
 
     expect(res.statut).toBe('EN_ATTENTE_VALIDATION_PATIENT');
     expect(res.montantTotal).toBe('1000.00');
@@ -198,7 +275,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
   it('pharmacie ARCHIVÉE (RESILIEE) : aucune nouvelle dispensation (409), rien n’est lu ni écrit', async () => {
     identity.getMe.mockResolvedValue(caissiere('pharm-1'));
     prisma.pharmacie.findUnique.mockResolvedValue({ nom: 'Pharmacie du Plateau', statut: 'RESILIEE', deletedAt: null });
-    await expect(service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }])).rejects.toThrow(
+    await expect(service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 500 }])).rejects.toThrow(
       /Pharmacie du Plateau.*archivée.*aucune nouvelle dispensation/,
     );
     expect(prisma.ordonnance.findFirst).not.toHaveBeenCalled();
@@ -242,7 +319,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         tauxCouverture: dec(80), plafondParActe: null,
       });
 
-      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 10000 }]);
 
       expect(res.montantAssurance).toBe('8000.00');
       expect(res.montantPatient).toBe('2000.00');
@@ -256,7 +333,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     it('sans garantie PHARMACIE → NON COUVERT : assurance 0, le patient paie tout (plus de 80 % par défaut)', async () => {
       prisma.garantie.findFirst.mockResolvedValue(null);
 
-      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 10000 }]);
 
       expect(res.montantAssurance).toBe('0.00');
       expect(res.montantPatient).toBe('10000.00');
@@ -268,7 +345,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       prisma.garantie.findFirst.mockResolvedValue({ id: 'g-pharma', tauxCouverture: dec(80), plafondParActe: dec(3000) });
       adjudication.simuler.mockResolvedValueOnce(reponseSimulation(3000)); // 8000 plafonné à 3000
 
-      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+      const res = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 10000 }]);
 
       expect(adjudication.simuler.mock.calls[0][0]).toMatchObject({
         adherent_id: 'adh-1',
@@ -294,7 +371,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       adjudication.simuler.mockResolvedValueOnce(reponseSimulation(1000)); // plafond annuel presque atteint
 
       await service.preparerDispensation(USER, 'ord-1', [
-        { ligneOrdonnanceId: 'ligne-1' }, { ligneOrdonnanceId: 'ligne-2' }, { ligneOrdonnanceId: 'ligne-3' },
+        { ligneOrdonnanceId: 'ligne-1', prixUnitaire: 1000 }, { ligneOrdonnanceId: 'ligne-2', prixUnitaire: 1000 }, { ligneOrdonnanceId: 'ligne-3', prixUnitaire: 1000 },
       ]);
 
       expect(adjudication.simuler.mock.calls[0][0].lignes).toHaveLength(1);
@@ -309,7 +386,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       adjudication.simuler.mockRejectedValueOnce(new Error('timeout'));
 
       const err = await service
-        .preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }])
+        .preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 10000 }])
         .catch((e) => e);
       expect(err).toBeInstanceOf(ServiceUnavailableException);
       // message clair pour le pharmacien, jamais de détail technique
@@ -321,7 +398,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     it('la garantie est cherchée avec la catégorie PHARMACIE, pas CONSULTATION', async () => {
       prisma.garantie.findFirst.mockResolvedValue({ tauxCouverture: dec(80), plafondParActe: null });
 
-      await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1' }]);
+      await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 10000 }]);
 
       expect(prisma.garantie.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -686,15 +763,15 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
   it('la caissière NE PEUT PAS écrire le stock (réservé au pharmacien)', async () => {
     identity.getMe.mockResolvedValue(caissiere('pharm-1'));
     await expect(
-      service.definirPrixStock(USER, { denominationMedicament: 'Paracetamol', prixPharmacie: 500 }),
+      service.definirPrixStock(USER, { denominationMedicament: 'Paracetamol', disponible: false }),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.stockMedicamentPharmacie.upsert).not.toHaveBeenCalled();
   });
 
-  it('le pharmacien peut définir un prix de stock', async () => {
+  it('le pharmacien peut marquer un médicament indisponible (le stock ne porte plus de prix)', async () => {
     identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
     prisma.stockMedicamentPharmacie.upsert.mockResolvedValue({ id: 's1' });
-    await service.definirPrixStock(USER, { denominationMedicament: 'Paracetamol', prixPharmacie: 500 });
+    await service.definirPrixStock(USER, { denominationMedicament: 'Paracetamol', disponible: false });
     expect(prisma.stockMedicamentPharmacie.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { pharmacieId_denominationMedicament: { pharmacieId: 'pharm-1', denominationMedicament: 'Paracetamol' } },

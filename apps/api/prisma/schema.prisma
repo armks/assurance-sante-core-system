@@ -1265,6 +1265,11 @@ model LigneDispensation {
   /// prisma/sql/040.
   montantAssurance    Decimal   @default(0) @map("montant_assurance") @db.Decimal(14, 2)
   montantPatient      Decimal   @default(0) @map("montant_patient") @db.Decimal(14, 2)
+  /// Prix national de référence du médicament à la date de la dispensation, majoration appliquée par la
+  /// pharmacie (prix saisi au comptoir / prix de référence - 1) et alerte au-delà du seuil — prisma/sql/078.
+  prixReference       Decimal?  @map("prix_reference") @db.Decimal(14, 2)
+  majorationPourcent  Decimal?  @map("majoration_pourcent") @db.Decimal(8, 2)
+  majorationAnormale  Boolean   @default(false) @map("majoration_anormale")
   /// substitution réservée à PHARMACIE_PHARMACIEN OU ASSUREUR_PHARMACIEN_CONSEIL
   /// (capacité additive depuis prisma/sql/044), avant confirmation du paiement
   /// uniquement (v. PharmacyService.substituerMedicament) — l'audit distingue

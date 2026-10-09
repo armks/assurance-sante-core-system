@@ -304,20 +304,12 @@ describe('DependancesService — lot 2 : entités de configuration', () => {
       expect(fermer.possible).toBe(true);
     });
 
-    it('tarif de PHARMACIE : ni suppression ni modification de montant tant que la trace du calcul manque ; fermer et changer restent permis', async () => {
+    it('tarif de PHARMACIE : plus utilisé par le comptoir (prix saisi, migration 078) → se supprime et se modifie comme un tarif d’établissement sans calcul', async () => {
       const rec = { ...fixture('tarif', 'supprimer'), etablissementId: null, pharmacieId: 'ph-1' };
-      const v = async (action: 'supprimer' | 'modifier' | 'archiver') =>
-        service(rec, 'ASSUREUR_INFORMATIQUE').s.verifier(USER, 'tarif', 'x-1', action);
-      for (const action of ['supprimer', 'modifier'] as const) {
-        const r = await v(action);
-        expect(r.possible).toBe(false);
-        expect(r.code).toBe('ETAT');
-        expect(r.raison).toContain('ne tracent pas encore le tarif utilisé');
+      for (const action of ['supprimer', 'modifier', 'archiver'] as const) {
+        const r = await service(rec, 'ASSUREUR_INFORMATIQUE').s.verifier(USER, 'tarif', 'x-1', action);
+        expect(r.possible).toBe(true);
       }
-      expect((await v('archiver')).possible).toBe(true);
-      // un tarif d'établissement sans calcul reste libre
-      const etab = await service(fixture('tarif', 'supprimer'), 'ASSUREUR_INFORMATIQUE').s.verifier(USER, 'tarif', 'x-1', 'supprimer');
-      expect(etab.possible).toBe(true);
     });
 
     it('tarif : comptages par tarifConventionneId (actes) et tarifPharmacieId (dispensations), dans l’organisation du jeton', async () => {

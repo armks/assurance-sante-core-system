@@ -8035,3 +8035,29 @@ Terminé — commit et push. Lot 5 non commencé (dette `tarif_pharmacie_id` : l
 
 ### Statut
 Terminé — commit et push à confirmer.
+
+## 2026-10-09 — Comptoir de pharmacie : prix saisi par le caissier, alerte de majoration (solde la dette `tarif_pharmacie_id`)
+
+### Réalisé
+- `prisma/sql/078_comptoir_prix_saisi_majoration.sql` (appliquée deux fois, idempotente) : prix de référence,
+  majoration et indicateur d'alerte sur `lignes_dispensation` ; paramètre `majoration_maximale_pharmacie_pourcent` (20).
+- API : `prixUnitaire` obligatoire par ligne choisie ; prix national (médicament homologué de l'organisation puis
+  référentiel national) ; alerte au-delà du seuil (jamais un blocage) ; stock = disponibilité seule ; recherche par
+  carte et détail de dispensation exposent prix national et alerte ; audit enrichi ; détail des factures mensuelles
+  exposant prix pratiqué, prix national et majoration au pharmacien-conseil.
+- Registre : le tarif de pharmacie n'est plus « non tracé » (plus utilisé par le comptoir).
+- Web : poste du caissier (prix national, saisie du prix pratiqué, majoration en direct, alerte, envoi bloqué sans prix),
+  écran de stock (disponibilité seule), vue du pharmacien-conseil.
+
+### Tests
+- API 1 269/1 269 (+6 : majoration 30 % / 20 % exactement / −10 %, seuil réglé à 10 %, prix national absent, repli sur
+  le référentiel national, indisponibilité), typage API et web 0 erreur, intégration 2/2 (un échec isolé au premier passage,
+  non reproduit aux deux suivants : serveurs en cours de démarrage).
+- HTTP réel (tous OK, nettoyage à zéro) : total 26 299 F (2×6 500 + 3 300 + 9 999), une seule alerte (+30 %), indicateurs en base,
+  garantie 80 % appliquée au prix de la pharmacie, audit, 400 sans prix ou prix négatif, médicament indisponible refusé, prix
+  envoyé au stock ignoré, seuil de la plateforme répercuté.
+- Navigateur : prix national affiché, envoi bloqué sans prix, majoration 10 % sans alerte, alerte à +30 %, vente possible,
+  signalement après préparation.
+
+### Statut
+Terminé — dette `tarif_pharmacie_id` soldée.

@@ -39,7 +39,7 @@ export async function obtenirStock(): Promise<LigneStock[]> {
 
 /** Réservée au pharmacien côté API (403 sinon) — voir `PharmacyService.definirPrixStock`. */
 export async function definirPrixStock(
-  input: { denominationMedicament: string; prixPharmacie?: number; disponible?: boolean },
+  input: { denominationMedicament: string; disponible?: boolean },
   cible: string,
 ): Promise<ResultatSoumission> {
   const res = await apiFetch('/api/v1/pharmacy/stock', {
@@ -48,7 +48,7 @@ export async function definirPrixStock(
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(cible);
-  return { ok: true, message: 'Tarif enregistré.' };
+  return { ok: true, message: 'Disponibilité enregistrée.' };
 }
 
 /**
@@ -76,10 +76,11 @@ export async function listerDispensationsPharmacie(
 
 export async function preparerDispensation(
   ordonnanceId: string,
-  lignes: { ligneOrdonnanceId: string }[],
+  lignes: { ligneOrdonnanceId: string; prixUnitaire: number }[],
   cible: string,
 ): Promise<
   ResultatSoumission & {
+    alertes?: { medicament: string; prixUnitaire: string; prixReference: string; majorationPourcent: string }[];
     dispensationId?: string;
     montantTotal?: string;
     montantAssurance?: string;
@@ -96,6 +97,7 @@ export async function preparerDispensation(
     montantTotal: string;
     montantAssurance: string;
     montantPatient: string;
+    alertes: { medicament: string; prixUnitaire: string; prixReference: string; majorationPourcent: string }[];
     message: string;
   };
   revalidatePath(cible);
@@ -106,6 +108,7 @@ export async function preparerDispensation(
     montantTotal: body.montantTotal,
     montantAssurance: body.montantAssurance,
     montantPatient: body.montantPatient,
+    alertes: body.alertes,
   };
 }
 

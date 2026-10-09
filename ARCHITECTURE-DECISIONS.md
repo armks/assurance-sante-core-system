@@ -848,3 +848,19 @@ d'invitation normal (`assertPasDejaCompte`).
   la transaction sous verrou consultatif par organisation (révocations / changements de rôle / suppression
   croisés simultanés : le second voit le premier validé → 409 explicite).
 - UI : la confirmation partagée accepte un motif obligatoire (annulations).
+
+### Comptoir de pharmacie — prix saisi, majoration surveillée (2026-10-09) — migration `prisma/sql/078_comptoir_prix_saisi_majoration.sql`
+- **Décision métier** : la base nationale des médicaments (prix de référence) est UNIQUE pour toute la
+  Côte d'Ivoire ; chaque pharmacie applique sa propre majoration. On ne crée donc PAS de base de médicaments
+  ni de tarifs par pharmacie. L'assureur n'a pas de tarif conventionné de médicament avec les pharmacies : il
+  suit la garantie du contrat (taux de couverture) appliquée au prix réellement facturé, sans plafond.
+- Le caissier SAISIT le prix pratiqué de chaque médicament au comptoir (obligatoire, jamais lu dans une base
+  de la pharmacie). Le prix national de référence (médicament homologué de l'organisation, à défaut référentiel
+  national) est affiché et sert à mesurer la majoration.
+- **Alerte, jamais blocage** : au-delà du seuil (paramètre de plateforme `majoration_maximale_pharmacie_pourcent`,
+  20 % par défaut), la ligne est marquée « majoration anormale » (prix de référence, pourcentage et indicateur
+  enregistrés sur la ligne de dispensation), signalée au caissier, tracée dans l'audit et visible du
+  pharmacien-conseil dans le détail des factures mensuelles. Sans prix national connu : pas d'alerte.
+- Le stock de la pharmacie ne porte plus de prix (colonne conservée, inutilisée) : il ne sert qu'à signaler un
+  médicament indisponible (409). `tarif_pharmacie_id` n'est plus renseigné (jamais utilisé) : le registre traite
+  le tarif de pharmacie comme un tarif sans calcul (modifiable, supprimable). Dette `tarif_pharmacie_id` soldée.

@@ -54,6 +54,9 @@ export function DispensationFlowEcran({
     () => new Map(stock.map((s) => [s.denominationMedicament, s])),
     [stock],
   );
+  const [alertesPreparation, setAlertesPreparation] = useState<
+    { medicament: string; prixUnitaire: string; prixReference: string; majorationPourcent: string }[]
+  >([]);
 
   const [ordonnanceId, setOrdonnanceId] = useState<string | null>(null);
   const [selections, setSelections] = useState<Record<string, boolean>>({});
@@ -71,6 +74,7 @@ export function DispensationFlowEcran({
     setOrdonnanceId(null);
     setSelections({});
     setPrixLocal({});
+    setAlertesPreparation([]);
     setPreparationErreur(null);
     setDispensation(null);
     setPaiementErreur(null);
@@ -106,11 +110,21 @@ export function DispensationFlowEcran({
   const totalLocal = ordonnanceSelectionnee
     ? ordonnanceSelectionnee.lignes.reduce((acc, ligne) => {
         if (!selections[ligne.id]) return acc;
-        const s = stockParDenomination.get(ligne.denominationMedicament);
-        const prix = Number(prixLocal[ligne.id] ?? s?.prixPharmacie ?? 0);
+        const prix = Number(prixLocal[ligne.id] ?? 0);
         return acc + prix * ligne.quantitePrescrite;
       }, 0)
     : 0;
+
+  /** Majoration (%) du prix saisi par rapport au prix national unique ; null si inconnu. */
+  const majorationDe = (ligne: { id: string; prixReference?: string | null }): number | null => {
+    const ref = Number(ligne.prixReference ?? 0);
+    const prix = Number(prixLocal[ligne.id] ?? 0);
+    return ref > 0 && prix > 0 ? Math.round((prix / ref - 1) * 10000) / 100 : null;
+  };
+  const seuilMajoration = resultat?.seuilMajorationPourcent ?? 20;
+  const prixManquant = (ordonnanceSelectionnee?.lignes ?? []).some(
+    (l) => selections[l.id] && !(Number(prixLocal[l.id]) > 0),
+  );
 
   const auMoinsUneLigneChoisie = Object.values(selections).some(Boolean);
 
@@ -119,13 +133,14 @@ export function DispensationFlowEcran({
     setPreparationErreur(null);
     const lignes = ordonnanceSelectionnee.lignes
       .filter((l) => selections[l.id])
-      .map((l) => ({ ligneOrdonnanceId: l.id }));
+      .map((l) => ({ ligneOrdonnanceId: l.id, prixUnitaire: Number(prixLocal[l.id]) }));
     startTransition(async () => {
       const res = await preparerDispensation(ordonnanceSelectionnee.id, lignes, cible);
       if (!res.ok) {
         setPreparationErreur(res.error);
         return;
       }
+      setAlertesPreparation(res.alertes ?? []);
       const detail = await obtenirDispensation(res.dispensationId!);
       setDispensation(detail);
     });
@@ -260,14 +275,17 @@ export function DispensationFlowEcran({
                     <th className="py-2 pr-2">Posologie</th>
                     <th className="py-2 pr-2">Qté</th>
                     <th className="py-2 pr-2">Statut</th>
-                    <th className="py-2 pr-2">Prix unitaire</th>
+                    <th className="py-2 pr-2">Prix national</th>
+                    <th className="py-2 pr-2">Prix pratiqué (F)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {ordonnanceSelectionnee.lignes.map((ligne) => {
                     const s = stockParDenomination.get(ligne.denominationMedicament);
-                    const enStock = !!s && s.disponible && s.prixPharmacie !== null;
-                    const selectionnable = ligne.statut === 'DISPONIBLE' && enStock;
+                    const indisponible = !!s && !s.disponible;
+                    const selectionnable = ligne.statut === 'DISPONIBLE' && !indisponible;
+                    const majoration = majorationDe(ligne);
+                    const alerte = majoration !== null && majoration > seuilMajoration;
                     return (
                       <tr
                         key={ligne.id}
@@ -293,28 +311,44 @@ export function DispensationFlowEcran({
                         <td className="py-2 pr-2">
                           {ligne.statut === 'SERVIE' ? (
                             <StatutBadge statut="SERVIE" ton="neutre" libelle="Déjà servie" />
-                          ) : enStock ? (
+                          ) : !indisponible ? (
                             <StatutBadge statut="DISPONIBLE" ton="succes" libelle="Disponible" />
                           ) : (
                             <StatutBadge
                               statut="INDISPONIBLE"
                               ton="attention"
-                              libelle="Prix non défini par le pharmacien"
+                              libelle="Indisponible dans la pharmacie"
                             />
                           )}
                         </td>
+                        <td className="py-2 pr-2 text-muted-foreground">
+                          {ligne.prixReference ? montantFr(ligne.prixReference) : '—'}
+                        </td>
                         <td className="py-2 pr-2">
                           {selectionnable ? (
-                            <Input
-                              type="number"
-                              min={0}
-                              step="0.01"
-                              className="h-8 w-28"
-                              value={prixLocal[ligne.id] ?? s?.prixPharmacie ?? ''}
-                              onChange={(e) =>
-                                setPrixLocal((prev) => ({ ...prev, [ligne.id]: e.target.value }))
-                              }
-                            />
+                            <div className="space-y-1">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                className="h-8 w-28"
+                                aria-label={`Prix pratiqué — ${ligne.denominationMedicament}`}
+                                value={prixLocal[ligne.id] ?? ''}
+                                onChange={(e) =>
+                                  setPrixLocal((prev) => ({ ...prev, [ligne.id]: e.target.value }))
+                                }
+                              />
+                              {majoration !== null && (
+                                <p
+                                  role={alerte ? 'alert' : undefined}
+                                  className={`text-xs ${alerte ? 'font-medium text-amber-600' : 'text-muted-foreground'}`}
+                                >
+                                  {alerte
+                                    ? `Majoration de ${majoration} % : au-delà de ${seuilMajoration} % autorisés`
+                                    : `Majoration ${majoration} %`}
+                                </p>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
@@ -327,8 +361,9 @@ export function DispensationFlowEcran({
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Le prix affiché ici sert au calcul indicatif communiqué au patient ; le montant
-              définitif reste celui du tarif de la pharmacie au moment de la préparation.
+              Saisissez le prix pratiqué par votre pharmacie pour chaque médicament. Le prix national
+              unique sert de référence : une majoration au-delà du seuil de la plateforme déclenche une
+              alerte (la vente reste possible).
             </p>
 
             <div className="flex items-center justify-between rounded-md border bg-muted/40 p-3">
@@ -339,7 +374,7 @@ export function DispensationFlowEcran({
             {preparationErreur && <p className="text-sm text-destructive">{preparationErreur}</p>}
 
             <div className="flex justify-end">
-              <Button onClick={envoyerCode} disabled={pending || !auMoinsUneLigneChoisie}>
+              <Button onClick={envoyerCode} disabled={pending || !auMoinsUneLigneChoisie || prixManquant}>
                 Envoyer le code de confirmation au patient
               </Button>
             </div>
@@ -364,6 +399,14 @@ export function DispensationFlowEcran({
             />
           </CardHeader>
           <CardContent className="space-y-4">
+            {alertesPreparation.length > 0 && (
+              <div role="alert" className="rounded-md border border-amber-300 bg-amber-50/60 p-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+                Majoration anormale signalée à l’assureur :{' '}
+                {alertesPreparation
+                  .map((a) => `${a.medicament} (+${a.majorationPourcent} % : ${montantFr(a.prixUnitaire)} pour un prix national de ${montantFr(a.prixReference)})`)
+                  .join(' ; ')}
+              </div>
+            )}
             <ul className="space-y-2 text-sm">
               {dispensation.lignes.map((l) => (
                 <li key={l.id} className="flex items-center justify-between rounded-md border p-2">

@@ -47,6 +47,10 @@ import {
   STATUTS_DISPENSATION_MODIFIABLE,
 } from './pharmacy.types';
 
+/** Seuil (%) de majoration d'une pharmacie au-delà duquel le comptoir alerte (paramètre de la plateforme). */
+const CLE_SEUIL_MAJORATION = 'majoration_maximale_pharmacie_pourcent';
+const SEUIL_MAJORATION_DEFAUT = 20;
+
 type Db = PrismaService | Prisma.TransactionClient;
 
 /**
@@ -134,7 +138,14 @@ export class PharmacyService {
       orderBy: { datePrescription: 'desc' },
     });
 
+    const refs = await this.prixReferenceParDenomination(
+      ctx.organisationId,
+      ordonnances.flatMap((o) => o.lignesOrdonnance.map((l) => l.denominationMedicament)),
+    );
+    const seuilMajorationPourcent = await this.seuilMajorationPourcent();
+
     return {
+      seuilMajorationPourcent,
       patient: adherent
         ? { qualite: 'TITULAIRE' as const, nom: adherent.nom, prenom: adherent.prenom, numeroCarte: adherent.numeroCarte, statut: adherent.statut }
         : { qualite: 'BENEFICIAIRE' as const, nom: beneficiaire!.nom, prenom: beneficiaire!.prenom, numeroCarte: beneficiaire!.numeroCarte, statut: beneficiaire!.statut },
@@ -152,6 +163,7 @@ export class PharmacyService {
           duree: l.duree,
           quantitePrescrite: l.quantitePrescrite,
           statut: l.statut,
+          prixReference: refs.get(l.denominationMedicament.trim().toLowerCase())?.toFixed(2) ?? null,
         })),
       })),
     };
@@ -174,6 +186,10 @@ export class PharmacyService {
     });
   }
 
+  /**
+   * Disponibilité d'un médicament dans la pharmacie (ADR-007, lot comptoir) : le stock ne porte plus de
+   * prix — le prix est saisi au comptoir par le caissier, à partir du prix national de référence.
+   */
   async definirPrixStock(user: AuthenticatedUser, dto: DefinirPrixStockDto) {
     const ctx = await this.contexteAppelant(user);
     this.assertPharmacien(ctx);
@@ -188,15 +204,56 @@ export class PharmacyService {
       create: {
         pharmacieId: ctx.pharmacieId!,
         denominationMedicament: dto.denominationMedicament,
-        prixPharmacie: dto.prixPharmacie === undefined ? null : new Decimal(dto.prixPharmacie).toFixed(2),
         disponible: dto.disponible ?? true,
       },
       update: {
-        ...(dto.prixPharmacie !== undefined ? { prixPharmacie: new Decimal(dto.prixPharmacie).toFixed(2) } : {}),
         ...(dto.disponible !== undefined ? { disponible: dto.disponible } : {}),
         dateMaj: new Date(),
       },
     });
+  }
+
+  // --- Prix national de référence et seuil de majoration ------------------
+
+  /** Seuil de majoration (%) : paramètre de la plateforme, 20 par défaut. */
+  private async seuilMajorationPourcent(): Promise<number> {
+    const p = await this.prisma.parametrePlateforme.findUnique({ where: { cle: CLE_SEUIL_MAJORATION } });
+    const v = p ? Number(p.valeur) : NaN;
+    return Number.isFinite(v) && v >= 0 ? v : SEUIL_MAJORATION_DEFAUT;
+  }
+
+  /**
+   * Prix national de référence par dénomination (insensible à la casse) : médicament homologué de
+   * l'organisation d'abord, référentiel national ensuite. Absent = aucune alerte possible.
+   */
+  private async prixReferenceParDenomination(
+    organisationId: string,
+    denominations: string[],
+  ): Promise<Map<string, Decimal>> {
+    const uniques = [...new Set(denominations)];
+    const ou = uniques.map((d) => ({ denominationCommune: { equals: d, mode: 'insensitive' as const } }));
+    const clef = (d: string) => d.trim().toLowerCase();
+    const resultat = new Map<string, Decimal>();
+    const locaux = await this.prisma.medicament.findMany({
+      where: { organisationId, deletedAt: null, statutHomologation: 'HOMOLOGUE', prixReferenceXof: { not: null }, OR: ou },
+      select: { denominationCommune: true, prixReferenceXof: true },
+    });
+    for (const m of locaux) resultat.set(clef(m.denominationCommune), new Decimal(m.prixReferenceXof!.toString()));
+    const manquants = uniques.filter((d) => !resultat.has(clef(d)));
+    if (manquants.length > 0) {
+      const nationaux = await this.prisma.referentielNationalMedicament.findMany({
+        where: {
+          statutHomologation: 'HOMOLOGUE',
+          prixReferenceXof: { not: null },
+          OR: manquants.map((d) => ({ denominationCommune: { equals: d, mode: 'insensitive' as const } })),
+        },
+        select: { denominationCommune: true, prixReferenceXof: true },
+      });
+      for (const m of nationaux) {
+        if (!resultat.has(clef(m.denominationCommune))) resultat.set(clef(m.denominationCommune), new Decimal(m.prixReferenceXof!.toString()));
+      }
+    }
+    return resultat;
   }
 
   // --- Préparation d'une dispensation (par ligne) -------------------
@@ -265,7 +322,9 @@ export class PharmacyService {
       );
     }
 
-    // Montant depuis le stock DE CETTE PHARMACIE (jamais un prix fourni par le client).
+    // Prix PRATIQUÉ par la pharmacie, saisi par le caissier (jamais lu dans une base de tarifs de la
+    // pharmacie). Seul garde-fou : le médicament marqué indisponible dans SA pharmacie est refusé ; la
+    // majoration par rapport au prix national unique de référence déclenche une ALERTE (jamais un blocage).
     const stock = await this.prisma.stockMedicamentPharmacie.findMany({
       where: {
         pharmacieId,
@@ -273,6 +332,8 @@ export class PharmacyService {
       },
     });
     const parDenomination = new Map(stock.map((s) => [s.denominationMedicament, s]));
+    const refs = await this.prixReferenceParDenomination(ctx.organisationId, lignes.map((l) => l.denominationMedicament));
+    const seuil = await this.seuilMajorationPourcent();
 
     const detail: {
       ligne: (typeof lignes)[number];
@@ -281,22 +342,31 @@ export class PharmacyService {
       montantLigne: Decimal;
       montantAssurance: Decimal;
       montantPatient: Decimal;
+      prixReference: Decimal | null;
+      majorationPourcent: Decimal | null;
+      majorationAnormale: boolean;
     }[] = [];
     for (const choix of lignesChoisies) {
       const ligne = lignes.find((l) => l.id === choix.ligneOrdonnanceId)!;
       const s = parDenomination.get(ligne.denominationMedicament);
-      if (!s || s.prixPharmacie === null || !s.disponible) {
-        throw new ConflictException(
-          `Prix non défini ou médicament indisponible dans votre pharmacie : ${ligne.denominationMedicament}. Le pharmacien doit d'abord le renseigner.`,
-        );
+      if (s && !s.disponible) {
+        throw new ConflictException(`Médicament indisponible dans votre pharmacie : ${ligne.denominationMedicament}.`);
       }
       const quantite = choix.quantite ?? ligne.quantitePrescrite;
-      const prixUnitaire = new Decimal(s.prixPharmacie.toString());
+      const prixUnitaire = new Decimal(choix.prixUnitaire).toDecimalPlaces(2);
       const montantLigne = prixUnitaire.mul(quantite);
+      const prixReference = refs.get(ligne.denominationMedicament.trim().toLowerCase()) ?? null;
+      const majorationPourcent =
+        prixReference && prixReference.gt(0)
+          ? prixUnitaire.div(prixReference).sub(1).mul(100).toDecimalPlaces(2)
+          : null;
       detail.push({
         ligne, quantite, prixUnitaire, montantLigne,
         montantAssurance: new Decimal(0),
         montantPatient: montantLigne,
+        prixReference,
+        majorationPourcent,
+        majorationAnormale: majorationPourcent !== null && majorationPourcent.gt(seuil),
       });
     }
     const montantTotal = detail.reduce((acc, d) => acc.add(d.montantLigne), new Decimal(0));
@@ -363,6 +433,14 @@ export class PharmacyService {
       await this.audit(tx, ctx.userId, 'PREPARATION_DISPENSATION', 'dispensations_pharmacie', d.id, {
         ordonnanceId,
         lignes: detail.map((x) => x.ligne.denominationMedicament),
+        prix: detail.map((x) => ({
+          medicament: x.ligne.denominationMedicament,
+          prixUnitaire: x.prixUnitaire.toFixed(2),
+          prixReference: x.prixReference ? x.prixReference.toFixed(2) : null,
+          majorationPourcent: x.majorationPourcent ? x.majorationPourcent.toFixed(2) : null,
+          majorationAnormale: x.majorationAnormale,
+        })),
+        seuilMajorationPourcent: seuil,
       });
 
       await tx.ligneDispensation.createMany({
@@ -374,6 +452,9 @@ export class PharmacyService {
           montantLigne: x.montantLigne.toFixed(2),
           montantAssurance: x.montantAssurance.toFixed(2),
           montantPatient: x.montantPatient.toFixed(2),
+          prixReference: x.prixReference ? x.prixReference.toFixed(2) : null,
+          majorationPourcent: x.majorationPourcent ? x.majorationPourcent.toFixed(2) : null,
+          majorationAnormale: x.majorationAnormale,
         })),
       });
 
@@ -397,6 +478,15 @@ export class PharmacyService {
       montantTotal: dispensation.montantTotal.toFixed(2),
       montantAssurance: montantAssuranceTotal.toFixed(2),
       montantPatient: montantPatientTotal.toFixed(2),
+      seuilMajorationPourcent: seuil,
+      alertes: detail
+        .filter((d) => d.majorationAnormale)
+        .map((d) => ({
+          medicament: d.ligne.denominationMedicament,
+          prixUnitaire: d.prixUnitaire.toFixed(2),
+          prixReference: d.prixReference!.toFixed(2),
+          majorationPourcent: d.majorationPourcent!.toFixed(2),
+        })),
       message: "Dispensation préparée. Le code de confirmation a été transmis au patient pour validation.",
     };
   }
@@ -456,6 +546,9 @@ export class PharmacyService {
         motifSubstitution: l.motifSubstitution,
         quantite: l.quantite,
         prixUnitaire: l.prixUnitaire.toFixed(2),
+        prixReference: l.prixReference ? l.prixReference.toFixed(2) : null,
+        majorationPourcent: l.majorationPourcent ? l.majorationPourcent.toFixed(2) : null,
+        majorationAnormale: l.majorationAnormale,
         montantLigne: l.montantLigne.toFixed(2),
         enLitige: enLitige.has(l.ligneOrdonnanceId),
         montantAssurance: enLitige.has(l.ligneOrdonnanceId) ? null : l.montantAssurance.toFixed(2),
@@ -1071,6 +1164,10 @@ export class PharmacyService {
         denominationMedicament: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
         quantite: l.quantite,
         montantAssurance: l.montantAssurance.toFixed(2),
+        prixUnitaire: l.prixUnitaire.toFixed(2),
+        prixReference: l.prixReference ? l.prixReference.toFixed(2) : null,
+        majorationPourcent: l.majorationPourcent ? l.majorationPourcent.toFixed(2) : null,
+        majorationAnormale: l.majorationAnormale,
         enLitige: enLitige.has(l.ligneOrdonnanceId),
       })),
     };

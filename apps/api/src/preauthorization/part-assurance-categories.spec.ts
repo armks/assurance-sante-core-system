@@ -179,6 +179,7 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
     const reponse = reponseSimulation(8000, 40000);
     // le microservice renvoie le tarif conventionné appliqué à l'acte codé (trace, prisma/sql/074)
     (reponse.lignes[1] as any).tarif_conventionne_id = 'tarif-nfs';
+    (reponse.lignes[1] as any).trace_tarif = { statut_tarif: 'TARIFABLE', regle_origine: 'FORFAIT', convention_id: 'conv-1' };
     adjudication.simuler.mockResolvedValueOnce(reponse);
     const r = await (service as any).calculerMontantsPourActes(CONTEXTE, 'prod-1', [
       { id: 'a1', montantPrescrit: '10000', quantite: 1, categorieActe: 'CONSULTATION', codeActe: null, dateRealisation: null, datePrescription: new Date('2026-06-15') },
@@ -195,6 +196,8 @@ describe('Part assurance par catégorie — facture et simulation (règle « non
       partsAssurance: ['8000.00', '0.00', '40000.00'],
       // tarif appliqué rapporté à SON acte (a3), dans l'ordre des actes
       tarifsConventionnes: [null, null, 'tarif-nfs'],
+      // instantané du tarif rapporté à SON acte (ADR-008, lot 3) ; null pour l'acte non couvert
+      traces: [null, null, { statut_tarif: 'TARIFABLE', regle_origine: 'FORFAIT', convention_id: 'conv-1' }],
       // aucun acte non couvert à la date des soins (catégorie non couverte ≠ inéligibilité)
       codesIneligibilite: [null, null, null],
     });

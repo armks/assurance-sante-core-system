@@ -57,7 +57,7 @@ class DateSoinsCumulTest {
         new BigDecimal("30000.00"), null, c.franchise(),
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), debutPolice, null,
-        c.etablissementId(), c.tarifConvention(),
+        c.etablissementId(), c.tarif(),
         c.produitId(), c.titulaireId(), mode, dateSoins, 90);
   }
 

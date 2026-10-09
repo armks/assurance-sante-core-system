@@ -54,7 +54,16 @@ public class SimulationService {
       UUID beneficiaireId,
       UUID etablissementId,
       LocalDate dateReference,
-      List<Ligne> lignes) {}
+      List<Ligne> lignes,
+      /** Type de visite du dossier (contexte ambulatoire / hospitalisation) ; à défaut lu via l'acte. */
+      String typeVisite) {
+
+    public Demande(
+        UUID policeId, UUID adherentId, UUID beneficiaireId, UUID etablissementId,
+        LocalDate dateReference, List<Ligne> lignes) {
+      this(policeId, adherentId, beneficiaireId, etablissementId, dateReference, lignes, null);
+    }
+  }
 
   /**
    * Résultat d'une ligne ; {@code tarifConventionneId} = tarif conventionné appliqué au
@@ -65,10 +74,13 @@ public class SimulationService {
       BigDecimal montantCouvert,
       BigDecimal plafondRestantApres,
       List<String> codesRejet,
-      UUID tarifConventionneId) {}
+      UUID tarifConventionneId,
+      /** Instantané du tarif appliqué (ADR-008, lot 3), figé par l'appelant sur la ligne de facturation. */
+      TraceTarif trace) {}
 
   private final AdjudicationRepository repo;
   private final Adjudicateur adjudicateur = new Adjudicateur();
+  private final ResolveurTarif resolveur;
   /** Horloge : la facture est déclarée « aujourd'hui » (injectable pour les tests). */
   private final Clock horloge;
 
@@ -80,6 +92,7 @@ public class SimulationService {
   public SimulationService(AdjudicationRepository repo, Clock horloge) {
     this.repo = repo;
     this.horloge = horloge;
+    this.resolveur = new ResolveurTarif(repo);
   }
 
   @Transactional(readOnly = true)
@@ -138,9 +151,16 @@ public class SimulationService {
                   ? BigDecimal.ZERO
                   : repo.sommeConsommeeFamille(titulaire, g.id(), actesExclus, periode));
 
-      final BigDecimal tarif = repo.tarifConvention(police.organisationId(), d.etablissementId(), l.codeActe(), date);
-      final UUID tarifId =
-          tarif == null ? null : repo.tarifConventionneId(police.organisationId(), d.etablissementId(), l.codeActe(), date);
+      // type de visite du dossier -> contexte (hospitalisation | ambulatoire) : fourni par l'appelant, à défaut
+      // lu sur le dossier de l'acte
+      final String typeVisite =
+          d.typeVisite() != null
+              ? d.typeVisite()
+              : l.acteDossierId() != null ? repo.typeVisiteDeActe(l.acteDossierId()) : null;
+      final TarifResolu tarif =
+          resolveur.resoudre(
+              new ContexteTarif(
+                  police.organisationId(), d.etablissementId(), null, l.codeActe(), date, typeVisite));
       final ContexteAdjudication ctx =
           new ContexteAdjudication(
               null, police.organisationId(), null, null,
@@ -160,7 +180,8 @@ public class SimulationService {
       cumulFamille.put(cle, dejaFamille.add(r.montantRembourse()));
       resultats.add(
           new ResultatLigne(
-              r.decision(), r.montantRembourse(), r.plafondRestantApres(), r.codesRejet(), tarifId));
+              r.decision(), r.montantRembourse(), r.plafondRestantApres(), r.codesRejet(),
+              tarif.tarifConventionneId(), TraceTarif.de(tarif, l.montant())));
     }
     return resultats;
   }

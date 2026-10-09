@@ -477,6 +477,7 @@ model Convention {
   suivantes     Convention[]       @relation("VersionsConvention")
   valeurs       ConventionValeur[]
   actes         ConventionActe[]
+  lignesFacturation LigneFacturation[]
 
   @@index([etablissementId, statut])
   @@index([organisationId, statut])
@@ -1727,8 +1728,21 @@ model LigneFacturation {
   /// que la contestation associée n'est plus en litige (VALIDEE) ; reste
   /// définitivement non réclamée si REJETEE.
   reporteeMoisSuivant Boolean @default(false) @map("reportee_mois_suivant")
+  /// Instantané du tarif appliqué, FIGÉ à l'émission (prisma/sql/082, ADR-008 lot 3) : valeurs copiées du
+  /// calcul du microservice, jamais recalculées (trigger : non modifiables une fois posées).
+  tarifStatut            String?  @map("tarif_statut") // TARIFABLE | NON_APPLICABLE
+  tarifRegleOrigine      String?  @map("tarif_regle_origine") // FORFAIT | VALEUR_PROPRE | VALEUR_LETTRE_CLE | AUCUNE_CONVENTION
+  tarifLettreCle         String?  @map("tarif_lettre_cle")
+  tarifCoefficient       Decimal? @map("tarif_coefficient") @db.Decimal(8, 2)
+  tarifValeurAppliquee   Decimal? @map("tarif_valeur_appliquee") @db.Decimal(14, 2)
+  tarifConventionId      String?  @map("tarif_convention_id") @db.Uuid
+  tarifPolitiqueDepassement String? @map("tarif_politique_depassement") // PATIENT | REJET
+  tarifPrixAffiche       Decimal? @map("tarif_prix_affiche") @db.Decimal(14, 2)
+  tarifReconnu           Decimal? @map("tarif_reconnu") @db.Decimal(14, 2)
+  tarifEcart             Decimal? @map("tarif_ecart") @db.Decimal(14, 2)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  tarifConvention Convention? @relation(fields: [tarifConventionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   factureDossier FactureDossier? @relation(fields: [factureDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   acteDossier    ActeDossier     @relation(fields: [acteDossierId], references: [id], onDelete: NoAction, onUpdate: NoAction)

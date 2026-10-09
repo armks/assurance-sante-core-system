@@ -111,7 +111,7 @@ class AdjudicateurTest {
             new BigDecimal("0.00"),       // pas de franchise
             base.ticketModerateurPct(), base.delaiCarenceJours(), base.reseauSoins(),
             base.policeStatut(), base.policeDebut(), base.policeFin(),
-            base.etablissementId(), base.tarifConvention(),
+            base.etablissementId(), base.tarif(),
             base.produitId(), base.titulaireId(), base.periodeCumul(), base.dateSoins(),
             base.delaiDeclarationJours());
 

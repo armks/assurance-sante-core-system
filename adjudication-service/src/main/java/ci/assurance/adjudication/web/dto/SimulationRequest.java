@@ -16,7 +16,8 @@ public record SimulationRequest(
     @JsonProperty("beneficiaire_id") UUID beneficiaireId,
     @JsonProperty("etablissement_id") UUID etablissementId,
     @JsonProperty("date_reference") LocalDate dateReference,
-    @JsonProperty("lignes") List<Ligne> lignes) {
+    @JsonProperty("lignes") List<Ligne> lignes,
+    @JsonProperty("type_visite") String typeVisite) {
 
   public record Ligne(
       @JsonProperty("garantie_id") UUID garantieId,

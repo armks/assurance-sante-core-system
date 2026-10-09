@@ -73,7 +73,7 @@ public final class JeuDeDonneesReference {
         LocalDate.of(2026, 1, 1),
         LocalDate.of(2026, 12, 31),
         ETABLISSEMENT_ID,
-        tarifConvention,
+        tarifConvention == null ? null : ci.assurance.adjudication.domain.TarifResolu.forfait(tarifConvention),
         PRODUIT_ID,
         ADHERENT_ID, // titulaire de la famille
         "ANNEE_CIVILE",
@@ -107,7 +107,7 @@ public final class JeuDeDonneesReference {
         c.plafondAnnuelPersonne(), c.plafondAnnuelFamille(), c.franchise(),
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
-        c.etablissementId(), c.tarifConvention(),
+        c.etablissementId(), c.tarif(),
         c.produitId(), ADHERENT_ID /* titulaire du bénéficiaire */, c.periodeCumul(),
         c.dateSoins(), c.delaiDeclarationJours());
   }
@@ -122,7 +122,7 @@ public final class JeuDeDonneesReference {
         c.tauxCouverturePct(), c.plafondParActe(), personne, famille, c.franchise(),
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
-        c.etablissementId(), c.tarifConvention(),
+        c.etablissementId(), c.tarif(),
         c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins(),
         c.delaiDeclarationJours());
   }
@@ -137,7 +137,7 @@ public final class JeuDeDonneesReference {
         c.plafondAnnuelFamille(), c.franchise(),
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
-        c.etablissementId(), c.tarifConvention(),
+        c.etablissementId(), c.tarif(),
         c.produitId(), c.titulaireId(), c.periodeCumul(), dateSoins,
         c.delaiDeclarationJours());
   }

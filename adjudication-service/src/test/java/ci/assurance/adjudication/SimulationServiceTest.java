@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import ci.assurance.adjudication.domain.AdjudicationExceptions.DemandeInvalide;
 import ci.assurance.adjudication.domain.AdjudicationRepository;
+import ci.assurance.adjudication.domain.ConventionApplicable;
 import ci.assurance.adjudication.domain.Decision;
 import ci.assurance.adjudication.domain.GarantieApplicable;
 import ci.assurance.adjudication.domain.PeriodeCumul;
@@ -190,11 +191,24 @@ class SimulationServiceTest {
     assertThat(r.codesRejet()).containsExactly("E001");
   }
 
+  /** Convention VALIDEE en vigueur + forfait de l'acte (règle FORFAIT) pour l'organisation {@code org}. */
+  private UUID forfait(UUID org, String code, String montant) {
+    UUID conv = UUID.randomUUID();
+    UUID acte = UUID.randomUUID();
+    UUID ligne = UUID.randomUUID();
+    when(repo.conventionEnVigueur(eq(org), eq(ETAB), eq(DATE))).thenReturn(Optional.of(
+        new ConventionApplicable(conv, "CONV-FICTIVE", 1, "PATIENT", false, DATE.minusMonths(3), null)));
+    when(repo.referentielActeId(org, code)).thenReturn(Optional.of(acte));
+    when(repo.ligneConvention(eq(conv), eq(acte), eq(DATE))).thenReturn(
+        Optional.of(new AdjudicationRepository.LigneConvention(ligne, new BigDecimal(montant), null)));
+    return ligne;
+  }
+
   @Test
-  @DisplayName("Tarif conventionné : 10000 facturés plafonnés à 8000 avant le taux → 6400.00")
+  @DisplayName("Forfait de la convention : 10000 facturés plafonnés à 8000 avant le taux → 6400.00")
   void tarifConventionne() {
     UUID g = garantie("80", null, null, null);
-    when(repo.tarifConvention(eq(ORG), eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
+    forfait(ORG, "CI-CONS", "8000.00");
     assertThat(simuler(new Ligne(g, new BigDecimal("10000"), "CI-CONS")).get(0).montantCouvert())
         .isEqualByComparingTo("6400.00");
   }
@@ -204,25 +218,24 @@ class SimulationServiceTest {
   void memeCodeActeDeuxOrganisations() {
     UUID g = garantie("80", null, null, null);
     UUID autreOrg = UUID.fromString("99999999-9999-4999-8999-999999999999");
-    // FICTIF : tarif de l'organisation de la police 8000, tarif de l'autre organisation 2000, même code d'acte
-    when(repo.tarifConvention(eq(ORG), eq(ETAB), eq("FICTIF-ACTE"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
-    when(repo.tarifConvention(eq(autreOrg), eq(ETAB), eq("FICTIF-ACTE"), eq(DATE))).thenReturn(new BigDecimal("2000.00"));
+    // FICTIF : forfait de l'organisation de la police 8000, forfait de l'autre organisation 2000, même code d'acte
+    forfait(ORG, "FICTIF-ACTE", "8000.00");
+    forfait(autreOrg, "FICTIF-ACTE", "2000.00");
     assertThat(simuler(new Ligne(g, new BigDecimal("10000"), "FICTIF-ACTE")).get(0).montantCouvert())
         .isEqualByComparingTo("6400.00"); // 8000 x 80 %, pas 2000 x 80 % = 1600
     org.mockito.Mockito.verify(repo, org.mockito.Mockito.never())
-        .tarifConvention(eq(autreOrg), any(), any(), any());
+        .conventionEnVigueur(eq(autreOrg), any(), any());
+    org.mockito.Mockito.verify(repo, org.mockito.Mockito.never()).referentielActeId(eq(autreOrg), any());
   }
 
   @Test
   @DisplayName("Trace du calcul (prisma/sql/074) : la ligne renvoie le tarif conventionné appliqué, null sans tarif")
   void tarifConventionneTrace() {
     UUID g = garantie("80", null, null, null);
-    UUID tarif = UUID.fromString("00000000-0000-4000-8000-00000000c0de");
-    when(repo.tarifConvention(eq(ORG), eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(new BigDecimal("8000.00"));
-    when(repo.tarifConventionneId(eq(ORG), eq(ETAB), eq("CI-CONS"), eq(DATE))).thenReturn(tarif);
+    UUID ligne = forfait(ORG, "CI-CONS", "8000.00");
     List<ResultatLigne> r = simuler(
         new Ligne(g, new BigDecimal("10000"), "CI-CONS"), new Ligne(g, new BigDecimal("1000"), null));
-    assertThat(r.get(0).tarifConventionneId()).isEqualTo(tarif);
+    assertThat(r.get(0).tarifConventionneId()).isEqualTo(ligne);
     assertThat(r.get(1).tarifConventionneId()).isNull();
   }
 

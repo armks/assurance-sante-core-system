@@ -40,19 +40,27 @@ public class AdjudicationService {
 
   private final AdjudicationRepository repo;
   private final Adjudicateur adjudicateur;
+  private final ResolveurTarif resolveur;
 
   public AdjudicationService(AdjudicationRepository repo) {
     this.repo = repo;
     this.adjudicateur = new Adjudicateur();
+    this.resolveur = new ResolveurTarif(repo);
   }
 
   @Transactional
   public DecisionResponse evaluer(UUID reclamationId) {
     final long debutNs = System.nanoTime();
 
-    final ContexteAdjudication ctx =
+    final ContexteAdjudication ctxBrut =
         repo.chargerContexte(reclamationId)
             .orElseThrow(() -> new ReclamationIntrouvable(reclamationId));
+    // tarif reconnu : MÊME résolveur que la simulation / la facture (ADR-008, lot 3)
+    final java.util.Optional<ContexteTarif> donneesTarif = repo.contexteTarifReclamation(reclamationId);
+    final ContexteAdjudication ctx =
+        donneesTarif != null && donneesTarif.isPresent()
+            ? ctxBrut.avecTarif(resolveur.resoudre(donneesTarif.get()))
+            : ctxBrut;
 
     // 2) idempotence
     if (!"EN_ADJUDICATION".equals(ctx.statut())) {
@@ -122,8 +130,8 @@ public class AdjudicationService {
     }
 
     // trace du tarif conventionné appliqué à l'acte (prisma/sql/074)
-    if (ctx.tarifConvention() != null && ctx.acteDossierId() != null) {
-      repo.tracerTarifActe(reclamationId, ctx.acteDossierId());
+    if (ctx.tarif() != null && ctx.tarif().tarifConventionneId() != null && ctx.acteDossierId() != null) {
+      repo.tracerTarifActe(ctx.acteDossierId(), ctx.tarif().tarifConventionneId());
     }
 
     // 6) audit

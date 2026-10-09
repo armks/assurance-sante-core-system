@@ -13,5 +13,20 @@ public record SimulationResponse(@JsonProperty("lignes") List<Ligne> lignes) {
       @JsonProperty("montant_couvert") BigDecimal montantCouvert,
       @JsonProperty("plafond_restant_apres") BigDecimal plafondRestantApres,
       @JsonProperty("codes_rejet") List<String> codesRejet,
-      @JsonProperty("tarif_conventionne_id") UUID tarifConventionneId) {}
+      @JsonProperty("tarif_conventionne_id") UUID tarifConventionneId,
+      @JsonProperty("trace_tarif") Trace trace) {}
+
+  /** Instantané du tarif appliqué (ADR-008, lot 3) — l'appelant le fige sur la ligne de facturation. */
+  public record Trace(
+      @JsonProperty("statut_tarif") String statutTarif,
+      @JsonProperty("regle_origine") String regleOrigine,
+      @JsonProperty("lettre_cle") String lettreCle,
+      @JsonProperty("coefficient") BigDecimal coefficient,
+      @JsonProperty("valeur_appliquee") BigDecimal valeurAppliquee,
+      @JsonProperty("convention_id") UUID conventionId,
+      @JsonProperty("politique_depassement") String politiqueDepassement,
+      @JsonProperty("prix_affiche") BigDecimal prixAffiche,
+      @JsonProperty("tarif_reconnu") BigDecimal tarifReconnu,
+      @JsonProperty("ecart") BigDecimal ecart,
+      @JsonProperty("message") String message) {}
 }

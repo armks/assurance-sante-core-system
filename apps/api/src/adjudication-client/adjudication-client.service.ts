@@ -20,6 +20,11 @@ export interface DemandeSimulation {
   /** `YYYY-MM-DD` — date des soins (éligibilité, tarif conventionné). */
   date_reference: string | null;
   /**
+   * Type de visite du dossier (contexte HOSPITALISATION si `HOSPITALISATION_MEDICALE`, sinon ambulatoire) ;
+   * à défaut le microservice le lit sur le dossier de l'acte (ADR-008, lot 3).
+   */
+  type_visite?: string | null;
+  /**
    * Évaluées dans l'ordre : chaque ligne consomme le plafond annuel de sa
    * garantie. `acte_dossier_id` : ses lignes de facturation déjà en base sont
    * exclues du cumul (acte en cours de (re)facturation) ; `date_soins` :
@@ -34,6 +39,24 @@ export interface DemandeSimulation {
   }[];
 }
 
+/**
+ * Instantané du tarif appliqué à une ligne (ADR-008, lot 3) — figé par le core sur la ligne de facturation.
+ * Montants arrondis à l'unité ; `ecart` = prix affiché − tarif reconnu (positif = dépassement).
+ */
+export interface TraceTarif {
+  statut_tarif: 'TARIFABLE' | 'NON_TARIFABLE' | 'NON_APPLICABLE';
+  regle_origine: 'FORFAIT' | 'VALEUR_PROPRE' | 'VALEUR_LETTRE_CLE' | 'AUCUNE_CONVENTION' | null;
+  lettre_cle: string | null;
+  coefficient: number | null;
+  valeur_appliquee: number | null;
+  convention_id: string | null;
+  politique_depassement: 'PATIENT' | 'REJET' | null;
+  prix_affiche: number | null;
+  tarif_reconnu: number | null;
+  ecart: number | null;
+  message: string | null;
+}
+
 /** Réponse de la simulation : une entrée par ligne, dans l'ordre. */
 export interface ResultatSimulation {
   lignes: {
@@ -43,6 +66,8 @@ export interface ResultatSimulation {
     codes_rejet: string[];
     /** Tarif conventionné appliqué au calcul (trace sur l'acte, prisma/sql/074). */
     tarif_conventionne_id?: string | null;
+    /** Instantané du tarif (ADR-008, lot 3). */
+    trace_tarif?: TraceTarif | null;
   }[];
 }
 

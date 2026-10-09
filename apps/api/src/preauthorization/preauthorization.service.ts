@@ -15,6 +15,7 @@ import {
   AdjudicationClientService,
   MESSAGES_INDISPONIBILITE,
   type DemandeSimulation,
+  type TraceTarif,
 } from '../adjudication-client/adjudication-client.service';
 import {
   DELAI_TRANSACTION_FACTURE_MS,
@@ -89,6 +90,8 @@ interface ContexteFinancierActe {
   adherentId: string | null;
   beneficiaireId: string | null;
   etablissementId: string;
+  /** Type de visite du dossier : contexte HOSPITALISATION ou ambulatoire (ADR-008, lot 3). */
+  typeVisite?: string | null;
 }
 
 /**
@@ -100,7 +103,28 @@ const MOTIF_INELIGIBILITE: Record<string, string> = {
   E012: 'SOINS_AVANT_DEBUT_POLICE',
   E013: 'SOINS_FUTURS',
   E014: 'DECLARATION_HORS_DELAI',
+  // tarif (ADR-008, lot 3) : l'acte est exclu de la facture, avec le message du tarif
+  E015: 'TARIF_DEPASSE',
+  E016: 'ACTE_NON_TARIFABLE',
 };
+
+/** Colonnes `tarif_*` de la ligne de facturation à partir de l'instantané du microservice. */
+function traceVersLigne(t: TraceTarif | null | undefined) {
+  if (!t) return {};
+  const dec = (v: number | null) => (v === null || v === undefined ? null : new Decimal(String(v)));
+  return {
+    tarifStatut: t.statut_tarif === 'NON_TARIFABLE' ? null : t.statut_tarif,
+    tarifRegleOrigine: t.regle_origine,
+    tarifLettreCle: t.lettre_cle,
+    tarifCoefficient: dec(t.coefficient),
+    tarifValeurAppliquee: dec(t.valeur_appliquee),
+    tarifConventionId: t.convention_id,
+    tarifPolitiqueDepassement: t.politique_depassement,
+    tarifPrixAffiche: dec(t.prix_affiche),
+    tarifReconnu: dec(t.tarif_reconnu),
+    tarifEcart: dec(t.ecart),
+  };
+}
 
 const jjmmaaaa = (d: Date) => d.toISOString().slice(0, 10).split('-').reverse().join('/');
 
@@ -110,9 +134,14 @@ function messageIneligibilite(
   acte: { libelle: string; dateRealisation: Date | null; datePrescription: Date },
   police: { dateDebut: Date | null; dateFin: Date | null },
   delaiDeclarationJours: number,
+  trace?: TraceTarif | null,
 ): string {
   const tete = `Acte « ${acte.libelle} » du ${jjmmaaaa(acte.dateRealisation ?? acte.datePrescription)} :`;
   switch (code) {
+    case 'E015':
+      return `${tete} le prix affiché (${trace?.prix_affiche ?? '?'} F) dépasse le tarif reconnu par la convention (${trace?.tarif_reconnu ?? '?'} F) et la convention de l'établissement rejette les dépassements.`;
+    case 'E016':
+      return `${tete} acte non tarifable — ${trace?.message ?? "la convention de l'établissement ne donne aucun tarif pour cet acte"} Aucun prix par défaut n'est appliqué.`;
     case 'E012':
       return `${tete} soins antérieurs au début de la police${police.dateDebut ? ` (${jjmmaaaa(police.dateDebut)})` : ''}.`;
     case 'E013':
@@ -1074,6 +1103,7 @@ export class PreauthorizationService {
         adherentId: ticket.dossier.adherentId,
         beneficiaireId: ticket.dossier.beneficiaireId,
         etablissementId: ticket.dossier.etablissementId,
+        typeVisite: ticket.dossier.typeVisite,
       },
       ticket.dossier.police.produitId,
       dto,
@@ -1505,6 +1535,7 @@ export class PreauthorizationService {
         policeId: string;
         adherentId: string | null;
         beneficiaireId: string | null;
+        typeVisite?: string | null;
         police: { produitId: string };
       };
     },
@@ -1545,6 +1576,7 @@ export class PreauthorizationService {
               adherentId: acte.dossier.adherentId,
               beneficiaireId: acte.dossier.beneficiaireId,
               etablissementId: params.etablissementExecutionId ?? acte.dossier.etablissementId,
+              typeVisite: acte.dossier.typeVisite,
             },
             acte.dossier.police.produitId,
             {
@@ -1651,6 +1683,7 @@ export class PreauthorizationService {
             policeId: true,
             adherentId: true,
             beneficiaireId: true,
+            typeVisite: true,
             police: { select: { produitId: true } },
           },
         },
@@ -2113,6 +2146,7 @@ export class PreauthorizationService {
             adherentId: dossier.adherentId,
             beneficiaireId: dossier.beneficiaireId,
             etablissementId: dossier.etablissementId,
+            typeVisite: dossier.typeVisite,
           },
           dossier.police.produitId,
           actesEligibles,
@@ -2136,7 +2170,7 @@ export class PreauthorizationService {
         exclusions.push({
           acteId: a.id,
           motif: MOTIF_INELIGIBILITE[codeRejet],
-          message: messageIneligibilite(codeRejet, a, dossier.police, delai),
+          message: messageIneligibilite(codeRejet, a, dossier.police, delai, calcul.traces[i]),
         });
         acteIdsExclus.push(a.id);
       });
@@ -2185,6 +2219,8 @@ export class PreauthorizationService {
         // (la part patient est encaissée au guichet) — même principe que la
         // facture mensuelle pharmacie. Somme des lignes = montantAssurance.
         const montantReclame = calcul.partsAssurance[i];
+        // instantané du tarif appliqué, FIGÉ à l'émission (prisma/sql/082, ADR-008 lot 3)
+        const traceTarif = traceVersLigne(calcul.traces[i]);
         // trace du calcul (prisma/sql/074) : tarif conventionné appliqué à l'acte facturé
         await tx.acteDossier.update({
           where: { id: acte.id },
@@ -2194,7 +2230,7 @@ export class PreauthorizationService {
           // Cycle abandonné réattaché — jamais de doublon pour le même acte.
           await tx.ligneFacturation.update({
             where: { id: ligneAPayer.id },
-            data: { factureDossierId: f.id, montantReclame },
+            data: { factureDossierId: f.id, montantReclame, ...traceTarif },
           });
         } else {
           await tx.ligneFacturation.create({
@@ -2204,6 +2240,7 @@ export class PreauthorizationService {
               acteDossierId: acte.id,
               montantReclame,
               statut: 'A_PAYER',
+              ...traceTarif,
             },
           });
         }
@@ -3182,6 +3219,8 @@ export class PreauthorizationService {
     partsAssurance: string[];
     /** Tarif conventionné appliqué à chaque acte (trace, prisma/sql/074), ou null. */
     tarifsConventionnes: (string | null)[];
+    /** Instantané du tarif de chaque acte (ADR-008, lot 3), ou null si l'acte n'est pas couvert. */
+    traces: (TraceTarif | null)[];
     /**
      * Code d'INÉLIGIBILITÉ À LA DATE DES SOINS de chaque acte (E001, E012, E013,
      * E014 — même règle que la réclamation, appliquée par le microservice), ou null.
@@ -3200,6 +3239,7 @@ export class PreauthorizationService {
     const parts = actes.map(() => new Decimal(0));
     const codesIneligibilite: (string | null)[] = actes.map(() => null);
     const tarifsConventionnes: (string | null)[] = actes.map(() => null);
+    const traces: (TraceTarif | null)[] = actes.map(() => null);
     const couverts = actes
       .map((a, i) => ({ i, a, garantie: parCategorie.get(a.categorieActe) }))
       .filter((x) => x.garantie !== undefined);
@@ -3230,6 +3270,7 @@ export class PreauthorizationService {
       couverts.forEach(({ i }, k) => {
         parts[i] = new Decimal(String(resultat.lignes[k].montant_couvert));
         tarifsConventionnes[i] = resultat.lignes[k].tarif_conventionne_id ?? null;
+        traces[i] = resultat.lignes[k].trace_tarif ?? null;
         codesIneligibilite[i] =
           (resultat.lignes[k].codes_rejet ?? []).find((c) => c in MOTIF_INELIGIBILITE) ?? null;
       });
@@ -3246,6 +3287,7 @@ export class PreauthorizationService {
       montantsActes: montants.map((m) => m.toFixed(2)),
       partsAssurance,
       tarifsConventionnes,
+      traces,
       codesIneligibilite,
     };
   }
@@ -3261,6 +3303,7 @@ export class PreauthorizationService {
       beneficiaire_id: contexte.adherentId ? null : contexte.beneficiaireId,
       etablissement_id: contexte.etablissementId,
       date_reference: null,
+      type_visite: contexte.typeVisite ?? null,
       lignes,
     };
   }

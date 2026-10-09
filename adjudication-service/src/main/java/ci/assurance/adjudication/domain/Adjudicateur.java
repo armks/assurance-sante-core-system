@@ -72,12 +72,15 @@ public class Adjudicateur {
     final BigDecimal plafondPersonne = ctx.plafondAnnuelPersonne();
     final BigDecimal plafondFamille = ctx.plafondAnnuelFamille();
 
-    // 0) tarif conventionné établissement × acte (v3 §5) — plafonne le montant
-    // facturé lui-même, avant tout le reste du calcul. `tarifConvention` est
-    // nullable : aucun tarif négocié pour ce couple établissement/acte (le cas
-    // le plus courant aujourd'hui) laisse `montantReclame` inchangé.
-    if (ctx.tarifConvention() != null) {
-      montantReclame = montantReclame.min(normaliser(ctx.tarifConvention(), montantReclame));
+    // 0) tarif reconnu de l'acte (ADR-008, lot 3), résolu par ResolveurTarif — arrondi à l'unité par acte.
+    //    Politique PATIENT : le prix affiché au-delà du tarif reconnu reste à la charge du patient (le
+    //    calcul part du tarif reconnu). Politique REJET : voir 1 bis. Sans convention : prix affiché reconnu.
+    final TarifResolu tarif = ctx.tarif();
+    final BigDecimal prixAffiche = montantReclame;
+    boolean depassement = false;
+    if (tarif != null && tarif.conventionne()) {
+      depassement = prixAffiche.compareTo(tarif.tarifReconnu()) > 0;
+      montantReclame = prixAffiche.min(normaliser(tarif.tarifReconnu(), prixAffiche));
     }
 
     // restant le plus restrictif (null si aucun plafond annuel)
@@ -96,6 +99,14 @@ public class Adjudicateur {
       return new Resultat(Decision.REJETE, zero(), List.of(motif), plafondRestantAvant);
     }
 
+    // 1 bis) tarif : acte non tarifable, ou dépassement refusé par la convention (jamais de prix par défaut)
+    if (tarif != null && tarif.nonTarifable()) {
+      return new Resultat(Decision.REJETE, zero(), List.of(CodesRejet.ACTE_NON_TARIFABLE), plafondRestantAvant);
+    }
+    if (depassement && "REJET".equals(tarif.politiqueDepassement())) {
+      return new Resultat(Decision.REJETE, zero(), List.of(CodesRejet.TARIF_DEPASSE), plafondRestantAvant);
+    }
+
     // 2) franchise
     final BigDecimal franchise = normaliser(ctx.franchise(), BigDecimal.ZERO);
     final BigDecimal apresFranchise = montantReclame.subtract(franchise).max(BigDecimal.ZERO);
@@ -108,7 +119,8 @@ public class Adjudicateur {
     if (ctx.plafondParActe() != null) {
       couvert = couvert.min(ctx.plafondParActe());
     }
-    couvert = couvert.setScale(ECHELLE, ARRONDI);
+    // part assurance arrondie À L'UNITÉ par acte (HALF_UP) ; la part patient = total − part assurance
+    couvert = TarifResolu.arrondi(couvert).setScale(ECHELLE, ARRONDI);
 
     // 5) plafond annuel
     final BigDecimal montantRembourse;

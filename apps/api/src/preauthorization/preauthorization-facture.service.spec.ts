@@ -20,6 +20,7 @@ import {
   adjudicationClientDeTest,
   reponseSimulation,
 } from '../adjudication-client/adjudication-client.testing';
+import type { TraceTarif } from '../adjudication-client/adjudication-client.service';
 
 const USER: AuthenticatedUser = {
   sub: 'u1',
@@ -477,6 +478,124 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       expect(res.exclusions[0].message).toBe(
         'Acte « Consultation acte-1 » du 10/02/2026 : déclaration hors délai — ces soins pouvaient être déclarés jusqu’au 29/05/2026 (fin de la police le 28/02/2026 + 90 jours).'.replace('’', "'"),
       );
+    });
+
+    // --- tarif (ADR-008, lot 3) : acte non tarifable / dépassement refusé / trace figée / contexte ---
+    const traceTarif = (extra: Partial<TraceTarif> = {}): TraceTarif => ({
+      statut_tarif: 'TARIFABLE',
+      regle_origine: 'VALEUR_LETTRE_CLE',
+      lettre_cle: 'B',
+      coefficient: 2.5,
+      valeur_appliquee: 1033,
+      convention_id: 'conv-1',
+      politique_depassement: 'PATIENT',
+      prix_affiche: 10000,
+      tarif_reconnu: 2583,
+      ecart: 7417,
+      message: null,
+      ...extra,
+    });
+
+    it('acte NON TARIFABLE (E016) : exclu avec le message de la convention, jamais de prix par défaut', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1', police: policeResiliee }));
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-1', { dateRealisation: new Date('2026-02-10T10:00:00Z') }),
+        acte('acte-2', { dateRealisation: new Date('2026-02-11T10:00:00Z') }),
+      ]);
+      const nonTarifable = {
+        ...ligne(10000, ['E016']),
+        trace_tarif: traceTarif({
+          statut_tarif: 'NON_TARIFABLE',
+          regle_origine: null,
+          message: 'Aucune valeur négociée pour la lettre-clé Z (ambulatoire) dans la convention CONV-FICTIVE et aucun forfait pour cet acte.',
+        }),
+      };
+      adjudication.simuler.mockResolvedValueOnce({ lignes: [nonTarifable, ligne(8000)] });
+
+      const res: any = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
+
+      expect(res.acteIdsInclus).toEqual(['acte-2']);
+      expect(res.exclusions[0]).toMatchObject({ acteId: 'acte-1', motif: 'ACTE_NON_TARIFABLE' });
+      expect(res.exclusions[0].message).toContain('acte non tarifable');
+      expect(res.exclusions[0].message).toContain('lettre-clé Z');
+      expect(res.exclusions[0].message).toContain("Aucun prix par défaut n'est appliqué.");
+      expect(prisma.ligneFacturation.create).toHaveBeenCalledTimes(1);
+      expect(prisma.ligneFacturation.create.mock.calls[0][0].data.acteDossierId).toBe('acte-2');
+    });
+
+    it('dépassement refusé par la convention (E015) : acte exclu, message avec le prix affiché et le tarif reconnu', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1', police: policeResiliee }));
+      prisma.acteDossier.findMany.mockResolvedValue([
+        acte('acte-1', { dateRealisation: new Date('2026-02-10T10:00:00Z') }),
+        acte('acte-2', { dateRealisation: new Date('2026-02-11T10:00:00Z') }),
+      ]);
+      adjudication.simuler.mockResolvedValueOnce({
+        lignes: [
+          { ...ligne(5000, ['E015']), trace_tarif: traceTarif({ regle_origine: 'FORFAIT', politique_depassement: 'REJET', prix_affiche: 5000, tarif_reconnu: 3000, ecart: 2000 }) },
+          ligne(8000),
+        ],
+      });
+
+      const res: any = await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1', 'acte-2'] });
+
+      expect(res.exclusions[0]).toMatchObject({ motif: 'TARIF_DEPASSE' });
+      expect(res.exclusions[0].message).toContain('5000 F');
+      expect(res.exclusions[0].message).toContain('3000 F');
+      expect(res.exclusions[0].message).toContain('rejette les dépassements');
+    });
+
+    it('l’instantané du tarif est FIGÉ sur la ligne de facturation (règle, lettre-clé, coefficient, valeur, convention, affiché, reconnu, écart)', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1', police: policeResiliee }));
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { dateRealisation: new Date('2026-02-10T10:00:00Z') })]);
+      adjudication.simuler.mockResolvedValueOnce({
+        lignes: [{ ...ligne(10000), montant_couvert: 2066, trace_tarif: traceTarif() }],
+      });
+
+      await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+
+      const data = prisma.ligneFacturation.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({
+        acteDossierId: 'acte-1',
+        tarifStatut: 'TARIFABLE',
+        tarifRegleOrigine: 'VALEUR_LETTRE_CLE',
+        tarifLettreCle: 'B',
+        tarifConventionId: 'conv-1',
+        tarifPolitiqueDepassement: 'PATIENT',
+      });
+      expect(String(data.tarifCoefficient)).toBe('2.5');
+      expect(String(data.tarifValeurAppliquee)).toBe('1033');
+      expect(String(data.tarifPrixAffiche)).toBe('10000');
+      expect(String(data.tarifReconnu)).toBe('2583');
+      expect(String(data.tarifEcart)).toBe('7417');
+    });
+
+    it('sans trace du microservice : la ligne est créée sans colonnes de tarif (aucune valeur inventée)', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(dossier({ policeId: 'pol-1', police: policeResiliee }));
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { dateRealisation: new Date('2026-02-10T10:00:00Z') })]);
+      adjudication.simuler.mockResolvedValueOnce({ lignes: [ligne(8000)] });
+
+      await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+
+      const data = prisma.ligneFacturation.create.mock.calls[0][0].data;
+      expect(data.tarifRegleOrigine).toBeUndefined();
+      expect(data.tarifReconnu).toBeUndefined();
+    });
+
+    it('contexte : le type de visite du dossier part au microservice (HOSPITALISATION_MEDICALE → valeur hospitalisation)', async () => {
+      identity.getMe.mockResolvedValue(profil('ASSUREUR_INFORMATIQUE'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(
+        dossier({ policeId: 'pol-1', police: policeResiliee, typeVisite: 'HOSPITALISATION_MEDICALE' }),
+      );
+      prisma.acteDossier.findMany.mockResolvedValue([acte('acte-1', { dateRealisation: new Date('2026-02-10T10:00:00Z') })]);
+      adjudication.simuler.mockResolvedValueOnce({ lignes: [ligne(8000)] });
+
+      await service.genererFactureSelection(USER, 'dos-1', { acteIds: ['acte-1'] });
+
+      expect(adjudication.simuler.mock.calls[0][0].type_visite).toBe('HOSPITALISATION_MEDICALE');
     });
 
     it('TOUS les actes non couverts à la date des soins (E013, E001) → 409 avec les motifs, aucune facture', async () => {

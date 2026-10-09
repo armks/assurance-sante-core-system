@@ -81,12 +81,20 @@ public class AdjudicationController {
         simulation.simuler(
             new SimulationService.Demande(
                 req.policeId(), req.adherentId(), req.beneficiaireId(),
-                req.etablissementId(), req.dateReference(), lignes));
+                req.etablissementId(), req.dateReference(), lignes, req.typeVisite()));
     return new SimulationResponse(
         r.stream()
             .map(x -> new SimulationResponse.Ligne(
                 x.decision().name(), x.montantCouvert(), x.plafondRestantApres(), x.codesRejet(),
-                x.tarifConventionneId()))
+                x.tarifConventionneId(), trace(x.trace())))
             .toList());
+  }
+
+  private static SimulationResponse.Trace trace(ci.assurance.adjudication.domain.TraceTarif t) {
+    return t == null
+        ? null
+        : new SimulationResponse.Trace(
+            t.statutTarif(), t.regleOrigine(), t.lettreCle(), t.coefficient(), t.valeurAppliquee(),
+            t.conventionId(), t.politiqueDepassement(), t.prixAffiche(), t.tarifReconnu(), t.ecart(), t.message());
   }
 }

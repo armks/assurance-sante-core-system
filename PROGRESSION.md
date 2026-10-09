@@ -8151,3 +8151,46 @@ Terminé — lots 2 à 6 du chantier barème non commencés.
 
 ### Statut
 Terminé — lots 3 (résolution du tarif côté Java) à 6 non commencés.
+
+## 2026-10-09 — Chantier barème, lot 3 « résolution du tarif dans le Java » (ADR-008, ADR-003)
+
+### Réalisé
+- Java : résolveur de tarif CENTRALISÉ (`ResolveurTarif`, `TarifResolu`, `TraceTarif`), utilisé par la simulation (donc
+  la facture et le comptoir) ET la réclamation. Ordre : forfait de l'acte → valeur de lettre-clé propre à l'acte ×
+  coefficient → valeur de la lettre-clé de la convention × coefficient (contexte HOSPITALISATION si le type de visite du
+  dossier est HOSPITALISATION_MEDICALE, sinon AMBULATOIRE) → non tarifable (rejet E016, message clair, jamais de prix par
+  défaut). Mode de transition : sans convention en vigueur à la date des soins, prix affiché reconnu (règle
+  AUCUNE_CONVENTION) ; aucun trou entre une version fermée la veille et la suivante.
+- Politique de dépassement lue sur la convention : PATIENT (excédent au patient) ou REJET (acte rejeté, E015).
+- Arrondi HALF_UP à l'unité : tarif reconnu et part assurance par acte, part patient = total − part assurance, cumuls sur
+  montants arrondis.
+- Trace figée sur la ligne de facturation (migration 082, colonnes `tarif_*` + trigger d'immutabilité) : règle d'origine,
+  lettre-clé, coefficient, valeur appliquée, convention, politique, prix affiché, tarif reconnu, écart.
+- Droits `svc_adjudication` réduits aux colonnes nécessaires (conventions, lignes, valeurs, type de visite, cotation) ; plus
+  d'accès à `tarifs_conventionnes` ni aux autres colonnes de `referentiel_actes` ; ADR-003 mis à jour.
+- Core NestJS : transmet le type de visite, exclut de la facture les actes E015 / E016 avec leur message, fige la trace sur
+  la ligne. Aucun changement du tarif proposé (lot 4).
+
+### Tests
+- Java 122/122 (+30 : une règle d'origine par cas, contexte hospitalisation, convention fermée puis nouvelle, dépassement
+  PATIENT et REJET, arrondi sur coefficients à décimales, deux organisations avec le même code, comparatif réclamation /
+  facture sur 8 cas). API 1 352/1 352 (+5), intégration 2/2, typage API et web sans erreur — suite complète lancée 3 fois
+  de suite : 3 passes identiques, AUCUN échec intermittent.
+- HTTP réel (60 contrôles OK, zéro ligne restante, comptes Auth et documents Storage compris) : simulation, facture et
+  réclamation sur les mêmes actes pour chaque règle ; trace de la ligne ; hospitalisation ; AUCUNE_CONVENTION ; REJET
+  (facture exclue 409, réclamation REJETE) ; non tarifable ; convention v1 / v2 aux jours J−11 / J−10 (simulation directe du
+  Java à date explicite) ; deux organisations, mêmes codes ; instantané figé après la v2 ; trigger ; droits colonne par colonne
+  du rôle svc_adjudication (lectures permises, colonnes sensibles et tables refusées, aucune écriture).
+- Contre-épreuve : le même test contre l'ancienne version du Java (HEAD précédent, droits temporairement rendus) échoue sur
+  19 contrôles (lettre-clé payée au prix affiché, REJET et non tarifable payés, aucune trace) puis revient à 60/60.
+
+### Limites
+- Le tarif reconnu est celui de la ligne : la quantité n'est pas multipliée (comportement historique conservé).
+- La simulation indicative à l'ajout d'un acte prend la date du jour (date des soins inconnue) ; facture et réclamation
+  recalculent à la date des soins.
+- La réclamation trace le forfait sur l'acte mais pas l'instantané complet (il vit sur la ligne de facturation).
+- Un compte Auth de test `inv-info-…@assurance-sante.test` (profil ASSUREUR_INFORMATIQUE) antérieur à ce lot subsiste ; non
+  touché.
+
+### Statut
+Terminé — lots 4 (tarif proposé, circuit médecin conseil) à 6 non commencés.

@@ -89,30 +89,60 @@ public interface AdjudicationRepository {
   /** Police (simulation) — vide si absente ou supprimée. */
   Optional<PoliceApplicable> chargerPolice(UUID policeId);
 
-  /**
-   * Tarif conventionné établissement × acte valable à {@code date} (même règle que
-   * le contexte d'une réclamation), ou {@code null} : pas d'établissement, pas de
-   * code d'acte, ou pas de tarif négocié. L'acte du référentiel est cherché DANS
-   * L'ORGANISATION {@code organisationId} (le code d'acte est unique par organisation,
-   * pas globalement : jamais le tarif d'une autre organisation).
-   */
-  BigDecimal tarifConvention(
-      UUID organisationId, UUID etablissementId, String codeActe, java.time.LocalDate date);
+  // --- Résolution du tarif (ADR-008, lot 3) : lectures FILTRÉES PAR ORGANISATION ------------
+
+  /** Ligne d'exception d'une convention : forfait OU valeur de lettre-clé propre à l'acte. */
+  record LigneConvention(UUID id, BigDecimal prixForfaitaire, BigDecimal valeurLettreCle) {}
+
+  /** Cotation d'un acte du référentiel : lettre-clé et coefficient. */
+  record CotationActe(String lettreCle, BigDecimal coefficient) {}
 
   /**
-   * Identifiant du tarif renvoyé par {@link #tarifConvention} (même règle), ou {@code null} —
-   * trace du calcul (prisma/sql/074) : un tarif ayant servi ne se supprime plus.
+   * Convention de l'établissement EN VIGUEUR à {@code date} : VALIDEE, ou ARCHIVEE (fermée par une nouvelle
+   * version) dont la période couvre encore la date. Vide = mode de transition. Les périodes d'un établissement
+   * ne se chevauchent pas (contrainte d'exclusion) : au plus une convention, sans trou entre une version fermée
+   * la veille et la suivante.
    */
-  default UUID tarifConventionneId(
-      UUID organisationId, UUID etablissementId, String codeActe, java.time.LocalDate date) {
+  default Optional<ConventionApplicable> conventionEnVigueur(
+      UUID organisationId, UUID etablissementId, java.time.LocalDate date) {
+    return Optional.empty();
+  }
+
+  /** Ligne de la convention pour l'acte, valable à {@code date} (période propre de la ligne comprise). */
+  default Optional<LigneConvention> ligneConvention(UUID conventionId, UUID referentielActeId, java.time.LocalDate date) {
+    return Optional.empty();
+  }
+
+  /** Cotation de l'acte, dans l'organisation. */
+  default Optional<CotationActe> cotationActe(UUID organisationId, UUID referentielActeId) {
+    return Optional.empty();
+  }
+
+  /** Valeur négociée de la lettre-clé dans la convention pour le contexte, ou vide. */
+  default Optional<BigDecimal> valeurLettreCle(UUID conventionId, String lettreCle, String contexte) {
+    return Optional.empty();
+  }
+
+  /** Acte du référentiel de L'ORGANISATION portant ce code (le code est unique par organisation). */
+  default Optional<UUID> referentielActeId(UUID organisationId, String codeActe) {
+    return Optional.empty();
+  }
+
+  /** Données de tarification de la réclamation (acte, établissement, date des soins, type de visite). */
+  default Optional<ContexteTarif> contexteTarifReclamation(UUID reclamationId) {
+    return Optional.empty();
+  }
+
+  /** Type de visite du dossier de soins d'un acte (contexte ambulatoire / hospitalisation), ou {@code null}. */
+  default String typeVisiteDeActe(UUID acteDossierId) {
     return null;
   }
 
   /**
-   * Trace sur l'acte adjugé le tarif conventionné appliqué à la réclamation (même règle que
-   * son contexte) — seule écriture autorisée sur {@code actes_dossier} (prisma/sql/074).
+   * Trace sur l'acte adjugé le tarif conventionné (ligne de forfait) appliqué — seule écriture autorisée sur
+   * {@code actes_dossier} (prisma/sql/074).
    */
-  default void tracerTarifActe(UUID reclamationId, UUID acteDossierId) {}
+  default void tracerTarifActe(UUID acteDossierId, UUID tarifConventionneId) {}
 
   /** INSERT dans {@code remboursements} ... RETURNING id. */
   UUID insererRemboursement(

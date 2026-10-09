@@ -92,9 +92,13 @@ class AdjudicationServiceTest {
 
     ContexteAdjudication avecTarif =
         JeuDeDonneesReference.actifAvecTarifConventionne(new BigDecimal("25000.00"), new BigDecimal("15000.00"));
+    avecTarif = avecTarif.avecTarif(new ci.assurance.adjudication.domain.TarifResolu(
+        ci.assurance.adjudication.domain.TarifResolu.Statut.TARIFABLE,
+        ci.assurance.adjudication.domain.TarifResolu.Regle.FORFAIT, new BigDecimal("15000"), null, null, null,
+        UUID.randomUUID(), UUID.randomUUID(), "PATIENT", null));
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(avecTarif));
     service.evaluer(ID);
-    verify(repo).tracerTarifActe(ID, avecTarif.acteDossierId());
+    verify(repo).tracerTarifActe(avecTarif.acteDossierId(), avecTarif.tarif().tarifConventionneId());
 
     org.mockito.Mockito.clearInvocations(repo);
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(JeuDeDonneesReference.actif(new BigDecimal("25000.00"))));
@@ -327,7 +331,7 @@ class AdjudicationServiceTest {
             b1.plafondAnnuelPersonne(), b1.plafondAnnuelFamille(), b1.franchise(),
             b1.ticketModerateurPct(), b1.delaiCarenceJours(), b1.reseauSoins(),
             b1.policeStatut(), b1.policeDebut(), b1.policeFin(),
-            b1.etablissementId(), b1.tarifConvention(),
+            b1.etablissementId(), b1.tarif(),
             b1.produitId(), JeuDeDonneesReference.ADHERENT_ID, b1.periodeCumul(), b1.dateSoins(),
             b1.delaiDeclarationJours());
     when(repo.chargerContexte(ID)).thenReturn(Optional.of(b1), Optional.of(b2));
@@ -367,7 +371,7 @@ class AdjudicationServiceTest {
         c.plafondAnnuelPersonne(), c.plafondAnnuelFamille(), c.franchise(),
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
         c.policeStatut(), c.policeDebut(), c.policeFin(),
-        c.etablissementId(), c.tarifConvention(),
+        c.etablissementId(), c.tarif(),
         c.produitId(), c.titulaireId(), c.periodeCumul(), c.dateSoins(),
         c.delaiDeclarationJours());
   }

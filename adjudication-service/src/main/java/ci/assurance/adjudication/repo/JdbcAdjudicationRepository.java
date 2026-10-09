@@ -3,6 +3,8 @@ package ci.assurance.adjudication.repo;
 import ci.assurance.adjudication.domain.Adjudicateur;
 import ci.assurance.adjudication.domain.AdjudicationRepository;
 import ci.assurance.adjudication.domain.ContexteAdjudication;
+import ci.assurance.adjudication.domain.ContexteTarif;
+import ci.assurance.adjudication.domain.ConventionApplicable;
 import ci.assurance.adjudication.domain.GarantieApplicable;
 import ci.assurance.adjudication.domain.PeriodeCumul;
 import ci.assurance.adjudication.domain.PoliceApplicable;
@@ -30,7 +32,7 @@ import org.springframework.stereotype.Repository;
  * Implémentation JDBC — connexion via le rôle Postgres {@code svc_adjudication}
  * (grants stricts : SELECT colonnes précises sur reclamations/dossiers_soins/
  * actes_dossier, SELECT complet sur garanties/polices/referentiel_actes/
- * tarifs_conventionnes/grilles_tarifaires/medicaments, UPDATE(statut) sur
+ * conventions/convention_actes/convention_valeurs (colonnes)/grilles_tarifaires/medicaments, UPDATE(statut) sur
  * reclamations, INSERT sur remboursements, EXECUTE sur log_audit — prisma/sql/018
  * puis 034 pour l'ajout dossiers_soins/actes_dossier).
  *
@@ -47,13 +49,8 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
     this.mapper = mapper;
   }
 
-  // Tarif conventionné (v3 §5) : jointure dossiers_soins -> etablissement_id,
-  // puis actes_dossier.referentiel_acte_id (FK, prisma/sql/080 ; remplace la jointure par
-  // code en texte libre) -> referentiel_actes DE LA MÊME ORGANISATION que la réclamation
-  // -> tarifs_conventionnes sur (etablissement_id, referentiel_acte_id),
-  // filtré sur la période de validité du tarif. LEFT JOIN partout : absence de
-  // tarif négocié (ou de code_acte renseigné) -> tarif_convention NULL ->
-  // comportement de calcul inchangé (Adjudicateur).
+  // Contexte d'une réclamation. Le TARIF n'est plus joint ici : il est résolu par ResolveurTarif (ADR-008,
+  // lot 3), le même que pour la simulation et la facture, à partir de contexteTarifReclamation().
   private static final String SQL_CONTEXTE =
       """
       SELECT
@@ -67,8 +64,6 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
         p.date_debut  AS police_debut,
         p.date_fin    AS police_fin,
         ds.etablissement_id AS etablissement_id,
-        tc.tarif_convention AS tarif_convention,
-        tc.id AS tarif_conventionne_id,
         g.produit_id AS produit_id,
         COALESCE(r.adherent_id, b.adherent_id) AS titulaire_id,
         pr.periode_cumul_plafond AS periode_cumul,
@@ -86,22 +81,6 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
       LEFT JOIN dossiers_soins    ds ON ds.id = r.dossier_soins_id
       LEFT JOIN actes_dossier     ad ON ad.id = r.acte_dossier_id AND ad.deleted_at IS NULL
       LEFT JOIN dispensations_pharmacie dp ON dp.id = r.dispensation_id
-      LEFT JOIN referentiel_actes ra
-        ON ra.id = ad.referentiel_acte_id
-        AND ra.organisation_id = r.organisation_id
-        AND ra.deleted_at IS NULL
-      LEFT JOIN tarifs_conventionnes tc
-        ON tc.etablissement_id = ds.etablissement_id
-        AND tc.referentiel_acte_id = ra.id
-        AND tc.deleted_at IS NULL
-        -- tarif EN VIGUEUR À LA DATE DES SOINS (même expression que date_soins)
-        AND tc.date_debut <= (COALESCE(ad.date_realisation, ad.date_prescription,
-                                       dp.date_paiement, dp.date_preparation, r.created_at)
-                                AT TIME ZONE 'UTC')::date
-        AND (tc.date_fin IS NULL
-             OR tc.date_fin >= (COALESCE(ad.date_realisation, ad.date_prescription,
-                                         dp.date_paiement, dp.date_preparation, r.created_at)
-                                  AT TIME ZONE 'UTC')::date)
       WHERE r.id = ? AND r.deleted_at IS NULL
       """;
 
@@ -131,7 +110,7 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
           localDate(rs, "police_debut"),
           localDate(rs, "police_fin"),
           uuid(rs, "etablissement_id"),
-          rs.getBigDecimal("tarif_convention"),
+          null, // tarif : résolu par ResolveurTarif
           uuid(rs, "produit_id"),
           uuid(rs, "titulaire_id"),
           rs.getString("periode_cumul"),
@@ -391,80 +370,145 @@ public class JdbcAdjudicationRepository implements AdjudicationRepository {
   }
 
   @Override
-  public BigDecimal tarifConvention(
-      UUID organisationId, UUID etablissementId, String codeActe, LocalDate date) {
-    if (organisationId == null || etablissementId == null || codeActe == null || codeActe.isBlank()) {
-      return null;
-    }
-    // Même lien que SQL_CONTEXTE : code d'acte → referentiel_actes → tarif de
-    // l'établissement valable à la date.
+  public Optional<ConventionApplicable> conventionEnVigueur(UUID organisationId, UUID etablissementId, LocalDate date) {
+    // VALIDEE, ou ARCHIVEE fermée par une nouvelle version dont la période couvre encore la date ; tout est
+    // filtré par organisation (BYPASSRLS). Plusieurs candidates (cas non attendu) : la plus récente gagne.
     return jdbc
         .query(
             """
-            SELECT tc.tarif_convention
-            FROM referentiel_actes ra
-            JOIN tarifs_conventionnes tc
-              ON tc.referentiel_acte_id = ra.id
-             AND tc.etablissement_id = ?
-             AND tc.deleted_at IS NULL
-             AND tc.date_debut <= ?
-             AND (tc.date_fin IS NULL OR tc.date_fin >= ?)
-            WHERE ra.code = ? AND ra.organisation_id = ? AND ra.deleted_at IS NULL
+            SELECT c.id, c.numero, c.version, c.politique_depassement, c.historique, c.date_debut, c.date_fin
+            FROM conventions c
+            WHERE c.organisation_id = ?
+              AND c.etablissement_id = ?
+              AND c.deleted_at IS NULL
+              AND c.statut IN ('VALIDEE', 'ARCHIVEE')
+              AND c.date_debut <= ?
+              AND (c.date_fin IS NULL OR c.date_fin >= ?)
+            ORDER BY c.date_debut DESC, c.version DESC
             LIMIT 1
             """,
-            (rs, n) -> rs.getBigDecimal("tarif_convention"),
-            etablissementId,
-            date,
-            date,
-            codeActe,
-            organisationId)
+            (rs, n) -> new ConventionApplicable(
+                uuid(rs, "id"), rs.getString("numero"), rs.getInt("version"),
+                rs.getString("politique_depassement"), rs.getBoolean("historique"),
+                localDate(rs, "date_debut"), localDate(rs, "date_fin")),
+            organisationId, etablissementId, date, date)
         .stream()
-        .findFirst()
-        .orElse(null);
+        .findFirst();
   }
 
   @Override
-  public UUID tarifConventionneId(
-      UUID organisationId, UUID etablissementId, String codeActe, LocalDate date) {
-    if (organisationId == null || etablissementId == null || codeActe == null || codeActe.isBlank()) {
-      return null;
-    }
+  public Optional<LigneConvention> ligneConvention(UUID conventionId, UUID referentielActeId, LocalDate date) {
     return jdbc
         .query(
             """
-            SELECT tc.id
-            FROM referentiel_actes ra
-            JOIN tarifs_conventionnes tc
-              ON tc.referentiel_acte_id = ra.id
-             AND tc.etablissement_id = ?
-             AND tc.deleted_at IS NULL
-             AND tc.date_debut <= ?
-             AND (tc.date_fin IS NULL OR tc.date_fin >= ?)
-            WHERE ra.code = ? AND ra.organisation_id = ? AND ra.deleted_at IS NULL
+            SELECT ca.id, ca.prix_forfaitaire, ca.valeur_lettre_cle
+            FROM convention_actes ca
+            WHERE ca.convention_id = ?
+              AND ca.referentiel_acte_id = ?
+              AND ca.deleted_at IS NULL
+              AND (ca.date_debut IS NULL OR ca.date_debut <= ?)
+              AND (ca.date_fin IS NULL OR ca.date_fin >= ?)
+            ORDER BY ca.date_debut DESC NULLS LAST
             LIMIT 1
             """,
+            (rs, n) -> new LigneConvention(
+                uuid(rs, "id"), rs.getBigDecimal("prix_forfaitaire"), rs.getBigDecimal("valeur_lettre_cle")),
+            conventionId, referentielActeId, date, date)
+        .stream()
+        .findFirst();
+  }
+
+  @Override
+  public Optional<CotationActe> cotationActe(UUID organisationId, UUID referentielActeId) {
+    return jdbc
+        .query(
+            """
+            SELECT ra.lettre_cle_code, ra.coefficient
+            FROM referentiel_actes ra
+            WHERE ra.id = ? AND ra.organisation_id = ? AND ra.deleted_at IS NULL
+              AND ra.lettre_cle_code IS NOT NULL AND ra.coefficient IS NOT NULL
+            """,
+            (rs, n) -> new CotationActe(rs.getString("lettre_cle_code"), rs.getBigDecimal("coefficient")),
+            referentielActeId, organisationId)
+        .stream()
+        .findFirst();
+  }
+
+  @Override
+  public Optional<BigDecimal> valeurLettreCle(UUID conventionId, String lettreCle, String contexte) {
+    return jdbc
+        .query(
+            """
+            SELECT cv.valeur
+            FROM convention_valeurs cv
+            WHERE cv.convention_id = ? AND cv.lettre_cle_code = ? AND cv.contexte = ? AND cv.deleted_at IS NULL
+            """,
+            (rs, n) -> rs.getBigDecimal("valeur"),
+            conventionId, lettreCle, contexte)
+        .stream()
+        .findFirst();
+  }
+
+  @Override
+  public Optional<UUID> referentielActeId(UUID organisationId, String codeActe) {
+    return jdbc
+        .query(
+            "SELECT ra.id FROM referentiel_actes ra WHERE ra.code = ? AND ra.organisation_id = ? AND ra.deleted_at IS NULL",
             (rs, n) -> uuid(rs, "id"),
-            etablissementId,
-            date,
-            date,
-            codeActe,
-            organisationId)
+            codeActe, organisationId)
         .stream()
+        .findFirst();
+  }
+
+  @Override
+  public Optional<ContexteTarif> contexteTarifReclamation(UUID reclamationId) {
+    // acte de la réclamation -> référentiel DE LA MÊME ORGANISATION ; date des soins comme SQL_CONTEXTE
+    return jdbc
+        .query(
+            """
+            SELECT r.organisation_id, ds.etablissement_id, ra.id AS referentiel_acte_id, ad.code_acte,
+                   ds.type_visite,
+                   (COALESCE(ad.date_realisation, ad.date_prescription,
+                             dp.date_paiement, dp.date_preparation, r.created_at)
+                      AT TIME ZONE 'UTC')::date AS date_soins
+            FROM reclamations r
+            LEFT JOIN dossiers_soins ds ON ds.id = r.dossier_soins_id
+            LEFT JOIN actes_dossier  ad ON ad.id = r.acte_dossier_id AND ad.deleted_at IS NULL
+            LEFT JOIN dispensations_pharmacie dp ON dp.id = r.dispensation_id
+            LEFT JOIN referentiel_actes ra
+              ON ra.id = ad.referentiel_acte_id AND ra.organisation_id = r.organisation_id AND ra.deleted_at IS NULL
+            WHERE r.id = ? AND r.deleted_at IS NULL
+            """,
+            (rs, n) -> new ContexteTarif(
+                uuid(rs, "organisation_id"), uuid(rs, "etablissement_id"), uuid(rs, "referentiel_acte_id"),
+                rs.getString("code_acte"), localDate(rs, "date_soins"), rs.getString("type_visite")),
+            reclamationId)
+        .stream()
+        .findFirst();
+  }
+
+  @Override
+  public String typeVisiteDeActe(UUID acteDossierId) {
+    return jdbc
+        .query(
+            """
+            SELECT ds.type_visite
+            FROM actes_dossier ad
+            JOIN dossiers_soins ds ON ds.id = ad.dossier_soins_id
+            WHERE ad.id = ?
+            """,
+            (rs, n) -> rs.getString("type_visite"),
+            acteDossierId)
+        .stream()
+        .filter(java.util.Objects::nonNull)
         .findFirst()
         .orElse(null);
   }
 
   @Override
-  public void tracerTarifActe(UUID reclamationId, UUID acteDossierId) {
-    final UUID tarifId =
-        jdbc.query(SQL_CONTEXTE, (rs, n) -> uuid(rs, "tarif_conventionne_id"), reclamationId).stream()
-            .filter(java.util.Objects::nonNull)
-            .findFirst()
-            .orElse(null);
-    if (tarifId != null) {
-      jdbc.update(
-          "UPDATE actes_dossier SET tarif_conventionne_id = ? WHERE id = ?", tarifId, acteDossierId);
-    }
+  public void tracerTarifActe(UUID acteDossierId, UUID tarifConventionneId) {
+    jdbc.update(
+        "UPDATE actes_dossier SET tarif_conventionne_id = ? WHERE id = ?", tarifConventionneId, acteDossierId);
   }
 
   @Override

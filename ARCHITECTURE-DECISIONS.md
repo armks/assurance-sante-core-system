@@ -150,6 +150,9 @@ l'état réel est une source d'erreur.
 / `column_privileges`) : ajout des grants des migrations 034 / 035 (tarif
 conventionné), qui manquaient ici, et de 068 (cumul tiers payant, ADR-005),
 puis 069 (plafond double, ADR-006), 070 et 071 (date des soins, amendements d'ADR-006) — vérifiés en base le même jour.
+**Mise à jour du 2026-10-09 (migration 082, ADR-008 lot 3)** : le Java ne lit plus la projection `tarifs_conventionnes`
+(il lit les conventions) ; `referentiel_actes` passe d'un `SELECT` de table à un `SELECT` de colonnes ; ajout des colonnes
+des conventions et du type de visite — vérifiés en base le même jour (`information_schema.column_privileges`).
 Toute modification future doit être répercutée ici dans la même PR que la
 migration SQL.
 
@@ -180,8 +183,6 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `grilles_tarifaires` | `SELECT` |
 | `medicaments` | `SELECT` |
 | `polices` | `SELECT` |
-| `referentiel_actes` | `SELECT` |
-| `tarifs_conventionnes` | `SELECT` *(034)* |
 | `remboursements` | `INSERT` |
 
 #### Tables — privilèges au niveau colonne (aucun privilège table associé)
@@ -191,12 +192,16 @@ inter-tenant par nature) ; l'isolation est portée par la logique métier
 | `reclamations` | `SELECT` | `id`, `organisation_id`, `dossier_soins_id`, `acte_dossier_id`, `adherent_id`, `beneficiaire_id`, `police_id`, `garantie_id`, `montant`, `type_reclamation`, `statut`, `created_at`, `deleted_at` *(13 colonnes)* ; `dispensation_id` *(070)* |
 | `reclamations` | `UPDATE` | `statut` *(uniquement)* |
 | `remboursements` | `SELECT` | `id`, `reclamation_id`, `montant_rembourse`, `created_at` *(4 colonnes)* |
-| `dossiers_soins` | `SELECT` | `id`, `etablissement_id` *(034)* ; `adherent_id`, `beneficiaire_id`, `police_id` *(068)* |
-| `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* ; `date_realisation`, `date_prescription` *(070 — date des soins)* |
+| `dossiers_soins` | `SELECT` | `id`, `etablissement_id` *(034)* ; `adherent_id`, `beneficiaire_id`, `police_id` *(068)* ; `type_visite` *(082 — contexte ambulatoire / hospitalisation du tarif)* |
+| `actes_dossier` | `SELECT` | `id`, `code_acte` *(034)*, `deleted_at` *(035)* ; `dossier_soins_id`, `categorie_acte` *(068)* ; `date_realisation`, `date_prescription` *(070 — date des soins)* ; `referentiel_acte_id` *(080 — lien fort vers le référentiel)* |
 | `lignes_facturation` | `SELECT` | `id`, `acte_dossier_id`, `montant_reclame`, `reportee_mois_suivant`, `created_at` *(068)* |
 | `beneficiaires` | `SELECT` | `id`, `adherent_id`, `deleted_at` *(069 — rattachement au titulaire, clé de famille)* |
 | `produits` | `SELECT` | `id`, `periode_cumul_plafond` *(069 — période de cumul des plafonds)* ; `delai_declaration_jours` *(071 — délai de déclaration après la fin de la police)* |
 | `dispensations_pharmacie` | `SELECT` | `id`, `date_paiement`, `date_preparation` *(070 — date des soins d'une dispensation)* |
+| `referentiel_actes` | `SELECT` | `id`, `organisation_id`, `code`, `lettre_cle_code`, `coefficient`, `deleted_at` *(082 — remplace le `SELECT` de table : cotation de l'acte, isolation par organisation ; ni libellé, ni catégorie, ni statut)* |
+| `conventions` | `SELECT` | `id`, `organisation_id`, `etablissement_id`, `numero`, `version`, `statut`, `date_debut`, `date_fin`, `politique_depassement`, `historique`, `deleted_at` *(082 — jamais le document, les auteurs, les dates de saisie / validation, ni le motif de refus)* |
+| `convention_actes` | `SELECT` | `id`, `convention_id`, `referentiel_acte_id`, `prix_forfaitaire`, `valeur_lettre_cle`, `date_debut`, `date_fin`, `deleted_at` *(082)* |
+| `convention_valeurs` | `SELECT` | `convention_id`, `lettre_cle_code`, `contexte`, `valeur`, `deleted_at` *(082)* |
 
 > `SELECT(id)` sur `remboursements` est requis par `INSERT … RETURNING id`
 > (le `RETURNING` est évalué comme un `SELECT` sur les colonnes renvoyées).
@@ -955,3 +960,35 @@ tarif reconnu, le taux restant dans la garantie du produit. Le lot 1 pose la cou
   période couvre aujourd'hui) sur le tableau de bord de l'assurance informatique.
 - `etablissements_sante.date_convention` / `date_fin_convention` : dépréciées (commentaires SQL et Prisma), conservées.
 - Libellés d'amorçage des lettres-clés marqués « (fictif) » ; le superadmin les remplace.
+
+### Lot 3 « résolution du tarif dans le Java » (2026-10-09) — migration `prisma/sql/082_resolution_tarif_trace.sql` (ADR-008)
+- **Un seul résolveur** (`ResolveurTarif`), utilisé par la simulation (donc la facture et le comptoir), et par la réclamation :
+  mêmes données, mêmes décisions. Ordre : (1) forfait de l'acte dans la convention en vigueur à la date des soins ;
+  (2) valeur de lettre-clé PROPRE à l'acte × coefficient ; (3) valeur de la lettre-clé de la convention selon le contexte
+  × coefficient ; (4) sinon **non tarifable**. Jamais de prix par défaut.
+- **Contexte** : `HOSPITALISATION` si le type de visite du dossier est `HOSPITALISATION_MEDICALE`, sinon `AMBULATOIRE`.
+  Le core transmet `type_visite` ; à défaut le Java le lit sur le dossier de l'acte.
+- **Convention en vigueur** : `VALIDEE`, ou `ARCHIVEE` (fermée par une nouvelle version) dont la période couvre la date des
+  soins. Une version fermée la veille de la suivante ne laisse aucun trou. Sans convention en vigueur : **mode de
+  transition**, comportement historique (prix affiché reconnu), règle `AUCUNE_CONVENTION`. Une convention « historique »
+  (migration des anciens tarifs) n'est pas un barème complet : l'acte qu'elle ne liste pas garde ce même comportement.
+- **Arrondi HALF_UP à l'unité** : tarif reconnu arrondi par acte ; part assurance arrondie par acte ; part patient = total −
+  part assurance ; les cumuls (plafonds annuels) portent sur des montants arrondis. Montants entiers existants inchangés.
+- **Dépassement** (prix affiché > tarif reconnu), lu sur la convention : `PATIENT` (le calcul part du tarif reconnu, l'excédent
+  reste au patient) ou `REJET` (acte rejeté, code **E015**). Acte non tarifable : rejeté, code **E016**, message clair
+  (lettre-clé et contexte manquants, convention citée). Dans une facture, ces actes sont EXCLUS avec leur message (comme
+  les inéligibilités à la date des soins) ; en réclamation, la décision est `REJETE` (le circuit « tarif proposé » du lot 4
+  remplacera ce rejet par un renvoi au médecin conseil).
+- **Instantané figé** sur la ligne de facturation (colonnes `tarif_*`) : statut, règle d'origine (`FORFAIT`, `VALEUR_PROPRE`,
+  `VALEUR_LETTRE_CLE`, `AUCUNE_CONVENTION`), lettre-clé, coefficient, valeur appliquée, convention, politique, prix affiché,
+  tarif reconnu, écart. Valeurs copiées, jamais recalculées ; un trigger interdit de les modifier après l'émission (sauf
+  ré-émission de la ligne dans une nouvelle facture).
+- **Droits `svc_adjudication`** (ADR-003 mis à jour) : lecture des seules colonnes nécessaires des conventions, lignes et
+  valeurs, du type de visite et de la cotation des actes ; plus aucun accès à `tarifs_conventionnes` ni aux autres colonnes
+  de `referentiel_actes`. Toutes les lectures sont filtrées par organisation dans les requêtes (le rôle contourne la RLS) :
+  même code d'acte dans deux organisations = deux actes, deux conventions, jamais de mélange.
+- **Limites assumées** : (1) le tarif reconnu est celui de la LIGNE : la quantité n'est pas multipliée (comportement
+  historique conservé, montants existants inchangés) — à trancher avec le lot 4 ; (2) la simulation indicative faite à
+  l'ajout d'un acte (date des soins encore inconnue) prend la date du jour ; la facture et la réclamation recalculent à la
+  date des soins ; (3) la réclamation trace le forfait sur l'acte (`tarif_conventionne_id`) mais pas encore l'instantané
+  complet (il vit sur la ligne de facturation).

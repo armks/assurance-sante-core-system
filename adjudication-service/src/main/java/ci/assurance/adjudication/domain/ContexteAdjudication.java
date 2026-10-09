@@ -41,10 +41,10 @@ public record ContexteAdjudication(
     String policeStatut,
     LocalDate policeDebut,
     LocalDate policeFin,
-    // --- tarif conventionné établissement × acte (v3 §5), nullable : aucun
-    // tarif négocié pour ce couple -> comportement inchangé ---
+    // --- tarif reconnu de l'acte (ADR-008, lot 3), résolu par ResolveurTarif ; nullable
+    // (null = non résolu : le prix affiché est reconnu, comme sans convention) ---
     UUID etablissementId,
-    BigDecimal tarifConvention,
+    TarifResolu tarif,
     // --- famille et période de cumul (prisma/sql/069) ---
     UUID produitId,
     /** Adhérent titulaire de la famille : l'adhérent lui-même, ou le titulaire du bénéficiaire. */
@@ -62,6 +62,17 @@ public record ContexteAdjudication(
      * est refusé ({@code produits.delai_declaration_jours}, prisma/sql/071).
      */
     Integer delaiDeclarationJours) {
+
+  /** Même contexte avec le tarif résolu par {@link ResolveurTarif}. */
+  public ContexteAdjudication avecTarif(TarifResolu t) {
+    return new ContexteAdjudication(
+        id, organisationId, dossierSoinsId, acteDossierId, adherentId, beneficiaireId, policeId, garantieId,
+        montant, typeReclamation, statut, createdAt,
+        tauxCouverturePct, plafondParActe, plafondAnnuelPersonne, plafondAnnuelFamille, franchise,
+        ticketModerateurPct, delaiCarenceJours, reseauSoins,
+        policeStatut, policeDebut, policeFin, etablissementId, t,
+        produitId, titulaireId, periodeCumul, dateSoins, delaiDeclarationJours);
+  }
 
   /** Personne soignée : l'adhérent, sinon le bénéficiaire, sinon (cas non attendu) la police. */
   public UUID clePersonne() {

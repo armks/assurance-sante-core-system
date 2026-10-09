@@ -12,6 +12,8 @@ import static org.mockito.Mockito.when;
 import ci.assurance.adjudication.domain.AdjudicationRepository;
 import ci.assurance.adjudication.domain.AdjudicationService;
 import ci.assurance.adjudication.domain.ContexteAdjudication;
+import ci.assurance.adjudication.domain.ContexteTarif;
+import ci.assurance.adjudication.domain.ConventionApplicable;
 import ci.assurance.adjudication.domain.GarantieApplicable;
 import ci.assurance.adjudication.domain.PoliceApplicable;
 import ci.assurance.adjudication.domain.SimulationService;
@@ -62,7 +64,7 @@ class EligibiliteDateSoinsTest {
         declaration.atStartOfDay(ZoneOffset.UTC).toInstant(),
         c.tauxCouverturePct(), c.plafondParActe(), c.plafondAnnuelPersonne(), null, c.franchise(),
         c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
-        statut, DEBUT, fin, ETAB, tarif,
+        statut, DEBUT, fin, ETAB, tarif == null ? null : ci.assurance.adjudication.domain.TarifResolu.forfait(tarif),
         c.produitId(), c.titulaireId(), "ANNEE_CIVILE", soins, delai);
     AdjudicationRepository repo = mock(AdjudicationRepository.class);
     when(repo.chargerContexte(c.id())).thenReturn(Optional.of(ctx));
@@ -126,23 +128,56 @@ class EligibiliteDateSoinsTest {
   }
 
   @Test
-  @DisplayName("Tarif conventionné : celui en vigueur à la date des SOINS (15000 → 10400.00), pas celui du jour de la facture (22000)")
+  @DisplayName("Tarif : celui en vigueur à la date des SOINS (15000 → 10400.00), pas celui du jour de la facture (22000)")
   void tarifEnVigueurALaDateDesSoins() {
     AdjudicationRepository repo = mock(AdjudicationRepository.class);
     LocalDate soins = LocalDate.of(2026, 1, 20);
     LocalDate facture = LocalDate.of(2026, 3, 10);
-    when(repo.tarifConvention(ORG, ETAB, "CI-CONS", soins)).thenReturn(new BigDecimal("15000.00"));
-    when(repo.tarifConvention(ORG, ETAB, "CI-CONS", facture)).thenReturn(new BigDecimal("22000.00"));
+    UUID acte = UUID.randomUUID();
+    UUID conv1 = UUID.randomUUID();
+    UUID conv2 = UUID.randomUUID();
+    when(repo.referentielActeId(ORG, "CI-CONS")).thenReturn(Optional.of(acte));
+    // convention v1 jusqu'au 28/02 (forfait 15000), v2 dès le 01/03 (forfait 22000) — aucun trou
+    when(repo.conventionEnVigueur(ORG, ETAB, soins)).thenReturn(Optional.of(
+        new ConventionApplicable(conv1, "C1", 1, "PATIENT", false, LocalDate.of(2026, 1, 1), LocalDate.of(2026, 2, 28))));
+    when(repo.conventionEnVigueur(ORG, ETAB, facture)).thenReturn(Optional.of(
+        new ConventionApplicable(conv2, "C1", 2, "PATIENT", false, LocalDate.of(2026, 3, 1), null)));
+    when(repo.ligneConvention(conv1, acte, soins)).thenReturn(
+        Optional.of(new AdjudicationRepository.LigneConvention(UUID.randomUUID(), new BigDecimal("15000.00"), null)));
+    when(repo.ligneConvention(conv2, acte, facture)).thenReturn(
+        Optional.of(new AdjudicationRepository.LigneConvention(UUID.randomUUID(), new BigDecimal("22000.00"), null)));
 
     ResultatLigne f = facture("ACTIVE", null, 90, soins, facture, repo, "CI-CONS");
 
     // (min(25000, 15000) − 2000) × 80 % = 10400 ; avec le tarif du jour : (22000 − 2000) × 80 % = 16000
     assertThat(f.montantCouvert()).isEqualByComparingTo("10400.00");
-    verify(repo, never()).tarifConvention(ORG, ETAB, "CI-CONS", facture);
+    verify(repo, never()).conventionEnVigueur(ORG, ETAB, facture);
 
-    // la réclamation reçoit le tarif de la date des soins (résolu en SQL, prisma/sql/070) :
-    // à tarif égal, même montant que la facture
-    DecisionResponse r = reclamation("ACTIVE", null, 90, soins, facture, new BigDecimal("15000.00"));
+    // la réclamation résout le MÊME tarif (même résolveur, date des soins) : même montant que la facture
+    DecisionResponse r = reclamationAvecTarif("ACTIVE", null, 90, soins, facture, repo, acte);
     assertThat(r.montantRembourse()).isEqualByComparingTo(f.montantCouvert());
+  }
+
+  /** Réclamation dont le tarif est résolu par le résolveur (données de tarification fournies par le dépôt). */
+  private static DecisionResponse reclamationAvecTarif(
+      String statut, LocalDate fin, int delai, LocalDate soins, LocalDate declaration,
+      AdjudicationRepository repo, UUID acte) {
+    ContexteAdjudication c = JeuDeDonneesReference.actif(new BigDecimal("25000.00"));
+    ContexteAdjudication ctx = new ContexteAdjudication(
+        c.id(), c.organisationId(), c.dossierSoinsId(), c.acteDossierId(),
+        c.adherentId(), c.beneficiaireId(), c.policeId(), c.garantieId(),
+        c.montant(), c.typeReclamation(), c.statut(),
+        declaration.atStartOfDay(ZoneOffset.UTC).toInstant(),
+        c.tauxCouverturePct(), c.plafondParActe(), c.plafondAnnuelPersonne(), null, c.franchise(),
+        c.ticketModerateurPct(), c.delaiCarenceJours(), c.reseauSoins(),
+        statut, DEBUT, fin, ETAB, null,
+        c.produitId(), c.titulaireId(), "ANNEE_CIVILE", soins, delai);
+    when(repo.chargerContexte(c.id())).thenReturn(Optional.of(ctx));
+    when(repo.contexteTarifReclamation(c.id())).thenReturn(
+        Optional.of(new ContexteTarif(ORG, ETAB, acte, "CI-CONS", soins, null)));
+    when(repo.sommeConsommeePersonne(any(), any(), any(), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(repo.insererRemboursement(any(), any(), any(), any(), anyLong())).thenReturn(UUID.randomUUID());
+    when(repo.majStatut(eq(c.id()), any())).thenReturn(1);
+    return new AdjudicationService(repo).evaluer(c.id());
   }
 }

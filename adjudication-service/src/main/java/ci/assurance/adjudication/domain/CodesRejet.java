@@ -30,4 +30,12 @@ public final class CodesRejet {
 
   /** Déclaration au-delà du délai suivant la fin de la police ({@code produits.delai_declaration_jours}). */
   public static final String DECLARATION_HORS_DELAI = "E014";
+
+  // --- Tarif (ADR-008, lot 3) ---
+
+  /** Prix affiché supérieur au tarif reconnu, et la convention de l'établissement rejette les dépassements. */
+  public static final String TARIF_DEPASSE = "E015";
+
+  /** Acte non tarifable : la convention en vigueur ne donne ni forfait ni valeur de lettre-clé pour lui. */
+  public static final String ACTE_NON_TARIFABLE = "E016";
 }

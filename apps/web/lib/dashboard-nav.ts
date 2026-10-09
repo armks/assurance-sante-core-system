@@ -5,6 +5,7 @@ import {
   ClipboardList,
   CreditCard,
   DoorOpen,
+  FileSignature,
   FileText,
   HeartPulse,
   Inbox,
@@ -262,6 +263,8 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${MEDECIN_CONSEIL}/actes-a-homologuer`,
       icon: Stethoscope,
     },
+    // Validation des conventions des établissements (jamais de sa propre saisie) — lot barème 2
+    { label: 'Conventions', href: `${MEDECIN_CONSEIL}/conventions`, icon: FileSignature },
     {
       label: 'Pré-autorisations',
       href: `${MEDECIN_CONSEIL}/preautorisations`,
@@ -326,6 +329,8 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     { label: 'Produits', href: `${INFORMATIQUE}/produits`, icon: Package },
     { label: 'Polices', href: `${INFORMATIQUE}/polices`, icon: FileText },
     { label: 'Adhérents', href: `${INFORMATIQUE}/adherents`, icon: Users },
+    // Validation des conventions des établissements (lot barème 2)
+    { label: 'Conventions', href: `${DIRECTION}/conventions`, icon: FileSignature },
     {
       label: 'Réclamations',
       href: `${INFORMATIQUE}/reclamations`,
@@ -496,6 +501,13 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
       label: 'Établissements',
       href: `${INFORMATIQUE}/etablissements`,
       icon: HeartPulse,
+      minNiveau: 'LECTURE_SEULE',
+    },
+    // Conventions des établissements (lot barème 2) : saisie par l'assurance informatique, lecture pour l'adjoint.
+    {
+      label: 'Conventions',
+      href: `${INFORMATIQUE}/conventions`,
+      icon: FileSignature,
       minNiveau: 'LECTURE_SEULE',
     },
     {

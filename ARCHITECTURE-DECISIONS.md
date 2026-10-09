@@ -921,3 +921,37 @@ tarif reconnu, le taux restant dans la garantie du produit. Le lot 1 pose la cou
   format (une mise à jour ne touche pas la cotation existante) ; l'import vers une organisation copie la cotation.
 - Données : jeux de test FICTIFS uniquement ; ni la vraie nomenclature NGAMBCI (à importer depuis la source
   officielle) ni les valeurs CMU (B 100, K 250, Z 300, D 200), jamais défaut en production.
+
+### Lot 2 « conventions » (2026-10-09) — migration `prisma/sql/081_conventions.sql` (ADR-008)
+- **Tables** : `conventions` (établissement, numéro + version, période, document signé, statut PROPOSEE | VALIDEE |
+  REFUSEE | ARCHIVEE, politique de dépassement PATIENT | REJET, saisie / modification / validation / refus tracés),
+  `convention_valeurs` (lettre-clé × contexte AMBULATOIRE | HOSPITALISATION, unique par convention), `convention_actes`
+  (forfait OU valeur de lettre-clé propre à l'acte — CHECK « exactement un des deux »). Soft delete et index uniques
+  partiels partout. `EXCLUDE` : pas deux conventions VALIDEES qui se chevauchent pour un établissement ; `EXCLUDE` aussi
+  sur les lignes d'un même acte dans une convention (l'historique migré porte des périodes successives).
+- **Circuit** : saisie par l'assurance informatique ; validation / refus par le médecin conseil ou la direction, **jamais
+  par la personne qui a saisi ou modifié** (refus 403 tracé à part ; CHECK en base `valide_par ≠ saisi_par, modifie_par`,
+  donc impossible à contourner hors API). Document signé et au moins une valeur ou exception obligatoires pour valider.
+  Refus : motif de 5 caractères minimum ; une convention refusée se corrige après « reproposer ». Une convention VALIDEE
+  n'est plus modifiable : « nouvelle version » (copie PROPOSEE, version + 1, document non copié) ; à la validation de la
+  nouvelle, l'ancienne est fermée la veille de la date d'effet et passe ARCHIVEE (sa période reste en vigueur jusqu'à sa
+  fin). Chevauchement : refusé avec le numéro de la convention en cause.
+- **Projection vers le Java** : `tarifs_conventionnes` reste la table lue par le microservice jusqu'au lot 3 (calcul Java
+  non touché). Les forfaits d'une convention VALIDEE y sont projetés **sous le même identifiant** que leur ligne ; fermés
+  avec la convention. Les valeurs de lettres-clés et les « valeurs propres » ne sont pas projetées (lot 3). Les tarifs
+  d'ÉTABLISSEMENT ne se gèrent plus que par les conventions (les routes de tarifs répondent 409) ; ceux des pharmacies sont
+  inchangés.
+- **Migration** : une convention « historique » VALIDEE par établissement ayant des tarifs non supprimés ; chaque tarif
+  devient une ligne forfaitaire du MÊME identifiant ; période propre conservée ; aucun montant ne change ;
+  `tarif_conventionne_id` des actes calculés reste valide. Ne sont pas migrés : les tarifs supprimés (logiquement) et les
+  tarifs de pharmacie. Base de développement : aucun tarif, donc rien à migrer ; logique vérifiée par rejeu en transaction
+  annulée (idempotente).
+- **Registre (ADR-007)** : entités `convention` et `conventionActe` ; règle « tarif ayant servi » reprise : un forfait déjà
+  utilisé par un calcul bloque suppression et modification (409 chiffré) ; validée / archivée conservées ; archiver =
+  fermer (réservé à une convention validée).
+- **Document** : bucket privé `conventions`, écrit et signé par le seul service_role ; chemin préfixé par l'organisation et
+  l'établissement ; URL signée de 10 minutes ; 404 hors de l'organisation.
+- **Indicateur** : « établissements actifs sans convention validée en vigueur » (statut VALIDEE ou ARCHIVEE dont la
+  période couvre aujourd'hui) sur le tableau de bord de l'assurance informatique.
+- `etablissements_sante.date_convention` / `date_fin_convention` : dépréciées (commentaires SQL et Prisma), conservées.
+- Libellés d'amorçage des lettres-clés marqués « (fictif) » ; le superadmin les remplace.

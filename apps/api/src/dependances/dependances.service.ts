@@ -240,6 +240,26 @@ export class DependancesService {
   }
 
   /**
+   * Refus MÉTIER tracé hors transaction (auto-validation, chevauchement, document manquant…) : mêmes règles que
+   * les refus du registre — l'audit survit au rejet, un échec d'écriture n'empêche pas le 403 / 409.
+   */
+  async tracerRefusMetier(user: AuthenticatedUser, table: string, id: string, action: string, raison: string): Promise<void> {
+    try {
+      const ctx = await this.contexte(user);
+      await this.prisma.$executeRaw`
+        SELECT log_audit(
+          ${`REFUS_${action.toUpperCase()}`}::text,
+          ${table}::text,
+          ${id}::uuid,
+          ${ctx.userId}::uuid,
+          ${JSON.stringify({ raison })}::jsonb
+        )`;
+    } catch (e) {
+      this.logger.error(`Refus non tracé (${table} ${id}) : ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
    * Refus tracé HORS transaction (ADR-007) : une transaction annulée effacerait sa ligne
    * d'audit. Qui (user), quoi (entité, action), pourquoi (raison, liens). Un échec
    * d'écriture d'audit n'empêche pas le 409 d'être renvoyé.

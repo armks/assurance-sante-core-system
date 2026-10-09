@@ -19,7 +19,7 @@ function fixture(entite: string, action: Action): Record<string, unknown> {
     denominationCommune: 'Paracétamol', version: 1, role: 'ROLE', type: 'TYPE', trancheAgeMin: 0, trancheAgeMax: 10,
     tarifConvention: 1000, dateDebut: new Date('2026-01-01'), dateFin: archive ? new Date('2026-06-30') : null,
     etablissementId: 'etab-1', pharmacieId: null, referentielActeId: 'ra-1', referentielActe: { code: 'C01', libelle: 'Consultation' },
-    produit: { nom: 'Formule', statut: 'BROUILLON' }, categorieActe: 'CONSULTATION', numeroPolice: 'POL-1', actif: !archive, soldeActuel: 0, montantPaye: 0, montantDu: 5000, periode: new Date('2026-03-01'), nbLignesTotal: 3, fichierNom: null,
+    produit: { nom: 'Formule', statut: 'BROUILLON' }, convention: { statut: 'PROPOSEE', numero: 'C-1' }, categorieActe: 'CONSULTATION', numeroPolice: 'POL-1', actif: !archive, soldeActuel: 0, montantPaye: 0, montantDu: 5000, periode: new Date('2026-03-01'), nbLignesTotal: 3, fichierNom: null,
   };
   const statut: Record<string, string> = {
     organisation: archive ? 'ARCHIVEE' : 'ACTIVE',
@@ -33,6 +33,7 @@ function fixture(entite: string, action: Action): Record<string, unknown> {
     produit: action === 'archiver' ? 'PUBLIE' : archive ? 'ARCHIVE' : 'BROUILLON',
     police: 'DEVIS',
     avenant: action === 'archiver' ? 'APPLIQUE' : 'BROUILLON',
+    convention: action === 'archiver' ? 'VALIDEE' : 'PROPOSEE',
     compteFinancier: archive ? 'ARCHIVE' : 'ACTIF',
     cotisation: 'A_PAYER',
     propositionImport: 'BROUILLON',
@@ -55,6 +56,7 @@ function baseFactice(rec: unknown, valeurs: Record<number, number> = {}) {
   const appels: unknown[] = [];
   const modele = {
     findFirst: jest.fn(async () => rec),
+    findMany: jest.fn(async () => [{ id: 'l-1' }]),
     count: jest.fn(async (args: unknown) => {
       appels.push(args);
       return valeurs[i++] ?? 0;

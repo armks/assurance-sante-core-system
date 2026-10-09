@@ -442,6 +442,87 @@ model RegleProvisioning {
 /// categories_acte — référentiel UNIQUE des catégories d'acte (prisma/sql/067) :
 /// garanties, actes de dossier, référentiels d'actes, type de réclamation et
 /// rôle de revue manuelle. Lecture seule hors migration.
+/// conventions — convention d'un établissement avec l'assureur (prisma/sql/081, ADR-008) : période, document signé,
+/// circuit PROPOSEE → VALIDEE | REFUSEE, ARCHIVEE ; jamais validée par la personne qui l'a saisie.
+model Convention {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId         String    @map("organisation_id") @db.Uuid
+  etablissementId        String    @map("etablissement_id") @db.Uuid
+  numero                 String
+  version                Int       @default(1)
+  conventionPrecedenteId String?   @map("convention_precedente_id") @db.Uuid
+  dateDebut              DateTime  @map("date_debut") @db.Date
+  dateFin                DateTime? @map("date_fin") @db.Date
+  statut                 String    @default("PROPOSEE") // PROPOSEE | VALIDEE | REFUSEE | ARCHIVEE
+  politiqueDepassement   String    @default("PATIENT") @map("politique_depassement") // PATIENT | REJET
+  documentChemin         String?   @map("document_chemin")
+  documentNom            String?   @map("document_nom")
+  documentType           String?   @map("document_type")
+  /// Convention créée par la migration des anciens tarifs d'établissement (aucune saisie, aucun validateur)
+  historique             Boolean   @default(false)
+  saisiPar               String?   @map("saisi_par") @db.Uuid
+  dateSaisie             DateTime  @default(now()) @map("date_saisie") @db.Timestamptz(6)
+  modifiePar             String?   @map("modifie_par") @db.Uuid
+  validePar              String?   @map("valide_par") @db.Uuid
+  dateValidation         DateTime? @map("date_validation") @db.Timestamptz(6)
+  refusePar              String?   @map("refuse_par") @db.Uuid
+  dateRefus              DateTime? @map("date_refus") @db.Timestamptz(6)
+  motifRefus             String?   @map("motif_refus")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  etablissement EtablissementSante @relation(fields: [etablissementId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  precedente    Convention?        @relation("VersionsConvention", fields: [conventionPrecedenteId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  suivantes     Convention[]       @relation("VersionsConvention")
+  valeurs       ConventionValeur[]
+  actes         ConventionActe[]
+
+  @@index([etablissementId, statut])
+  @@index([organisationId, statut])
+  @@map("conventions")
+}
+
+/// convention_valeurs — valeur en FCFA d'une lettre-clé, par contexte (prisma/sql/081).
+model ConventionValeur {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conventionId    String    @map("convention_id") @db.Uuid
+  lettreCleCode   String    @map("lettre_cle_code")
+  contexte        String // AMBULATOIRE | HOSPITALISATION
+  valeur          Decimal   @db.Decimal(14, 2)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  convention Convention @relation(fields: [conventionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  lettreCle  LettreCle  @relation(fields: [lettreCleCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([conventionId])
+  @@map("convention_valeurs")
+}
+
+/// convention_actes — exception par acte : forfait OU valeur de lettre-clé propre à l'acte (prisma/sql/081).
+/// L'identifiant d'une ligne migrée est celui de l'ancien tarif conventionné.
+model ConventionActe {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  conventionId      String    @map("convention_id") @db.Uuid
+  referentielActeId String    @map("referentiel_acte_id") @db.Uuid
+  prixForfaitaire   Decimal?  @map("prix_forfaitaire") @db.Decimal(14, 2)
+  valeurLettreCle   Decimal?  @map("valeur_lettre_cle") @db.Decimal(14, 2)
+  dateDebut         DateTime? @map("date_debut") @db.Date
+  dateFin           DateTime? @map("date_fin") @db.Date
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  convention      Convention      @relation(fields: [conventionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  referentielActe ReferentielActe @relation(fields: [referentielActeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([conventionId])
+  @@index([referentielActeId])
+  @@map("convention_actes")
+}
+
 /// lettres_cles — référentiel paramétrable des lettres-clés de la nomenclature (prisma/sql/080), géré par le
 /// superadmin. Aucune valeur chiffrée : les valeurs en FCFA se négocient par établissement.
 model LettreCle {
@@ -453,6 +534,7 @@ model LettreCle {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  conventionValeurs ConventionValeur[]
   actesNationaux ReferentielNationalActe[]
   actes          ReferentielActe[]
 
@@ -787,7 +869,9 @@ model EtablissementSante {
   telephoneUrgence  String?   @map("telephone_urgence")
   email             String?
   statut            String    @default("EN_ATTENTE_VALIDATION") // ACTIF | SUSPENDU | EN_ATTENTE_VALIDATION | RESILIE
+  /// @deprecated (prisma/sql/081) : la période de validité vient de la table `conventions`
   dateConvention    DateTime? @map("date_convention") @db.Date
+  /// @deprecated (prisma/sql/081) : voir `conventions`
   dateFinConvention DateTime? @map("date_fin_convention") @db.Date
   gardeWeekend      Boolean   @default(false) @map("garde_weekend")
   horairesGarde     Json?     @map("horaires_garde")
@@ -805,6 +889,7 @@ model EtablissementSante {
   codesConsultation  CodeConsultation[]
   factures           FactureDossier[]
   verifications      VerificationEtablissement[]
+  conventions         Convention[]
   tarifsConventionnes TarifConventionne[]
   actesExecutes      ActeDossier[]      @relation("ActeEtablissementExecution")
   facturesMensuelles FactureMensuelleEtablissement[]
@@ -906,6 +991,7 @@ model ReferentielActe {
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   homologateur Profil?      @relation(fields: [homologuePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  conventionActes     ConventionActe[]
   actesDossier        ActeDossier[]
   tarifsConventionnes TarifConventionne[]
 

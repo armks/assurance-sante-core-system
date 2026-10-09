@@ -520,18 +520,30 @@ describe('ProviderService', () => {
     );
   });
 
-  // --- Tarifs conventionnés (v3 §5) -----------------------------------
+  // --- Tarifs conventionnés (v3 §5) — pharmacies ; les établissements : conventions (prisma/sql/081) --------
 
-  it('creerTarif : crée un tarif conventionné établissement × acte et audite', async () => {
+  it.each(['creerTarif', 'modifierTarif', 'supprimerTarif', 'changerTarif', 'fermerTarif', 'rouvrirTarif'] as const)(
+    '%s : refusé (409) pour un ÉTABLISSEMENT — ses tarifs se gèrent dans sa convention',
+    async (methode) => {
+      identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+      const appel = (service as any)[methode](USER, 'etablissement', 'e1', 't1', {});
+      await expect(appel).rejects.toThrow(/se gèrent dans sa convention/);
+      expect(prisma.tarifConventionne.create).not.toHaveBeenCalled();
+      expect(prisma.tarifConventionne.update).not.toHaveBeenCalled();
+    },
+  );
+
+
+  it('creerTarif : crée un tarif conventionné pharmacie × acte et audite', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
-    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.pharmacie.findFirst.mockResolvedValue({ id: 'p1', organisationId: 'org-1' });
     prisma.referentielActe.findFirst.mockResolvedValue({ id: 'acte-1', libelle: 'Consultation généraliste' });
     prisma.tarifConventionne.findFirst
       .mockResolvedValueOnce(null) // pas de doublon
       .mockResolvedValueOnce({ id: 't1', referentielActe: { code: 'C01', libelle: 'Consultation généraliste' } }); // chargerTarif
     prisma.tarifConventionne.create.mockResolvedValue({ id: 't1' });
 
-    const res = await service.creerTarif(USER, 'etablissement', 'e1', {
+    const res = await service.creerTarif(USER, 'pharmacie', 'p1', {
       referentielActeId: 'acte-1',
       tarifConvention: 15000,
       dateDebut: '2026-01-01',
@@ -541,8 +553,8 @@ describe('ProviderService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           organisationId: 'org-1',
-          etablissementId: 'e1',
-          pharmacieId: null,
+          etablissementId: null,
+          pharmacieId: 'p1',
           referentielActeId: 'acte-1',
           tarifConvention: 15000,
         }),
@@ -554,11 +566,11 @@ describe('ProviderService', () => {
 
   it('creerTarif : refuse (404) un acte introuvable dans l’organisation', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
-    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.pharmacie.findFirst.mockResolvedValue({ id: 'p1', organisationId: 'org-1' });
     prisma.referentielActe.findFirst.mockResolvedValue(null);
 
     await expect(
-      service.creerTarif(USER, 'etablissement', 'e1', {
+      service.creerTarif(USER, 'pharmacie', 'p1', {
         referentielActeId: 'acte-inconnu',
         tarifConvention: 15000,
         dateDebut: '2026-01-01',
@@ -569,7 +581,7 @@ describe('ProviderService', () => {
 
   it('creerTarif : refuse (409) un tarif dont la période CHEVAUCHE un tarif en vigueur — message avec la marche à suivre', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
-    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.pharmacie.findFirst.mockResolvedValue({ id: 'p1', organisationId: 'org-1' });
     prisma.referentielActe.findFirst.mockResolvedValue({ id: 'acte-1', libelle: 'Consultation généraliste' });
     prisma.tarifConventionne.findFirst.mockResolvedValue({
       id: 't-existant',
@@ -578,7 +590,7 @@ describe('ProviderService', () => {
     });
 
     const err = await service
-      .creerTarif(USER, 'etablissement', 'e1', {
+      .creerTarif(USER, 'pharmacie', 'p1', {
         referentielActeId: 'acte-1',
         tarifConvention: 15000,
         dateDebut: '2026-09-01',
@@ -593,7 +605,7 @@ describe('ProviderService', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           referentielActeId: 'acte-1',
-          etablissementId: 'e1',
+          pharmacieId: 'p1',
           deletedAt: null,
           OR: [{ dateFin: null }, { dateFin: { gte: new Date('2026-09-01') } }],
         }),
@@ -604,14 +616,14 @@ describe('ProviderService', () => {
 
   it("creerTarif : ACCEPTE un tarif SUCCESSIF (l'ancien se termine la veille) — historique conservé", async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
-    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.pharmacie.findFirst.mockResolvedValue({ id: 'p1', organisationId: 'org-1' });
     prisma.referentielActe.findFirst.mockResolvedValue({ id: 'acte-1', libelle: 'Consultation généraliste' });
     prisma.tarifConventionne.findFirst
       .mockResolvedValueOnce(null) // l'ancien (fin 31/08) ne chevauche pas
       .mockResolvedValueOnce({ id: 't-nouveau', referentielActe: { code: 'C01', libelle: 'Consultation généraliste' } }); // chargerTarif
     prisma.tarifConventionne.create.mockResolvedValue({ id: 't-nouveau' });
 
-    await service.creerTarif(USER, 'etablissement', 'e1', {
+    await service.creerTarif(USER, 'pharmacie', 'p1', {
       referentielActeId: 'acte-1',
       tarifConvention: 12000,
       dateDebut: '2026-09-01',
@@ -624,7 +636,7 @@ describe('ProviderService', () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_EXPLOITATION']));
 
     await expect(
-      service.creerTarif(USER, 'etablissement', 'e1', {
+      service.creerTarif(USER, 'pharmacie', 'p1', {
         referentielActeId: 'acte-1',
         tarifConvention: 15000,
         dateDebut: '2026-01-01',
@@ -635,16 +647,16 @@ describe('ProviderService', () => {
 
   it('listerTarifs : renvoie les tarifs d’un établissement avec l’acte inclus', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
-    prisma.etablissementSante.findFirst.mockResolvedValue({ id: 'e1', organisationId: 'org-1' });
+    prisma.pharmacie.findFirst.mockResolvedValue({ id: 'p1', organisationId: 'org-1' });
     prisma.tarifConventionne.findMany.mockResolvedValue([
       { id: 't1', tarifConvention: 15000, referentielActe: { code: 'C01', libelle: 'Consultation' } },
     ]);
 
-    const res = await service.listerTarifs(USER, 'etablissement', 'e1');
+    const res = await service.listerTarifs(USER, 'pharmacie', 'p1');
 
     expect(prisma.tarifConventionne.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ etablissementId: 'e1', deletedAt: null }),
+        where: expect.objectContaining({ pharmacieId: 'p1', deletedAt: null }),
       }),
     );
     expect(res).toHaveLength(1);
@@ -656,7 +668,7 @@ describe('ProviderService', () => {
       .mockResolvedValueOnce({ id: 't1', etablissementId: 'e1' }) // chargerTarifDansPerimetre
       .mockResolvedValueOnce({ id: 't1', referentielActe: { code: 'C01', libelle: 'Consultation' } }); // chargerTarif
 
-    const res = await service.modifierTarif(USER, 'etablissement', 'e1', 't1', {
+    const res = await service.modifierTarif(USER, 'pharmacie', 'p1', 't1', {
       tarifConvention: 18000,
     });
 
@@ -673,7 +685,7 @@ describe('ProviderService', () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
     prisma.tarifConventionne.findFirst.mockResolvedValue({ id: 't1', etablissementId: 'e1' });
 
-    await service.supprimerTarif(USER, 'etablissement', 'e1', 't1');
+    await service.supprimerTarif(USER, 'pharmacie', 'p1', 't1');
 
     expect(prisma.tarifConventionne.update).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -5,15 +5,10 @@ import { notFound } from 'next/navigation';
 
 import { PageTitre } from '@/components/page-titre';
 import { StatutBadge } from '@/components/dashboard/patterns';
-import {
-  TarifsConventionnesPanneau,
-  type ActeDisponible,
-  type TarifConventionne,
-} from '@/components/dashboard/tarifs-conventionnes-panneau';
+import { LIBELLE_STATUT_CONVENTION, TON_STATUT_CONVENTION, type ConventionResume } from '@/lib/conventions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { peutSupprimerDefinitivement, verdictsListe } from '@/app/dependances-actions';
 import { apiFetch } from '@/lib/api';
 import {
   LIBELLE_STATUT_ETABLISSEMENT,
@@ -40,19 +35,13 @@ export default async function EtablissementPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [resEtab, resTarifs, resActes] = await Promise.all([
+  const [resEtab, resConventions] = await Promise.all([
     apiFetch(`/api/v1/provider/etablissements/${id}`),
-    apiFetch(`/api/v1/provider/etablissements/${id}/tarifs`),
-    apiFetch('/api/v1/reference/actes'),
+    apiFetch(`/api/v1/conventions?etablissementId=${id}`),
   ]);
   if (resEtab.status === 404) notFound();
   const etablissement = (await resEtab.json()) as EtablissementDetail;
-  const tarifs: TarifConventionne[] = resTarifs.ok ? await resTarifs.json() : [];
-  const actes: ActeDisponible[] = resActes.ok ? await resActes.json() : [];
-  const [verdicts, peutSupprimer] = await Promise.all([
-    verdictsListe('tarif', tarifs.map((t) => t.id)),
-    peutSupprimerDefinitivement(),
-  ]);
+  const conventions: ConventionResume[] = resConventions.ok ? await resConventions.json() : [];
 
   return (
     <div className="space-y-6">
@@ -113,17 +102,37 @@ export default async function EtablissementPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Tarifs conventionnés</CardTitle>
+          <CardTitle className="text-base">Conventions</CardTitle>
         </CardHeader>
-        <CardContent>
-          <TarifsConventionnesPanneau
-            cible="etablissement"
-            cibleId={etablissement.id}
-            tarifs={tarifs}
-            actesDisponibles={actes}
-            verdicts={verdicts}
-            peutSupprimer={peutSupprimer}
-          />
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-muted-foreground">
+            Les tarifs de l’établissement se négocient et se valident dans sa convention (valeurs par lettre-clé, exceptions par acte, document signé).
+          </p>
+          {conventions.length === 0 ? (
+            <p className="font-medium text-amber-700 dark:text-amber-400">Aucune convention : l’établissement est sans convention validée.</p>
+          ) : (
+            <ul className="space-y-1">
+              {conventions.map((c) => (
+                <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2">
+                  <span>
+                    <span className="font-medium">{c.numero}</span> · version {c.version}
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {new Date(c.dateDebut).toLocaleDateString('fr-FR')} → {c.dateFin ? new Date(c.dateFin).toLocaleDateString('fr-FR') : 'sans fin'}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <StatutBadge statut={c.statut} map={TON_STATUT_CONVENTION} libelles={LIBELLE_STATUT_CONVENTION} />
+                    <Button asChild size="xs" variant="ghost">
+                      <Link href={`/dashboard-assureur/informatique/conventions/${c.id}`}>Ouvrir</Link>
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button asChild size="sm" variant="outline">
+            <Link href="/dashboard-assureur/informatique/conventions">Toutes les conventions</Link>
+          </Button>
         </CardContent>
       </Card>
     </div>

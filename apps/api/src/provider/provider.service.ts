@@ -761,12 +761,22 @@ export class ProviderService {
   // d'adjudication : min(montant_facture, tarif_convention) avant application
   // du taux de couverture (JdbcAdjudicationRepository.SQL_CONTEXTE).
 
+  /** Les tarifs d'un ÉTABLISSEMENT se gèrent dans sa convention (prisma/sql/081) ; ceux d'une pharmacie restent ici. */
+  private assertTarifsPharmacieSeulement(cible: 'etablissement' | 'pharmacie'): void {
+    if (cible === 'etablissement') {
+      throw new ConflictException(
+        'Les tarifs d’un établissement se gèrent dans sa convention (circuit de validation) : ouvrez « Conventions ».',
+      );
+    }
+  }
+
   async creerTarif(
     user: AuthenticatedUser,
     cible: 'etablissement' | 'pharmacie',
     id: string,
     dto: CreateTarifConventionneDto,
   ) {
+    this.assertTarifsPharmacieSeulement(cible);
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
 
@@ -861,6 +871,7 @@ export class ProviderService {
     tarifId: string,
     dto: UpdateTarifConventionneDto,
   ) {
+    this.assertTarifsPharmacieSeulement(cible);
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const actuel = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
@@ -916,6 +927,7 @@ export class ProviderService {
     id: string,
     tarifId: string,
   ): Promise<void> {
+    this.assertTarifsPharmacieSeulement(cible);
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
@@ -953,6 +965,7 @@ export class ProviderService {
     tarifId: string,
     dto: ChangerTarifConventionneDto,
   ) {
+    this.assertTarifsPharmacieSeulement(cible);
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const ancien = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
@@ -1012,6 +1025,7 @@ export class ProviderService {
     tarifId: string,
     dto: FermerTarifConventionneDto,
   ) {
+    this.assertTarifsPharmacieSeulement(cible);
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const tarif = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);
@@ -1037,6 +1051,7 @@ export class ProviderService {
     id: string,
     tarifId: string,
   ) {
+    this.assertTarifsPharmacieSeulement(cible);
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const tarif = await this.chargerTarifDansPerimetre(ctx.organisationId, cible, id, tarifId);

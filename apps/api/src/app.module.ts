@@ -17,6 +17,7 @@ import { PolicyModule } from './policy/policy.module';
 import { PreauthorizationModule } from './preauthorization/preauthorization.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProviderModule } from './provider/provider.module';
+import { ConventionsModule } from './conventions/conventions.module';
 import { ReferenceModule } from './reference/reference.module';
 import { SanteModule } from './sante/sante.module';
 import { DependancesModule } from './dependances/dependances.module';
@@ -42,6 +43,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     UnderwritingModule,
     ProviderModule,
     ReferenceModule,
+    ConventionsModule,
     CareEpisodeModule,
     PreauthorizationModule,
     PharmacyModule,

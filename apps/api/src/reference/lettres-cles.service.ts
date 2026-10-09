@@ -49,7 +49,7 @@ export class LettresClesService {
     return this.prisma.lettreCle.findMany({ orderBy: [{ ordre: 'asc' }, { code: 'asc' }] });
   }
 
-  private async codesActifs(): Promise<Set<string>> {
+  async codesActifs(): Promise<Set<string>> {
     const l = await this.prisma.lettreCle.findMany({ where: { actif: true }, select: { code: true } });
     return new Set(l.map((x) => x.code));
   }

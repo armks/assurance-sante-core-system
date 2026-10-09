@@ -414,6 +414,63 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     },
   },
 
+  // Conventions établissement × assureur (lot barème 2) : saisie par l'assurance informatique ; la validation et
+  // le refus (médecin conseil / direction, jamais le saisissant) sont des opérations du service des conventions.
+  convention: {
+    designation: 'la convention',
+    pronom: 'la',
+    table: 'conventions',
+    roles: ['ASSUREUR_INFORMATIQUE'],
+    nomsAction: { archiver: 'Archivage' },
+    charger: (db, id, ctx) => db.convention.findFirst({ where: { id, organisationId: org(ctx), deletedAt: null } }),
+    nom: (c) => `${c.numero} (version ${c.version})`,
+    conseils: { supprimer: "Archivez-la plutôt : l'historique est conservé." },
+    dependances: [
+      // règle « tarif ayant servi » (ADR-007) reprise sur la convention : un forfait déjà utilisé par un calcul ne se
+      // modifie ni ne se supprime (prisma/sql/074) — l'acte calculé garde le lien vers la ligne (même identifiant)
+      dep('actesCalcules', 'acte calculé avec un forfait de cette convention', 'actes calculés avec un forfait de cette convention', async (db, c, ctx) => {
+        const lignes = await db.conventionActe.findMany({ where: { conventionId: c.id }, select: { id: true } });
+        if (lignes.length === 0) return 0;
+        return db.acteDossier.count({ where: { tarifConventionneId: { in: lignes.map((l: { id: string }) => l.id) }, dossier: { organisationId: org(ctx) } } });
+      }, ['supprimer', 'modifier']),
+    ],
+    regles: {
+      supprimer: (c) => (c.statut === 'PROPOSEE' || c.statut === 'REFUSEE' ? null : 'Une convention validée ou archivée est conservée (historique) : archivez-la, ou créez une nouvelle version.'),
+      modifier: (c) =>
+        c.statut === 'PROPOSEE'
+          ? null
+          : c.statut === 'VALIDEE'
+            ? 'Une convention validée ne se modifie plus : créez une nouvelle version (l’ancienne est fermée à la validation de la nouvelle).'
+            : c.statut === 'REFUSEE'
+              ? 'Une convention refusée se corrige après avoir été reproposée.'
+              : 'Une convention archivée ne se modifie plus : créez une nouvelle version.',
+      archiver: (c) => (c.statut === 'VALIDEE' ? null : c.statut === 'ARCHIVEE' ? dejaArchive('La convention') : 'Seule une convention validée s’archive.'),
+    },
+  },
+
+  // Ligne d'une convention : forfait ou valeur de lettre-clé propre à l'acte (même règle « tarif ayant servi »).
+  conventionActe: {
+    designation: "l'exception par acte",
+    pronom: 'la',
+    table: 'convention_actes',
+    roles: ['ASSUREUR_INFORMATIQUE'],
+    charger: (db, id, ctx) =>
+      db.conventionActe.findFirst({
+        where: { id, deletedAt: null, convention: { organisationId: org(ctx), deletedAt: null } },
+        include: { convention: { select: { statut: true, numero: true } }, referentielActe: { select: { code: true, libelle: true } } },
+      }),
+    nom: (l) => `${l.referentielActe?.code ?? 'acte'} dans la convention ${l.convention?.numero ?? ''}`.trim(),
+    dependances: [
+      dep('actesCalcules', 'acte calculé avec ce forfait', 'actes calculés avec ce forfait', (db, l, ctx) =>
+        db.acteDossier.count({ where: { tarifConventionneId: l.id, dossier: { organisationId: org(ctx) } } }),
+        ['supprimer', 'modifier']),
+    ],
+    regles: {
+      supprimer: (l) => (l.convention?.statut === 'PROPOSEE' ? null : 'Les lignes d’une convention validée, refusée ou archivée sont conservées.'),
+      modifier: (l) => (l.convention?.statut === 'PROPOSEE' ? null : 'Les lignes d’une convention validée, refusée ou archivée ne se modifient plus : créez une nouvelle version.'),
+    },
+  },
+
   // Lettres-clés (lot barème 1) : référentiel paramétrable du superadmin ; archiver = DÉSACTIVER.
   lettreCle: {
     designation: 'la lettre-clé',

@@ -8113,3 +8113,41 @@ Terminé.
 
 ### Statut
 Terminé — lots 2 à 6 du chantier barème non commencés.
+
+## 2026-10-09 — Chantier barème, lot 2 « conventions » (ADR-008)
+
+### Réalisé
+- `prisma/sql/081_conventions.sql` (appliquée deux fois, idempotente) : libellés des lettres-clés « (fictif) » ;
+  `conventions`, `convention_valeurs`, `convention_actes` (CHECK, EXCLUDE sans chevauchement, index uniques partiels,
+  RLS) ; migration des tarifs d'établissement en conventions « historiques » (identifiants conservés) ; bucket privé
+  `conventions` ; dépréciation de `date_convention` / `date_fin_convention`.
+- Module `conventions/` : créer, modifier, valeurs par lettre-clé et contexte, exceptions par acte (forfait OU valeur
+  propre), document signé (Storage, URL signée), valider / refuser (motif) / reproposer, nouvelle version, archiver,
+  supprimer, indicateurs ; projection des forfaits vers `tarifs_conventionnes` (lue par le Java, non modifié).
+- Registre des dépendances : `convention` et `conventionActe` (« tarif ayant servi ») ; tracé des refus métier hors
+  transaction (`tracerRefusMetier`). Les routes de tarifs d'établissement répondent 409 (gérés par les conventions).
+- Web : conventions pour l'assurance informatique (saisie), le médecin conseil et la direction (validation) — liste,
+  formulaire unique (lettres-clés en lignes, ambulatoire / hospitalisation en colonnes, exceptions, document, circuit),
+  motif de refus, nouvelle version ; indicateur sur le tableau de bord ; fiche établissement ; navigation des trois espaces.
+
+### Tests
+- API 1 347/1 347 (+46), JUnit 92/92, intégration 2/2, typage API et web 0 erreur.
+- HTTP réel (134 contrôles OK, zéro ligne restante — comptes Auth et documents Storage compris) : rôles (403 médecin conseil,
+  direction, comptable, société à la saisie), forfait OU valeur propre, document (format, URL signée, accès direct refusé,
+  404 pour B), AUTO-VALIDATION refusée (API + CHECK en base) avec refus tracé à part, chevauchement refusé (API + EXCLUDE
+  en base), convention validée immuable (6 refus, base inchangée), nouvelle version (ancienne fermée la veille, forfaits
+  projetés et fermés), refus avec motif, reproposition, indicateur par organisation, « tarif ayant servi » (1 acte calculé
+  cité), isolation : 2 organisations × 12 opérations × 2 rôles (403 / 404, base et audit inchangés, listes sans fuite) et
+  2 sociétés (403), migration des tarifs (conventions historiques, mêmes identifiants et montants, supprimés et pharmacie
+  non migrés, rejeu idempotent, transaction annulée).
+- Navigateur (Chromium / Playwright, 3 rôles) : tableau de bord et indicateur, saisie complète, document, refus avec motif
+  obligatoire, reproposition, validation par la direction, nouvelle version, fiche établissement ; aucune erreur console.
+
+### Limites
+- Un passage de la suite complète a signalé une suite en échec sans test en échec, non reproduit (50/50) — probablement un
+  fichier temporaire supprimé pendant l'exécution.
+- Le calcul Java n'utilise pas encore les valeurs de lettres-clés ni les valeurs propres (lot 3) ; la politique de
+  dépassement est enregistrée, pas encore appliquée.
+
+### Statut
+Terminé — lots 3 (résolution du tarif côté Java) à 6 non commencés.

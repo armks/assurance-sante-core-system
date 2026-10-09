@@ -25,5 +25,14 @@ public record SimulationRequest(
       @JsonProperty("code_acte") String codeActe,
       @JsonProperty("acte_dossier_id") UUID acteDossierId,
       @JsonProperty("date_soins") LocalDate dateSoins,
-      @JsonProperty("quantite") Integer quantite) {}
+      @JsonProperty("quantite") Integer quantite,
+      @JsonProperty("tarif_propose") TarifPropose tarifPropose) {
+
+    /** Décision de tarif proposé à appliquer au calcul (recalcul sous verrou, avant le commit de la décision). */
+    public record TarifPropose(
+        @JsonProperty("id") UUID id,
+        @JsonProperty("statut") String statut,
+        @JsonProperty("montant_propose") BigDecimal montantPropose,
+        @JsonProperty("montant_decide") BigDecimal montantDecide) {}
+  }
 }

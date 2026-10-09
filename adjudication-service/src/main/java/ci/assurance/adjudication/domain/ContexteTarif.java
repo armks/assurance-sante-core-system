@@ -17,11 +17,21 @@ public record ContexteTarif(
     /** Acte de dossier (cherche son éventuel tarif proposé) ; {@code null} hors dossier de soins. */
     UUID acteDossierId,
     /** Quantité de l'acte : le tarif reconnu de la ligne = tarif unitaire × quantité. */
-    int quantite) {
+    int quantite,
+    /**
+     * Décision de tarif proposé IMPOSÉE par l'appelant (recalcul d'une décision encore non validée en base, sous le même
+     * verrou que la décision) ; {@code null} : le tarif proposé est lu en base.
+     */
+    AdjudicationRepository.TarifProposeActe tarifProposeImpose) {
+
+  public ContexteTarif(UUID organisationId, UUID etablissementId, UUID referentielActeId, String codeActe,
+      LocalDate dateSoins, String typeVisite, UUID acteDossierId, int quantite) {
+    this(organisationId, etablissementId, referentielActeId, codeActe, dateSoins, typeVisite, acteDossierId, quantite, null);
+  }
 
   /** Forme historique : un acte, quantité 1, sans tarif proposé. */
   public ContexteTarif(UUID organisationId, UUID etablissementId, UUID referentielActeId, String codeActe,
       LocalDate dateSoins, String typeVisite) {
-    this(organisationId, etablissementId, referentielActeId, codeActe, dateSoins, typeVisite, null, 1);
+    this(organisationId, etablissementId, referentielActeId, codeActe, dateSoins, typeVisite, null, 1, null);
   }
 }

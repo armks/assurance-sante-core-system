@@ -5,6 +5,8 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { DependancesService } from '../dependances/dependances.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConventionsService } from '../conventions/conventions.service';
+import { EmailService } from '../email/email.service';
 import { colonnesTrace, TarifsProposesService } from './tarifs-proposes.service';
 
 const USER = { sub: 'u1', token: 'jwt' } as unknown as AuthenticatedUser;
@@ -36,8 +38,10 @@ describe('TarifsProposesService (ADR-008, lot 4)', () => {
 
   beforeEach(async () => {
     prisma = {
+      parametrePlateforme: { findUnique: jest.fn().mockResolvedValue(null) },
+      $queryRaw: jest.fn().mockResolvedValue([{ mediane: null, n: 0 }]),
       acteDossier: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-      tarifPropose: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), create: jest.fn(), update: jest.fn() },
+      tarifPropose: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0), create: jest.fn(), update: jest.fn() },
       ligneFacturation: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]), update: jest.fn() },
       garantie: { findFirst: jest.fn().mockResolvedValue({ id: 'g-1' }) },
       $executeRaw: jest.fn().mockResolvedValue(1),
@@ -53,6 +57,8 @@ describe('TarifsProposesService (ADR-008, lot 4)', () => {
         { provide: IdentityService, useValue: identity },
         { provide: DependancesService, useValue: dependances },
         { provide: AdjudicationClientService, useValue: adjudication },
+        { provide: EmailService, useValue: { envoyerEmail: jest.fn() } },
+        { provide: ConventionsService, useValue: {} },
       ],
     }).compile();
     service = module.get(TarifsProposesService);

@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/dialog';
 
 /** Actions confirmées par ce composant (ADR-007). */
-export type ActionConfirmee = 'supprimer' | 'archiver' | 'desarchiver';
+export type ActionConfirmee = 'supprimer' | 'archiver' | 'desarchiver' | 'valider' | 'refuser';
 
 /** Libellés des actions (titre, bouton, verbe, caractère définitif). */
 export const LIBELLE_ACTION: Record<
@@ -27,6 +27,9 @@ export const LIBELLE_ACTION: Record<
   supprimer: { titre: 'Supprimer', bouton: 'Supprimer', verbe: 'supprimer', definitif: true },
   archiver: { titre: 'Archiver', bouton: 'Archiver', verbe: 'archiver', definitif: false },
   desarchiver: { titre: 'Désarchiver', bouton: 'Désarchiver', verbe: 'désarchiver', definitif: false },
+  // décisions sur un tarif proposé (ADR-008, lot 5)
+  valider: { titre: 'Valider', bouton: 'Valider', verbe: 'valider', definitif: false },
+  refuser: { titre: 'Refuser', bouton: 'Refuser', verbe: 'refuser', definitif: false },
 };
 
 /** Verdict du serveur (`GET /api/v1/dependances/:entite/:id/:action`). */
@@ -179,7 +182,7 @@ export function ConfirmationAction({
           {!impossible && (
             <Button
               type="button"
-              variant={action === 'supprimer' ? 'destructive' : 'default'}
+              variant={action === 'supprimer' || action === 'refuser' ? 'destructive' : 'default'}
               disabled={execution || verification || verdict === null || motifManquant}
               onClick={confirmer}
             >

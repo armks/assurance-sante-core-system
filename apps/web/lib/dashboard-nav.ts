@@ -267,6 +267,8 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     },
     // Validation des conventions des établissements (jamais de sa propre saisie) — lot barème 2
     { label: 'Conventions', href: `${MEDECIN_CONSEIL}/conventions`, icon: FileSignature },
+    // File des tarifs proposés par les établissements pour les actes non tarifables — lot barème 5
+    { label: 'Tarifs proposés', href: `${MEDECIN_CONSEIL}/tarifs-proposes`, icon: FileSignature },
     {
       label: 'Pré-autorisations',
       href: `${MEDECIN_CONSEIL}/preautorisations`,
@@ -333,6 +335,8 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     { label: 'Adhérents', href: `${INFORMATIQUE}/adherents`, icon: Users },
     // Validation des conventions des établissements (lot barème 2)
     { label: 'Conventions', href: `${DIRECTION}/conventions`, icon: FileSignature },
+    // Tarifs proposés non décidés (escalade J+5) : lecture seule — lot barème 5
+    { label: 'Tarifs proposés', href: `${DIRECTION}/tarifs-proposes`, icon: FileSignature },
     {
       label: 'Réclamations',
       href: `${INFORMATIQUE}/reclamations`,

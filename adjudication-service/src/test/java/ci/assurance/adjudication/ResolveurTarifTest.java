@@ -715,6 +715,26 @@ class ResolveurTarifTest {
     assertThat(r2.montantRembourse()).isEqualByComparingTo("0");
   }
 
+  @Test
+  @DisplayName("Décision IMPOSÉE par l'appelant (recalcul sous verrou avant le commit) : AJUSTE 3 800 prime sur le PROPOSE lu en base → 1 440, définitif")
+  void decisionImposeeRemplaceLaLectureEnBase() {
+    UUID g = UUID.randomUUID(); UUID police = UUID.randomUUID(); UUID acteDossier = UUID.randomUUID();
+    acteNonTarifable();
+    propose(acteDossier, "PROPOSE", "4500", null);
+    var imposee = new AdjudicationRepository.TarifProposeActe(UUID.randomUUID(), "AJUSTE", new BigDecimal("4500"), new BigDecimal("3800"));
+
+    ResultatLigne r = new SimulationService(repoPourSimulation(police, g, ORG), Clock.fixed(Instant.parse("2026-06-15T12:00:00Z"), ZoneOffset.UTC))
+        .simuler(new Demande(police, JeuDeDonneesReference.ADHERENT_ID, null, ETAB, SOINS,
+            List.of(new Ligne(g, new BigDecimal("5000"), CODE, acteDossier, null, 1, imposee)), null))
+        .get(0);
+
+    assertThat(r.decision().name()).isEqualTo("AUTO_ADJUDIQUE");
+    assertThat(r.montantCouvert()).isEqualByComparingTo("1440");
+    assertThat(r.trace().provisoire()).isFalse();
+    assertThat(r.trace().tarifProposeId()).isEqualTo(imposee.id());
+    org.mockito.Mockito.verify(repo, org.mockito.Mockito.never()).tarifProposePourActe(ORG, acteDossier);
+  }
+
   private ResultatLigne simulerQ(
       AdjudicationRepository r, UUID police, UUID garantie, String prix, UUID acteDossier, String typeVisite, int quantite) {
     return new SimulationService(r, Clock.fixed(Instant.parse("2026-06-15T12:00:00Z"), ZoneOffset.UTC))

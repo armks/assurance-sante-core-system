@@ -4,6 +4,7 @@ import type { TarifsProposesService } from './tarifs-proposes.service';
 export function tarifsProposesDeTest() {
   return {
     synchroniserLignes: jest.fn(async (): Promise<number> => 0),
+    detailsComplementaires: jest.fn(async () => new Map<string, Record<string, unknown>>()),
     actesEnExamen: jest.fn(async () => [] as Awaited<ReturnType<TarifsProposesService['actesEnExamen']>>),
   };
 }

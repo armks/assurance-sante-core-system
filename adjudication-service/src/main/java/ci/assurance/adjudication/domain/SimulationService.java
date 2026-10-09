@@ -42,10 +42,17 @@ public class SimulationService {
   public record Ligne(
       UUID garantieId, BigDecimal montant, String codeActe, UUID acteDossierId, LocalDate dateSoins,
       /** Quantité de l'acte (défaut 1) : tarif reconnu = tarif unitaire × quantité. */
-      Integer quantite) {
+      Integer quantite,
+      /** Décision de tarif proposé imposée (recalcul sous verrou, avant le commit de la décision). */
+      AdjudicationRepository.TarifProposeActe tarifProposeImpose) {
 
     public Ligne(UUID garantieId, BigDecimal montant, String codeActe, UUID acteDossierId, LocalDate dateSoins) {
-      this(garantieId, montant, codeActe, acteDossierId, dateSoins, null);
+      this(garantieId, montant, codeActe, acteDossierId, dateSoins, null, null);
+    }
+
+    public Ligne(UUID garantieId, BigDecimal montant, String codeActe, UUID acteDossierId, LocalDate dateSoins,
+        Integer quantite) {
+      this(garantieId, montant, codeActe, acteDossierId, dateSoins, quantite, null);
     }
 
     public Ligne(UUID garantieId, BigDecimal montant, String codeActe) {
@@ -167,7 +174,7 @@ public class SimulationService {
           resolveur.resoudre(
               new ContexteTarif(
                   police.organisationId(), d.etablissementId(), null, l.codeActe(), date, typeVisite,
-                  l.acteDossierId(), l.quantite() == null ? 1 : l.quantite()));
+                  l.acteDossierId(), l.quantite() == null ? 1 : l.quantite(), l.tarifProposeImpose()));
       final ContexteAdjudication ctx =
           new ContexteAdjudication(
               null, police.organisationId(), null, null,

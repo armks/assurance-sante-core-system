@@ -26,6 +26,15 @@ export interface FactureAdherent {
   montantPatient: string;
   createdAt: string;
   /** Actes dont le tarif proposé est en cours d'examen : sortis de cette facture, part estimée INDICATIVE. */
+  /** Facture COMPLÉMENTAIRE : part patient d'un acte dont le tarif proposé a été décidé. */
+  complementaire?: boolean;
+  tarifComplementaire?: {
+    acte: string | null;
+    statutTarif: string;
+    montantRetenu: string | null;
+    motifRefus: string | null;
+    motifAjustement: string | null;
+  } | null;
   actesTarifEnExamen?: {
     acteId: string;
     libelle: string;
@@ -80,7 +89,15 @@ export function FacturesEcran({
       cle: 'tarifEnExamen',
       entete: 'Tarif en cours d’examen',
       rendu: (f) =>
-        f.actesTarifEnExamen && f.actesTarifEnExamen.length > 0 ? (
+        f.complementaire && f.tarifComplementaire ? (
+          <span className="block text-xs" data-testid="facture-complementaire">
+            <span className="font-medium">Facture complémentaire</span> — acte « {f.tarifComplementaire.acte ?? '—'} » : tarif{' '}
+            {f.tarifComplementaire.statutTarif === 'REFUSE' ? 'refusé' : f.tarifComplementaire.statutTarif === 'AJUSTE' ? 'ajusté' : 'validé'}
+            {f.tarifComplementaire.montantRetenu ? `, montant retenu ${montant(f.tarifComplementaire.montantRetenu)}` : ''}
+            {f.tarifComplementaire.motifRefus ? `. Motif du refus : ${f.tarifComplementaire.motifRefus}. L’assurance ne prend pas cet acte en charge.` : ''}
+            {f.tarifComplementaire.motifAjustement ? `. Motif de l’ajustement : ${f.tarifComplementaire.motifAjustement}` : ''}
+          </span>
+        ) : f.actesTarifEnExamen && f.actesTarifEnExamen.length > 0 ? (
           <ul className="space-y-1 text-xs" data-testid="actes-tarif-en-examen">
             {f.actesTarifEnExamen.map((a) => (
               <li key={a.acteId}>

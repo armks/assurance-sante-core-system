@@ -684,6 +684,130 @@ export class ConventionsService {
     });
   }
 
+  /**
+   * ADR-008, lot 5 — « ajouter à la convention » après la validation d'un tarif proposé : crée une exception d'acte
+   * (forfait OU valeur de lettre-clé propre à l'acte) dans une version PROPOSEE de la convention en vigueur de
+   * l'établissement — JAMAIS en modifiant une convention VALIDEE. Une version PROPOSEE déjà en cours reçoit la ligne ;
+   * sinon une nouvelle version est ouverte (copie de la convention validée, effet le lendemain). La version est à valider
+   * par le circuit normal : celui qui l'a saisie (ici le médecin conseil qui décide) ne peut pas la valider lui-même.
+   * Appelée dans la transaction de la décision ; ne vérifie pas de rôle (l'appelant l'a fait).
+   */
+  async ajouterExceptionDepuisTarifPropose(
+    tx: Prisma.TransactionClient,
+    p: {
+      userId: string;
+      organisationId: string;
+      etablissementId: string;
+      referentielActeId: string;
+      type: 'FORFAIT' | 'VALEUR_LETTRE_CLE';
+      /** Tarif UNITAIRE retenu (montant retenu / quantité). */
+      montantUnitaire: Decimal;
+    },
+  ): Promise<{ conventionId: string; numero: string; version: number; versionCreee: boolean }> {
+    const aujourdhuiJour = aujourdhui();
+    const base = await tx.convention.findFirst({
+      where: {
+        organisationId: p.organisationId,
+        etablissementId: p.etablissementId,
+        statut: 'VALIDEE',
+        deletedAt: null,
+        dateDebut: { lte: aujourdhuiJour },
+        OR: [{ dateFin: null }, { dateFin: { gte: aujourdhuiJour } }],
+      },
+      include: {
+        valeurs: { where: { deletedAt: null } },
+        actes: { where: { deletedAt: null } },
+      },
+      orderBy: { version: 'desc' },
+    });
+    if (!base) {
+      throw new ConflictException('Aucune convention validée en vigueur pour cet établissement : rien à enrichir.');
+    }
+    const acte = await tx.referentielActe.findFirst({
+      where: { id: p.referentielActeId, organisationId: p.organisationId, deletedAt: null },
+      select: { id: true, code: true, lettreCleCode: true, coefficient: true },
+    });
+    if (!acte) throw new ConflictException('Acte du référentiel introuvable dans cette organisation.');
+
+    let prixForfaitaire: Decimal | null = null;
+    let valeurLettreCle: Decimal | null = null;
+    if (p.type === 'FORFAIT') {
+      prixForfaitaire = p.montantUnitaire.toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    } else {
+      if (!acte.lettreCleCode || !acte.coefficient) {
+        throw new ConflictException(`L'acte ${acte.code} n'est pas coté (lettre-clé et coefficient) : une valeur de lettre-clé propre à l'acte est impossible, choisissez un forfait.`);
+      }
+      valeurLettreCle = p.montantUnitaire.div(acte.coefficient.toString()).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    }
+    const retenu = prixForfaitaire ?? valeurLettreCle!;
+    if (retenu.lte(0) || retenu.gt(VALEUR_MAX)) {
+      throw new ConflictException('Le montant retenu ne peut pas devenir une exception de convention (nul ou hors limites).');
+    }
+
+    let cible = await tx.convention.findFirst({
+      where: { conventionPrecedenteId: base.id, deletedAt: null, statut: { in: ['PROPOSEE', 'REFUSEE'] } },
+      include: { actes: { where: { deletedAt: null }, select: { referentielActeId: true } } },
+    });
+    let versionCreee = false;
+    if (cible && cible.statut === 'REFUSEE') {
+      throw new ConflictException(`La version ${cible.version} de la convention ${cible.numero} a été refusée : reprenez-la (reproposer) ou supprimez-la avant d'y ajouter une exception.`);
+    }
+    if (!cible) {
+      const derniere = await tx.convention.aggregate({
+        where: { organisationId: p.organisationId, numero: base.numero, deletedAt: null },
+        _max: { version: true },
+      });
+      const lendemain = new Date(aujourdhuiJour.getTime() + JOUR_MS);
+      const debut = lendemain > base.dateDebut ? lendemain : new Date(base.dateDebut.getTime() + JOUR_MS);
+      const creee = await tx.convention.create({
+        data: {
+          organisationId: p.organisationId,
+          etablissementId: base.etablissementId,
+          numero: base.numero,
+          version: (derniere._max.version ?? base.version) + 1,
+          conventionPrecedenteId: base.id,
+          dateDebut: debut,
+          dateFin: null,
+          politiqueDepassement: base.politiqueDepassement,
+          saisiPar: p.userId,
+        },
+      });
+      for (const v of base.valeurs) {
+        await tx.conventionValeur.create({ data: { conventionId: creee.id, lettreCleCode: v.lettreCleCode, contexte: v.contexte, valeur: v.valeur } });
+      }
+      for (const a of base.actes) {
+        await tx.conventionActe.create({ data: { conventionId: creee.id, referentielActeId: a.referentielActeId, prixForfaitaire: a.prixForfaitaire, valeurLettreCle: a.valeurLettreCle, dateDebut: a.dateDebut, dateFin: a.dateFin } });
+      }
+      cible = Object.assign(creee, { actes: base.actes.map((a) => ({ referentielActeId: a.referentielActeId })) });
+      versionCreee = true;
+    } else if (cible.actes.some((a) => a.referentielActeId === acte.id)) {
+      throw new ConflictException(`L'acte ${acte.code} a déjà une exception dans la version ${cible.version} en cours.`);
+    }
+    if (base.actes.some((a) => a.referentielActeId === acte.id) && versionCreee) {
+      // l'acte avait déjà une ligne dans la convention validée (copiée) : il serait tarifable, donc jamais proposé
+      throw new ConflictException(`L'acte ${acte.code} a déjà une exception dans la convention en vigueur.`);
+    }
+    await tx.conventionActe.create({
+      data: {
+        conventionId: cible.id,
+        referentielActeId: acte.id,
+        prixForfaitaire: prixForfaitaire ? prixForfaitaire.toFixed(2) : null,
+        valeurLettreCle: valeurLettreCle ? valeurLettreCle.toFixed(2) : null,
+      },
+    });
+    await this.audit(tx, p.userId, 'AJOUT_EXCEPTION_DEPUIS_TARIF_PROPOSE', cible.id, {
+      numero: cible.numero,
+      version: cible.version,
+      versionCreee,
+      acte: acte.code,
+      type: p.type,
+      montantUnitaire: p.montantUnitaire.toFixed(2),
+      forfait: prixForfaitaire ? prixForfaitaire.toFixed(2) : null,
+      valeurLettreCle: valeurLettreCle ? valeurLettreCle.toFixed(2) : null,
+    });
+    return { conventionId: cible.id, numero: cible.numero, version: cible.version, versionCreee };
+  }
+
   /** Archiver = fermer une convention validée (date de fin) ; une convention archivée ne se rouvre pas. */
   async archiver(user: AuthenticatedUser, id: string, dto: ArchiverConventionDto = {}) {
     const ctx = await this.contexte(user);

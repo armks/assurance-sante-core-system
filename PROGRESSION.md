@@ -8235,3 +8235,38 @@ Terminé — lots 4 (tarif proposé, circuit médecin conseil) à 6 non commenc�
 
 ### Statut
 Terminé — lots 5 (file et décisions du médecin conseil) et 6 non commencés.
+
+
+## 2026-10-09 — Chantier barème, lot 5 « file du médecin conseil et décisions » (ADR-008)
+
+### Réalisé
+- Migration 084 : alertes, rappels, option convention, `factures_dossier.tarif_propose_id` (facture complémentaire unique), 5 paramètres
+  de plateforme.
+- API : file paginée serveur (filtres, tri alerte renforcée puis ancienneté), compteur, décisions valider / ajuster / refuser sous verrou
+  personne / famille avec recalcul Java (décision imposée), réintégration de la ligne, facture complémentaire avec code, option « ajouter à
+  la convention » (nouvelle version PROPOSEE), alertes (montant / médiane 12 mois, récurrence, plafond), rappel J+2 et escalade J+5 par e-mail
+  (tâche manuelle), visibilité établissement et patient. Java : décision de tarif proposé imposable dans la simulation.
+- Web : file du médecin conseil (ConfirmationAction valider / refuser avec motif, ajustement, valider + convention), compteur sur son tableau
+  de bord, lecture seule pour la direction, motif / montant retenu chez l'établissement, facture complémentaire chez le patient.
+- Test de l'état des fonctions après toutes les migrations + `docs/DEPLOIEMENT.md` (ordre des migrations, fonctions redéfinies, tâches
+  manuelles) + `prisma/appliquer-sql.cjs`. Les scripts e2e échouent maintenant si une étape est ignorée (étapes obligatoires, plus aucune
+  erreur avalée — le contrôle « patient » du lot 4, ignoré à cause d'un nom de rôle erroné, avait justifié cette règle).
+
+### Tests
+- Java 138, API (voir suite ×3), intégration 8/8 (dont l'état des migrations), HTTP réel 99 contrôles OK en mode strict, navigateur 18 OK
+  (médecin conseil, direction, comptable, patient), zéro ligne restante (comptes Auth et documents compris).
+- Contre-épreuve : avec l'ancienne version du Java (sans décision imposée), la décision échoue (409 : recalcul impossible), plus de facture
+  complémentaire ni d'audit ; retour à 99/99 avec la nouvelle.
+
+### Échec intermittent noté
+- Suite ×3 : à la passe 2, les 2 tests « factures simultanées et plafond annuel (verrou) » de l'intégration ont échoué une fois (les deux
+  autres passes et 12 relances ultérieures — 4 isolées, 4 après jest, passes 1 et 3 — sont vertes, 8/8). Détail non conservé, cause non
+  identifiée ; hypothèse : latence du microservice juste après la compilation Maven de la passe précédente (le test utilise de vraies requêtes
+  concurrentes avec délais). À surveiller : si cela se reproduit, conserver la sortie complète.
+
+### Limites
+- Pas de planificateur automatique des rappels (dette). Lignes postérieures plafonnées non recalculées (alerte seule). Facture complémentaire
+  limitée aux actes facturés en tiers payant.
+
+### Statut
+Terminé — lot 6 (finitions) non commencé.

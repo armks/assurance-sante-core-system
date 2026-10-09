@@ -1027,3 +1027,42 @@ tarif reconnu, le taux restant dans la garantie du produit. Le lot 1 pose la cou
 - **Hors périmètre (lot 5)** : la file du médecin conseil et les décisions (VALIDE / AJUSTE / REFUSE) ; la part patient d'un acte
   décidé après coup ; l'archivage / suppression de propositions.
 - **Attention aux migrations** : 083 redéfinit `lignes_facturation_tarif_fige()` (déjà définie en 082) ; les appliquer dans l'ordre.
+
+### Lot 5 « file du médecin conseil et décisions » (2026-10-09) — migration `prisma/sql/084_file_medecin_conseil_decisions.sql` (ADR-008)
+- **File « Tarifs proposés à examiner »** (`GET /tarifs-proposes/file`, médecin conseil ; direction en lecture) : pagination SERVEUR,
+  filtres établissement / statut (PROPOSE par défaut) / ancienneté minimale / catégorie, tri **alerte renforcée d'abord, puis ancienneté**
+  (index `tarifs_proposes_file_idx`). Compteur sur le tableau de bord (à examiner, alertes renforcées, en retard).
+- **Décisions** (`POST /tarifs-proposes/:id/valider | ajuster | refuser`, médecin conseil uniquement) : valider ; ajuster (montant ET
+  motif obligatoires, montant différent du proposé) ; refuser (motif obligatoire, l'acte reste non tarifable, l'établissement est prévenu
+  par e-mail et par l'écran). Le proposant ne décide jamais (403 tracé + CHECK en base). Tout se passe dans UNE transaction, sous le MÊME
+  verrou personne / famille que la facture et l'adjudication : décision enregistrée, **recalcul par le Java** (la décision lui est imposée
+  dans la requête, car elle n'est pas encore validée en base), ligne réintégrée (non provisoire, payable ; une ligne en litige reste exclue
+  par la consolidation — double exclusion), facture complémentaire, `log_audit()`. Refus de décision tracés à part (`REFUS_DECISION_TARIF_*`).
+- **Part patient après décision — facture complémentaire** (arbitrage validé) : VALIDE / AJUSTE → prix affiché − part assurance recalculée
+  (le dépassement éventuel reste au patient, comme sur une facture normale) ; REFUSE → **tout le prix affiché** (l'assurance ne paie rien,
+  comme un acte non couvert). Document `factures_dossier` (lien unique `tarif_propose_id`, montant assurance 0 : l'assurance est déjà
+  portée par la ligne), avec code de validation, visible dans « Mes factures » du patient (statut du tarif, montant retenu, motif du refus),
+  **sans bloquer d'autres soins** (testé : un autre acte du même dossier se facture normalement). Aucune facture si la part patient est nulle
+  ou si l'acte n'était pas encore facturé (il sera facturé avec le tarif décidé).
+- **Option « ajouter à la convention »** (VALIDE ou AJUSTE) : exception d'acte (forfait par unité, ou valeur de lettre-clé propre = unitaire /
+  coefficient, acte coté exigé) dans une **nouvelle version PROPOSEE** de la convention en vigueur — jamais dans une VALIDEE (testé : statut
+  et lignes inchangés) ; une version PROPOSEE déjà en cours reçoit la ligne (pas de version supplémentaire) ; effet le lendemain. La version est
+  validée par le circuit normal : le médecin conseil qui l'a créée ne peut pas la valider (403), la direction le peut après le document.
+- **Alertes** (paramètres de plateforme, modifiables par le superadmin) : *renforcée* si le montant PAR UNITÉ dépasse de
+  `tarif_propose_alerte_ecart_mediane_pourcent` (50 %) la médiane des tarifs reconnus par unité de la même catégorie sur 12 mois
+  (tarifs de convention uniquement, jamais d'un autre tarif proposé), **systématique sans historique** ; *récurrence* à partir de
+  `tarif_propose_recurrence_nombre` (5) propositions du même établissement sur `tarif_propose_recurrence_jours` (30) ; *plafond* (ci-dessous).
+- **Rappel J+2 / escalade J+5** : `POST /tarifs-proposes/rappels` (informatique, direction, médecin conseil) — rappel aux médecins conseil
+  puis escalade à la direction par `EmailService`, une seule fois par proposition (`rappel_envoye_le`, `escalade_envoyee_le`), audit.
+  **Dette : aucun planificateur automatique** (comme `marquer-en-retard`, tâche manuelle) — à brancher sur une tâche planifiée.
+- **Alerte de plafond** : si une décision modifie la ligne alors qu'un plafond (famille ou personne) de la catégorie était DÉJÀ atteint (avant
+  ou après), le médecin conseil reçoit une alerte (réponse, écran, `alerte_plafond` en base, audit). **Limite acceptée** : le recalcul de la
+  ligne décidée respecte le plafond (il ne peut pas le dépasser), mais les lignes acceptées APRÈS elle ne sont pas recalculées — plafonnées à
+  cause de la ligne provisoire, elles ne retrouvent pas le montant libéré par un refus ou un ajustement à la baisse ; la correction est manuelle.
+- **Visibilité** : l'établissement voit statut, montant retenu (validé : le proposé ; ajusté : le décidé), motif du refus / de l'ajustement et
+  qu'il a été prévenu ; le patient voit sa facture complémentaire et le statut du tarif (validé / ajusté / refusé), le montant retenu et le motif du refus.
+- **Migrations** : 084 ne redéfinit aucune fonction partagée. L'ordre d'application et les fonctions redéfinies (`lignes_facturation_tarif_fige` :
+  082 puis 083) sont documentés dans `docs/DEPLOIEMENT.md` et contrôlés par `test/integration/migrations-etat.int-spec.ts` (état des fonctions,
+  triggers et contraintes après toutes les migrations ; ordre des fichiers).
+- **Hors périmètre / dettes** : planificateur automatique des rappels ; recalcul des lignes postérieures plafonnées ; facture complémentaire
+  pour un acte réclamé (hors facture tiers payant) ; archivage de propositions.

@@ -24,7 +24,10 @@ export interface TarifProposeLigne {
   statut: string;
   dateProposition: string;
   montantDecide: string | null;
+  /** Montant RETENU par le médecin conseil (validé : le proposé ; ajusté : le décidé ; refusé : aucun). */
+  montantRetenu?: string | null;
   motifDecision: string | null;
+  motifRefus?: string | null;
   acte: { libelle: string; codeActe: string | null; quantite: number; prixAffiche: string | null } | null;
 }
 
@@ -105,8 +108,13 @@ export function TarifsProposesEcran({
       rendu: (t) => (
         <span>
           <StatutBadge statut={t.statut} map={TON_STATUT} libelles={LIBELLE_STATUT} />
-          {t.motifDecision && <span className="mt-1 block text-xs text-muted-foreground">{t.motifDecision}</span>}
-          {t.montantDecide && <span className="mt-1 block text-xs">Montant retenu : {montant(t.montantDecide)}</span>}
+          {t.statut === 'REFUSE' && t.motifRefus && (
+            <span className="mt-1 block text-xs text-destructive" data-testid="motif-refus">
+              Motif du refus : {t.motifRefus}. L’acte reste non tarifable : vous pouvez proposer un autre montant.
+            </span>
+          )}
+          {t.statut === 'AJUSTE' && t.motifDecision && <span className="mt-1 block text-xs text-muted-foreground">Motif de l’ajustement : {t.motifDecision}</span>}
+          {t.montantRetenu && <span className="mt-1 block text-xs" data-testid="montant-retenu">Montant retenu : {montant(t.montantRetenu)}</span>}
         </span>
       ),
     },

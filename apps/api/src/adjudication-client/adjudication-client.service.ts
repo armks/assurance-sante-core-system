@@ -38,6 +38,13 @@ export interface DemandeSimulation {
     date_soins: string | null;
     /** Quantité de l'acte (défaut 1) : tarif reconnu = tarif unitaire × quantité (ADR-008, lot 4). */
     quantite?: number;
+    /** Décision de tarif proposé à appliquer (recalcul sous verrou, avant le commit de la décision). */
+    tarif_propose?: {
+      id: string;
+      statut: string;
+      montant_propose: string;
+      montant_decide: string | null;
+    };
   }[];
 }
 

@@ -52,7 +52,10 @@ public class ResolveurTarif {
     if (d.acteDossierId() == null) {
       return nonTarifable;
     }
-    final Optional<AdjudicationRepository.TarifProposeActe> p = repo.tarifProposePourActe(d.organisationId(), d.acteDossierId());
+    final Optional<AdjudicationRepository.TarifProposeActe> p =
+        d.tarifProposeImpose() != null
+            ? Optional.of(d.tarifProposeImpose())
+            : repo.tarifProposePourActe(d.organisationId(), d.acteDossierId());
     if (p == null || p.isEmpty()) {
       return nonTarifable;
     }

@@ -2325,9 +2325,16 @@ export class PreauthorizationService {
       }),
     ]);
     const enExamen = await Promise.all(factures.map((f) => this.tarifsProposes.actesEnExamen(this.prisma, f.id)));
+    // facture COMPLÉMENTAIRE (part patient d'un acte dont le tarif proposé a été décidé) : statut, motif, montant retenu
+    const complements = await this.tarifsProposes.detailsComplementaires(
+      this.prisma,
+      factures.map((f) => f.tarifProposeId).filter((x): x is string => !!x),
+    );
     const items = factures.map((f, idx) => ({
       id: f.id,
       actesTarifEnExamen: enExamen[idx],
+      complementaire: !!f.tarifProposeId,
+      tarifComplementaire: f.tarifProposeId ? (complements.get(f.tarifProposeId) ?? null) : null,
       ticketSoinsId: f.ticketSoinsId,
       numeroTraitement: f.dossier.numeroTraitement,
       code: f.codeFacturation,
@@ -2572,7 +2579,11 @@ export class PreauthorizationService {
     // le code n'est visible que de l'adhérent (via listerMesFactures)
     const { codeFacturation, ...reste } = facture;
     const actesTarifEnExamen = await this.tarifsProposes.actesEnExamen(this.prisma, facture.id);
-    return estLAdherent ? { ...facture, actesTarifEnExamen } : { ...reste, actesTarifEnExamen };
+    const complement = facture.tarifProposeId
+      ? ((await this.tarifsProposes.detailsComplementaires(this.prisma, [facture.tarifProposeId])).get(facture.tarifProposeId) ?? null)
+      : null;
+    const detail = { actesTarifEnExamen, complementaire: !!facture.tarifProposeId, tarifComplementaire: complement };
+    return estLAdherent ? { ...facture, ...detail } : { ...reste, ...detail };
   }
 
   /**

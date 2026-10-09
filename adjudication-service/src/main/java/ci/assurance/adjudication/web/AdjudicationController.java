@@ -75,7 +75,12 @@ public class AdjudicationController {
             ? List.of()
             : req.lignes().stream()
                 .map(l -> new SimulationService.Ligne(
-                    l.garantieId(), l.montant(), l.codeActe(), l.acteDossierId(), l.dateSoins(), l.quantite()))
+                    l.garantieId(), l.montant(), l.codeActe(), l.acteDossierId(), l.dateSoins(), l.quantite(),
+                    l.tarifPropose() == null
+                        ? null
+                        : new ci.assurance.adjudication.domain.AdjudicationRepository.TarifProposeActe(
+                            l.tarifPropose().id(), l.tarifPropose().statut(),
+                            l.tarifPropose().montantPropose(), l.tarifPropose().montantDecide())))
                 .toList();
     final List<SimulationService.ResultatLigne> r =
         simulation.simuler(

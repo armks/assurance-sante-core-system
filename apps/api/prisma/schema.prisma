@@ -1680,6 +1680,8 @@ model FactureDossier {
   statut                String    @default("EMISE") // EMISE | EN_VALIDATION | VALIDEE | REGLEE | CONTESTEE
   codeFacturation       String?   @unique @map("code_facturation")
   codeValideParPatient  Boolean   @default(false) @map("code_valide_par_patient")
+  /// Facture COMPLÉMENTAIRE de la part patient d'un acte dont le tarif proposé a été décidé (prisma/sql/084)
+  tarifProposeId        String?   @map("tarif_propose_id") @db.Uuid
   dateValidationPatient DateTime? @map("date_validation_patient") @db.Timestamptz(6)
   dateReglement         DateTime? @map("date_reglement") @db.Timestamptz(6)
   reglePar              String?   @map("regle_par") @db.Uuid
@@ -2201,6 +2203,18 @@ model TarifPropose {
   dateDecision       DateTime? @map("date_decision") @db.Timestamptz(6)
   montantDecide      Decimal?  @map("montant_decide") @db.Decimal(14, 2)
   motifDecision      String?   @map("motif_decision")
+  /// Lot 5 (prisma/sql/084) : catégorie de l'acte, alertes, rappels, option « ajouter à la convention »
+  categorieActe          String?   @map("categorie_acte")
+  alerteRenforcee        Boolean   @default(false) @map("alerte_renforcee")
+  alerteRecurrence       Boolean   @default(false) @map("alerte_recurrence")
+  alerteDetails          Json?     @map("alerte_details")
+  alertePlafond          Boolean   @default(false) @map("alerte_plafond")
+  alertePlafondMessage   String?   @map("alerte_plafond_message")
+  rappelEnvoyeLe         DateTime? @map("rappel_envoye_le") @db.Timestamptz(6)
+  escaladeEnvoyeeLe      DateTime? @map("escalade_envoyee_le") @db.Timestamptz(6)
+  etablissementPrevenuLe DateTime? @map("etablissement_prevenu_le") @db.Timestamptz(6)
+  ajoutConventionId      String?   @map("ajout_convention_id") @db.Uuid
+  ajoutConventionType    String?   @map("ajout_convention_type") // FORFAIT | VALEUR_LETTRE_CLE
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
   deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)

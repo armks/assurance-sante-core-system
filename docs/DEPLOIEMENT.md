@@ -38,3 +38,43 @@ Source de vérité : ADR-003 (`ARCHITECTURE-DECISIONS.md`). Les migrations 080, 
 - `POST /api/v1/tarifs-proposes/rappels` — rappel à J+2 (médecin conseil) et escalade à J+5 (direction) des tarifs proposés
   non décidés ; délais dans les paramètres de plateforme `tarif_propose_rappel_jours` et `tarif_propose_escalade_jours`.
   À brancher sur un planificateur (cron / tâche planifiée) : dette notée dans l'ADR-008.
+
+## Moniteur de santé `GET /api/v1/sante`
+
+- Sonde de supervision **non authentifiée**, sans donnée sensible : `200` si l'API ET le microservice d'adjudication répondent
+  (`statut: UP`), `503` sinon (`DOWN` ou `INJOIGNABLE`, avec la latence). À brancher sur le moniteur d'infrastructure (alerte si
+  non-`UP` plus de 2 minutes). Le test d'intégration `factures-paralleles` la consulte avant de commencer.
+- L'écran « Santé du système » du superadmin affiche le même état.
+
+## Planificateur des rappels (à brancher — dette)
+
+Aucun planificateur automatique n'est branché ; deux tâches sont déclenchables **à la main** (ou par une tâche planifiée appelant l'API
+avec un compte de service) :
+
+| Tâche | Appel | Fréquence recommandée |
+|---|---|---|
+| Passage des cotisations en retard | `POST /api/v1/billing/cotisations/marquer-en-retard` | quotidienne |
+| Rappel J+2 / escalade J+5 des tarifs proposés | `POST /api/v1/tarifs-proposes/rappels` | quotidienne (matin) |
+
+Les deux sont idempotentes (une proposition n'est rappelée qu'une fois, une cotisation n'est passée en retard qu'une fois). Exemple
+(cron) : `0 7 * * * curl -fsS -X POST -H "Authorization: Bearer $JETON_SERVICE" https://<hôte>/api/v1/tarifs-proposes/rappels`.
+
+## Tests d'intégration et redémarrages de l'API (mode watch)
+
+L'API de développement (`npm run api:dev`) est en **mode watch** : une modification du code sous `apps/api` (et, constaté, certaines
+créations / suppressions de fichiers du projet) la **redémarre**. Un test d'intégration lancé à ce moment échoue avec « Plateforme non
+prête (…/sante → injoignable) » ou « fetch failed / ECONNRESET » : ce n'est PAS un défaut du verrou des plafonds (lot 6 : 3 échecs
+observés sur ~60 exécutions, tous avec un redémarrage de l'API enregistré dans son journal, aucun avec un plafond dépassé).
+
+Le test `factures-paralleles.int-spec.ts` distingue maintenant les deux cas : il attend que la plateforme soit prête, relève
+`api.demarrageLe` (horodatage de démarrage du processus, exposé par `/api/v1/sante`) avant et après l'essai, et **rejoue l'essai
+avec des données neuves seulement si l'API a redémarré pendant l'essai** (avertissement « API redémarrée pendant l'essai… »). Toute
+autre erreur — notamment un plafond dépassé — est relancée sans rejeu : les assertions restent strictes.
+
+Pour des exécutions de contrôle propres : lancer l'API sans watch (`npm run api:build` puis `node apps/api/dist/main`) ou ne rien
+modifier sous `apps/api` pendant la suite.
+
+## Chargement du catalogue national officiel
+
+Voir `docs/CHARGEMENT-NGAMBCI.md` (modèle vide, procédure, retrait des données fictives) et `docs/DEPRECIATION-ANCIEN-CIRCUIT.md`
+(plan de retrait de l'ancien circuit des tarifs).

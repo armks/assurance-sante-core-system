@@ -25,7 +25,7 @@ describe('SanteService (santé de la plateforme)', () => {
     const e = await service(true).etat();
     expect(e).toMatchObject({
       statut: 'UP',
-      api: { statut: 'UP', baseDeDonnees: 'UP' },
+      api: { statut: 'UP', baseDeDonnees: 'UP', demarrageLe: expect.any(String) },
       adjudication: OK,
     });
   });

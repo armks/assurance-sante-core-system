@@ -2616,11 +2616,16 @@ export class PreauthorizationService {
         },
         adherent: { select: { nom: true, prenom: true } },
         beneficiaire: { select: { nom: true, prenom: true } },
+        // trace du tarif appliqué à chaque ligne (règle d'origine, tarif en examen) — lot barème 6
+        lignesFacturation: { select: { tarifRegleOrigine: true, tarifProvisoire: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
     return factures.map((f) => ({
       id: f.id,
+      reglesOrigine: [...new Set(f.lignesFacturation.map((l) => l.tarifRegleOrigine).filter((r): r is string => !!r))].sort(),
+      tarifEnExamen: f.lignesFacturation.some((l) => l.tarifProvisoire),
+      complementaire: !!f.tarifProposeId,
       numeroTraitement: f.dossier.numeroTraitement,
       societeCliente: f.dossier.police.souscripteur.nom,
       patient: f.adherent

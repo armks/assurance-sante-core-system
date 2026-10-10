@@ -15,6 +15,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { dateFr, montantF as montant } from '@/lib/format';
+import { LIBELLE_STATUT_TARIF_PROPOSE as LIBELLE_STATUT, TON_STATUT_TARIF_PROPOSE as TON_STATUT } from '@/lib/tarifs';
 
 export interface TarifProposeLigne {
   id: string;
@@ -39,19 +40,6 @@ export interface ActeAProposer {
   prixAffiche: string | null;
   dateRealisation: string | null;
 }
-
-const LIBELLE_STATUT: Record<string, string> = {
-  PROPOSE: 'En cours d’examen',
-  VALIDE: 'Validé',
-  AJUSTE: 'Ajusté',
-  REFUSE: 'Refusé',
-};
-const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
-  PROPOSE: 'attention',
-  VALIDE: 'succes',
-  AJUSTE: 'succes',
-  REFUSE: 'danger',
-};
 
 /**
  * Tarifs proposés (ADR-008, lot 4) — l'établissement propose un montant TOTAL, avec justification, pour un acte que

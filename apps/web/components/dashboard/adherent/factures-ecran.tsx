@@ -13,6 +13,7 @@ import {
   type PageServeur,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { LIBELLE_STATUT_TARIF_PROPOSE, libelleDe } from '@/lib/tarifs';
 
 export interface FactureAdherent {
   id: string;
@@ -92,7 +93,7 @@ export function FacturesEcran({
         f.complementaire && f.tarifComplementaire ? (
           <span className="block text-xs" data-testid="facture-complementaire">
             <span className="font-medium">Facture complémentaire</span> — acte « {f.tarifComplementaire.acte ?? '—'} » : tarif{' '}
-            {f.tarifComplementaire.statutTarif === 'REFUSE' ? 'refusé' : f.tarifComplementaire.statutTarif === 'AJUSTE' ? 'ajusté' : 'validé'}
+            {libelleDe(LIBELLE_STATUT_TARIF_PROPOSE, f.tarifComplementaire.statutTarif).toLowerCase()}
             {f.tarifComplementaire.montantRetenu ? `, montant retenu ${montant(f.tarifComplementaire.montantRetenu)}` : ''}
             {f.tarifComplementaire.motifRefus ? `. Motif du refus : ${f.tarifComplementaire.motifRefus}. L’assurance ne prend pas cet acte en charge.` : ''}
             {f.tarifComplementaire.motifAjustement ? `. Motif de l’ajustement : ${f.tarifComplementaire.motifAjustement}` : ''}

@@ -23,8 +23,10 @@ import {
   type ColonneTable,
   type PageServeur,
 } from '@/components/dashboard/patterns';
+import { useCategoriesActe } from '@/components/categories-acte';
 import { Button } from '@/components/ui/button';
 import { dateFr, montantF as montant } from '@/lib/format';
+import { LIBELLE_STATUT_TARIF_A_EXAMINER as LIBELLE_STATUT, TON_STATUT_TARIF_PROPOSE as TON_STATUT } from '@/lib/tarifs';
 
 export interface TarifAExaminer {
   id: string;
@@ -53,14 +55,6 @@ export interface TarifAExaminer {
   peutDecider: boolean;
 }
 
-const LIBELLE_STATUT: Record<string, string> = { PROPOSE: 'À examiner', VALIDE: 'Validé', AJUSTE: 'Ajusté', REFUSE: 'Refusé' };
-const TON_STATUT: Record<string, 'succes' | 'attention' | 'danger' | 'neutre'> = {
-  PROPOSE: 'attention',
-  VALIDE: 'succes',
-  AJUSTE: 'succes',
-  REFUSE: 'danger',
-};
-
 function texteAlerte(t: TarifAExaminer): string {
   const d = t.alerteDetails;
   if (!t.alerteRenforcee || !d) return '';
@@ -86,6 +80,7 @@ export function MedecinConseilTarifsProposesEcran({
   peutDecider: boolean;
 }) {
   const router = useRouter();
+  const { libelle: libelleCategorie, options: optionsCategories } = useCategoriesActe();
   const [message, setMessage] = useState<string | null>(null);
   const [alertePlafond, setAlertePlafond] = useState<string | null>(null);
 
@@ -118,7 +113,7 @@ export function MedecinConseilTarifsProposesEcran({
       rendu: (t) => (
         <span>
           {t.etablissement ?? '—'}
-          <span className="block text-xs text-muted-foreground">{t.categorieActe ?? ''}</span>
+          <span className="block text-xs text-muted-foreground">{t.categorieActe ? libelleCategorie(t.categorieActe) : ''}</span>
         </span>
       ),
     },
@@ -197,7 +192,7 @@ export function MedecinConseilTarifsProposesEcran({
           {
             cle: 'categorie',
             libelle: 'Catégorie',
-            options: ['CONSULTATION', 'ANALYSES', 'IMAGERIE', 'HOSPITALISATION', 'DENTAIRE', 'ACTE_TECHNIQUE', 'SOINS_INFIRMIERS', 'MATERNITE', 'TRANSPORT', 'PHARMACIE'].map((c) => ({ valeur: c, libelle: c })),
+            options: optionsCategories(),
           },
         ]}
       />

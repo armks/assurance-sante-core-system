@@ -87,7 +87,7 @@ champs du segment correspondant.
 La server action (`'use server'`) fait l'`apiFetch` vers NestJS, `revalidatePath`,
 et renvoie `{ ok:false, error, erreurs }` à partir du corps `{ message }` de l'API.
 
-## `ConfirmationAction` — suppression, archivage, désarchivage (ADR-007)
+## `ConfirmationAction` — suppression, archivage, désarchivage (ADR-007) et décisions sur un tarif proposé (ADR-008)
 
 **Seul** composant de confirmation de ces actions : ne pas en réécrire un par écran, ni
 supprimer en un clic.
@@ -97,7 +97,7 @@ import { ConfirmationAction } from '@/components/dashboard/patterns';
 import { verifierAction } from '@/app/dependances-actions';
 
 <ConfirmationAction
-  action="supprimer"                                    // 'supprimer' | 'archiver' | 'desarchiver'
+  action="supprimer"                                    // 'supprimer' | 'archiver' | 'desarchiver' | 'valider' | 'refuser'
   element={`l’acte « ${a.code} — ${a.libelle} »`}      // élément NOMMÉ, avec son type
   consequence="Il ne pourra plus être importé."          // optionnel : effet de l'action
   verifier={() => verifierAction('acteNational', a.id, 'supprimer')}
@@ -126,3 +126,23 @@ import { verifierAction } from '@/app/dependances-actions';
   d'acte, statuts…), jamais un code brut.
 - Modale centrée, bouton rouge pour « Supprimer », annoncée aux lecteurs d'écran
   (`Alerte`), en français.
+
+### Décisions (valider / refuser) et motif obligatoire (lot barème 5)
+
+`action="valider"` et `action="refuser"` réutilisent la même modale pour une DÉCISION métier (sans `verifier` : le serveur reste
+juge). Pour un refus, passer `motif={{ libelle: 'Motif du refus', minimum: 5 }}` : le bouton reste désactivé tant que le motif est
+trop court, et `onConfirmer(motif)` le reçoit. Une décision qui demande un MONTANT (ajuster) ou un CHOIX (ajouter à la convention)
+passe par `FormulaireModal` + `Champ*`, pas par `ConfirmationAction`.
+
+## Libellés accentués — règle (lot barème 6)
+
+Un écran n'affiche **jamais** un code brut (`PROPOSE`, `FORFAIT`, `E016`…). Les libellés viennent de tables uniques :
+
+| Table | Fichier |
+|---|---|
+| Règle d'origine du tarif, statut du tarif proposé, statut du tarif d'une ligne, codes de rejet (`E012`–`E017`) | `apps/web/lib/tarifs.ts` (`libelleDe(table, code)`) |
+| Statut de convention, contexte, politique de dépassement, rôles | `apps/web/lib/conventions.ts` |
+| Catégories d'acte | `apps/web/lib/categories-acte.ts` |
+
+`libelleDe` renvoie une forme lisible (jamais le code) si une valeur n'est pas dans la table. Tout nouveau statut s'ajoute d'abord dans
+la table, puis dans l'écran.

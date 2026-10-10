@@ -78,6 +78,47 @@ async function nettoyer() {
   for (const id of comptes) await admin.auth.admin.deleteUser(id);
 }
 
+/** Sonde `/sante` : `demarrageLe` de l'API (null si injoignable). */
+async function sonde(): Promise<{ pret: boolean; demarrageLe: string | null }> {
+  const r = await fetch(`${API}/sante`).catch(() => null);
+  const corps = r ? ((await r.json().catch(() => null)) as any) : null;
+  return { pret: r?.status === 200 && corps?.statut === 'UP', demarrageLe: corps?.api?.demarrageLe ?? null };
+}
+
+/** Attend (jusqu'à `attenteMs`) que la plateforme soit prête : une API en cours de redémarrage n'est pas un échec du verrou. */
+async function attendrePlateforme(attenteMs = 90_000): Promise<string> {
+  const fin = Date.now() + attenteMs;
+  for (;;) {
+    const s = await sonde();
+    if (s.pret && s.demarrageLe) return s.demarrageLe;
+    if (Date.now() > fin) {
+      throw new Error(`Plateforme non prête après ${attenteMs / 1000} s (${API}/sante) : démarrez l'API et le microservice d'adjudication.`);
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+/**
+ * Exécute un essai ; s'il échoue ET que l'API a REDÉMARRÉ pendant l'essai (mode watch de `npm run api:dev`, `demarrageLe` a
+ * changé), l'échec est de l'INFRASTRUCTURE et non du verrou : l'essai est rejoué avec des données neuves (message explicite).
+ * Toute autre erreur — notamment un plafond dépassé — est relancée telle quelle, SANS rejeu : les assertions restent strictes.
+ */
+async function sansRedemarrage<T>(essai: () => Promise<T>, tentatives = 3): Promise<T> {
+  for (let n = 1; ; n++) {
+    const avant = await attendrePlateforme();
+    try {
+      return await essai();
+    } catch (e) {
+      const apres = await attendrePlateforme().catch(() => null);
+      if (n < tentatives && apres !== null && apres !== avant) {
+        console.warn(`API redémarrée pendant l'essai (${avant} → ${apres}) : essai ${n} rejoué.`);
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 describe('Factures simultanées et plafond annuel (verrou)', () => {
   let med: Session;
   let cpt: Session;
@@ -86,13 +127,7 @@ describe('Factures simultanées et plafond annuel (verrou)', () => {
 
   beforeAll(async () => {
     if (!CLE_PUBLIQUE) throw new Error('Clé publique Supabase absente (SUPABASE_PUBLISHABLE_KEY ou apps/web/.env.local).');
-    const sante = await fetch(`${API}/sante`).catch(() => null);
-    const corps = sante ? ((await sante.json().catch(() => null)) as any) : null;
-    if (sante?.status !== 200 || corps?.statut !== 'UP') {
-      throw new Error(
-        `Plateforme non prête (${API}/sante → ${sante?.status ?? 'injoignable'}) : démarrez l'API et le microservice d'adjudication.`,
-      );
-    }
+    await attendrePlateforme();
     await prisma.organisation.create({ data: { id: orgId, nom: `Intégration verrou ${ts}`, type: 'ASSUREUR', pays: 'CI', slug: `integration-verrou-${ts}` } });
     souscripteurId = (await prisma.souscripteur.create({ data: { organisationId: orgId, type: 'ENTREPRISE', nom: `Société ${ts}` } })).id;
     etabId = (await prisma.etablissementSante.create({ data: { organisationId: orgId, nom: `Clinique ${ts}`, code: `INT-${ts}`, typeEtablissement: 'CLINIQUE_PRIVEE', statut: 'ACTIF' } })).id;
@@ -173,7 +208,7 @@ describe('Factures simultanées et plafond annuel (verrou)', () => {
     return reponses.map((r) => Number(r.body.montantAssurance)).sort((a, b) => b - a);
   }
 
-  it('plafond PERSONNE (30 000) : deux factures simultanées de 20 000 pour le même adhérent → 20 000 + 10 000', async () => {
+  it('plafond PERSONNE (30 000) : deux factures simultanées de 20 000 pour le même adhérent → 20 000 + 10 000', () => sansRedemarrage(async () => {
     const police = await contrat({ personne: '30000' });
     const adh = await prisma.adherent.create({
       data: { organisationId: orgId, souscripteurId, policeId: police.id, nom: 'INTEGRATION', prenom: 'Personne', dateNaissance: new Date('1980-01-01') },
@@ -187,9 +222,9 @@ describe('Factures simultanées et plafond annuel (verrou)', () => {
 
     // sans verrou : [20000, 20000] — 40 000 pris en charge pour un plafond de 30 000
     expect(parts).toEqual([20000, 10000]);
-  });
+  }));
 
-  it('plafond FAMILLE (30 000) : deux bénéficiaires facturés simultanément (20 000 chacun) → 20 000 + 10 000', async () => {
+  it('plafond FAMILLE (30 000) : deux bénéficiaires facturés simultanément (20 000 chacun) → 20 000 + 10 000', () => sansRedemarrage(async () => {
     const police = await contrat({ famille: '30000' });
     const titulaire = await prisma.adherent.create({
       data: { organisationId: orgId, souscripteurId, policeId: police.id, nom: 'INTEGRATION', prenom: 'Famille', dateNaissance: new Date('1980-01-01') },
@@ -209,5 +244,5 @@ describe('Factures simultanées et plafond annuel (verrou)', () => {
 
     // sans verrou famille : [20000, 20000] — 40 000 pour un plafond familial de 30 000
     expect(parts).toEqual([20000, 10000]);
-  });
+  }));
 });

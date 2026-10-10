@@ -216,3 +216,22 @@ Si votre base Supabase a effectivement conservé les données des Prompts 1 et 2
 l'étape 8), vous pouvez dire à Claude Code : *"Vérifie via le connecteur MCP ce qui existe
 déjà dans Supabase avant de recréer quoi que ce soit — je repars du code perdu, mais la base
 de données cloud est peut-être intacte."*
+
+## Barème des actes (ADR-008) — règles à ne jamais réinventer
+
+- **Le tarif reconnu se résout UNIQUEMENT dans le Java** (`ResolveurTarif`), pour la simulation, la facture et la réclamation. Ordre :
+  forfait de l'acte → valeur de lettre-clé propre → coefficient × valeur de la lettre-clé (contexte HOSPITALISATION si le type de visite
+  est `HOSPITALISATION_MEDICALE`, sinon AMBULATOIRE) → tarif proposé (acte non tarifable) → non tarifable (E016). Sans convention validée
+  en vigueur à la date des soins : prix affiché reconnu (`AUCUNE_CONVENTION`). Tarif unitaire arrondi HALF_UP × quantité ; part assurance
+  arrondie par acte ; part patient = total − part assurance.
+- **Nomenclature** : lettres-clés et cotation (lettre × coefficient) gérées par le superadmin ; aucun FCFA dans le catalogue ; valeurs
+  négociées par établissement dans les conventions. Libellés d'amorçage « (fictif) » jusqu'au chargement officiel (`docs/CHARGEMENT-NGAMBCI.md`).
+- **Conventions** : saisie par l'assurance informatique, validation par le médecin conseil ou la direction, **jamais** par la personne qui a
+  saisi ou modifié ; une version validée est immuable (nouvelle version) ; document signé obligatoire (Storage privé, URL signée).
+- **Tarif proposé** : acte non tarifable ⇒ le comptable ou l'administratif de l'établissement propose un montant TOTAL avec justification ;
+  calcul provisoire (E017, ligne exclue du paiement mais qui entame les plafonds) ; décision du médecin conseil (valider / ajuster / refuser
+  avec motif), jamais le proposant ; recalcul sous le verrou personne / famille ; facture complémentaire de la part patient (refus : tout le
+  prix affiché) ; option « ajouter à la convention » = nouvelle version PROPOSEE, jamais une convention validée.
+- **Trace figée** sur la ligne de facturation (`tarif_*`, trigger) ; `svc_adjudication` ne lit que des COLONNES (ADR-003).
+- **Migrations** : appliquées dans l'ordre (`docs/DEPLOIEMENT.md`) ; `lignes_facturation_tarif_fige` est redéfinie par 082 puis 083.
+- **Tests** : e2e HTTP réel avec comptes `@assurance-sante.test`, mode strict (une étape ignorée = échec), zéro ligne restante.

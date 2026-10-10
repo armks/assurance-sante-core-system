@@ -8,7 +8,8 @@ import { PrismaService } from '../prisma/prisma.service';
 export interface SantePlateforme {
   /** `UP` si tout répond ; `DEGRADE` sinon (facturation et comptoir pharmacie bloqués). */
   statut: 'UP' | 'DEGRADE';
-  api: { statut: 'UP'; baseDeDonnees: 'UP' | 'DOWN' };
+  /** `demarrageLe` : démarrage du processus de l'API (permet de détecter un redémarrage entre deux sondes). */
+  api: { statut: 'UP'; baseDeDonnees: 'UP' | 'DOWN'; demarrageLe: string };
   adjudication: SanteAdjudication;
   horodatage: string;
 }
@@ -22,6 +23,7 @@ export interface SantePlateforme {
 export class SanteService {
   private readonly logger = new Logger(SanteService.name);
   private dernierEtat: string | null = null;
+  private readonly demarrageLe = new Date(Date.now() - process.uptime() * 1000).toISOString();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -50,7 +52,7 @@ export class SanteService {
     }
     return {
       statut,
-      api: { statut: 'UP', baseDeDonnees },
+      api: { statut: 'UP', baseDeDonnees, demarrageLe: this.demarrageLe },
       adjudication,
       horodatage: new Date().toISOString(),
     };

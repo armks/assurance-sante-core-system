@@ -11,6 +11,7 @@ import {
   TON_STATUT_FACTURE_DOSSIER,
 } from '@/lib/dossier-soins';
 import { dateFr, montantF } from '@/lib/format';
+import { LIBELLE_REGLE_ORIGINE, libelleDe } from '@/lib/tarifs';
 
 export interface FactureDossierEtablissement {
   id: string;
@@ -23,6 +24,10 @@ export interface FactureDossierEtablissement {
   montantPatient: string;
   createdAt: string;
   dateReglement: string | null;
+  /** Règles d'origine des tarifs appliqués aux lignes (trace figée) ; facture complémentaire / tarif en examen (lot barème 6). */
+  reglesOrigine?: string[];
+  complementaire?: boolean;
+  tarifEnExamen?: boolean;
 }
 
 const LIBELLE_STATUT = LIBELLE_STATUT_FACTURE_DOSSIER;
@@ -53,6 +58,20 @@ export function MesFacturesEcran({ factures }: { factures: FactureDossierEtablis
       aligneDroite: true,
       valeur: (f) => Number(f.montantTotal),
       rendu: (f) => montantF(f.montantTotal),
+    },
+    {
+      cle: 'tarif',
+      entete: 'Tarif appliqué',
+      rendu: (f) => (
+        <span className="block text-xs" data-testid="tarif-applique">
+          {f.complementaire
+            ? 'Facture complémentaire (part patient après décision sur le tarif)'
+            : f.reglesOrigine && f.reglesOrigine.length > 0
+              ? f.reglesOrigine.map((r) => libelleDe(LIBELLE_REGLE_ORIGINE, r)).join(' · ')
+              : '—'}
+          {f.tarifEnExamen && <span className="mt-1 block text-amber-700 dark:text-amber-400">Tarif en cours d’examen</span>}
+        </span>
+      ),
     },
     {
       cle: 'statut',

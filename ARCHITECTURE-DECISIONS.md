@@ -1066,3 +1066,55 @@ tarif reconnu, le taux restant dans la garantie du produit. Le lot 1 pose la cou
   triggers et contraintes après toutes les migrations ; ordre des fichiers).
 - **Hors périmètre / dettes** : planificateur automatique des rappels ; recalcul des lignes postérieures plafonnées ; facture complémentaire
   pour un acte réclamé (hors facture tiers payant) ; archivage de propositions.
+
+### Synthèse complète du barème (lots 1 à 6) — ADR-008, état au 2026-10-09
+**Quatre couches séparées.** (1) *Nomenclature nationale* : lettres-clés (`lettres_cles`, libellés « (fictif) » tant que le superadmin n'a
+pas mis les officiels) et cotation des actes (lettre-clé × coefficient, aucun FCFA) dans `referentiel_national_actes`, copiée dans
+`referentiel_actes` de chaque organisation (code d'acte unique PAR organisation). (2) *Convention de l'établissement* : `conventions` (statuts
+PROPOSEE / VALIDEE / REFUSEE / ARCHIVEE, versions, politique de dépassement PATIENT / REJET, document signé), `convention_valeurs`
+(lettre-clé × contexte AMBULATOIRE / HOSPITALISATION), `convention_actes` (exception d'acte : forfait OU valeur de lettre-clé propre).
+(3) *Tarif reconnu* : résolu par le Java (`ResolveurTarif`), jamais ailleurs. (4) *Remboursement* : calculé par le Java (franchise, taux,
+plafonds), arrondi HALF_UP à l'unité.
+
+**Ordre de résolution du tarif reconnu (à la date des soins)** : forfait de l'acte (`FORFAIT`) → valeur de lettre-clé propre à l'acte
+(`VALEUR_PROPRE`) → coefficient × valeur de la lettre-clé selon le contexte (`VALEUR_LETTRE_CLE`) → tarif proposé par l'établissement
+(`TARIF_PROPOSE`, seulement pour un acte non tarifable) → sinon non tarifable (E016). Sans convention en vigueur : `AUCUNE_CONVENTION`
+(prix affiché reconnu). Tarif unitaire arrondi puis × quantité ; prix affiché comparé au total. Dépassement : `PATIENT` ou `REJET` (E015).
+
+**Circuits** : convention = saisie (assurance informatique) → validation (médecin conseil ou direction, jamais le saisisseur) ; version
+validée = immuable (nouvelle version). Tarif proposé = proposition (comptable / administratif de l'établissement) → décision (médecin
+conseil, jamais le proposant) → recalcul sous verrou → facture complémentaire de la part patient. Facture : trace du tarif figée sur la
+ligne (trigger) ; facture mensuelle : lignes non validées exclues et non payables ; paiement par le comptable assureur.
+
+**Codes** : E012 / E013 / E014 (date des soins), E015 (dépassement refusé), E016 (non tarifable), E017 (tarif en examen, provisoire).
+Libellés côté écran : `apps/web/lib/tarifs.ts` et `lib/conventions.ts` — aucun code brut ne s'affiche (vérifié par le scénario de bout en bout).
+
+**Dettes et limites assumées (inventaire)** : planificateur automatique des rappels ; lignes postérieures plafonnées non recalculées
+après une décision (alerte seule) ; facture complémentaire limitée aux actes facturés en tiers payant ; ancien circuit des tarifs
+d'établissement à retirer (`docs/DEPRECIATION-ANCIEN-CIRCUIT.md`) ; catalogue officiel NGAMBCI à charger (`docs/CHARGEMENT-NGAMBCI.md`) ;
+l'ordre d'application des migrations est contrôlé par un test (`migrations-etat.int-spec.ts`).
+
+**Vérification d'ensemble (lot 6)** : un scénario unique en HTTP réel et navigateur parcourt superadmin → informatique → direction →
+centre médical → acte non tarifable → tarif proposé → médecin conseil → facture complémentaire → facture mensuelle → paiement, avec
+contrôle à chaque étape (part assurance + part patient = total, trace figée, plafonds, audit) ; l'isolation à deux organisations et deux
+sociétés est rejouée sur l'ensemble du barème.
+
+### Lot 6 « finitions et bout en bout » (2026-10-09) — ADR-008
+- **Échec intermittent de l'intégration « factures simultanées »** : 36 exécutions en boucle (12 simples, 12 juste après une compilation Maven,
+  12 en parallèle d'une suite jest), sortie complète conservée, plus 11 d'une première boucle et 12 relances : 3 échecs au total sur ~60
+  exécutions (dont celui du lot 5), **tous des échecs d'infrastructure** — l'API de développement (mode watch) redémarrait pendant l'essai
+  (« Plateforme non prête », « fetch failed / ECONNRESET »), redémarrage retrouvé dans le journal de l'API à chaque fois. **Aucun plafond
+  n'a été dépassé** (aucune assertion de montants en échec) : le verrou est sain. Correction de la cause côté test : attente de
+  disponibilité, détection du redémarrage par `api.demarrageLe` (nouveau champ de `/sante`) et rejeu de l'essai seulement dans ce cas (preuve :
+  redémarrage provoqué en cours d'essai → rejeu puis 8/8). Les délais du test n'ont pas été allongés.
+- **Bout en bout** : un scénario unique en HTTP réel et navigateur (superadmin → informatique → direction → centre médical → acte non
+  tarifable → tarif proposé → médecin conseil → facture complémentaire → patient → facture mensuelle → paiement du comptable assureur) avec
+  contrôle à chaque étape (part assurance + part patient = total, trace figée par la base, plafonds personne, audit), aucun code brut à
+  l'écran, isolation à deux organisations et deux sociétés rejouée sur l'ensemble du barème.
+- **Libellés** : `apps/web/lib/tarifs.ts` (règle d'origine, statut du tarif proposé, statut du tarif, codes de rejet) et `lib/conventions.ts` ;
+  catégories d'acte via le référentiel ; les écrans de l'établissement affichent désormais la règle d'origine par facture et la mention
+  « tarif en cours d'examen » / « facture complémentaire ».
+- **Ancien circuit** : inventaire et plan de retrait en étapes réversibles dans `docs/DEPRECIATION-ANCIEN-CIRCUIT.md` — rien n'est supprimé.
+- **NGAMBCI** : modèle d'import VIDE (`docs/import/ngambci-catalogue-actes-modele.xlsx`, format vérifié par l'import réel), procédure
+  (`docs/CHARGEMENT-NGAMBCI.md`) et script de retrait des données fictives (`scripts/retirer-donnees-fictives.cjs`, simulation par défaut ;
+  ne supprime jamais une convention validée ni une donnée référencée).

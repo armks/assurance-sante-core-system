@@ -240,7 +240,7 @@ ensuite la vraie création. Ne jamais recalculer côté client ce que l'API sait
 
 ---
 
-## `ConfirmationAction` — suppression, archivage, désarchivage (ADR-007)
+## `ConfirmationAction` — suppression, archivage, désarchivage (ADR-007) et décisions (ADR-008)
 
 **Seul** composant de confirmation de ces actions : ne pas en réécrire un par écran, ni
 supprimer en un clic.
@@ -250,7 +250,7 @@ import { ConfirmationAction } from '@/components/dashboard/patterns';
 import { verifierAction } from '@/app/dependances-actions';
 
 <ConfirmationAction
-  action="supprimer"                                    // 'supprimer' | 'archiver' | 'desarchiver'
+  action="supprimer"                                    // 'supprimer' | 'archiver' | 'desarchiver' | 'valider' | 'refuser'
   element={`l’acte « ${a.code} — ${a.libelle} »`}      // élément NOMMÉ, avec son type
   consequence="Il ne pourra plus être importé."          // optionnel : effet de l'action
   verifier={() => verifierAction('acteNational', a.id, 'supprimer')}
@@ -312,3 +312,12 @@ insécables (` `, ` `) avant de comparer des montants formatés `fr-FR`.
 - Nouvelle section = ajouter l'entrée dans `lib/dashboard-nav.ts` (dashboards de rôle) ou
   `components/superadmin/shell.tsx` (superadmin).
 - Doc vivante détaillée : `apps/web/components/dashboard/patterns/README.md`.
+
+## Libellés du barème — jamais de code brut (ADR-008, lot 6)
+
+Statuts de convention, règles d'origine du tarif (`FORFAIT`, `VALEUR_PROPRE`, `VALEUR_LETTRE_CLE`, `AUCUNE_CONVENTION`, `TARIF_PROPOSE`),
+statuts du tarif proposé (`PROPOSE`, `VALIDE`, `AJUSTE`, `REFUSE`) et codes de rejet `E012`–`E017` s'affichent via les tables
+`apps/web/lib/tarifs.ts` et `apps/web/lib/conventions.ts` (`libelleDe`). Décision avec motif obligatoire :
+`ConfirmationAction action="refuser" motif={{ libelle, minimum: 5 }}` ; décision avec montant : `FormulaireModal`. Les écrans
+d'établissement et de patient montrent le statut du tarif, le montant retenu et le motif du refus, et la mention « tarif en cours
+d'examen » (part estimée à titre indicatif).

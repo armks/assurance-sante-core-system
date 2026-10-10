@@ -8270,3 +8270,41 @@ Terminé — lots 5 (file et décisions du médecin conseil) et 6 non commencés
 
 ### Statut
 Terminé — lot 6 (finitions) non commencé.
+
+
+## 2026-10-09 — Chantier barème, lot 6 « finitions et bout en bout » (ADR-008)
+
+### Échec intermittent de l'intégration (point 1)
+- ~60 exécutions (boucle de 36 : 12 simples / 12 après compilation Maven / 12 en parallèle de jest ; première boucle de 11 ; relances).
+  3 échecs en tout (dont celui du lot 5), TOUS avec un redémarrage de l'API de développement (mode watch) enregistré dans son journal :
+  « Plateforme non prête… injoignable » et « fetch failed / ECONNRESET ». **Plafond jamais dépassé** : aucune assertion de montants en échec.
+  Les redémarrages étaient provoqués par mes propres modifications de fichiers sous `apps/api` pendant les boucles.
+- Cause corrigée côté test (pas les délais) : attente de disponibilité, `api.demarrageLe` dans `/sante`, rejeu de l'essai seulement si l'API a
+  redémarré pendant l'essai ; redémarrage provoqué → essai rejoué, 8/8.
+
+### Bout en bout (point 2) et isolation
+- Scénario unique HTTP réel + navigateur : 97 contrôles OK, zéro ligne restante (comptes Auth, documents, lettres-clés et actes fictifs compris) :
+  lettres-clés et cotation par le superadmin, import et homologation des actes, convention (valeurs, exception d'acte, document), validation par la
+  direction (refus du saisisseur), indicateur « sans convention », consultation et trois actes (valeur de lettre-clé, forfait, non tarifable),
+  facture 10 000 = 4 400 + 5 600, trace figée, plafond, tarif proposé 4 500 (alerte renforcée), facture provisoire, ajustement 4 000 + ajout à la
+  convention, facture complémentaire 2 800, bilan 16 000 = 7 600 + 8 400, validation des codes et confirmation des paiements, facture mensuelle
+  7 600, vérification, validation pour paiement, paiement (solde 92 400), audit.
+- Isolation rejouée : 8 profils étrangers (organisation B : informatique, médecin conseil, direction, comptable, établissement, exploitation ;
+  sociétés 1 et 2 de A) × 14 opérations sur les ressources de A, aucun succès ; listes sans fuite ; base de A strictement inchangée.
+
+### Écrans (point 3)
+- Libellés accentués centralisés (`lib/tarifs.ts`), catégories via le référentiel, règle d'origine et mentions côté établissement (« Tarif appliqué »,
+  « Facture complémentaire », « Tarif en cours d'examen ») et patient ; le scénario vérifie sur 11 écrans qu'aucun code brut (statut, règle
+  d'origine, code E0xx, catégorie) n'est affiché.
+
+### Dépréciation, documentation, NGAMBCI (points 4 à 6)
+- `docs/DEPRECIATION-ANCIEN-CIRCUIT.md` (inventaire + plan de retrait, rien supprimé) ; `docs/DEPLOIEMENT.md` (ordre des migrations, moniteur
+  `/api/v1/sante`, planificateur à brancher, redémarrages de l'API) ; ADR-008 synthèse complète + lot 6 ; README des patterns et skills mis à jour.
+- `docs/CHARGEMENT-NGAMBCI.md`, modèle d'import VIDE au bon format (vérifié par l'import réel), `scripts/retirer-donnees-fictives.cjs` (essai sur jeu
+  contrôlé : un bug trouvé et corrigé — les exceptions des conventions retirées ne comptent pas comme références), `scripts/nettoyer-organisation-test.cjs`.
+- Restes de tests antérieurs trouvés et supprimés (organisations « L4Nav » et « Org E2E Dispensations », données de test sans donnée réelle,
+  après inventaire).
+
+### Statut
+Terminé — chantier barème (lots 1 à 6) complet. Reste : charger le catalogue officiel NGAMBCI (fichier à fournir), brancher le planificateur,
+retirer l'ancien circuit selon le plan.

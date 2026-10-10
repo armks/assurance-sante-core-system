@@ -601,6 +601,28 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
           dossier: { numeroTraitement: 'TRT-1', police: { souscripteur: { nom: 'Société Alpha' } } },
           adherent: { nom: 'Yao', prenom: 'Awa' },
           beneficiaire: null,
+          tarifProposeId: null,
+          lignesFacturation: [
+            { tarifRegleOrigine: 'FORFAIT', tarifProvisoire: false },
+            { tarifRegleOrigine: 'VALEUR_LETTRE_CLE', tarifProvisoire: false },
+            { tarifRegleOrigine: 'FORFAIT', tarifProvisoire: false },
+            { tarifRegleOrigine: 'TARIF_PROPOSE', tarifProvisoire: true },
+            { tarifRegleOrigine: null, tarifProvisoire: false },
+          ],
+        },
+        {
+          id: 'fd-2',
+          statut: 'EMISE',
+          montantTotal: dec(2800),
+          montantAssurance: dec(0),
+          montantPatient: dec(2800),
+          createdAt: new Date('2026-08-02'),
+          dateReglement: null,
+          dossier: { numeroTraitement: 'TRT-1', police: { souscripteur: { nom: 'Société Alpha' } } },
+          adherent: { nom: 'Yao', prenom: 'Awa' },
+          beneficiaire: null,
+          tarifProposeId: 'tp-1',
+          lignesFacturation: [],
         },
       ]);
 
@@ -608,7 +630,15 @@ describe('PreauthorizationService — Consolidation mensuelle des factures étab
 
       expect(res).toEqual([
         expect.objectContaining({ societeCliente: 'Société Alpha', patient: 'Awa Yao', statut: 'REGLEE' }),
+        expect.objectContaining({ statut: 'EMISE' }),
       ]);
+      // trace du tarif appliqué (lot barème 6) : règles d'origine distinctes triées, tarif en examen, facture complémentaire
+      expect(res[0]).toMatchObject({
+        reglesOrigine: ['FORFAIT', 'TARIF_PROPOSE', 'VALEUR_LETTRE_CLE'],
+        tarifEnExamen: true,
+        complementaire: false,
+      });
+      expect(res[1]).toMatchObject({ reglesOrigine: [], tarifEnExamen: false, complementaire: true });
     });
   });
 });

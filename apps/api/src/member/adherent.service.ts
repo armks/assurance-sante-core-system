@@ -1102,6 +1102,16 @@ export class AdherentService {
     return { url: await this.signerPhoto(benef.photoUrl), expiresIn: this.dureeUrlSigneePhoto };
   }
 
+  /** URL signée (éphémère) d'une photo déjà autorisée par l'appelant — pour la fiche d'accueil (aucun contrôle ici). */
+  async urlPhotoSignee(chemin: string | null): Promise<string | null> {
+    if (!chemin) return null;
+    try {
+      return await this.signerPhoto(chemin);
+    } catch {
+      return null;
+    }
+  }
+
   // --- Helpers ------------------------------------------------------
 
   private async contexteAppelant(

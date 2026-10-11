@@ -1133,3 +1133,22 @@ sociétés est rejouée sur l'ensemble du barème.
   unitaire (registre des dépendances), une transaction par élément avec `log_audit()` (succès), refus tracés à part (`REFUS_*`), synthèse du lot dans l'audit.
   Aucun contrôle uniquement côté écran ; tout rôle autre que SUPERADMIN_PRINCIPAL reçoit 403.
 - **Confirmation** : `ConfirmationAction` (nombre d'éléments, trois noms, effet) puis résultat détaillé (réussis / refusés avec raison).
+
+### Accueil de l'établissement : fiche de carte, type d'acte, code de confirmation (2026-10-11)
+- **Fiche après « Rechercher »** (`GET /accueil/carte`, rôle CENTRE_MEDICAL_ACCUEIL) : nom, prénom, numéro de carte, photo (URL signée éphémère), société,
+  date de naissance, police, souscripteur, produit, carte virtuelle avec mention — rien d'autre (ni identifiant interne, ni contact en clair). Recherche limitée à
+  l'organisation de l'assureur de l'établissement (une carte d'un autre assureur est introuvable) ; chaque consultation est journalisée (`log_audit`).
+- **Mention** : ACTIVE seulement si le membre ET son titulaire sont ACTIF, la police est ACTIVE et couvre la date du jour, la société (souscripteur) et l'établissement
+  sont actifs. Sinon, par priorité : RADIÉE, SUSPENDUE, SORTIE EN COURS, POLICE NON ACTIVE, PÉRIMÈTRE NON ACTIF — avec les motifs. L'émission du code est refusée
+  côté serveur (409, refus tracé `REFUS_EMISSION_CODE_ACCUEIL`), pas seulement masquée à l'écran.
+- **Type d'acte** : le menu est alimenté par les **catégories d'acte actives** gérées par le superadmin (`categories_acte`, cache du référentiel : 60 s). Le code
+  porte `categorie_acte` ; le `typeVisite` (généraliste / spécialiste, etc.) reste choisi une seule fois par le médecin dans le dossier — l'accueil n'en décide pas.
+- **Émission** (`POST /accueil/codes-consultation`, migration 085) : la sélection du type d'acte crée le code (EMIS, 48 h, établissement de l'appelant,
+  `categorie_acte`, `canal_choisi`, `emis_par`) et l'envoie. **Le code n'est jamais renvoyé à l'accueil** : le patient le lit et le communique, l'accueil le saisit via
+  la validation existante (premier des 4 codes anti-fraude). Limite : 3 émissions par heure, patient et établissement (429).
+- **Canaux** : e-mail ou téléphone parmi les contacts ENREGISTRÉS de la fiche (ceux du titulaire pour un bénéficiaire). Le client n'envoie qu'un canal ; l'adresse ou le
+  numéro vient de la base. Contacts masqués à l'écran. Contact absent : non proposé ; aucun contact : message clair, aucun code créé.
+- **SMS** : interface `FournisseurSms` (`apps/api/src/notifications`), adaptateur par défaut `FournisseurSmsDesactive` (n'envoie rien) ; le canal SMS est proposé mais
+  grisé et le serveur le refuse. Brancher un fournisseur = écrire un adaptateur et le déclarer dans `NotificationsModule` (`SMS_FOURNISSEUR`) — après accord et avec la clé.
+- **E-mail** : l'envoi réel exige `CODES_CONSULTATION_EMAIL_REEL=oui` (défaut : non envoyé, statut `NON_ENVOYE_DESACTIVE`, le code reste visible dans l'application
+  du patient). L'expéditeur Resend actuel est un bac à sable : domaine à vérifier avant toute activation.

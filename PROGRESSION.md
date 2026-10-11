@@ -8333,3 +8333,29 @@ retirer l'ancien circuit selon le plan.
 
 ### Statut
 Terminé.
+
+
+## 2026-10-11 — Accueil de l'établissement : fiche de carte, type d'acte, code de confirmation
+
+### Réalisé
+- API `accueil/` : `GET /accueil/carte` (fiche limitée aux champs prévus, URL de photo signée, mention ACTIVE / SUSPENDUE / RADIÉE / SORTIE EN COURS / POLICE NON ACTIVE /
+  PÉRIMÈTRE NON ACTIF, consultation journalisée), `GET /accueil/types-acte` (catégories actives du superadmin), `POST /accueil/codes-consultation` (émission + envoi).
+- Migration 085 (`codes_consultation` : `categorie_acte`, `canal_choisi`, `envoi_statut`, `envoi_detail`, `emis_par`) ; `PreauthorizationService.emettreCodeAccueil`.
+- `notifications/` : interface `FournisseurSms` + adaptateur désactivé (aucun fournisseur / clé) ; `NotificationCodeService` (e-mail réel désactivé par défaut,
+  `CODES_CONSULTATION_EMAIL_REEL=oui` pour l'activer) ; limite de 3 émissions par heure et par patient.
+- Écran `/dashboard-centre-medical/accueil` : fiche + carte virtuelle, canal parmi les contacts enregistrés (masqués), menu de types d'acte (déclenche l'envoi), blocage
+  si la carte n'est pas ACTIVE, message sans contact, SMS grisé.
+- Décisions : « Autres actes » remplacé par les types du superadmin (aucune correspondance forcée avec `typeVisite`, qui reste choisi par le médecin) ; bénéficiaire →
+  contacts du titulaire ; SMS proposé mais grisé ; e-mail réel désactivé par défaut. **Rien n'est envoyé en réel.**
+
+### Tests
+- Jest : 21 cas (champs exposés, 5 mentions dont bénéficiaire d'un titulaire radié, carte d'un autre assureur introuvable, 403 hors accueil, contacts masqués, envoi au contact
+  enregistré uniquement, émission bloquée si carte non active, contact absent, SMS sans fournisseur, type inconnu, éligibilité, limite horaire).
+- HTTP réel + navigateur (mode strict, 71 contrôles OK, zéro ligne restante, comptes Auth et photo compris) : 18 refus 403, fiche exacte (photo signée téléchargeable),
+  SUSPENDUE / RADIÉE / POLICE NON ACTIVE (émission 409, aucun code créé), deux assureurs et deux sociétés (carte d'un autre assureur : 404), émission (ligne en base,
+  code non renvoyé, 48 h), contacts (absent, e-mail seul, canal inconnu), SMS refusé, limite 3/h (429), code accepté par la validation existante, audit sans code ni adresse,
+  écran (carte ACTIVE, menu alimenté par le superadmin, SMS grisé, mentions bloquantes, aucun champ de saisie de contact).
+- Suite complète : API 1 451/1 451, intégration 8/8, Java 138/138, typage API et web sans erreur.
+
+### Statut
+Terminé. Reste à votre décision : domaine d'expédition e-mail vérifié (puis `CODES_CONSULTATION_EMAIL_REEL=oui`) et choix du fournisseur SMS.

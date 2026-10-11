@@ -83,3 +83,82 @@ export async function rechercherParNumeroCarte(
     : (body.message ?? `Erreur ${res.status}`);
   return { ok: false, error };
 }
+
+// --- Parcours d'accueil : fiche de la carte, type d'acte, code de confirmation ---------
+
+export type MentionCarte =
+  | 'ACTIVE'
+  | 'SUSPENDUE'
+  | 'RADIÉE'
+  | 'SORTIE EN COURS'
+  | 'POLICE NON ACTIVE'
+  | 'PÉRIMÈTRE NON ACTIF';
+
+export interface ContactAccueil {
+  canal: 'EMAIL' | 'SMS';
+  masque: string;
+  actif: boolean;
+  avertissement: string | null;
+}
+
+export interface FicheCarte {
+  type: 'ADHERENT_TITULAIRE' | 'BENEFICIAIRE';
+  nom: string;
+  prenom: string;
+  numeroCarte: string;
+  dateNaissance: string;
+  photoUrl: string | null;
+  societe: string;
+  souscripteur: { nom: string; type: string };
+  police: { numero: string } | null;
+  produit: string | null;
+  carte: { mention: MentionCarte; active: boolean; motifs: string[] };
+  contacts: { source: 'MEMBRE' | 'TITULAIRE'; liste: ContactAccueil[] };
+}
+
+export interface TypeActeAccueil {
+  code: string;
+  libelle: string;
+}
+
+export interface CodeEmisAccueil {
+  id: string;
+  statut: 'ENVOYE' | 'NON_ENVOYE_DESACTIVE' | 'ECHEC';
+  canal: 'EMAIL' | 'SMS';
+  destinataire: string;
+  typeActe: string;
+  etablissement: string | null;
+  message: string;
+}
+
+async function erreurApi(res: Response): Promise<{ error: string; blocages: string[] }> {
+  const body = (await res.json().catch(() => ({}))) as { message?: string | string[]; blocages?: string[] };
+  const error = Array.isArray(body.message) ? body.message.join(' ') : (body.message ?? `Erreur ${res.status}`);
+  return { error, blocages: body.blocages ?? [] };
+}
+
+/** Fiche d'accueil (consultation journalisée côté API, limitée à l'organisation de l'assureur de l'établissement). */
+export async function fichePourAccueil(
+  numeroCarte: string,
+): Promise<{ ok: true; fiche: FicheCarte; types: TypeActeAccueil[] } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/accueil/carte?numeroCarte=${encodeURIComponent(numeroCarte)}`);
+  if (!res.ok) return { ok: false, error: (await erreurApi(res)).error };
+  const fiche = (await res.json()) as FicheCarte;
+  let types: TypeActeAccueil[] = [];
+  if (fiche.carte.active) {
+    const t = await apiFetch('/api/v1/accueil/types-acte');
+    if (t.ok) types = (await t.json()) as TypeActeAccueil[];
+  }
+  return { ok: true, fiche, types };
+}
+
+/** Le choix du type d'acte déclenche l'envoi du code au contact ENREGISTRÉ du canal choisi (aucune adresse n'est saisie ici). */
+export async function emettreCodeAccueil(input: {
+  numeroCarte: string;
+  categorieActe: string;
+  canal: 'EMAIL' | 'SMS';
+}): Promise<{ ok: true; code: CodeEmisAccueil } | { ok: false; error: string; blocages: string[] }> {
+  const res = await apiFetch('/api/v1/accueil/codes-consultation', { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) return { ok: false, ...(await erreurApi(res)) };
+  return { ok: true, code: (await res.json()) as CodeEmisAccueil };
+}

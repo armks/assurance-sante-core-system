@@ -270,6 +270,40 @@ export class PreauthorizationService {
     };
   }
 
+  /**
+   * Émission depuis l'accueil de l'établissement (AccueilCarteService, qui a déjà contrôlé la carte, l'éligibilité et le
+   * contact). Le code est créé pour l'établissement de l'appelant ; il est renvoyé au SEUL service appelant, jamais à l'écran.
+   */
+  async emettreCodeAccueil(
+    ctx: { userId: string; organisationId: string; etablissementId: string },
+    p: { adherentId: string | null; beneficiaireId: string | null; policeId: string; categorieActe: string; canal: 'EMAIL' | 'SMS' },
+  ) {
+    const code = await this.genererCodeUnique();
+    return this.prisma.$transaction(async (tx) => {
+      const ligne = await tx.codeConsultation.create({
+        data: {
+          organisationId: ctx.organisationId,
+          adherentId: p.adherentId,
+          beneficiaireId: p.beneficiaireId,
+          etablissementId: ctx.etablissementId,
+          policeId: p.policeId,
+          code,
+          statut: 'EMIS',
+          canalEnvoi: ['APP', p.canal],
+          categorieActe: p.categorieActe,
+          canalChoisi: p.canal,
+          emisPar: ctx.userId,
+        },
+      });
+      await this.audit(tx, ctx.userId, 'EMISSION_CODE_CONSULTATION_ACCUEIL', ligne.id, {
+        etablissementId: ctx.etablissementId,
+        categorieActe: p.categorieActe,
+        canal: p.canal,
+      });
+      return ligne;
+    });
+  }
+
   async confirmerPresence(user: AuthenticatedUser, codeId: string) {
     const ctx = await this.contexteAppelant(user);
     const code = await this.chargerCodeAdherent(ctx, codeId);

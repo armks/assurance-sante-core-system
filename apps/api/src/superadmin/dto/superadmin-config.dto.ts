@@ -1,4 +1,9 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsUUID,
   IsBoolean,
   IsDefined,
   IsIn,
@@ -10,6 +15,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { MAX_ELEMENTS_ACTION_MASSE } from '../superadmin.types';
 import { STATUTS_HOMOLOGATION, USAGES_MEDICAMENT } from '../../reference/reference.types';
 
 /** Définition / mise à jour d'un paramètre plateforme (valeur JSON arbitraire). */
@@ -95,4 +101,14 @@ export class CreerMedicamentNationalDto {
   @IsOptional() @IsBoolean() medicamentControle?: boolean;
   @IsOptional() @IsIn(USAGES_MEDICAMENT) usage?: (typeof USAGES_MEDICAMENT)[number];
   @IsOptional() @IsIn(STATUTS_HOMOLOGATION) statut?: string;
+}
+
+/** Corps des actions de masse sur le catalogue national (ids distincts, plafond par requête). */
+export class ActionMasseCatalogueDto {
+  @IsArray({ message: 'ids doit être une liste d’identifiants.' })
+  @ArrayMinSize(1, { message: 'Sélectionnez au moins un élément.' })
+  @ArrayMaxSize(MAX_ELEMENTS_ACTION_MASSE, { message: `Au plus ${MAX_ELEMENTS_ACTION_MASSE} éléments par action.` })
+  @ArrayUnique({ message: 'Un même élément ne peut figurer qu’une fois dans la sélection.' })
+  @IsUUID('all', { each: true, message: 'Chaque identifiant doit être valide.' })
+  ids!: string[];
 }

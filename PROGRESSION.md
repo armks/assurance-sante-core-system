@@ -8308,3 +8308,28 @@ Terminé — lot 6 (finitions) non commencé.
 ### Statut
 Terminé — chantier barème (lots 1 à 6) complet. Reste : charger le catalogue officiel NGAMBCI (fichier à fournir), brancher le planificateur,
 retirer l'ancien circuit selon le plan.
+
+
+## 2026-10-11 — Actions de masse sur le catalogue national (SUPERADMIN)
+
+### Réalisé
+- Écran `/superadmin/catalogue-national` : cases à cocher par ligne, « tout sélectionner » (page affichée seulement, la sélection se vide au changement de
+  page / filtre / tri et l'écran l'indique), compteur « N sélectionnés », barre d'actions Archiver / Désarchiver / Supprimer, `ConfirmationAction` (nombre, trois
+  noms, effet) puis résultat détaillé (réussis, refusés avec raison). Brique : propriété `selection` de `DataTable`.
+- API : six endpoints (`…/{actes|medicaments}/masse/{archiver|desarchiver|supprimer}`), plafond 100 éléments, contrôle individuel de chaque élément par le registre
+  des dépendances (ADR-007), une transaction par élément avec `log_audit()`, refus tracés à part, synthèse du lot ; 403 pour tout rôle non superadmin.
+- Archiver = désactivation réversible ; l'élément archivé n'est plus proposé à l'import, les copies des organisations ne changent pas. **Pas de migration** : les
+  médicaments du catalogue avaient déjà le statut `RETIRE` (`statut_homologation`).
+- Supprimer = suppression logique des seuls éléments jamais importés ; un élément importé est refusé avec sa raison, le reste du lot passe.
+
+### Tests
+- Jest : 11 cas (403 pour 7 rôles, validation du lot, archiver, désarchiver, suppression partielle avec élément importé, déjà archivé, introuvable, médicaments,
+  erreur technique non avalée).
+- HTTP réel + navigateur (mode strict, 46 contrôles OK, zéro ligne restante, comptes Auth compris) : 48 refus 403 (8 profils × 6 endpoints), 400 (vide, > 100, doublons,
+  identifiant invalide), exactement 100 éléments, archivage (copie importée inchangée, import refusé 404 puis possible après désarchivage), suppression partielle
+  (3 importés refusés avec raison, 2 libres supprimés logiquement, copies intactes), médicaments, audit (une ligne par réussite, refus tracés, synthèse), écran :
+  page de 10 lignes, « 10 sélectionnés », sélection vidée au changement de page, confirmation, résultat détaillé « Réussis (3) » / « Refusés (1) ».
+- Suite complète : API 1 430/1 430, Java 138/138, intégration 8/8, typage API et web sans erreur.
+
+### Statut
+Terminé.

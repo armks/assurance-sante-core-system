@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
   Logger,
   NotFoundException,
@@ -22,10 +23,24 @@ import {
   ModifierActeNationalDto,
   ModifierLettreCleDto,
 } from './dto/superadmin-config.dto';
-import { ROLE_SUPERADMIN } from './superadmin.types';
+import {
+  ROLE_SUPERADMIN,
+  MAX_ELEMENTS_ACTION_MASSE,
+  type ActionMasseCatalogue,
+  type ResultatActionMasse,
+  type ResultatElementMasse,
+  type TypeCatalogue,
+} from './superadmin.types';
 import { DependancesService } from '../dependances/dependances.service';
 
 type Db = PrismaService | Prisma.TransactionClient;
+
+/** Message lisible d'une exception HTTP (chaîne, liste de messages ou objet `{ message }`). */
+function raisonDe(e: HttpException): string {
+  const r = e.getResponse();
+  const m = typeof r === 'string' ? r : (r as { message?: string | string[] }).message;
+  return Array.isArray(m) ? m.join(' ') : (m ?? e.message);
+}
 
 /**
  * SuperadminConfigService — panneau de configuration du SUPERADMIN_PRINCIPAL
@@ -541,6 +556,69 @@ export class SuperadminConfigService {
       );
     });
     return { id, retire: true };
+  }
+
+  // --- Actions de masse sur le catalogue national --------------------
+
+  /**
+   * Archiver / désarchiver / supprimer (logiquement) PLUSIEURS éléments du catalogue national en une requête. Réservé au
+   * SUPERADMIN. Plafond de {@link MAX_ELEMENTS_ACTION_MASSE} éléments ; CHAQUE élément est contrôlé et traité individuellement
+   * par la même méthode que l'action unitaire (registre des dépendances, ADR-007) dans sa propre transaction avec `log_audit()` ;
+   * un refus n'arrête pas le lot et est tracé à part. Résultat partiel : pour chaque élément, réussi ou refusé avec la raison.
+   * Archiver = simple retrait du catalogue (réversible) : plus proposé à l'import, copies des organisations inchangées.
+   */
+  async actionMasseCatalogue(
+    user: AuthenticatedUser,
+    type: TypeCatalogue,
+    action: ActionMasseCatalogue,
+    ids: string[],
+  ): Promise<ResultatActionMasse> {
+    const { userId } = await this.assertSuperadmin(user);
+    const distincts = [...new Set(ids ?? [])];
+    if (distincts.length === 0) throw new BadRequestException('Sélectionnez au moins un élément.');
+    if (distincts.length > MAX_ELEMENTS_ACTION_MASSE) {
+      throw new BadRequestException(`Au plus ${MAX_ELEMENTS_ACTION_MASSE} éléments par action.`);
+    }
+    const table = type === 'actes' ? 'referentiel_national_actes' : 'referentiel_national_medicaments';
+    const existants =
+      type === 'actes'
+        ? (await this.prisma.referentielNationalActe.findMany({ where: { id: { in: distincts }, deletedAt: null }, select: { id: true, code: true, libelle: true } })).map(
+            (a) => [a.id, `${a.code} — ${a.libelle}`] as const,
+          )
+        : (await this.prisma.referentielNationalMedicament.findMany({ where: { id: { in: distincts }, deletedAt: null }, select: { id: true, denominationCommune: true, nomCommercial: true } })).map(
+            (m) => [m.id, m.nomCommercial ? `${m.denominationCommune} (${m.nomCommercial})` : m.denominationCommune] as const,
+          );
+    const noms = new Map(existants);
+
+    const resultats: ResultatElementMasse[] = [];
+    for (const id of distincts) {
+      const nom = noms.get(id) ?? id;
+      if (!noms.has(id)) {
+        const raison = type === 'actes' ? 'Acte introuvable dans le catalogue national.' : 'Médicament introuvable dans le catalogue national.';
+        await this.dependances.tracerRefusMetier(user, table, id, `masse_${action}`, raison);
+        resultats.push({ id, nom, ok: false, raison });
+        continue;
+      }
+      try {
+        if (action === 'supprimer') {
+          if (type === 'actes') await this.supprimerActeNational(user, id);
+          else await this.supprimerMedicamentNational(user, id);
+        } else {
+          await this.changerStatutNational(user, type, id, action);
+        }
+        resultats.push({ id, nom, ok: true, raison: null });
+      } catch (e) {
+        // un refus (409 du registre, introuvable…) n'arrête pas le lot : l'élément est signalé avec sa raison
+        if (!(e instanceof HttpException)) throw e;
+        resultats.push({ id, nom, ok: false, raison: raisonDe(e) });
+      }
+    }
+    const reussis = resultats.filter((r) => r.ok).length;
+    // synthèse du lot (chaque réussite a déjà sa propre ligne d'audit ; les refus sont tracés par le registre)
+    await this.prisma.$transaction(async (tx) => {
+      await this.audit(tx, userId, `ACTION_MASSE_CATALOGUE_NATIONAL_${action.toUpperCase()}`, distincts[0], { type, demandes: distincts.length, reussis, refuses: distincts.length - reussis }, table);
+    });
+    return { type, action, demandes: distincts.length, reussis, refuses: distincts.length - reussis, resultats };
   }
 
   // --- Helpers -------------------------------------------------

@@ -14,7 +14,7 @@
  *
  * Doc et exemples : `./README.md`.
  */
-export { DataTable, type ColonneTable, type FiltreSelect } from './data-table';
+export { DataTable, type ColonneTable, type FiltreSelect, type SelectionTable } from './data-table';
 export {
   FiltresServeur,
   PaginationServeur,

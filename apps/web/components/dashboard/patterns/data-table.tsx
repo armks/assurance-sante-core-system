@@ -9,7 +9,7 @@ import {
   Search,
 } from 'lucide-react';
 import * as React from 'react';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,18 @@ import { cn } from '@/lib/utils';
 
 const CLASSE_SELECT =
   'h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50';
+
+/**
+ * Sélection de lignes (actions de masse). La sélection ne porte QUE sur la page affichée : la case d'en-tête coche les lignes
+ * de la page, et tout changement de page, de filtre, de recherche ou de tri vide la sélection (jamais d'action sur des
+ * lignes que l'utilisateur ne voit plus).
+ */
+export interface SelectionTable<T> {
+  ids: ReadonlySet<string>;
+  onChange: (ids: Set<string>) => void;
+  /** Barre d'actions affichée sous le compteur quand au moins une ligne est sélectionnée (lignes sélectionnées). */
+  barre?: (lignes: T[]) => React.ReactNode;
+}
 
 /** Définition d'une colonne. `T` = type d'une ligne. */
 export interface ColonneTable<T> {
@@ -65,6 +77,7 @@ export function DataTable<T extends object>({
   vide = 'Aucune donnée.',
   tailleTexte = 'text-sm',
   piedMasque = false,
+  selection,
 }: {
   colonnes: ColonneTable<T>[];
   donnees: T[];
@@ -85,6 +98,8 @@ export function DataTable<T extends object>({
    * SERVEUR, où `PaginationServeur` affiche le vrai total filtré.
    */
   piedMasque?: boolean;
+  /** Cases à cocher par ligne + « tout sélectionner (page affichée) » + compteur. */
+  selection?: SelectionTable<T>;
 }) {
   const [q, setQ] = useState('');
   const [valeursFiltres, setValeursFiltres] = useState<Record<string, string>>(
@@ -155,6 +170,29 @@ export function DataTable<T extends object>({
     ? lignesFiltrees.slice((pageSure - 1) * parPage, pageSure * parPage)
     : lignesFiltrees;
 
+  // la sélection est vidée quand la page, les filtres, la recherche ou le tri changent
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  const signatureAffichage = `${pageSure}|${q}|${JSON.stringify(valeursFiltres)}|${tri ? `${tri.cle}${tri.sens}` : ''}`;
+  useEffect(() => {
+    const sel = selectionRef.current;
+    if (sel && sel.ids.size > 0) sel.onChange(new Set());
+  }, [signatureAffichage]);
+  const lignesSelectionnees = selection ? lignesAffichees.filter((r) => selection.ids.has(cleLigne(r))) : [];
+  const toutCoche = lignesAffichees.length > 0 && lignesSelectionnees.length === lignesAffichees.length;
+  const basculerLigne = (row: T) => {
+    if (!selection) return;
+    const next = new Set(selection.ids);
+    const id = cleLigne(row);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    selection.onChange(next);
+  };
+  const basculerTout = () => {
+    if (!selection) return;
+    selection.onChange(toutCoche ? new Set() : new Set(lignesAffichees.map(cleLigne)));
+  };
+
   const basculerTri = (cle: string) =>
     setTri((t) =>
       t?.cle !== cle
@@ -164,7 +202,7 @@ export function DataTable<T extends object>({
           : null,
     );
 
-  const nbCol = colonnes.length + (actionLigne ? 1 : 0);
+  const nbCol = colonnes.length + (actionLigne ? 1 : 0) + (selection ? 1 : 0);
   const aBarreOutils = recherche || filtres.length > 0 || actions;
 
   return (
@@ -214,10 +252,33 @@ export function DataTable<T extends object>({
         </div>
       )}
 
+      {selection && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm" data-testid="barre-selection">
+          <span role="status">
+            <strong>{lignesSelectionnees.length}</strong> sélectionné{lignesSelectionnees.length > 1 ? 's' : ''}
+            <span className="ml-2 text-xs text-muted-foreground">
+              La sélection ne porte que sur la page affichée ({lignesAffichees.length} ligne{lignesAffichees.length > 1 ? 's' : ''}) ; elle est vidée si vous changez de page, de filtre ou de tri.
+            </span>
+          </span>
+          {lignesSelectionnees.length > 0 && selection.barre && <span className="flex flex-wrap items-center gap-2">{selection.barre(lignesSelectionnees)}</span>}
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-lg border">
         <table className={cn('w-full', tailleTexte)}>
           <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
             <tr>
+              {selection && (
+                <th className="w-8 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    aria-label="Tout sélectionner (page affichée)"
+                    checked={toutCoche}
+                    disabled={lignesAffichees.length === 0}
+                    onChange={basculerTout}
+                  />
+                </th>
+              )}
               {colonnes.map((c) => (
                 <th
                   key={c.cle}
@@ -278,7 +339,17 @@ export function DataTable<T extends object>({
             ) : (
               <>
                 {lignesAffichees.map((row) => (
-                  <tr key={cleLigne(row)} className="border-t">
+                  <tr key={cleLigne(row)} className="border-t" data-selectionne={selection?.ids.has(cleLigne(row)) ? 'oui' : undefined}>
+                    {selection && (
+                      <td className="w-8 px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Sélectionner la ligne ${cleLigne(row)}`}
+                          checked={selection.ids.has(cleLigne(row))}
+                          onChange={() => basculerLigne(row)}
+                        />
+                      </td>
+                    )}
                     {colonnes.map((c) => (
                       <td
                         key={c.cle}

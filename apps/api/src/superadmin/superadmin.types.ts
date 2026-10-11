@@ -29,3 +29,26 @@ export const LIBELLE_ACTION: Record<string, string> = {
   SUSPENSION_ORGANISATION: "Suspension d'une organisation",
   PROLONGATION_ORGANISATION: "Prolongation de la licence d'une organisation",
 };
+
+/** Actions de masse sur le catalogue national : plafond d'éléments par requête (chacun est contrôlé individuellement). */
+export const MAX_ELEMENTS_ACTION_MASSE = 100;
+export const ACTIONS_MASSE_CATALOGUE = ['archiver', 'desarchiver', 'supprimer'] as const;
+export type ActionMasseCatalogue = (typeof ACTIONS_MASSE_CATALOGUE)[number];
+export type TypeCatalogue = 'actes' | 'medicaments';
+
+/** Résultat par élément d'une action de masse. */
+export interface ResultatElementMasse {
+  id: string;
+  nom: string;
+  ok: boolean;
+  /** Raison en français quand l'élément est refusé. */
+  raison: string | null;
+}
+export interface ResultatActionMasse {
+  type: TypeCatalogue;
+  action: ActionMasseCatalogue;
+  demandes: number;
+  reussis: number;
+  refuses: number;
+  resultats: ResultatElementMasse[];
+}

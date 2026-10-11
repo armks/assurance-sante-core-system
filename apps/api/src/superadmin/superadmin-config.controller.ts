@@ -19,6 +19,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { CatalogueImportService, type FichierTeleverse } from './catalogue-import.service';
 import {
+  ActionMasseCatalogueDto,
   CreerActeNationalDto,
   CreerLettreCleDto,
   CreerMedicamentNationalDto,
@@ -157,6 +158,37 @@ export class SuperadminConfigController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.config.changerStatutNational(user, 'actes', id, 'desarchiver');
+  }
+
+  // --- Actions de masse (SUPERADMIN) : un endpoint par action, un contrôle par élément ---
+  @Post('catalogue-national/actes/masse/archiver')
+  archiverActesEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'actes', 'archiver', dto.ids);
+  }
+
+  @Post('catalogue-national/actes/masse/desarchiver')
+  desarchiverActesEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'actes', 'desarchiver', dto.ids);
+  }
+
+  @Post('catalogue-national/actes/masse/supprimer')
+  supprimerActesEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'actes', 'supprimer', dto.ids);
+  }
+
+  @Post('catalogue-national/medicaments/masse/archiver')
+  archiverMedicamentsEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'medicaments', 'archiver', dto.ids);
+  }
+
+  @Post('catalogue-national/medicaments/masse/desarchiver')
+  desarchiverMedicamentsEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'medicaments', 'desarchiver', dto.ids);
+  }
+
+  @Post('catalogue-national/medicaments/masse/supprimer')
+  supprimerMedicamentsEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'medicaments', 'supprimer', dto.ids);
   }
 
   // --- Catalogue national : médicaments ---

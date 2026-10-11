@@ -133,3 +133,30 @@ export async function changerStatutItemNational(
   revalidatePath(CIBLE);
   return { ok: true };
 }
+
+// --- Actions de masse (SUPERADMIN) : archiver / désarchiver / supprimer plusieurs éléments à la fois. -------------
+
+export interface ResultatActionMasse {
+  type: 'actes' | 'medicaments';
+  action: 'archiver' | 'desarchiver' | 'supprimer';
+  demandes: number;
+  reussis: number;
+  refuses: number;
+  resultats: { id: string; nom: string; ok: boolean; raison: string | null }[];
+}
+
+/** Le serveur contrôle chaque élément (registre des dépendances) et renvoie un résultat partiel. */
+export async function actionMasseCatalogue(
+  type: 'actes' | 'medicaments',
+  action: 'archiver' | 'desarchiver' | 'supprimer',
+  ids: string[],
+): Promise<{ ok: true; resultat: ResultatActionMasse } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/superadmin/catalogue-national/${type}/masse/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true, resultat: (await res.json()) as ResultatActionMasse };
+}

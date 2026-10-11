@@ -17,5 +17,6 @@ export function dependancesDeTest() {
     assertPossible: jest.fn(async (_u: unknown, entite: string, id: string, action: string) => possible(entite, id, action)),
     verifier: jest.fn(async (_u: unknown, entite: string, id: string, action: string) => possible(entite, id, action)),
     verifierTout: jest.fn(async () => []),
+    tracerRefusMetier: jest.fn(async () => undefined),
   };
 }

@@ -10,6 +10,7 @@ import {
   modifierActeNational,
   supprimerItemNational,
   type ImportCatalogueResume,
+  type ResultatActionMasse,
 } from '@/app/superadmin/catalogue-national/actions';
 import {
   ChampSelect,
@@ -23,6 +24,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { verifierAction } from '@/app/dependances-actions';
+import { ActionsMasseCatalogue, ResultatMasse } from '@/components/superadmin/actions-masse-catalogue';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
 import { Stethoscope, Pill } from 'lucide-react';
@@ -74,6 +76,16 @@ export function CatalogueNationalEcran({
   const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
   const [voirArchives, setVoirArchives] = useState(false);
+  // actions de masse : sélection limitée à la page affichée de chaque tableau, résultat détaillé
+  const [selActes, setSelActes] = useState<Set<string>>(new Set());
+  const [selMeds, setSelMeds] = useState<Set<string>>(new Set());
+  const [resultatMasse, setResultatMasse] = useState<ResultatActionMasse | null>(null);
+  const apresMasse = (r: ResultatActionMasse) => {
+    setResultatMasse(r);
+    setSelActes(new Set());
+    setSelMeds(new Set());
+    router.refresh();
+  };
   const actesVisibles = voirArchives ? actes : actes.filter((a) => a.statut !== 'RETIRE');
   const medicamentsVisibles = voirArchives ? medicaments : medicaments.filter((m) => m.statutHomologation !== 'RETIRE');
   const nbArchives =
@@ -170,6 +182,8 @@ export function CatalogueNationalEcran({
         </label>
       )}
 
+      {resultatMasse && <ResultatMasse resultat={resultatMasse} onFermer={() => setResultatMasse(null)} />}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Actes</CardTitle>
@@ -179,6 +193,17 @@ export function CatalogueNationalEcran({
             donnees={actesVisibles}
             cleLigne={(a) => a.id}
             parPage={10}
+            selection={{
+              ids: selActes,
+              onChange: setSelActes,
+              barre: (lignes) => (
+                <ActionsMasseCatalogue
+                  type="actes"
+                  elements={lignes.map((a) => ({ id: a.id, nom: `${a.code} — ${a.libelle}`, archive: a.statut === 'RETIRE' }))}
+                  onTermine={apresMasse}
+                />
+              ),
+            }}
             recherche={{ placeholder: 'Code, libellé…', champs: ['code', 'libelle'] }}
             colonnes={colActes}
             actions={
@@ -281,6 +306,17 @@ export function CatalogueNationalEcran({
             donnees={medicamentsVisibles}
             cleLigne={(m) => m.id}
             parPage={10}
+            selection={{
+              ids: selMeds,
+              onChange: setSelMeds,
+              barre: (lignes) => (
+                <ActionsMasseCatalogue
+                  type="medicaments"
+                  elements={lignes.map((m) => ({ id: m.id, nom: m.denominationCommune, archive: m.statutHomologation === 'RETIRE' }))}
+                  onTermine={apresMasse}
+                />
+              ),
+            }}
             recherche={{
               placeholder: 'DCI, classe…',
               champs: ['denominationCommune', 'classeTherapeutique'],

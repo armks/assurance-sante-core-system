@@ -146,3 +146,10 @@ Un écran n'affiche **jamais** un code brut (`PROPOSE`, `FORFAIT`, `E016`…). L
 
 `libelleDe` renvoie une forme lisible (jamais le code) si une valeur n'est pas dans la table. Tout nouveau statut s'ajoute d'abord dans
 la table, puis dans l'écran.
+
+## `DataTable` — sélection de lignes et actions de masse
+
+`selection={{ ids, onChange, barre }}` ajoute une case par ligne, « Tout sélectionner (page affichée) », un compteur « N sélectionnés » et la barre
+d'actions `barre(lignesSelectionnees)`. La sélection **ne porte que sur la page affichée** et est vidée au changement de page, de filtre, de recherche ou de tri.
+Les actions de masse passent par `ConfirmationAction` (nombre d'éléments + quelques noms) et le serveur contrôle chaque élément (résultat partiel, raison par
+élément) — voir `components/superadmin/actions-masse-catalogue.tsx` et l'ADR-007.

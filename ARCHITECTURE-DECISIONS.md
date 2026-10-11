@@ -1118,3 +1118,18 @@ sociétés est rejouée sur l'ensemble du barème.
 - **NGAMBCI** : modèle d'import VIDE (`docs/import/ngambci-catalogue-actes-modele.xlsx`, format vérifié par l'import réel), procédure
   (`docs/CHARGEMENT-NGAMBCI.md`) et script de retrait des données fictives (`scripts/retirer-donnees-fictives.cjs`, simulation par défaut ;
   ne supprime jamais une convention validée ni une donnée référencée).
+
+### Actions de masse sur le catalogue national (2026-10-11) — ADR-007
+- **Écran `/superadmin/catalogue-national`** (actes et médicaments), réservé au SUPERADMIN : cases à cocher par ligne, « tout sélectionner » limité à la
+  **page affichée**, compteur « N sélectionnés », barre d'actions ; la sélection est vidée dès que la page, le filtre, la recherche ou le tri change (jamais
+  d'action sur des lignes cachées) et l'écran l'indique. Brique réutilisable : propriété `selection` de `DataTable`.
+- **Archiver / désarchiver** = simple désactivation réversible (statut `RETIRE` ↔ `HOMOLOGUE`, date de retrait). Les médicaments du catalogue avaient déjà ce statut
+  (`statut_homologation`) : **aucune migration nécessaire**. Un élément archivé n'est plus proposé à l'import (liste et import des organisations) ; les copies
+  déjà importées ne sont jamais modifiées.
+- **Supprimer** = suppression logique, seulement pour les éléments sans dépendance (registre : aucune organisation ne l'a importé). Les autres sont refusés,
+  sans arrêter le lot : résultat partiel avec, pour chaque élément, la raison en français.
+- **Serveur** : un endpoint par action et par type (`POST /superadmin/catalogue-national/{actes|medicaments}/masse/{archiver|desarchiver|supprimer}`, corps
+  `{ ids }`), plafond de 100 éléments (400 au-delà, sélection vide ou doublons refusés), contrôle **individuel** de chaque élément par la même méthode que l'action
+  unitaire (registre des dépendances), une transaction par élément avec `log_audit()` (succès), refus tracés à part (`REFUS_*`), synthèse du lot dans l'audit.
+  Aucun contrôle uniquement côté écran ; tout rôle autre que SUPERADMIN_PRINCIPAL reçoit 403.
+- **Confirmation** : `ConfirmationAction` (nombre d'éléments, trois noms, effet) puis résultat détaillé (réussis / refusés avec raison).

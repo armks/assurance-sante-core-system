@@ -178,7 +178,7 @@ export function EnTeteAccueil({ marque, racine: accueil = '/' }: { marque?: Marq
             return (
               <div
                 key={c.id}
-                style={{ animationDelay: `${500 + rang * 300}ms` }}
+                style={{ animationDelay: `${350 + rang * 250}ms` }}
                 className={cn(
                   'megamenu-colonne rounded-2xl p-5 transition-colors duration-500',
                   ouvert === c.id ? 'bg-white/[0.06]' : 'bg-transparent',

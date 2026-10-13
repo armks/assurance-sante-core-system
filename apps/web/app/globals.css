@@ -160,8 +160,8 @@
   from { opacity: 0; transform: translateY(-18px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.megamenu-panneau { animation: megamenu-ouverture 1800ms cubic-bezier(0.45, 0, 0.25, 1) backwards; }
-.megamenu-colonne { animation: megamenu-colonne 1500ms cubic-bezier(0.35, 0, 0.2, 1) backwards; }
+.megamenu-panneau { animation: megamenu-ouverture 1400ms cubic-bezier(0.4, 0, 0.2, 1) backwards; }
+.megamenu-colonne { animation: megamenu-colonne 1150ms cubic-bezier(0.33, 0, 0.2, 1) backwards; }
 
 @media (prefers-reduced-motion: reduce) {
   .defilement-cache { opacity: 1; transform: none; }

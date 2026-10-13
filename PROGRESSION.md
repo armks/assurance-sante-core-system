@@ -8646,3 +8646,6 @@ Terminé.
 
 ## 2026-10-13 — Page d'accueil : première image de la bannière à affichage lent
 - À l'ouverture et à l'actualisation (F5) de la page d'accueil, la première image du slider d'en-tête émerge très lentement du fond sombre : fondu de 3 s (courbe douce, `hero-premiere-image` dans `globals.css`, sur la couche de photos de `carrousel-hero.tsx`). Opacité seule : la parallaxe n'est pas perturbée ; le fondu entre diapositives (0,9 s) est inchangé ; mouvement réduit : affichage immédiat. Mesuré à l'actualisation : opacité 0 → 0,07 (0,5 s) → 0,12 (1 s) → 0,75 (1,5 s) → 1 (≈ 2,6 s ; la lecture démarre au premier rendu, avant la fin du chargement de la page).
+
+## 2026-10-13 — Méga menu : vitesse légèrement augmentée
+- Ouverture un peu moins lente : panneau 1,8 → 1,4 s, colonnes 1,5 → 1,15 s, décalages 0,5 / 0,8 / 1,1 s → 0,35 / 0,6 / 0,85 s ; tout est visible vers 1,7 s (avant ≈ 2,6 s). Fermeture différée (0,45 s) et absence de masque résiduel inchangées.

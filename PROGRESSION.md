@@ -8593,3 +8593,6 @@ Terminé.
 
 ## 2026-10-13 — Espace superadmin : profil affiché et journal des actions
 - Le shell du superadmin affiche désormais pseudo, photo (ou initiales) et lien « Mon profil » (barre latérale, en-tête, menu mobile) ; nouvelle entrée « Journal des actions » (`/superadmin/journal-actions`) : traces de toutes les organisations. Recette navigateur : pseudo affiché, journal avec les traces de deux organisations, page « Mon profil » et retour vers `/superadmin`. Zéro résidu.
+
+## 2026-10-13 — Recette navigateur : photo et pseudo du superadmin
+- Sans photo : initiales ; pseudo enregistré (sans organisation) ; photo enregistrée, servie par `/profil/photo` (bucket privé, chemin `profils/{id}/…`) et visible dans la barre latérale et l'en-tête ; remplacement : l'ancienne photo est supprimée du stockage ; suppression : photo retirée du profil et du stockage, retour aux initiales ; journal : 4 modifications du profil tracées au superadmin (organisation vide), noms de champs `pseudo` / `photoUrl` sans valeurs. Zéro résidu (photos de test supprimées du stockage).

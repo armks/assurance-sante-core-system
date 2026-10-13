@@ -3,7 +3,7 @@ import Image from 'next/image';
 
 import type { EvenementPublic } from '@/lib/evenements-publics';
 
-import { CarrouselEvenements } from './carrousel-evenements';
+import { GalerieEvenements } from './galerie-evenements';
 import { PHOTOS } from './photos';
 
 const REPERES = [
@@ -13,8 +13,8 @@ const REPERES = [
 ];
 
 /**
- * « Qui sommes-nous ». La colonne visuelle affiche le carrousel des événements
- * publiés (même place, même format 4:3) ; sans événement, l'image habituelle.
+ * « Qui sommes-nous ». La colonne visuelle affiche la galerie à miniatures des événements
+ * publiés (photos qui glissent, légende sous la photo — distincte de la bannière d'en-tête) ; sans événement, l'image habituelle.
  */
 export function QuiSommesNous({ evenements = [] }: { evenements?: EvenementPublic[] }) {
   return (
@@ -22,7 +22,7 @@ export function QuiSommesNous({ evenements = [] }: { evenements?: EvenementPubli
       <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 md:grid-cols-12 md:gap-14">
         <div className="relative md:col-span-6">
           {evenements.length > 0 ? (
-            <CarrouselEvenements evenements={evenements} />
+            <GalerieEvenements evenements={evenements} />
           ) : (
             <Image
               src={PHOTOS.equipe.src}

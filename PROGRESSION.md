@@ -8572,3 +8572,7 @@ Terminé.
 
 ## 2026-10-13 — Recette HTTP réelle du journal des actions depuis chaque espace
 - Informatique (catalogue : création + modification), accueil du centre médical (ajout d'acte, déclaration de réalisation — tracée à l'accueil, jamais au médecin désigné), société (proposition de sortie), adhérent et pharmacie (profil) : chaque écriture est journalisée avec le rôle, l'organisation et la structure de l'auteur. La direction voit tout son périmètre (filtres auteur / table / opération / enregistrement), l'accueil est refusé (403). Zéro résidu.
+
+## 2026-10-13 — Recette HTTP réelle : dispensation de pharmacie (de l'ordonnance au remboursement)
+- Caissière prépare (5 000 : part assurance 3 500 calculée par le Java à 70 %, part patient 1 500 ; code non renvoyé à la pharmacie) → paiement refusé avant validation du code (403) → autre pharmacie : 404 → substitution : caissière refusée (403), pharmacien accepté → adhérent valide le code → caissière encaisse : lignes d'ordonnance SERVIES, réclamation créée et auto-adjugée ; double paiement 403, nouvelle dispensation d'une ligne servie 409.
+- Journal des actions : chaque étape tracée à son auteur réel (caissière, pharmacien, adhérent) avec rôle et pharmacie ; le médecin prescripteur n'est responsable d'aucune écriture ; pharmacien conseil refusé sur le journal (403). Audit métier complet. Zéro résidu.

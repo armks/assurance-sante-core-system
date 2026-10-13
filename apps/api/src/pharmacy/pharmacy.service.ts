@@ -28,6 +28,7 @@ import {
   DefinirPrixStockDto,
   LigneChoisieDto,
   ListerDispensationsQueryDto,
+  ModifierMedicamentListeDto,
   ListerMesDispensationsQueryDto,
   SoumettreFactureMensuelleDto,
   SubstituerMedicamentDto,
@@ -211,6 +212,147 @@ export class PharmacyService {
         dateMaj: new Date(),
       },
     });
+  }
+
+  // --- Liste des médicaments remboursables de la pharmacie (ADR-009) -------
+
+  /** Libellé d'un médicament dans une ordonnance et dans le stock : « DCI (nom commercial) » ou la seule DCI — le même que celui choisi à la prescription. */
+  private libelleMedicament(m: { denominationCommune: string; nomCommercial: string | null }): string {
+    return m.nomCommercial && m.nomCommercial.toLowerCase() !== m.denominationCommune.toLowerCase()
+      ? `${m.denominationCommune} (${m.nomCommercial})`
+      : m.denominationCommune;
+  }
+
+  /**
+   * Médicament du catalogue national, homologué ET activé par l'organisation de la pharmacie (donc remboursable) ; 404 sinon.
+   * Seul le contenu médicament est concerné : aucun acte n'entre dans cette liste.
+   */
+  private async medicamentRemboursable(organisationId: string, nationalId: string) {
+    const m = await this.prisma.referentielNationalMedicament.findFirst({
+      where: {
+        id: nationalId,
+        deletedAt: null,
+        statutHomologation: 'HOMOLOGUE',
+      },
+      select: { id: true, denominationCommune: true, nomCommercial: true },
+    });
+    const active = m
+      ? await this.prisma.medicament.findFirst({
+          where: { organisationId, catalogueNationalId: nationalId, deletedAt: null, statutHomologation: 'HOMOLOGUE' },
+          select: { id: true },
+        })
+      : null;
+    if (!m || !active) {
+      throw new NotFoundException("Médicament introuvable parmi les médicaments remboursables de votre assureur.");
+    }
+    return m;
+  }
+
+  /**
+   * « Médicaments remboursables » de la pharmacie : les médicaments du CATALOGUE NATIONAL homologués et activés par son assureur
+   * (jamais d'acte), chacun marqué « dans ma liste » (ajouté par le pharmacien) avec sa disponibilité et sa note. Lecture ouverte aux
+   * trois rôles pharmacie ; le prix national est montré en lecture seule.
+   */
+  async listerMedicamentsRemboursables(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+    const [medicaments, liste] = await Promise.all([
+      this.prisma.$queryRaw<
+        {
+          id: string;
+          denomination_commune: string;
+          nom_commercial: string | null;
+          dosage: string | null;
+          forme: string | null;
+          classe_therapeutique: string | null;
+          remboursable: boolean;
+          taux_remboursement_std: Prisma.Decimal | null;
+          prix_reference_xof: Prisma.Decimal | null;
+          medicament_essentiel: boolean;
+        }[]
+      >(Prisma.sql`
+        SELECT n.id, n.denomination_commune, n.nom_commercial, n.dosage, n.forme, n.classe_therapeutique, n.remboursable,
+               n.taux_remboursement_std, n.prix_reference_xof, n.medicament_essentiel
+          FROM referentiel_national_medicaments n
+         WHERE n.deleted_at IS NULL AND n.statut_homologation = 'HOMOLOGUE'
+           AND EXISTS (SELECT 1 FROM medicaments m
+                        WHERE m.organisation_id = ${ctx.organisationId}::uuid AND m.deleted_at IS NULL
+                          AND m.statut_homologation = 'HOMOLOGUE' AND m.catalogue_national_id = n.id)
+         ORDER BY n.denomination_commune, n.nom_commercial`),
+      this.prisma.stockMedicamentPharmacie.findMany({
+        where: { pharmacieId: ctx.pharmacieId!, catalogueNationalId: { not: null } },
+        select: { catalogueNationalId: true, disponible: true, note: true, dateMaj: true },
+      }),
+    ]);
+    const parId = new Map(liste.map((l) => [l.catalogueNationalId!, l]));
+    return medicaments.map((m) => {
+      const l = parId.get(m.id);
+      return {
+        id: m.id,
+        denominationCommune: m.denomination_commune,
+        nomCommercial: m.nom_commercial,
+        dosage: m.dosage,
+        forme: m.forme,
+        classeTherapeutique: m.classe_therapeutique,
+        remboursable: m.remboursable,
+        tauxRemboursementStd: m.taux_remboursement_std === null ? null : m.taux_remboursement_std.toString(),
+        prixReferenceXof: m.prix_reference_xof === null ? null : m.prix_reference_xof.toString(),
+        medicamentEssentiel: m.medicament_essentiel,
+        dansMaListe: !!l,
+        disponible: l ? l.disponible : null,
+        note: l ? l.note : null,
+        dateMajListe: l ? l.dateMaj : null,
+      };
+    });
+  }
+
+  /** Ajoute un médicament du catalogue à la liste de la pharmacie (pharmacien) — le catalogue n'est jamais modifié. */
+  async ajouterMedicamentAMaListe(user: AuthenticatedUser, nationalId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacien(ctx);
+    const m = await this.medicamentRemboursable(ctx.organisationId, nationalId);
+    const existant = await this.prisma.stockMedicamentPharmacie.findFirst({
+      where: { pharmacieId: ctx.pharmacieId!, catalogueNationalId: nationalId },
+      select: { id: true },
+    });
+    if (existant) throw new ConflictException('Ce médicament figure déjà dans votre liste.');
+    const libelle = this.libelleMedicament(m);
+    // une ligne de stock antérieure, saisie à la main sous le même libellé, est rattachée au catalogue plutôt que dupliquée
+    return this.prisma.stockMedicamentPharmacie.upsert({
+      where: { pharmacieId_denominationMedicament: { pharmacieId: ctx.pharmacieId!, denominationMedicament: libelle } },
+      create: { pharmacieId: ctx.pharmacieId!, denominationMedicament: libelle, catalogueNationalId: nationalId, disponible: true },
+      update: { catalogueNationalId: nationalId, dateMaj: new Date() },
+    });
+  }
+
+  /** Modifie la disponibilité et/ou la note d'un médicament de la liste (pharmacien). Aucun tarif, aucune donnée du catalogue. */
+  async modifierMedicamentDeMaListe(user: AuthenticatedUser, nationalId: string, dto: ModifierMedicamentListeDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacien(ctx);
+    const ligne = await this.prisma.stockMedicamentPharmacie.findFirst({
+      where: { pharmacieId: ctx.pharmacieId!, catalogueNationalId: nationalId },
+      select: { id: true },
+    });
+    if (!ligne) throw new NotFoundException("Ce médicament n'est pas dans votre liste : ajoutez-le d'abord.");
+    return this.prisma.stockMedicamentPharmacie.update({
+      where: { id: ligne.id },
+      data: {
+        ...(dto.disponible !== undefined ? { disponible: dto.disponible } : {}),
+        ...(dto.note !== undefined ? { note: dto.note.trim() || null } : {}),
+        dateMaj: new Date(),
+      },
+    });
+  }
+
+  /** Retire un médicament de la liste de la pharmacie (pharmacien) : il redevient « disponible par défaut », sans trace de note. */
+  async retirerMedicamentDeMaListe(user: AuthenticatedUser, nationalId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacien(ctx);
+    const { count } = await this.prisma.stockMedicamentPharmacie.deleteMany({
+      where: { pharmacieId: ctx.pharmacieId!, catalogueNationalId: nationalId },
+    });
+    if (count === 0) throw new NotFoundException("Ce médicament n'est pas dans votre liste.");
+    return { retire: true };
   }
 
   // --- Prix national de référence et seuil de majoration ------------------

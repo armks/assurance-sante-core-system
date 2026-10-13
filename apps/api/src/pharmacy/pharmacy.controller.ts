@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -15,6 +17,7 @@ import {
   DefinirPrixStockDto,
   ListerDispensationsQueryDto,
   ListerMesDispensationsQueryDto,
+  ModifierMedicamentListeDto,
   PreparerDispensationDto,
   RechercherParCarteQueryDto,
   SoumettreFactureMensuelleDto,
@@ -41,6 +44,33 @@ export class PharmacyController {
     @Query() dto: RechercherParCarteQueryDto,
   ) {
     return this.pharmacy.rechercherPrescriptionsParCarte(user, dto.numeroCarte);
+  }
+
+  /** Côté PHARMACIE (3 rôles) : médicaments remboursables = catalogue national activé par l'assureur, avec « ma liste ». */
+  @Get('medicaments-remboursables')
+  listerMedicamentsRemboursables(@CurrentUser() user: AuthenticatedUser) {
+    return this.pharmacy.listerMedicamentsRemboursables(user);
+  }
+
+  /** Côté PHARMACIE_PHARMACIEN exclusivement : ajoute un médicament du catalogue à sa liste. */
+  @Post('medicaments-remboursables/:id/ajouter')
+  ajouterMedicamentAMaListe(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.pharmacy.ajouterMedicamentAMaListe(user, id);
+  }
+
+  /** Côté PHARMACIE_PHARMACIEN exclusivement : disponibilité / note d'un médicament de sa liste (jamais un tarif). */
+  @Patch('medicaments-remboursables/:id')
+  modifierMedicamentDeMaListe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModifierMedicamentListeDto,
+  ) {
+    return this.pharmacy.modifierMedicamentDeMaListe(user, id, dto);
+  }
+
+  @Delete('medicaments-remboursables/:id')
+  retirerMedicamentDeMaListe(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.pharmacy.retirerMedicamentDeMaListe(user, id);
   }
 
   /** Côté PHARMACIE_PHARMACIEN exclusivement : son stock (prix/disponibilité). */

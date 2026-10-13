@@ -86,6 +86,19 @@ export class ListerMesDispensationsQueryDto extends PeriodeQueryDto {
   statut?: (typeof STATUTS_DISPENSATION)[number];
 }
 
+/** Mise à jour d'un médicament de la liste de la pharmacie : disponibilité et/ou note. Aucun tarif. */
+export class ModifierMedicamentListeDto {
+  @IsOptional()
+  @IsBoolean()
+  disponible?: boolean;
+
+  /** Note libre (200 caractères max) ; chaîne vide = l'effacer. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  note?: string;
+}
+
 export class SubstituerMedicamentDto {
   @IsString()
   @IsNotEmpty()

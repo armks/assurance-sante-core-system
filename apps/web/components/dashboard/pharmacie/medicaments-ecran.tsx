@@ -1,25 +1,54 @@
 'use client';
 
-import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboard/patterns';
+import { useRouter } from 'next/navigation';
+import { useState, useTransition } from 'react';
 
+import {
+  ajouterMedicamentAMaListe,
+  modifierMedicamentDeMaListe,
+  retirerMedicamentDeMaListe,
+} from '@/app/dashboard-pharmacie/liste-medicaments-actions';
+import {
+  ChampCheckbox,
+  ChampTexte,
+  ConfirmationAction,
+  DataTable,
+  FormulaireModal,
+  StatutBadge,
+  type ColonneTable,
+} from '@/components/dashboard/patterns';
+import { Button } from '@/components/ui/button';
+
+/** Médicament du catalogue national activé par l'assureur, avec l'état dans la liste de la pharmacie. */
 export interface MedicamentReference {
   id: string;
   denominationCommune: string;
   nomCommercial: string | null;
   dosage: string | null;
+  forme: string | null;
   classeTherapeutique: string | null;
   remboursable: boolean;
   tauxRemboursementStd: string | number | null;
-  prixMaxRemboursable: string | number | null;
+  prixReferenceXof: string | number | null;
   medicamentEssentiel: boolean;
-  statutHomologation: string;
+  dansMaListe: boolean;
+  disponible: boolean | null;
+  note: string | null;
 }
 
-const montant = (v: string | number | null) =>
-  v === null ? '—' : `${Number(v).toLocaleString('fr-FR')} F`;
+const montant = (v: string | number | null) => (v === null ? '—' : `${Number(v).toLocaleString('fr-FR')} F`);
 const pourcent = (v: string | number | null) => (v === null ? '—' : `${Number(v)} %`);
 
-export function MedicamentsEcran({ medicaments }: { medicaments: MedicamentReference[] }) {
+/**
+ * « Médicaments remboursables » de la pharmacie : les médicaments du catalogue national activés par son assureur (aucun acte).
+ * Le pharmacien ajoute à SA liste, signale la disponibilité et note ; le catalogue et son prix national restent en lecture seule.
+ */
+export function MedicamentsEcran({ medicaments, peutModifier }: { medicaments: MedicamentReference[]; peutModifier: boolean }) {
+  const router = useRouter();
+  const [enCours, demarrer] = useTransition();
+  const [erreur, setErreur] = useState<string | null>(null);
+  const rafraichir = () => router.refresh();
+
   const colonnes: ColonneTable<MedicamentReference>[] = [
     {
       cle: 'denominationCommune',
@@ -28,23 +57,11 @@ export function MedicamentsEcran({ medicaments }: { medicaments: MedicamentRefer
       rendu: (m) => (
         <div>
           <p className="font-medium">{m.denominationCommune}</p>
-          {m.nomCommercial && (
-            <p className="text-xs text-muted-foreground">{m.nomCommercial}</p>
-          )}
+          {m.nomCommercial && <p className="text-xs text-muted-foreground">{m.nomCommercial}</p>}
         </div>
       ),
     },
-    { cle: 'dosage', entete: 'Dosage', rendu: (m) => m.dosage ?? '—' },
-    {
-      cle: 'remboursable',
-      entete: 'Remboursable',
-      rendu: (m) =>
-        m.remboursable ? (
-          <StatutBadge statut="oui" ton="succes" libelle="Oui" />
-        ) : (
-          <StatutBadge statut="non" ton="neutre" libelle="Non" />
-        ),
-    },
+    { cle: 'dosage', entete: 'Dosage · forme', rendu: (m) => [m.dosage, m.forme].filter(Boolean).join(' · ') || '—' },
     {
       cle: 'tauxRemboursementStd',
       entete: 'Taux standard',
@@ -53,42 +70,106 @@ export function MedicamentsEcran({ medicaments }: { medicaments: MedicamentRefer
       rendu: (m) => pourcent(m.tauxRemboursementStd),
     },
     {
-      cle: 'prixMaxRemboursable',
-      entete: 'Prix max. remboursable',
+      cle: 'prixReferenceXof',
+      entete: 'Prix national (lecture seule)',
       aligneDroite: true,
-      valeur: (m) => Number(m.prixMaxRemboursable ?? 0),
-      rendu: (m) => montant(m.prixMaxRemboursable),
+      valeur: (m) => Number(m.prixReferenceXof ?? 0),
+      rendu: (m) => montant(m.prixReferenceXof),
+    },
+    {
+      cle: 'dansMaListe',
+      entete: 'Ma liste',
+      valeur: (m) => (m.dansMaListe ? 'oui' : 'non'),
+      rendu: (m) =>
+        !m.dansMaListe ? (
+          <span className="text-xs text-muted-foreground">—</span>
+        ) : m.disponible === false ? (
+          <StatutBadge statut="INDISPONIBLE" ton="danger" libelle="Indisponible" />
+        ) : (
+          <StatutBadge statut="DISPONIBLE" ton="succes" libelle="Disponible" />
+        ),
+    },
+    {
+      cle: 'note',
+      entete: 'Note',
+      rendu: (m) => <span className="text-xs text-muted-foreground">{m.note ?? ''}</span>,
     },
   ];
 
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Référentiel national des médicaments homologués — lecture seule. Il ne s’agit pas
-        d’un stock de pharmacie (aucune gestion de quantités disponibles n’existe
-        aujourd’hui dans l’application).
+        Médicaments du catalogue national activés par votre assureur ({medicaments.length}). Le prix et le taux nationaux ne sont pas modifiables ici ; le prix pratiqué
+        se saisit au comptoir.{' '}
+        {peutModifier
+          ? 'Ajoutez à votre liste les médicaments que vous délivrez, et signalez leur disponibilité.'
+          : 'La liste de la pharmacie est tenue par le pharmacien.'}
       </p>
+      {erreur && <p className="text-sm text-destructive">{erreur}</p>}
       <DataTable
         donnees={medicaments}
         cleLigne={(m) => m.id}
         parPage={15}
-        recherche={{
-          placeholder: 'Dénomination, nom commercial…',
-          champs: ['denominationCommune', 'nomCommercial'],
-        }}
+        recherche={{ placeholder: 'Dénomination, nom commercial…', champs: ['denominationCommune', 'nomCommercial'] }}
         filtres={[
           {
-            cle: 'remboursable',
-            libelle: 'Remboursable',
+            cle: 'dansMaListe',
+            libelle: 'Ma liste',
             options: [
-              { valeur: 'oui', libelle: 'Oui' },
-              { valeur: 'non', libelle: 'Non' },
+              { valeur: 'oui', libelle: 'Dans ma liste' },
+              { valeur: 'non', libelle: 'Pas encore ajoutés' },
             ],
-            valeur: (m) => ((m as MedicamentReference).remboursable ? 'oui' : 'non'),
+            valeur: (m) => ((m as MedicamentReference).dansMaListe ? 'oui' : 'non'),
           },
         ]}
         colonnes={colonnes}
-        vide="Aucun médicament homologué pour l’instant."
+        actionLigne={
+          peutModifier
+            ? (m) =>
+                m.dansMaListe ? (
+                  <span className="flex justify-end gap-2">
+                    <FormulaireModal
+                      titre={`Ma liste — ${m.denominationCommune}`}
+                      mode="center"
+                      declencheurLabel="Modifier"
+                      libelleSoumettre="Enregistrer"
+                      onSoumettre={async (fd) =>
+                        modifierMedicamentDeMaListe(m.id, { disponible: fd.get('disponible') === 'on', note: String(fd.get('note') ?? '') })
+                      }
+                      onSucces={rafraichir}
+                    >
+                      <ChampCheckbox name="disponible" label="Disponible dans ma pharmacie" defaultChecked={m.disponible !== false} />
+                      <ChampTexte name="note" label="Note (facultatif)" defaultValue={m.note ?? ''} placeholder="Ex. rupture jusqu’au 20" />
+                    </FormulaireModal>
+                    <ConfirmationAction
+                      action="supprimer"
+                      libelles={{ titre: 'Retirer de ma liste', bouton: 'Retirer', verbe: 'retirer' }}
+                      element={`le médicament « ${m.denominationCommune} » de votre liste`}
+                      consequence="Il reste dans le catalogue national ; il est de nouveau réputé disponible par défaut."
+                      onConfirmer={() => retirerMedicamentDeMaListe(m.id)}
+                      onSucces={rafraichir}
+                    />
+                  </span>
+                ) : (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={enCours}
+                    onClick={() =>
+                      demarrer(async () => {
+                        setErreur(null);
+                        const r = await ajouterMedicamentAMaListe(m.id);
+                        if (r.ok) rafraichir();
+                        else setErreur(r.error);
+                      })
+                    }
+                  >
+                    Ajouter à ma liste
+                  </Button>
+                )
+            : undefined
+        }
+        vide="Aucun médicament du catalogue n’est activé par votre assureur pour l’instant."
       />
     </div>
   );

@@ -1342,6 +1342,9 @@ model StockMedicamentPharmacie {
   denominationMedicament String   @map("denomination_medicament")
   prixPharmacie          Decimal? @map("prix_pharmacie") @db.Decimal(14, 2)
   disponible             Boolean  @default(true)
+  /// Médicament du catalogue national ajouté à la liste de la pharmacie (prisma/sql/093) ; note libre (200 car. max).
+  catalogueNationalId    String?  @map("catalogue_national_id") @db.Uuid
+  note                   String?
   dateMaj                DateTime @default(now()) @map("date_maj") @db.Timestamptz(6)
   createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 

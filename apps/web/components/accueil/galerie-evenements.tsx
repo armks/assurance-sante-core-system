@@ -5,7 +5,6 @@ import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
 import type { EvenementPublic } from '@/lib/evenements-publics';
-import { cn } from '@/lib/utils';
 
 const DUREE_DIAPO_MS = 7000;
 
@@ -28,9 +27,10 @@ function useMouvementReduit(): boolean {
 /**
  * Galerie des événements (5 au plus) du bloc « Qui sommes-nous » — volontairement différente de la bannière d'en-tête
  * (fondu enchaîné, texte superposé, barres de progression) :
- *  - les photos GLISSENT horizontalement sur une piste (4:3, coins arrondis) ;
+ *  - les photos GLISSENT horizontalement sur une piste (4:3 sur mobile ; dès la largeur « md » la photo occupe toute la hauteur laissée libre
+ *    par la légende, pour que la galerie ait exactement la hauteur du bloc de texte voisin) ;
  *  - la légende (date, titre, description) est dans une CARTE sous la photo, jamais superposée ;
- *  - flèches précédent / suivant sur la photo, compteur « 2 / 5 » et rangée de MINIATURES cliquables.
+ *  - flèches précédent / suivant sur la photo et compteur « 2 / 5 » (pas de miniatures : la galerie reste aussi haute que le bloc de texte voisin).
  * Accessibilité : défilement automatique suspendu au survol, au focus, par le bouton Pause (WCAG 2.2.2) et désactivé si l'utilisateur
  * préfère réduire les animations ; flèches du clavier ← → ; un seul événement : photo fixe et légende, sans contrôles.
  */
@@ -57,7 +57,7 @@ export function GalerieEvenements({ evenements }: { evenements: EvenementPublic[
       role="region"
       aria-roledescription="carrousel"
       aria-label="Nos événements"
-      className="w-full"
+      className="flex h-full w-full flex-col"
       onMouseEnter={() => setSuspendu(true)}
       onMouseLeave={() => setSuspendu(false)}
       onFocus={() => setSuspendu(true)}
@@ -71,9 +71,9 @@ export function GalerieEvenements({ evenements }: { evenements: EvenementPublic[
       }}
     >
       {/* Piste : les photos glissent côte à côte. */}
-      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-muted ring-1 ring-border">
+      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-muted ring-1 ring-border md:aspect-auto md:min-h-[17rem] md:flex-1">
         <div
-          className="flex h-full transition-transform duration-[650ms] ease-[cubic-bezier(0.65,0,0.35,1)] motion-reduce:transition-none"
+          className="absolute inset-0 flex transition-transform duration-[650ms] ease-[cubic-bezier(0.65,0,0.35,1)] motion-reduce:transition-none"
           style={{ transform: `translateX(-${actif * 100}%)` }}
         >
           {evenements.map((e, i) => (
@@ -149,27 +149,6 @@ export function GalerieEvenements({ evenements }: { evenements: EvenementPublic[
           </p>
         )}
       </div>
-
-      {/* Miniatures cliquables. */}
-      {plusieurs && (
-        <div className="mt-3 flex gap-2" role="group" aria-label="Choisir un événement">
-          {evenements.map((e, i) => (
-            <button
-              key={e.id}
-              type="button"
-              onClick={() => aller(i)}
-              aria-label={`Événement ${i + 1} sur ${n} : ${e.titre}`}
-              aria-current={i === actif}
-              className={cn(
-                'relative aspect-[4/3] min-w-0 flex-1 overflow-hidden rounded-lg ring-offset-2 ring-offset-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                i === actif ? 'ring-2 ring-primary' : 'opacity-60 hover:opacity-100',
-              )}
-            >
-              <Image src={e.imageUrl} alt="" fill sizes="96px" className="object-cover" />
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 }

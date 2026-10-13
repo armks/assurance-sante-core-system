@@ -19,7 +19,7 @@ const REPERES = [
 export function QuiSommesNous({ evenements = [] }: { evenements?: EvenementPublic[] }) {
   return (
     <section id="qui-sommes-nous" className="scroll-mt-20 py-[2.625rem] md:py-[3.625rem]">
-      <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 md:grid-cols-12 md:gap-14">
+      <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 md:grid-cols-12 md:items-stretch md:gap-14">
         <div className="relative md:col-span-6">
           {evenements.length > 0 ? (
             <GalerieEvenements evenements={evenements} />
@@ -34,7 +34,7 @@ export function QuiSommesNous({ evenements = [] }: { evenements?: EvenementPubli
             />
           )}
         </div>
-        <div className="md:col-span-6">
+        <div className="md:col-span-6 md:self-center">
           <h2 className="font-display text-3xl font-semibold tracking-tight md:text-4xl">Qui sommes-nous</h2>
           <p className="mt-5 max-w-[60ch] leading-relaxed text-muted-foreground">
             Nous éditons le système de gestion de l’assurance santé collective utilisé par les assureurs, les

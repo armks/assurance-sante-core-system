@@ -1,5 +1,12 @@
 export const ROLE_SUPERADMIN = 'SUPERADMIN_PRINCIPAL';
 
+/**
+ * Qui met à jour le CATALOGUE NATIONAL (actes, médicaments : création, modification, homologation, retrait, suppression, import Excel) :
+ * le superadmin ET l'assurance informatique (ADR-009). Le catalogue étant partagé, chaque écriture est tracée (`log_audit`, avec l'organisation
+ * de l'auteur). Les paramètres de la plateforme, la santé du système et les lettres-clés restent au seul superadmin.
+ */
+export const ROLES_GESTION_CATALOGUE_NATIONAL = [ROLE_SUPERADMIN, 'ASSUREUR_INFORMATIQUE'] as const;
+
 export const ACTIONS_SUPERADMIN = [
   'CREATION_ORGANISATION',
   'SUSPENSION_ORGANISATION',
@@ -32,7 +39,7 @@ export const LIBELLE_ACTION: Record<string, string> = {
 
 /** Actions de masse sur le catalogue national : plafond d'éléments par requête (chacun est contrôlé individuellement). */
 export const MAX_ELEMENTS_ACTION_MASSE = 100;
-export const ACTIONS_MASSE_CATALOGUE = ['archiver', 'desarchiver', 'supprimer'] as const;
+export const ACTIONS_MASSE_CATALOGUE = ['archiver', 'desarchiver', 'supprimer', 'homologuer'] as const;
 export type ActionMasseCatalogue = (typeof ACTIONS_MASSE_CATALOGUE)[number];
 export type TypeCatalogue = 'actes' | 'medicaments';
 

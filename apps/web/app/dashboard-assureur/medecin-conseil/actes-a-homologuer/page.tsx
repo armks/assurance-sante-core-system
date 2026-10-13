@@ -1,29 +1,30 @@
 import type { Metadata } from 'next';
 
-import {
-  HomologationPanneau,
-  type ActeRef,
-} from '@/components/dashboard/homologation-panneau';
+import { chargerCatalogue } from '@/app/dashboard-assureur/catalogue-chargement';
+import { CatalogueActivationEcran } from '@/components/dashboard/catalogue-activation-ecran';
 import { PageTitre } from '@/components/page-titre';
-import { apiFetch, messageErreur } from '@/lib/api';
+import { exigerIdentite } from '@/lib/identity';
+import { peutActiverReferentiel } from '@/lib/referentiel';
 
-export const metadata: Metadata = { title: 'Actes à homologuer' };
+export const metadata: Metadata = { title: 'Actes du catalogue national' };
 
-export default async function ActesAHomologuer() {
-  const res = await apiFetch('/api/v1/reference/actes');
-  const actes: ActeRef[] = res.ok ? await res.json() : [];
-  const erreur = res.ok ? null : await messageErreur(res);
+export default async function ActesDuCatalogue() {
+  const [etat, actes] = await Promise.all([
+    exigerIdentite('/dashboard-assureur/medecin-conseil/actes-a-homologuer'),
+    chargerCatalogue('actes'),
+  ]);
+  const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
 
   return (
     <div className="space-y-8">
       <PageTitre
-        titre="Actes à homologuer"
-        description="Référentiel des actes. Seul le médecin conseil peut faire passer un acte de PROPOSE à HOMOLOGUE."
+        titre="Actes du catalogue national"
+        description="Activez ou désactivez les actes homologués du catalogue national pour votre organisation : seuls les actes activés sont proposés à la saisie."
       />
-      {erreur ? (
-        <p className="text-sm text-destructive">{erreur}</p>
+      {actes.erreur ? (
+        <p className="text-sm text-destructive">{actes.erreur}</p>
       ) : (
-        <HomologationPanneau kind="actes" actes={actes} />
+        <CatalogueActivationEcran type="actes" elements={actes.elements} peutGerer={peutActiverReferentiel(roleChain)} />
       )}
     </div>
   );

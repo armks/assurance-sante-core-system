@@ -25,6 +25,7 @@ import {
 } from './dto/superadmin-config.dto';
 import {
   ROLE_SUPERADMIN,
+  ROLES_GESTION_CATALOGUE_NATIONAL,
   MAX_ELEMENTS_ACTION_MASSE,
   type ActionMasseCatalogue,
   type ResultatActionMasse,
@@ -212,7 +213,7 @@ export class SuperadminConfigService {
     user: AuthenticatedUser,
     filtres: { statut?: string } = {},
   ) {
-    await this.assertSuperadmin(user);
+    await this.assertGestionCatalogue(user);
     return this.prisma.referentielNationalActe.findMany({
       where: {
         deletedAt: null,
@@ -223,7 +224,7 @@ export class SuperadminConfigService {
   }
 
   async creerActeNational(user: AuthenticatedUser, dto: CreerActeNationalDto) {
-    const { userId } = await this.assertSuperadmin(user);
+    const { userId } = await this.assertGestionCatalogue(user);
     const existe = await this.prisma.referentielNationalActe.findFirst({
       where: { code: dto.code, deletedAt: null },
     });
@@ -265,7 +266,7 @@ export class SuperadminConfigService {
 
   /** Modification d'un acte du catalogue national : libellé, chapitre, version, cotation (tracée avant / après). */
   async modifierActeNational(user: AuthenticatedUser, id: string, dto: ModifierActeNationalDto) {
-    const { userId } = await this.assertSuperadmin(user);
+    const { userId } = await this.assertGestionCatalogue(user);
     const avant = await this.prisma.referentielNationalActe.findFirst({ where: { id, deletedAt: null } });
     if (!avant) throw new NotFoundException('Acte national introuvable.');
     await this.dependances.assertPossible(user, 'acteNational', id, 'modifier');
@@ -315,7 +316,7 @@ export class SuperadminConfigService {
   // --- Lettres-clés (prisma/sql/080) : paramétrables, sans valeur chiffrée ------------------
 
   async listerLettresCles(user: AuthenticatedUser) {
-    await this.assertSuperadmin(user);
+    await this.assertGestionCatalogue(user);
     const [lettres, nationaux, organisations] = await Promise.all([
       this.lettresCles.lister(),
       this.prisma.referentielNationalActe.groupBy({ by: ['lettreCleCode'], where: { deletedAt: null, lettreCleCode: { not: null } }, _count: true }),
@@ -406,7 +407,7 @@ export class SuperadminConfigService {
   }
 
   async supprimerActeNational(user: AuthenticatedUser, id: string) {
-    const { userId } = await this.assertSuperadmin(user);
+    const { userId } = await this.assertGestionCatalogue(user);
     const acte = await this.prisma.referentielNationalActe.findFirst({
       where: { id, deletedAt: null },
     });
@@ -444,7 +445,7 @@ export class SuperadminConfigService {
     id: string,
     action: 'archiver' | 'desarchiver',
   ) {
-    const { userId } = await this.assertSuperadmin(user);
+    const { userId } = await this.assertGestionCatalogue(user);
     const entite = type === 'actes' ? 'acteNational' : 'medicamentNational';
     const existe =
       type === 'actes'
@@ -477,11 +478,36 @@ export class SuperadminConfigService {
     return { id, statut };
   }
 
+  /**
+   * Homologue un élément du catalogue national (PROPOSE ou SUSPENDU → HOMOLOGUE) : seul un élément homologué peut être activé par une
+   * organisation (ADR-009). Les éléments créés par import Excel arrivent PROPOSE ; un élément RETIRÉ se réactive (désarchivage), il ne s'homologue pas.
+   */
+  async homologuerNational(user: AuthenticatedUser, type: 'actes' | 'medicaments', id: string) {
+    const { userId } = await this.assertGestionCatalogue(user);
+    const actuel =
+      type === 'actes'
+        ? (await this.prisma.referentielNationalActe.findFirst({ where: { id, deletedAt: null } }))?.statut
+        : (await this.prisma.referentielNationalMedicament.findFirst({ where: { id, deletedAt: null } }))?.statutHomologation;
+    if (actuel === undefined) {
+      throw new NotFoundException(type === 'actes' ? 'Acte national introuvable.' : 'Médicament national introuvable.');
+    }
+    if (actuel === 'HOMOLOGUE') throw new ConflictException('Cet élément est déjà homologué.');
+    if (actuel === 'RETIRE') throw new ConflictException('Cet élément est retiré du catalogue : réactivez-le (désarchivage) au lieu de l’homologuer.');
+    const table = type === 'actes' ? 'referentiel_national_actes' : 'referentiel_national_medicaments';
+    await this.prisma.$transaction(async (tx) => {
+      const donnees = { homologuePar: userId, dateHomologation: new Date(), dateRetrait: null };
+      if (type === 'actes') await tx.referentielNationalActe.update({ where: { id }, data: { statut: 'HOMOLOGUE', ...donnees } });
+      else await tx.referentielNationalMedicament.update({ where: { id }, data: { statutHomologation: 'HOMOLOGUE', ...donnees } });
+      await this.audit(tx, userId, type === 'actes' ? 'HOMOLOGATION_ACTE_CATALOGUE_NATIONAL' : 'HOMOLOGATION_MEDICAMENT_CATALOGUE_NATIONAL', id, { de: actuel }, table);
+    });
+    return { id, statut: 'HOMOLOGUE' };
+  }
+
   async listerMedicamentsNational(
     user: AuthenticatedUser,
     filtres: { statut?: string } = {},
   ) {
-    await this.assertSuperadmin(user);
+    await this.assertGestionCatalogue(user);
     return this.prisma.referentielNationalMedicament.findMany({
       where: {
         deletedAt: null,
@@ -495,7 +521,7 @@ export class SuperadminConfigService {
     user: AuthenticatedUser,
     dto: CreerMedicamentNationalDto,
   ) {
-    const { userId } = await this.assertSuperadmin(user);
+    const { userId } = await this.assertGestionCatalogue(user);
     return this.prisma.$transaction(async (tx) => {
       const m = await tx.referentielNationalMedicament.create({
         data: {
@@ -531,7 +557,7 @@ export class SuperadminConfigService {
   }
 
   async supprimerMedicamentNational(user: AuthenticatedUser, id: string) {
-    const { userId } = await this.assertSuperadmin(user);
+    const { userId } = await this.assertGestionCatalogue(user);
     const m = await this.prisma.referentielNationalMedicament.findFirst({
       where: { id, deletedAt: null },
     });
@@ -573,7 +599,7 @@ export class SuperadminConfigService {
     action: ActionMasseCatalogue,
     ids: string[],
   ): Promise<ResultatActionMasse> {
-    const { userId } = await this.assertSuperadmin(user);
+    const { userId } = await this.assertGestionCatalogue(user);
     const distincts = [...new Set(ids ?? [])];
     if (distincts.length === 0) throw new BadRequestException('Sélectionnez au moins un élément.');
     if (distincts.length > MAX_ELEMENTS_ACTION_MASSE) {
@@ -603,6 +629,8 @@ export class SuperadminConfigService {
         if (action === 'supprimer') {
           if (type === 'actes') await this.supprimerActeNational(user, id);
           else await this.supprimerMedicamentNational(user, id);
+        } else if (action === 'homologuer') {
+          await this.homologuerNational(user, type, id);
         } else {
           await this.changerStatutNational(user, type, id, action);
         }
@@ -622,6 +650,16 @@ export class SuperadminConfigService {
   }
 
   // --- Helpers -------------------------------------------------
+
+  /** Superadmin OU assurance informatique : mise à jour du catalogue national (ADR-009). */
+  private async assertGestionCatalogue(user: AuthenticatedUser): Promise<{ userId: string }> {
+    const { profil, permissions } = await this.identity.getMe(user);
+    const roles = permissions?.roleChain ?? [];
+    if (!roles.some((r) => (ROLES_GESTION_CATALOGUE_NATIONAL as readonly string[]).includes(r))) {
+      throw new ForbiddenException('La mise à jour du catalogue national est réservée au superadministrateur et à l’assurance informatique.');
+    }
+    return { userId: profil.id };
+  }
 
   private async assertSuperadmin(
     user: AuthenticatedUser,

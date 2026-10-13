@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import {
   Champ,
@@ -9,6 +9,7 @@ import {
   ChampTexte,
 } from '@/components/dashboard/patterns';
 import { Input } from '@/components/ui/input';
+import { useEchapFermeTableau } from './popup-recherche';
 import {
   rechercherActesCatalogue,
   tarifReferenceActe,
@@ -91,12 +92,16 @@ export function ChampsNouvelActe({
   categories,
   estAccueil,
   medecins,
+  typeVisite,
 }: {
   dossierId: string;
   categories: { valeur: string; libelle: string }[];
   estAccueil: boolean;
   medecins: MedecinCentre[];
+  /** Type de visite du dossier : il fixe le CONTEXTE du tarif de la convention (valeur de lettre-clé hospitalisation ou ambulatoire). */
+  typeVisite: string | null;
 }) {
+  const contexteTarif = typeVisite === 'HOSPITALISATION_MEDICALE' ? 'hospitalisation' : 'ambulatoire';
   const [situation, setSituation] = useState<SituationActe>('EFFECTUE');
   const [categorie, setCategorie] = useState('');
   const [libelle, setLibelle] = useState('');
@@ -218,19 +223,8 @@ export function ChampsNouvelActe({
 
   const tableauVisible = ouvert && !!categorie && (recherche !== 'repos' || resultats.length > 0);
 
-  // « Échap » ferme d'abord le tableau, pas la fenêtre du formulaire : la fenêtre (Radix) écoute sur le document, on intercepte donc plus
-  // haut, sur `window`, en phase de capture, tant que le tableau est visible.
-  useEffect(() => {
-    if (!tableauVisible) return;
-    const surEchap = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      e.preventDefault();
-      setOuvert(false);
-    };
-    window.addEventListener('keydown', surEchap, true);
-    return () => window.removeEventListener('keydown', surEchap, true);
-  }, [tableauVisible]);
+  const fermerTableau = useCallback(() => setOuvert(false), []);
+  useEchapFermeTableau(tableauVisible, fermerTableau);
 
   return (
     <>
@@ -309,7 +303,7 @@ export function ChampsNouvelActe({
               <div aria-hidden="true" className="sticky top-0 grid grid-cols-[1fr_auto_auto] gap-3 border-b bg-muted px-3 py-1.5 text-xs font-medium text-muted-foreground">
                 <span>Acte</span>
                 <span>Code</span>
-                <span className="w-24 text-right">Montant unitaire</span>
+                <span className="w-28 text-right">{typeVisite ? `Montant (${contexteTarif})` : 'Montant unitaire'}</span>
               </div>
               {recherche === 'en-cours' && <p className="px-3 py-2 text-xs text-muted-foreground">Recherche dans le référentiel…</p>}
               {recherche === 'vide' && (
@@ -329,7 +323,7 @@ export function ChampsNouvelActe({
                 >
                   <span>{a.libelle}</span>
                   <span className="font-mono text-xs text-muted-foreground">{a.code}</span>
-                  <span className="w-24 text-right tabular-nums" title={a.tarifUnitaire == null ? 'Pas de tarif en base pour cet acte' : 'Tarif de la convention'}>
+                  <span className="w-28 text-right tabular-nums" title={a.tarifUnitaire == null ? 'Pas de tarif en base pour cet acte' : `Tarif de la convention (${contexteTarif})`}>
                     {a.tarifUnitaire == null ? '—' : montantFr(a.tarifUnitaire)}
                   </span>
                 </div>
@@ -356,10 +350,12 @@ export function ChampsNouvelActe({
           chargementTarif
             ? 'Recherche du tarif de la convention…'
             : montantAuto
-              ? 'Tarif de la convention de l’établissement (modifiable).'
-              : code && tarifAbsent
-                ? 'Aucun tarif en base pour cet acte : saisissez le montant.'
-                : 'Choisissez un acte pour afficher son tarif, ou saisissez le montant.'
+              ? `Tarif de la convention de l’établissement — contexte ${contexteTarif} (modifiable).`
+              : !typeVisite
+                ? 'Le tarif de la convention dépend du type de visite (ambulatoire ou hospitalisation) : définissez-le d’abord dans le dossier pour le voir apparaître. Sinon, saisissez le montant.'
+                : code && tarifAbsent
+                  ? 'Aucun tarif en base pour cet acte : saisissez le montant.'
+                  : 'Choisissez un acte pour afficher son tarif, ou saisissez le montant.'
         }
       />
       {situation === 'EFFECTUE' && (

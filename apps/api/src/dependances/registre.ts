@@ -21,6 +21,8 @@ import type {
 
 // --- Rôles (miroir des constantes des modules) ---------------------------------
 const SUPERADMIN = ['SUPERADMIN_PRINCIPAL'] as const;
+/** Catalogue national : superadmin et assurance informatique (ADR-009). */
+const GESTION_CATALOGUE_NATIONAL = ['SUPERADMIN_PRINCIPAL', 'ASSUREUR_INFORMATIQUE'] as const;
 const GESTION_SOUSCRIPTEUR = ['ASSUREUR_DIRECTION', 'ASSUREUR_EXPLOITATION', 'ASSUREUR_INFORMATIQUE', 'ASSUREUR_COMPTABLE'] as const;
 const GESTION_RESEAU = ['ASSUREUR_INFORMATIQUE'] as const;
 const GESTION_PLAN = ['ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE'] as const;
@@ -399,7 +401,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     designation: "l'acte du catalogue national",
     pronom: 'le',
     table: 'referentiel_national_actes',
-    roles: SUPERADMIN,
+    roles: GESTION_CATALOGUE_NATIONAL,
     charger: (db, id) => db.referentielNationalActe.findFirst({ where: { id, deletedAt: null } }),
     nom: (a) => `${a.code} — ${a.libelle}`,
     dependances: [
@@ -496,7 +498,7 @@ export const REGISTRE: Record<string, DefinitionEntite> = {
     designation: 'le médicament du catalogue national',
     pronom: 'le',
     table: 'referentiel_national_medicaments',
-    roles: SUPERADMIN,
+    roles: GESTION_CATALOGUE_NATIONAL,
     charger: (db, id) => db.referentielNationalMedicament.findFirst({ where: { id, deletedAt: null } }),
     nom: (m) => m.denominationCommune,
     dependances: [

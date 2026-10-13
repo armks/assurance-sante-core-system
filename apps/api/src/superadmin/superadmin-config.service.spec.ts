@@ -118,7 +118,6 @@ describe('SuperadminConfigService', () => {
     it('un non-superadmin est refusé (403) sur toutes les opérations', async () => {
       identity.getMe.mockResolvedValue(informatique());
       await expect(service.creerLettreCle(USER, { code: 'B', libelle: 'x' })).rejects.toBeInstanceOf(ForbiddenException);
-      await expect(service.listerLettresCles(USER)).rejects.toBeInstanceOf(ForbiddenException);
       await expect(service.supprimerLettreCle(USER, 'l-1')).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.lettreCle.create).not.toHaveBeenCalled();
     });
@@ -246,10 +245,43 @@ describe('SuperadminConfigService', () => {
     expect(res.statut).toBe('HOMOLOGUE');
   });
 
-  it('listerActesNational : refusé pour un non-superadmin (403)', async () => {
-    identity.getMe.mockResolvedValue(informatique());
-    await expect(service.listerActesNational(USER)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+  it('listerActesNational : refusé à un rôle non habilité au catalogue (403)', async () => {
+    identity.getMe.mockResolvedValue({ profil: { id: 'u9', organisationId: 'org-1' }, permissions: { roleChain: ['ASSUREUR_MEDECIN_CONSEIL'] } });
+    await expect(service.listerActesNational(USER)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.homologuerNational(USER, 'actes', 'na1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  describe('assurance informatique : met à jour le catalogue national comme le superadmin (ADR-009)', () => {
+    beforeEach(() => identity.getMe.mockResolvedValue(informatique()));
+
+    it('liste les actes du catalogue national', async () => {
+      prisma.referentielNationalActe.findMany.mockResolvedValue([]);
+      await expect(service.listerActesNational(USER)).resolves.toEqual([]);
+    });
+
+    it('crée un acte (audit au nom de l’auteur)', async () => {
+      prisma.referentielNationalActe.findFirst.mockResolvedValue(null);
+      prisma.referentielNationalActe.create.mockResolvedValue({ id: 'na1', code: 'CI-X', statut: 'HOMOLOGUE' });
+      const res = await service.creerActeNational(USER, { code: 'CI-X', libelle: 'Acte X' });
+      expect(res.id).toBe('na1');
+    });
+
+    it('homologue un acte PROPOSE (et refuse un acte déjà homologué ou retiré)', async () => {
+      prisma.referentielNationalActe.findFirst.mockResolvedValue({ id: 'na1', statut: 'PROPOSE' });
+      prisma.referentielNationalActe.update.mockResolvedValue({});
+      await expect(service.homologuerNational(USER, 'actes', 'na1')).resolves.toEqual({ id: 'na1', statut: 'HOMOLOGUE' });
+      expect(prisma.referentielNationalActe.update).toHaveBeenCalledWith({
+        where: { id: 'na1' },
+        data: expect.objectContaining({ statut: 'HOMOLOGUE', dateRetrait: null }),
+      });
+      prisma.referentielNationalActe.findFirst.mockResolvedValue({ id: 'na1', statut: 'HOMOLOGUE' });
+      await expect(service.homologuerNational(USER, 'actes', 'na1')).rejects.toThrow(/déjà homologué/);
+      prisma.referentielNationalActe.findFirst.mockResolvedValue({ id: 'na1', statut: 'RETIRE' });
+      await expect(service.homologuerNational(USER, 'actes', 'na1')).rejects.toThrow(/retiré/);
+    });
+
+    it('reste refusé sur les lettres-clés (création) : superadmin seul', async () => {
+      await expect(service.creerLettreCle(USER, { code: 'B', libelle: 'x' })).rejects.toBeInstanceOf(ForbiddenException);
+    });
   });
 });

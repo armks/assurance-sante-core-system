@@ -14,7 +14,7 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { LettresClesService } from '../reference/lettres-cles.service';
-import { ROLE_SUPERADMIN } from './superadmin.types';
+import { ROLES_GESTION_CATALOGUE_NATIONAL } from './superadmin.types';
 
 /** Forme minimale d'un fichier téléversé (multer, mémoire) — même convention
  * que `member/import-adherents.service.ts`. */
@@ -161,9 +161,9 @@ export class CatalogueImportService {
 
   private async assertSuperadmin(user: AuthenticatedUser): Promise<{ userId: string }> {
     const { profil, permissions } = await this.identity.getMe(user);
-    if (!(permissions?.roleChain ?? []).includes(ROLE_SUPERADMIN)) {
+    if (!(permissions?.roleChain ?? []).some((r) => (ROLES_GESTION_CATALOGUE_NATIONAL as readonly string[]).includes(r))) {
       throw new ForbiddenException(
-        'Action réservée au superadministrateur (SUPERADMIN_PRINCIPAL).',
+        'La mise à jour du catalogue national est réservée au superadministrateur et à l’assurance informatique.',
       );
     }
     return { userId: profil.id };

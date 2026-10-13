@@ -1,29 +1,30 @@
 import type { Metadata } from 'next';
 
-import {
-  HomologationPanneau,
-  type MedicamentRef,
-} from '@/components/dashboard/homologation-panneau';
+import { chargerCatalogue } from '@/app/dashboard-assureur/catalogue-chargement';
+import { CatalogueActivationEcran } from '@/components/dashboard/catalogue-activation-ecran';
 import { PageTitre } from '@/components/page-titre';
-import { apiFetch, messageErreur } from '@/lib/api';
+import { exigerIdentite } from '@/lib/identity';
+import { peutActiverReferentiel } from '@/lib/referentiel';
 
-export const metadata: Metadata = { title: 'Médicaments à homologuer' };
+export const metadata: Metadata = { title: 'Médicaments du catalogue national' };
 
-export default async function MedicamentsAHomologuer() {
-  const res = await apiFetch('/api/v1/reference/medicaments');
-  const medicaments: MedicamentRef[] = res.ok ? await res.json() : [];
-  const erreur = res.ok ? null : await messageErreur(res);
+export default async function MedicamentsDuCatalogue() {
+  const [etat, medicaments] = await Promise.all([
+    exigerIdentite('/dashboard-assureur/pharmacien-conseil/medicaments-a-homologuer'),
+    chargerCatalogue('medicaments'),
+  ]);
+  const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
 
   return (
     <div className="space-y-8">
       <PageTitre
-        titre="Médicaments à homologuer"
-        description="Référentiel des médicaments (liste essentielle CI pré-remplie). Seul le pharmacien conseil peut faire passer un médicament de PROPOSE à HOMOLOGUE."
+        titre="Médicaments du catalogue national"
+        description="Activez ou désactivez les médicaments homologués du catalogue national pour votre organisation : seuls les médicaments activés sont proposés à la saisie des ordonnances."
       />
-      {erreur ? (
-        <p className="text-sm text-destructive">{erreur}</p>
+      {medicaments.erreur ? (
+        <p className="text-sm text-destructive">{medicaments.erreur}</p>
       ) : (
-        <HomologationPanneau kind="medicaments" medicaments={medicaments} />
+        <CatalogueActivationEcran type="medicaments" elements={medicaments.elements} peutGerer={peutActiverReferentiel(roleChain)} />
       )}
     </div>
   );

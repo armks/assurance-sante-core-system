@@ -37,6 +37,13 @@ export type StatutOrdonnance = (typeof STATUTS_ORDONNANCE)[number];
 
 export const ROLE_MEDECIN_TRAITANT = 'CENTRE_MEDICAL_MEDECIN';
 
+/** Rôles qui rédigent une ordonnance (le médecin, ou l'administratif / l'accueil de son établissement) — donc qui cherchent un médicament. */
+export const ROLES_PRESCRIPTION_ORDONNANCE = [
+  'CENTRE_MEDICAL_MEDECIN',
+  'CENTRE_MEDICAL_ADMINISTRATIF',
+  'CENTRE_MEDICAL_ACCUEIL',
+] as const;
+
 /** Rôles côté pharmacie autorisés à saisir un code d'ordonnance. */
 export const ROLES_PHARMACIE = [
   'PHARMACIE_PHARMACIEN',

@@ -39,3 +39,14 @@ export function libelleCodeLisible(valeur: string | null | undefined): string {
   }
   return v;
 }
+
+/**
+ * ADR-009 — le référentiel médical de l'assureur est le catalogue national : seuls l'assureur informatique, le médecin conseil et le
+ * pharmacien conseil l'ACTIVENT ou le DÉSACTIVENT (actes comme médicaments). Miroir de `ROLES_ACTIVATION_REFERENTIEL` (API) : ne fait que
+ * masquer les boutons, l'API reste seule juge.
+ */
+export const ROLES_ACTIVATION_REFERENTIEL = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_MEDECIN_CONSEIL', 'ASSUREUR_PHARMACIEN_CONSEIL'];
+
+export function peutActiverReferentiel(roleChain: string[] | undefined): boolean {
+  return (roleChain ?? []).some((r) => ROLES_ACTIVATION_REFERENTIEL.includes(r));
+}

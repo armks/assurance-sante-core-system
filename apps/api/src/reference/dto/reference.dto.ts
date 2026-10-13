@@ -1,10 +1,13 @@
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -48,6 +51,13 @@ export class ProposerMedicamentDto {
   @IsOptional() @IsBoolean() ordonnanceObligatoire?: boolean;
   @IsOptional() @IsBoolean() medicamentControle?: boolean;
   @IsOptional() @IsIn(USAGES_MEDICAMENT) usage?: (typeof USAGES_MEDICAMENT)[number];
+}
+
+/** Activation / désactivation en masse : une liste d'identifiants du catalogue national OU « tous » (tout le catalogue homologué). */
+export class ActivationMasseDto {
+  @IsOptional() @IsArray() @ArrayMaxSize(200) @IsUUID('all', { each: true }) ids?: string[];
+  @IsOptional() @IsBoolean() tous?: boolean;
+  @IsBoolean() actif!: boolean;
 }
 
 export class MotifDto {

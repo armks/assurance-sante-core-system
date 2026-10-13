@@ -16,6 +16,8 @@
 
   Constat du lot 4 : rejouer 082 après 083 retirait l'exception de la trace provisoire et faisait échouer la
   réintégration d'une ligne (HTTP 500). Si cela arrive : réappliquer 083 (`node prisma/appliquer-sql.cjs 083_tarifs_proposes.sql`).
+- Migrations récentes (toutes idempotentes) : 087 (mois d'effet des entrants), 088 (contacts des bénéficiaires), 089 (actes déclarés par l'accueil), 090 (référentiel = catalogue national :
+  rattachement des lignes existantes ; **après 090, un assureur sans activation ne voit plus aucun acte ni médicament à la saisie** — activer depuis « Référentiel médical », ADR-009).
 - **Vérification automatique** : `npm run test:integration` (apps/api) contient `migrations-etat.int-spec.ts`, qui contrôle
   que les fonctions, triggers et contraintes partagés sont dans leur dernier état et que l'ordre des fichiers garde la plus
   récente définition en dernier. À lancer après chaque déploiement de migrations.

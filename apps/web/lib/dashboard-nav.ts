@@ -11,6 +11,7 @@ import {
   Inbox,
   LayoutDashboard,
   LineChart,
+  BookMarked,
   type LucideIcon,
   MapPin,
   Package,
@@ -261,7 +262,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   [MEDECIN_CONSEIL]: [
     { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard, largeur: 'dashboard' },
     {
-      label: 'Actes à homologuer',
+      label: 'Actes du catalogue',
       href: `${MEDECIN_CONSEIL}/actes-a-homologuer`,
       icon: Stethoscope,
     },
@@ -305,7 +306,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   [PHARMACIEN_CONSEIL]: [
     { label: "Vue d'ensemble", href: PHARMACIEN_CONSEIL, icon: LayoutDashboard, largeur: 'dashboard' },
     {
-      label: 'Médicaments à homologuer',
+      label: 'Médicaments du catalogue',
       href: `${PHARMACIEN_CONSEIL}/medicaments-a-homologuer`,
       icon: Pill,
     },
@@ -538,6 +539,10 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
       icon: Stethoscope,
       minNiveau: 'LECTURE_SEULE',
     },
+    // Mise à jour du catalogue national, comme le superadmin (ADR-009) — ASSUREUR_INFORMATIQUE exclusivement.
+    ...(racineVueEnsemble === INFORMATIQUE
+      ? [{ label: 'Catalogue national', href: `${INFORMATIQUE}/catalogue-national`, icon: BookMarked }]
+      : []),
     {
       label: 'Adhérents',
       href: `${INFORMATIQUE}/adherents`,

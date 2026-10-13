@@ -191,6 +191,26 @@ export class SuperadminConfigController {
     return this.config.actionMasseCatalogue(user, 'medicaments', 'supprimer', dto.ids);
   }
 
+  @Post('catalogue-national/actes/masse/homologuer')
+  homologuerActesEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'actes', 'homologuer', dto.ids);
+  }
+
+  @Post('catalogue-national/medicaments/masse/homologuer')
+  homologuerMedicamentsEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActionMasseCatalogueDto) {
+    return this.config.actionMasseCatalogue(user, 'medicaments', 'homologuer', dto.ids);
+  }
+
+  @Post('catalogue-national/actes/:id/homologuer')
+  homologuerActe(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.config.homologuerNational(user, 'actes', id);
+  }
+
+  @Post('catalogue-national/medicaments/:id/homologuer')
+  homologuerMedicament(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.config.homologuerNational(user, 'medicaments', id);
+  }
+
   // --- Catalogue national : médicaments ---
   @Get('catalogue-national/medicaments')
   listerMedicamentsNational(

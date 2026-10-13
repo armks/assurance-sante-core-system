@@ -99,7 +99,7 @@ export async function emettreOrdonnance(
   input: {
     consultationId: string;
     medecinId: string;
-    lignes: { medicament: string; posologie: string; dosage?: string; duree?: string }[];
+    lignes: { medicament: string; posologie: string; dosage?: string; duree?: string; quantite?: number }[];
   },
 ): Promise<ResultatSoumission> {
   if (input.lignes.length === 0) {
@@ -247,4 +247,20 @@ export async function tarifReferenceActe(dossierId: string, codeActe: string, ca
   if (!res.ok) return null;
   const r = (await res.json()) as { tarifUnitaire: number | null };
   return r.tarifUnitaire ?? null;
+}
+
+export interface MedicamentCatalogue {
+  id: string;
+  denominationCommune: string;
+  nomCommercial: string | null;
+  dosage: string | null;
+  forme: string | null;
+  conditionnement: string | null;
+}
+
+/** Recherche d'un médicament dans la base homologuée du système (dénomination, nom commercial ou code) — 2 caractères minimum, 20 résultats, **sans prix**. */
+export async function rechercherMedicamentsCatalogue(q: string): Promise<MedicamentCatalogue[]> {
+  if (q.trim().length < 2) return [];
+  const res = await apiFetch(`/api/v1/preauthorization/medicaments/catalogue?q=${encodeURIComponent(q.trim())}`);
+  return res.ok ? ((await res.json()) as MedicamentCatalogue[]) : [];
 }

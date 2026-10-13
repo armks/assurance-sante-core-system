@@ -1152,3 +1152,37 @@ sociétés est rejouée sur l'ensemble du barème.
   grisé et le serveur le refuse. Brancher un fournisseur = écrire un adaptateur et le déclarer dans `NotificationsModule` (`SMS_FOURNISSEUR`) — après accord et avec la clé.
 - **E-mail** : l'envoi réel exige `CODES_CONSULTATION_EMAIL_REEL=oui` (défaut : non envoyé, statut `NON_ENVOYE_DESACTIVE`, le code reste visible dans l'application
   du patient). L'expéditeur Resend actuel est un bac à sable : domaine à vérifier avant toute activation.
+
+
+## ADR-009 — Le référentiel médical de l'assureur est le catalogue national ; l'assureur l'active ou le désactive (2026-10-13)
+
+**Décision.** Le contenu du référentiel médical (actes : code, libellé, catégorie, cotation ; médicaments : dénomination, dosage, forme…) vient
+**uniquement** du catalogue national (`referentiel_national_actes` / `referentiel_national_medicaments`, maintenu par le superadmin). L'assureur ne crée
+plus de contenu : il **active** ou **désactive** un élément **homologué au catalogue national** pour son organisation. Ce droit appartient aux trois
+rôles `ASSUREUR_INFORMATIQUE`, `ASSUREUR_MEDECIN_CONSEIL` et `ASSUREUR_PHARMACIEN_CONSEIL` — actes comme médicaments, et à eux seuls.
+Il remplace le circuit « import PROPOSE par l'informatique puis homologation exclusive du médecin conseil (actes) / pharmacien conseil (médicaments) »
+et la création directe d'un acte ou d'un médicament par l'informatique (`POST /reference/actes|medicaments` répondent désormais 410).
+
+**Modèle (migration 090).** La ligne de l'organisation (`referentiel_actes` / `medicaments`) devient l'**activation** : `catalogue_national_id` désigne l'élément
+national activé ; `HOMOLOGUE` = actif, `SUSPENDU` = désactivé (réversible), aucune ligne = jamais activé ; une seule ligne par organisation et par élément (index
+unique partiel). Elle reste le **point d'ancrage** des conventions, tarifs conventionnés, actes de soins et du registre des dépendances (ADR-007) : aucune clé
+étrangère n'est migrée. Reprise de l'existant : rattachement par code (actes) ou dénomination + dosage + forme + nom commercial (médicaments).
+
+**Règles.**
+- Seul un élément `HOMOLOGUE` au niveau national s'active (409 sinon) ; activer une ligne `RETIRE` repasse par le registre des dépendances (`desarchiver`).
+- Désactiver = `SUSPENDU` : l'élément n'est plus proposé à la saisie ; rien n'est supprimé, les données déjà enregistrées sont conservées.
+- Activation / désactivation **en masse** : par identifiants (200 au plus, résultat partiel détaillé) ou **« tous »** (une seule transaction SQL — le catalogue des
+  médicaments compte plusieurs centaines d'éléments) ; audité (`ACTIVATION_*`, `DESACTIVATION_*`, `*_MASSE_CATALOGUE_NATIONAL`).
+- **Saisie** : la recherche du libellé d'un acte (formulaire « Ajouter un acte de soins ») et des médicaments d'une ordonnance lit le **catalogue national**, limitée
+  aux éléments activés par l'organisation de l'appelant ; le contenu affiché est celui du catalogue national. Aucun prix de médicament n'est lu ni renvoyé.
+- API : `GET reference/catalogue-national/{actes|medicaments}` (liste + `activation`), `POST …/:itemId/activer|desactiver`, `POST …/activation-masse`.
+- Les anciens endpoints d'homologation (`homologuer`, `suspendre`, `retirer`, `reproposer`) subsistent pour d'éventuelles lignes héritées au statut PROPOSE ; plus
+  aucun écran ni création ne les alimente.
+
+**Conséquences.** Un assureur neuf n'a aucun acte ni médicament actif : il active d'abord (idéalement « tout activer », puis désactive ce qu'il exclut). Un acte hors
+catalogue national ne peut plus être saisi par référence : il reste possible de saisir un libellé libre (acte « hors référentiel », sans tarif de convention, donc
+via le circuit du tarif proposé). Le superadmin reste seul maître du contenu du catalogue.
+
+### ADR-009 — Addendum (2026-10-13)
+- La cotation nationale est répercutée par triggers (migration 091) sur les lignes activées ; le Java continue de lire la ligne de l'organisation.
+- Le catalogue national est mis à jour par le superadmin ET l'assurance informatique (création, modification, homologation, retrait, suppression, import Excel), toujours audité ; les lettres-clés restent au superadmin seul.

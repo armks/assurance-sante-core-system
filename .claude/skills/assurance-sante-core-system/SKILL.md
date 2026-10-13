@@ -235,3 +235,23 @@ de données cloud est peut-être intacte."*
 - **Trace figée** sur la ligne de facturation (`tarif_*`, trigger) ; `svc_adjudication` ne lit que des COLONNES (ADR-003).
 - **Migrations** : appliquées dans l'ordre (`docs/DEPLOIEMENT.md`) ; `lignes_facturation_tarif_fige` est redéfinie par 082 puis 083.
 - **Tests** : e2e HTTP réel avec comptes `@assurance-sante.test`, mode strict (une étape ignorée = échec), zéro ligne restante.
+
+
+## Référentiel médical = catalogue national (ADR-009) — règles à ne jamais réinventer
+
+- **Contenu** : uniquement le catalogue national (superadmin). L'assureur **active / désactive** un acte ou un médicament homologué pour son organisation :
+  `ASSUREUR_INFORMATIQUE`, `ASSUREUR_MEDECIN_CONSEIL`, `ASSUREUR_PHARMACIEN_CONSEIL` (actes **et** médicaments). Plus de création d'acte / médicament par
+  l'assureur (410), plus d'import PROPOSE ni d'homologation exclusive.
+- **Modèle** : la ligne `referentiel_actes` / `medicaments` de l'organisation = activation (`catalogue_national_id`, HOMOLOGUE = actif, SUSPENDU = désactivé) ; elle reste
+  l'ancre des conventions, tarifs, actes et du registre ADR-007. Masse : identifiants (≤ 200) ou « tous » (une transaction SQL).
+- **Saisie** : recherche du libellé d'un acte et des médicaments d'ordonnance dans le **catalogue national**, limitée aux éléments activés ; **jamais de prix de médicament**.
+
+## Parcours de soins : accueil et proposition d'actes — règles à ne jamais réinventer
+
+- L'accueil renseigne consultation (médecin de l'établissement désigné) et actes ; il **déclare la réalisation « sur information du médecin »** (médecin obligatoire, tracé :
+  `medecin_realisateur_id`, `realisation_declaree_par`, audit `REALISATION_ACTE_DECLAREE_ACCUEIL`) ; le médecin continue d'attester lui-même. L'accueil facture (`ROLES_GENERATION_FACTURE`).
+- **Proposition à l'assurance avant exécution** (accueil **et** médecin) = pré-autorisation demandée sur tout acte (`demanderPreautorisation`), même circuit exploitation → médecin conseil,
+  acte non facturable tant que non approuvé. Distincte de la **facture mensuelle consolidée** (comptable de l'assurance), inchangée.
+- Formulaire « Ajouter un acte de soins » : **catégorie d'abord**, libellé en tableau popup filtré dans la base, montant unitaire repris de la convention s'il existe (un seul appel au Java pour
+  tout le tableau) ; un acte ne se rattache qu'à un dossier **ouvert** (même règle pour l'ordonnance). L'accueil peut aussi proposer un tarif (acte non tarifable).
+- **Société** : elle PROPOSE (adhérents, bénéficiaires, entrants, sorties, suspension) ; ni carte, ni archivage, ni suppression, ni changement de statut direct.

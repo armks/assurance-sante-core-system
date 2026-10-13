@@ -25,6 +25,11 @@ const superadmin = () => ({
 });
 const informatique = () => ({
   profil: { id: 'u2', organisationId: 'org-1' },
+  permissions: { roleChain: ['ASSUREUR_MEDECIN_CONSEIL'] },
+});
+/** L'assurance informatique met à jour le catalogue national comme le superadmin (ADR-009). */
+const assuranceInformatique = () => ({
+  profil: { id: 'u3', organisationId: 'org-1' },
   permissions: { roleChain: ['ASSUREUR_INFORMATIQUE'] },
 });
 
@@ -108,7 +113,7 @@ describe('CatalogueImportService', () => {
   });
 
   describe('importerCatalogueExcel — ACTES', () => {
-    it('refuse un rôle non habilité (ASSUREUR_INFORMATIQUE)', async () => {
+    it('refuse un rôle non habilité (ASSUREUR_MEDECIN_CONSEIL)', async () => {
       identity.getMe.mockResolvedValue(informatique());
       const buf = await fabriquerClasseurActes([['CI-CONS-GEN', 'Consultation générale', 'CONSULTATION']]);
       await expect(

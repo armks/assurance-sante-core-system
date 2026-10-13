@@ -992,6 +992,8 @@ model ReferentielActe {
   modeCotation        String    @default("ISOLE") @map("mode_cotation") // ISOLE | GROUPE
   categorieGarantie   String?   @map("categorie_garantie")
   groupeCode          String?   @map("groupe_code")
+  /// Élément du catalogue national que cette ligne ACTIVE pour l'organisation (prisma/sql/090, ADR-009) : HOMOLOGUE = actif, SUSPENDU = désactivé
+  catalogueNationalId String?   @map("catalogue_national_id") @db.Uuid
 
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   homologateur Profil?      @relation(fields: [homologuePar], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1063,6 +1065,8 @@ model Medicament {
   homologuePar          String?   @map("homologue_par") @db.Uuid
   dateHomologation      DateTime? @map("date_homologation") @db.Timestamptz(6)
   dateRetrait           DateTime? @map("date_retrait") @db.Timestamptz(6)
+  /// Élément du catalogue national que cette ligne ACTIVE pour l'organisation (prisma/sql/090, ADR-009)
+  catalogueNationalId   String?   @map("catalogue_national_id") @db.Uuid
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt             DateTime? @map("deleted_at") @db.Timestamptz(6)

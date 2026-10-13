@@ -8505,3 +8505,47 @@ Terminé.
 - API : `GET preauthorization/actes/catalogue?q=&categorie=&dossierId=` joint le `tarifUnitaire` de chaque acte, résolu en UN seul appel au microservice (une ligne à 0 F par acte) ; `null` = pas de tarif en base ; microservice indisponible → recherche
   répondue quand même, tarifs à `null`.
 - Testé : API suite complète verte, typage API et web sans erreur ; navigateur (Chromium, accueil) : tableau avec montants 15 000 / 25 000 / « — », filtrage « spé », choix à Entrée et au clic, Échap, hors référentiel, aucune erreur console, zéro résidu.
+
+
+## 2026-10-13 — Ordonnance : médicaments recherchés dans la base du système (sans prix), accueil inclus
+
+### Vérifié
+- L'accueil (et l'administratif) du centre peut déjà établir l'ordonnance du médecin de la consultation, dans son établissement (`creerOrdonnance`) ; le code d'ordonnance part à l'adhérent, jamais affiché.
+
+### Réalisé
+- **Recherche des médicaments en tableau popup** (même procédé que les actes) : dès 2 lettres, filtrage dans la base des médicaments homologués (dénomination commune, nom commercial, code EAN), tableau « médicament / dosage · forme »,
+  choix à la souris ou au clavier (↑ ↓ Entrée), « Échap » ferme le tableau sans fermer la fenêtre. Le médicament choisi s'ajoute à l'ordonnance (posologie obligatoire, durée, quantité) ; doublon refusé ; retrait possible ;
+  « Ajouter tel quel » pour un médicament hors base.
+- **Aucun prix** : `GET preauthorization/medicaments/catalogue?q=` ne lit que id, dénomination, nom commercial, dosage, forme, conditionnement (ni prix de référence, ni prix maximum, ni taux de remboursement) ; rien d'affiché.
+- Rôles de recherche : médecin, administratif et accueil du centre (403 sinon). Une ordonnance ne s'établit plus que sur un dossier de soins **ouvert** (409 sinon).
+- Testé : API suite complète verte, typage API et web sans erreur ; HTTP réel : réponse sans aucune donnée de prix (des prix existent en base), comptable refusé ; navigateur (Chromium, accueil) : tableau popup, Entrée / clic, doublon, hors base,
+  Échap, posologie obligatoire, retrait, ordonnance émise (2 lignes, dosage / posologie / durée / quantité, code généré), dossier suspendu sans bouton, aucune erreur console, zéro résidu.
+
+
+## 2026-10-13 — Le référentiel médical de l'assureur devient le catalogue national (ADR-009)
+
+### Réalisé
+- **Recherche du libellé de l'acte dans le catalogue national** : le formulaire « Ajouter un acte de soins » (et les médicaments d'ordonnance) lit `referentiel_national_actes` / `referentiel_national_medicaments`,
+  limité aux éléments **activés** par l'organisation ; libellé, code et catégorie sont ceux du catalogue national. Aucun prix de médicament lu ni renvoyé.
+- **Activation / désactivation** par `ASSUREUR_INFORMATIQUE`, `ASSUREUR_MEDECIN_CONSEIL` et `ASSUREUR_PHARMACIEN_CONSEIL` (actes comme médicaments, eux seuls) : un élément à la fois, une sélection (≤ 200, résultat partiel) ou **tout le catalogue**
+  (une transaction SQL ; 739 médicaments activés en un appel dans la recette). Seul un élément homologué au catalogue national s'active ; désactiver = SUSPENDU, réversible, rien de supprimé.
+- **Contenu de l'assureur remplacé** : plus de création d'acte / médicament (410), plus d'import PROPOSE ni d'homologation exclusive ; la ligne de l'organisation est l'activation (migration 090 : `catalogue_national_id`, index unique,
+  reprise de l'existant) et reste l'ancre des conventions, tarifs, actes et du registre ADR-007 — aucune clé étrangère migrée.
+- Écrans : « Référentiel médical » (informatique : actes + médicaments), « Actes du catalogue » (médecin conseil), « Médicaments du catalogue » (pharmacien conseil) — tableau avec état (Actif / Désactivé / Non activé / Non homologué national), filtres,
+  activation par ligne, par sélection, « Tout activer / Tout désactiver ». Anciens écrans d'homologation supprimés. ADR-009, skill et DEPLOIEMENT mis à jour.
+
+### Tests
+- API suite complète verte (1 541) ; typage API et web sans erreur ; HTTP réel + navigateur (catalogue national de test, nettoyé) : liste avec activation, 403 (comptable, accueil, médecin du centre), acte suspendu national refusé (409), activation par les
+  trois rôles, recherche de l'accueil limitée aux éléments activés (ni le non activé, ni le suspendu, ni le retiré), tarif de convention joint, acte ajouté lié à l'activation, désactivation / réactivation, masse (partielle, « tous »), 410 sur la création,
+  écrans informatique / médecin conseil / pharmacien conseil, popup de l'accueil.
+
+### À savoir
+- Après 090, un assureur sans activation ne voit plus aucun acte ni médicament à la saisie : activer d'abord (« Tout activer »).
+
+## 2026-10-13 — Cotation nationale synchronisée avec le Java + catalogue national côté assurance informatique
+
+- **Calcul du coût des actes vérifié de bout en bout (HTTP réel + microservice Java)** : coefficient du catalogue national × valeur de lettre-clé de la convention de l'établissement, selon le contexte du dossier (AMBULATOIRE / HOSPITALISATION) ; forfait prioritaire, valeur de lettre propre, lettre sans valeur → non tarifable ; trace `tarif_*` figée sur la ligne de facturation ; excédent du prix affiché à la charge du patient. 22 vérifications, zéro résidu.
+- **Migration 091** (appliquée, idempotente) : triggers qui répercutent toute correction de cotation / libellé / prix du catalogue national sur les lignes activées des organisations (jamais le statut ni le code) — le Java relit donc toujours la cotation nationale à jour.
+- **Type de visite non défini** : aucun tarif annoncé ni repris (contexte indéterminé) ; l'écran d'ajout d'acte affiche le contexte (ambulatoire / hospitalisation) et un indice.
+- **Catalogue national mis à jour par l'assurance informatique comme par le superadmin** : rôles `ROLES_GESTION_CATALOGUE_NATIONAL` (superadmin + `ASSUREUR_INFORMATIQUE`) sur les routes `superadmin/catalogue-national/*`, l'import Excel, le registre des dépendances ; nouvelle action **Homologuer** (unitaire et en masse) pour les éléments PROPOSÉS ; lettres-clés lisibles par l'informatique, création/modification réservées au superadmin. Nouvelle page « Catalogue national » dans le tableau de bord informatique. Tests : 1549 jest verts + recette HTTP (403 pour le médecin conseil, audit tracé).
+- Statut : terminé côté API et écran ; recette navigateur de la nouvelle page non faite.

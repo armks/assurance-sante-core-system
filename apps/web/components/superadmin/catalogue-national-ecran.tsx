@@ -24,6 +24,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { verifierAction } from '@/app/dependances-actions';
+import { homologuerItemNational } from '@/app/superadmin/catalogue-national/actions';
 import { ActionsMasseCatalogue, ResultatMasse } from '@/components/superadmin/actions-masse-catalogue';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue-panel';
@@ -261,6 +262,11 @@ export function CatalogueNationalEcran({
                     defauts={a}
                   />
                 </FormulaireModal>
+                {a.statut === 'PROPOSE' && (
+                  <Button size="xs" variant="ghost" onClick={async () => { await homologuerItemNational('actes', a.id); router.refresh(); }}>
+                    Homologuer
+                  </Button>
+                )}
                 {a.statut === 'RETIRE' ? (
                   <ConfirmationAction
                     action="desarchiver"
@@ -365,6 +371,11 @@ export function CatalogueNationalEcran({
             }
             actionLigne={(m) => (
               <span className="flex justify-end gap-2">
+                {m.statutHomologation === 'PROPOSE' && (
+                  <Button size="xs" variant="ghost" onClick={async () => { await homologuerItemNational('medicaments', m.id); router.refresh(); }}>
+                    Homologuer
+                  </Button>
+                )}
                 {m.statutHomologation === 'RETIRE' ? (
                   <ConfirmationAction
                     action="desarchiver"

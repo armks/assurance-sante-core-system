@@ -63,7 +63,6 @@ describe('SuperadminConfigService — actions de masse sur le catalogue national
   const ids = actes.map((a) => a.id);
 
   it.each([
-    'ASSUREUR_INFORMATIQUE',
     'ASSUREUR_MEDECIN_CONSEIL',
     'ASSUREUR_DIRECTION',
     'ASSUREUR_COMPTABLE',

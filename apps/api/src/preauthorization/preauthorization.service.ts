@@ -68,6 +68,7 @@ import {
   ROLES_FACTURATION_MENSUELLE_ETABLISSEMENT,
   ROLES_GENERATION_FACTURE,
   ROLE_DECLARATION_REALISATION,
+  ROLES_PRESCRIPTION_ORDONNANCE,
   ROLES_PHARMACIE,
   ROLE_AUTORISATION_REPETITION,
   ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT,
@@ -487,6 +488,12 @@ export class PreauthorizationService {
     if (consultation.statut === 'ANNULEE') {
       throw new ConflictException(
         'On ne peut pas prescrire sur une consultation annulée.',
+      );
+    }
+    // Comme les actes : une ordonnance se rattache à un dossier de soins OUVERT.
+    if (consultation.dossier.statut !== 'OUVERT') {
+      throw new ConflictException(
+        `Le dossier de soins est ${consultation.dossier.statut} — une ordonnance ne peut être établie que sur un dossier ouvert.`,
       );
     }
 
@@ -1263,7 +1270,44 @@ export class PreauthorizationService {
   }
 
   /**
-   * Recherche dans le référentiel HOMOLOGUÉ de l'organisation (libellé ou code, insensible à la casse) : au plus 20 résultats.
+   * Recherche dans le CATALOGUE NATIONAL des médicaments (ADR-009), limitée à ceux que l'organisation a ACTIVÉS (dénomination commune, nom
+   * commercial ou code EAN, insensible à la casse) : 2 caractères minimum, au plus 20 résultats. Réservée aux rôles qui rédigent une ordonnance. Seuls les champs d'identification
+   * sont renvoyés — ni prix de référence, ni prix maximum, ni taux de remboursement.
+   */
+  async rechercherMedicamentsCatalogue(user: AuthenticatedUser, q: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.some((r) => (ROLES_PRESCRIPTION_ORDONNANCE as readonly string[]).includes(r))) {
+      throw new ForbiddenException('Rôle insuffisant pour rechercher un médicament à prescrire.');
+    }
+    const terme = q.trim();
+    if (terme.length < 2) return [];
+    // Le contenu vient du CATALOGUE NATIONAL (ADR-009) : seuls les médicaments homologués au niveau national ET activés par l'organisation.
+    // Seuls les champs d'identification sont lus : aucun prix, aucun taux de remboursement.
+    const motif = `%${terme.replace(/[\\%_]/g, '\\$&')}%`;
+    const medicaments = await this.prisma.$queryRaw<
+      { id: string; denomination_commune: string; nom_commercial: string | null; dosage: string | null; forme: string | null; conditionnement: string | null }[]
+    >(Prisma.sql`
+      SELECT n.id, n.denomination_commune, n.nom_commercial, n.dosage, n.forme, n.conditionnement
+        FROM referentiel_national_medicaments n
+       WHERE n.deleted_at IS NULL AND n.statut_homologation = 'HOMOLOGUE'
+         AND EXISTS (SELECT 1 FROM medicaments m
+                      WHERE m.organisation_id = ${ctx.organisationId}::uuid AND m.deleted_at IS NULL AND m.statut_homologation = 'HOMOLOGUE'
+                        AND m.catalogue_national_id = n.id)
+         AND (n.denomination_commune ILIKE ${motif} OR n.nom_commercial ILIKE ${motif} OR n.code_ean ILIKE ${motif})
+       ORDER BY n.denomination_commune
+       LIMIT 20`);
+    return medicaments.map((m) => ({
+      id: m.id,
+      denominationCommune: m.denomination_commune,
+      nomCommercial: m.nom_commercial,
+      dosage: m.dosage,
+      forme: m.forme,
+      conditionnement: m.conditionnement,
+    }));
+  }
+
+  /**
+   * Recherche dans le CATALOGUE NATIONAL des actes (ADR-009), limitée à ceux que l'organisation a ACTIVÉS (libellé ou code, insensible à la casse) : au plus 20 résultats.
    * La CATÉGORIE est choisie avant la recherche : elle restreint les actes à cette catégorie (garantie, à défaut catégorie du catalogue) et,
    * seule, liste ses premiers actes. Sans catégorie : 2 caractères minimum. Réservée aux rôles qui peuvent ajouter un acte.
    */
@@ -1273,29 +1317,20 @@ export class PreauthorizationService {
     const terme = q.trim();
     const cat = categorie.trim();
     if (!cat && terme.length < 2) return [];
-    const actes = await this.prisma.referentielActe.findMany({
-      where: {
-        organisationId: ctx.organisationId,
-        statut: 'HOMOLOGUE',
-        deletedAt: null,
-        ...(cat ? { OR: [{ categorieGarantie: cat }, { categorieGarantie: null, categorie: cat }] } : {}),
-        ...(terme.length >= 2
-          ? {
-              AND: [
-                {
-                  OR: [
-                    { libelle: { contains: terme, mode: 'insensitive' as const } },
-                    { code: { contains: terme, mode: 'insensitive' as const } },
-                  ],
-                },
-              ],
-            }
-          : {}),
-      },
-      select: { id: true, code: true, libelle: true, categorie: true, categorieGarantie: true },
-      orderBy: { libelle: 'asc' },
-      take: 20,
-    });
+    // Le contenu vient du CATALOGUE NATIONAL (ADR-009) : seuls les actes homologués au niveau national ET activés (HOMOLOGUE) par
+    // l'organisation de l'appelant sont proposés. Libellé, code et catégorie sont ceux du catalogue national.
+    const motif = terme.length >= 2 ? `%${terme.replace(/[\\%_]/g, '\\$&')}%` : null;
+    const actes = await this.prisma.$queryRaw<{ id: string; code: string; libelle: string; categorie_acte: string | null }[]>(Prisma.sql`
+      SELECT n.id, n.code, n.libelle, coalesce(n.categorie_garantie, n.categorie) AS categorie_acte
+        FROM referentiel_national_actes n
+       WHERE n.deleted_at IS NULL AND n.statut = 'HOMOLOGUE'
+         AND EXISTS (SELECT 1 FROM referentiel_actes r
+                      WHERE r.organisation_id = ${ctx.organisationId}::uuid AND r.deleted_at IS NULL AND r.statut = 'HOMOLOGUE'
+                        AND (r.catalogue_national_id = n.id OR r.code = n.code))
+         ${cat ? Prisma.sql`AND coalesce(n.categorie_garantie, n.categorie) = ${cat}` : Prisma.empty}
+         ${motif ? Prisma.sql`AND (n.libelle ILIKE ${motif} OR n.code ILIKE ${motif})` : Prisma.empty}
+       ORDER BY n.libelle
+       LIMIT 20`);
     // Avec le dossier ET la catégorie : le tarif unitaire de chaque acte est joint au résultat (tableau de sélection), résolu en UN
     // appel au microservice. `null` = pas de tarif en base pour cet acte ; absent = tarif non demandé.
     let tarifs: Map<string, number | null> | null = null;
@@ -1308,7 +1343,7 @@ export class PreauthorizationService {
       code: a.code,
       libelle: a.libelle,
       // catégorie de garantie si renseignée, sinon la catégorie libre du catalogue (l'écran ne la retient que si elle est valide)
-      categorieActe: a.categorieGarantie ?? a.categorie ?? null,
+      categorieActe: a.categorie_acte ?? null,
       ...(tarifs ? { tarifUnitaire: tarifs.get(a.code) ?? null } : {}),
     }));
   }
@@ -1366,6 +1401,9 @@ export class PreauthorizationService {
     codes: string[],
   ): Promise<Map<string, number | null>> {
     const tarifs = new Map<string, number | null>(codes.map((c) => [c, null]));
+    // Le tarif dépend du CONTEXTE de la convention (valeur de lettre-clé ambulatoire ou hospitalisation) : sans type de visite défini sur le
+    // dossier, il est indéterminé — aucun tarif n'est annoncé (jamais un tarif ambulatoire par défaut qui serait faux en hospitalisation).
+    if (!contexte.typeVisite) return tarifs;
     const garantie = await this.prisma.garantie.findFirst({
       where: { produitId, categorieActe, deletedAt: null },
       select: { id: true },
@@ -1410,6 +1448,8 @@ export class PreauthorizationService {
     dto: Pick<AjouterActeDto, 'categorieActe' | 'codeActe' | 'quantite'>,
   ): Promise<number | null> {
     if (!dto.codeActe) return null;
+    // contexte ambulatoire / hospitalisation indéterminé sans type de visite : pas de tarif annoncé (voir `tarifsReferenceUnitaires`)
+    if (!contexte.typeVisite) return null;
     const garantie = await this.prisma.garantie.findFirst({
       where: { produitId, categorieActe: dto.categorieActe, deletedAt: null },
       select: { id: true },

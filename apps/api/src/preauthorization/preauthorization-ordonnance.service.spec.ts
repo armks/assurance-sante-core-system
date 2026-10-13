@@ -62,6 +62,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
   beforeEach(async () => {
     prisma = {
       consultationDossier: { findFirst: jest.fn() },
+      medicament: { findMany: jest.fn().mockResolvedValue([]) },
       ordonnance: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
       ligneOrdonnance: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       codeOrdonnance: {
@@ -102,11 +103,76 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
       id: 'dos-1',
       organisationId: 'org-1',
       etablissementId: 'etab-1',
+      statut: 'OUVERT',
       adherentId: 'adh-1',
       beneficiaireId: null,
       numeroTraitement: 'TRT-2026-09-000001',
     },
   };
+
+  describe('accueil / administratif : prescription et recherche de médicaments', () => {
+    const personnel = (role: string, etab = 'etab-1') => ({
+      profil: { id: 'u-acc', organisationId: 'org-1', role, adherentId: null, etablissementId: etab, pharmacieId: null },
+      permissions: { roleChain: [role] },
+    });
+    const creer = () =>
+      service.creerOrdonnance(USER, {
+        consultationId: 'cons-1',
+        medecinId: 'med-1',
+        lignes: [{ medicament: 'Paracétamol (Doliprane)', dosage: '500 mg', posologie: '1 cp x3/j', duree: '5 jours', quantite: 2 }],
+      });
+
+    it.each(['CENTRE_MEDICAL_ACCUEIL', 'CENTRE_MEDICAL_ADMINISTRATIF'])('%s de l’établissement établit l’ordonnance du médecin de la consultation', async (role) => {
+      identity.getMe.mockResolvedValue(personnel(role));
+      prisma.consultationDossier.findFirst.mockResolvedValue(consultationOk);
+      prisma.ordonnance.create.mockResolvedValue({ id: 'ord-1', statut: 'ACTIVE', dateValidite: DANS_7J });
+      prisma.codeOrdonnance.create.mockImplementation(({ data }: any) => ({ id: 'code-1', ...data }));
+      const res = await creer();
+      expect(res).toMatchObject({ ordonnanceId: 'ord-1', nombreLignes: 1 });
+      expect(prisma.ligneOrdonnance.createMany).toHaveBeenCalledWith({
+        data: [expect.objectContaining({ denominationMedicament: 'Paracétamol (Doliprane)', dosage: '500 mg', posologie: '1 cp x3/j', duree: '5 jours', quantitePrescrite: 2 })],
+      });
+    });
+
+    it('accueil d’un AUTRE établissement → 403', async () => {
+      identity.getMe.mockResolvedValue(personnel('CENTRE_MEDICAL_ACCUEIL', 'etab-2'));
+      prisma.consultationDossier.findFirst.mockResolvedValue(consultationOk);
+      await expect(creer()).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.ordonnance.create).not.toHaveBeenCalled();
+    });
+
+    it.each(['CLOTURE', 'SUSPENDU', 'FORCE_CLOS'])('dossier %s : aucune ordonnance (409)', async (statut) => {
+      identity.getMe.mockResolvedValue(personnel('CENTRE_MEDICAL_ACCUEIL'));
+      prisma.consultationDossier.findFirst.mockResolvedValue({ ...consultationOk, dossier: { ...consultationOk.dossier, statut } });
+      await expect(creer()).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.ordonnance.create).not.toHaveBeenCalled();
+    });
+
+    it('recherche de médicaments : catalogue NATIONAL activé par l’organisation, 2 caractères minimum, AUCUN prix dans la réponse', async () => {
+      identity.getMe.mockResolvedValue(personnel('CENTRE_MEDICAL_ACCUEIL'));
+      prisma.$queryRaw = jest.fn().mockResolvedValue([
+        { id: 'nat-1', denomination_commune: 'Paracétamol', nom_commercial: 'Doliprane', dosage: '500 mg', forme: 'Comprimé', conditionnement: 'Boîte de 16' },
+      ]);
+      expect(await service.rechercherMedicamentsCatalogue(USER, ' p ')).toEqual([]);
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+      const res = await service.rechercherMedicamentsCatalogue(USER, 'parac');
+      expect(res).toEqual([{ id: 'nat-1', denominationCommune: 'Paracétamol', nomCommercial: 'Doliprane', dosage: '500 mg', forme: 'Comprimé', conditionnement: 'Boîte de 16' }]);
+      const { sql, values } = prisma.$queryRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
+      expect(sql).toMatch(/FROM referentiel_national_medicaments n/);
+      expect(sql).toMatch(/n\.statut_homologation = 'HOMOLOGUE'/);
+      expect(sql).toMatch(/FROM medicaments m[\s\S]*m\.statut_homologation = 'HOMOLOGUE'[\s\S]*m\.catalogue_national_id = n\.id/);
+      expect(values).toEqual(expect.arrayContaining(['org-1', '%parac%']));
+      // seuls les champs d'identification sont lus : aucun prix, aucun taux
+      const colonnes = sql.slice(sql.indexOf('SELECT'), sql.indexOf('FROM'));
+      expect(colonnes).not.toMatch(/prix|taux|rembours/i);
+      expect(JSON.stringify(res)).not.toMatch(/prix|taux|remboursement/i);
+    });
+
+    it.each(['CENTRE_MEDICAL_COMPTABLE', 'ASSUREUR_INFORMATIQUE', 'PHARMACIE_PHARMACIEN'])('%s ne recherche pas de médicament à prescrire (403)', async (role) => {
+      identity.getMe.mockResolvedValue(personnel(role));
+      await expect(service.rechercherMedicamentsCatalogue(USER, 'parac')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
 
   it('refuse si le médecin de l’ordonnance ≠ médecin de la consultation', async () => {
     identity.getMe.mockResolvedValue(medecin('med-1'));

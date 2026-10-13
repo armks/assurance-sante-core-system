@@ -122,6 +122,17 @@ export async function validerImportCatalogue(
   return { ok: true, nbCrees: corps.nbCrees, nbMisAJour: corps.nbMisAJour };
 }
 
+/** Homologation d'un élément PROPOSÉ (import Excel) : condition pour que les organisations puissent l'activer. */
+export async function homologuerItemNational(
+  type: 'actes' | 'medicaments',
+  id: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/superadmin/catalogue-national/${type}/${id}/homologuer`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: await messageErreur(res) };
+  revalidatePath(CIBLE);
+  return { ok: true };
+}
+
 /** Archivage (retrait) ou désarchivage (réactivation) d'un élément du catalogue national. */
 export async function changerStatutItemNational(
   type: 'actes' | 'medicaments',

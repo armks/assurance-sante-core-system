@@ -14,11 +14,13 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
+  ActivationMasseDto,
   HomologuerMedicamentDto,
   MotifDto,
   ProposerActeDto,
   ProposerMedicamentDto,
 } from './dto/reference.dto';
+import { CatalogueActivationService } from './catalogue-activation.service';
 import { CategoriesActeService } from './categories-acte.service';
 import { ReferenceService } from './reference.service';
 
@@ -34,6 +36,7 @@ export class ReferenceController {
   constructor(
     private readonly reference: ReferenceService,
     private readonly categoriesActe: CategoriesActeService,
+    private readonly activation: CatalogueActivationService,
   ) {}
 
   /**
@@ -48,36 +51,46 @@ export class ReferenceController {
 
   // --- Catalogue national partagé (v1 §10.4, PROMPT 23) --------
 
+  /** Catalogue national (hors retirés) + état d'ACTIVATION pour l'organisation de l'appelant (ADR-009). */
   @Get('catalogue-national/actes')
-  listerCatalogueNationalActes(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('statut') statut?: string,
-  ) {
-    return this.reference.listerCatalogueNationalActes(user, { statut });
+  listerCatalogueNationalActes(@CurrentUser() user: AuthenticatedUser, @Query('statut') statut?: string) {
+    return this.activation.lister(user, 'actes', { statut });
   }
 
   @Get('catalogue-national/medicaments')
-  listerCatalogueNationalMedicaments(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('statut') statut?: string,
-  ) {
-    return this.reference.listerCatalogueNationalMedicaments(user, { statut });
+  listerCatalogueNationalMedicaments(@CurrentUser() user: AuthenticatedUser, @Query('statut') statut?: string) {
+    return this.activation.lister(user, 'medicaments', { statut });
   }
 
-  @Post('catalogue-national/actes/:itemId/importer')
-  importerActe(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('itemId', ParseUUIDPipe) itemId: string,
-  ) {
-    return this.reference.importerActeDepuisCatalogueNational(user, itemId);
+  /** Activation / désactivation en masse (liste d'identifiants OU tout le catalogue) — déclarées avant les routes `:itemId/...`. */
+  @Post('catalogue-national/actes/activation-masse')
+  activationMasseActes(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActivationMasseDto) {
+    return this.activation.activationMasse(user, 'actes', dto);
   }
 
-  @Post('catalogue-national/medicaments/:itemId/importer')
-  importerMedicament(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('itemId', ParseUUIDPipe) itemId: string,
-  ) {
-    return this.reference.importerMedicamentDepuisCatalogueNational(user, itemId);
+  @Post('catalogue-national/medicaments/activation-masse')
+  activationMasseMedicaments(@CurrentUser() user: AuthenticatedUser, @Body() dto: ActivationMasseDto) {
+    return this.activation.activationMasse(user, 'medicaments', dto);
+  }
+
+  @Post('catalogue-national/actes/:itemId/activer')
+  activerActe(@CurrentUser() user: AuthenticatedUser, @Param('itemId', ParseUUIDPipe) itemId: string) {
+    return this.activation.activer(user, 'actes', itemId);
+  }
+
+  @Post('catalogue-national/actes/:itemId/desactiver')
+  desactiverActe(@CurrentUser() user: AuthenticatedUser, @Param('itemId', ParseUUIDPipe) itemId: string, @Body() dto: MotifDto) {
+    return this.activation.desactiver(user, 'actes', itemId, dto.motif);
+  }
+
+  @Post('catalogue-national/medicaments/:itemId/activer')
+  activerMedicament(@CurrentUser() user: AuthenticatedUser, @Param('itemId', ParseUUIDPipe) itemId: string) {
+    return this.activation.activer(user, 'medicaments', itemId);
+  }
+
+  @Post('catalogue-national/medicaments/:itemId/desactiver')
+  desactiverMedicament(@CurrentUser() user: AuthenticatedUser, @Param('itemId', ParseUUIDPipe) itemId: string, @Body() dto: MotifDto) {
+    return this.activation.desactiver(user, 'medicaments', itemId, dto.motif);
   }
 
   // --- Actes ---------------------------------------------------

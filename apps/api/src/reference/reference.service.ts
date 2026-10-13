@@ -1,6 +1,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  GoneException,
   Injectable,
   Logger,
   NotFoundException,
@@ -56,36 +57,16 @@ export class ReferenceService {
 
   // --- Actes -------------------------------------------------------
 
-  async proposerActe(user: AuthenticatedUser, dto: ProposerActeDto) {
-    const ctx = await this.contexteAppelant(user);
-    this.assertRole(ctx, ROLE_PROPOSITION, 'proposer un acte');
-    await this.assertCodeActeLibre(ctx.organisationId, dto.code);
-    // code ou libellé du référentiel unique (prisma/sql/067), jamais du texte libre
-    const categorie = await this.categoriesActe.normaliser(dto.categorie);
-
-    const id = await this.prisma.$transaction(async (tx) => {
-      const acte = await tx.referentielActe.create({
-        data: {
-          organisationId: ctx.organisationId,
-          code: dto.code,
-          libelle: dto.libelle,
-          categorie,
-          categorieGarantie: categorie, // la catégorie validée est aussi la catégorie de garantie (prisma/sql/080)
-          versionNomenclature: dto.versionNomenclature ?? null,
-          statut: 'PROPOSE',
-        },
-      });
-      await this.audit(
-        tx,
-        ctx.userId,
-        'PROPOSITION_ACTE',
-        acte.id,
-        { code: dto.code },
-        'referentiel_actes',
-      );
-      return acte.id;
-    });
-    return this.chargerActe(ctx.organisationId, id);
+  /**
+   * ADR-009 : le contenu du référentiel médical est le catalogue national — l'assureur ne crée plus d'acte, il ACTIVE ou DÉSACTIVE un acte
+   * homologué du catalogue national (`CatalogueActivationService`).
+   */
+  async proposerActe(user: AuthenticatedUser, dto: ProposerActeDto): Promise<never> {
+    void user;
+    void dto;
+    throw new GoneException(
+      "Le référentiel médical est le catalogue national : activez l'acte voulu (POST /reference/catalogue-national/actes/:id/activer) au lieu d'en créer un.",
+    );
   }
 
   async homologuerActe(user: AuthenticatedUser, id: string) {
@@ -207,47 +188,13 @@ export class ReferenceService {
 
   // --- Médicaments ----------------------------------------------
 
-  async proposerMedicament(
-    user: AuthenticatedUser,
-    dto: ProposerMedicamentDto,
-  ) {
-    const ctx = await this.contexteAppelant(user);
-    this.assertRole(ctx, ROLE_PROPOSITION, 'proposer un médicament');
-
-    const id = await this.prisma.$transaction(async (tx) => {
-      const m = await tx.medicament.create({
-        data: {
-          organisationId: ctx.organisationId,
-          denominationCommune: dto.denominationCommune,
-          nomCommercial: dto.nomCommercial ?? null,
-          codeEan: dto.codeEan ?? null,
-          forme: dto.forme ?? null,
-          dosage: dto.dosage ?? null,
-          conditionnement: dto.conditionnement ?? null,
-          classeTherapeutique: dto.classeTherapeutique ?? null,
-          remboursable: dto.remboursable ?? false,
-          tauxRemboursementStd: this.dec(dto.tauxRemboursementStd),
-          prixReferenceXof: this.dec(dto.prixReferenceXof),
-          prixMaxRemboursable: this.dec(dto.prixMaxRemboursable),
-          medicamentEssentiel: dto.medicamentEssentiel ?? false,
-          generiqueDisponible: dto.generiqueDisponible ?? null,
-          ordonnanceObligatoire: dto.ordonnanceObligatoire ?? true,
-          medicamentControle: dto.medicamentControle ?? false,
-          usage: dto.usage ?? null,
-          statutHomologation: 'PROPOSE',
-        },
-      });
-      await this.audit(
-        tx,
-        ctx.userId,
-        'PROPOSITION_MEDICAMENT',
-        m.id,
-        { dci: dto.denominationCommune },
-        'medicaments',
-      );
-      return m.id;
-    });
-    return this.chargerMedicament(ctx.organisationId, id);
+  /** ADR-009 : voir `proposerActe` — le médicament s'active depuis le catalogue national, il ne se crée plus. */
+  async proposerMedicament(user: AuthenticatedUser, dto: ProposerMedicamentDto): Promise<never> {
+    void user;
+    void dto;
+    throw new GoneException(
+      "Le référentiel médical est le catalogue national : activez le médicament voulu (POST /reference/catalogue-national/medicaments/:id/activer) au lieu d'en créer un.",
+    );
   }
 
   async homologuerMedicament(
@@ -402,170 +349,7 @@ export class ReferenceService {
     return this.chargerMedicament(ctx.organisationId, id);
   }
 
-  // --- Catalogue national partagé (v1 §10.4, PROMPT 23) ---------
-
-  /**
-   * Import d'un acte du catalogue national vers le référentiel de l'organisation
-   * de l'appelant, AU STATUT PROPOSE. Réservé à ASSUREUR_INFORMATIQUE — la règle
-   * d'homologation reste inchangée : seul ASSUREUR_MEDECIN_CONSEIL de cette
-   * organisation pourra ensuite l'homologuer.
-   */
-  async importerActeDepuisCatalogueNational(
-    user: AuthenticatedUser,
-    itemId: string,
-  ) {
-    const ctx = await this.contexteAppelant(user);
-    this.assertRole(ctx, ROLE_PROPOSITION, 'importer un acte du catalogue national');
-
-    const national = await this.prisma.referentielNationalActe.findFirst({
-      // un acte retiré (archivé) du catalogue national ne s'importe plus (ADR-007)
-      where: { id: itemId, deletedAt: null, statut: { not: 'RETIRE' } },
-    });
-    if (!national) {
-      throw new NotFoundException('Acte introuvable dans le catalogue national.');
-    }
-    const existe = await this.prisma.referentielActe.findFirst({
-      where: { organisationId: ctx.organisationId, code: national.code, deletedAt: null },
-    });
-    if (existe) {
-      throw new ConflictException(
-        `L'acte « ${national.code} » est déjà présent dans votre référentiel (statut ${existe.statut}).`,
-      );
-    }
-    // code unique PAR ORGANISATION (prisma/sql/080)
-    await this.assertCodeActeLibre(ctx.organisationId, national.code);
-
-    const id = await this.prisma.$transaction(async (tx) => {
-      const acte = await tx.referentielActe.create({
-        data: {
-          organisationId: ctx.organisationId,
-          code: national.code,
-          libelle: national.libelle,
-          categorie: national.categorie,
-          versionNomenclature: national.versionNomenclature,
-          statut: 'PROPOSE',
-          // cotation du catalogue national (prisma/sql/080) : lettre-clé, coefficient, mode, garantie, groupe
-          lettreCleCode: national.lettreCleCode,
-          coefficient: national.coefficient,
-          modeCotation: national.modeCotation,
-          categorieGarantie: national.categorieGarantie,
-          groupeCode: national.groupeCode,
-        },
-      });
-      await this.audit(
-        tx,
-        ctx.userId,
-        'IMPORT_ACTE_CATALOGUE_NATIONAL',
-        acte.id,
-        { code: national.code, catalogueNationalId: national.id },
-        'referentiel_actes',
-      );
-      return acte.id;
-    });
-    return this.chargerActe(ctx.organisationId, id);
-  }
-
-  /** Import d'un médicament du catalogue national → référentiel de l'organisation, statut PROPOSE. */
-  async importerMedicamentDepuisCatalogueNational(
-    user: AuthenticatedUser,
-    itemId: string,
-  ) {
-    const ctx = await this.contexteAppelant(user);
-    this.assertRole(
-      ctx,
-      ROLE_PROPOSITION,
-      'importer un médicament du catalogue national',
-    );
-
-    const national = await this.prisma.referentielNationalMedicament.findFirst({
-      where: { id: itemId, deletedAt: null, statutHomologation: { not: 'RETIRE' } },
-    });
-    if (!national) {
-      throw new NotFoundException(
-        'Médicament introuvable dans le catalogue national.',
-      );
-    }
-    const existe = await this.prisma.medicament.findFirst({
-      where: {
-        organisationId: ctx.organisationId,
-        denominationCommune: national.denominationCommune,
-        dosage: national.dosage,
-        deletedAt: null,
-      },
-    });
-    if (existe) {
-      throw new ConflictException(
-        `« ${national.denominationCommune}${national.dosage ? ` ${national.dosage}` : ''} » est déjà présent dans votre référentiel (statut ${existe.statutHomologation}).`,
-      );
-    }
-
-    const id = await this.prisma.$transaction(async (tx) => {
-      const m = await tx.medicament.create({
-        data: {
-          organisationId: ctx.organisationId,
-          denominationCommune: national.denominationCommune,
-          nomCommercial: national.nomCommercial,
-          codeEan: national.codeEan,
-          forme: national.forme,
-          dosage: national.dosage,
-          conditionnement: national.conditionnement,
-          classeTherapeutique: national.classeTherapeutique,
-          remboursable: national.remboursable,
-          tauxRemboursementStd: national.tauxRemboursementStd,
-          prixReferenceXof: national.prixReferenceXof,
-          prixMaxRemboursable: national.prixMaxRemboursable,
-          medicamentEssentiel: national.medicamentEssentiel,
-          generiqueDisponible: national.generiqueDisponible,
-          ordonnanceObligatoire: national.ordonnanceObligatoire,
-          medicamentControle: national.medicamentControle,
-          usage: national.usage,
-          statutHomologation: 'PROPOSE',
-        },
-      });
-      await this.audit(
-        tx,
-        ctx.userId,
-        'IMPORT_MEDICAMENT_CATALOGUE_NATIONAL',
-        m.id,
-        {
-          dci: national.denominationCommune,
-          catalogueNationalId: national.id,
-        },
-        'medicaments',
-      );
-      return m.id;
-    });
-    return this.chargerMedicament(ctx.organisationId, id);
-  }
-
-  async listerCatalogueNationalActes(
-    user: AuthenticatedUser,
-    filtres: { statut?: string } = {},
-  ) {
-    await this.contexteAppelant(user); // exige un profil rattaché à une organisation
-    return this.prisma.referentielNationalActe.findMany({
-      where: {
-        deletedAt: null,
-        // vue ORGANISATION : jamais les éléments retirés (archivés) du catalogue
-        ...(filtres.statut ? { statut: filtres.statut } : { statut: { not: 'RETIRE' } }),
-      },
-      orderBy: [{ categorie: 'asc' }, { libelle: 'asc' }],
-    });
-  }
-
-  async listerCatalogueNationalMedicaments(
-    user: AuthenticatedUser,
-    filtres: { statut?: string } = {},
-  ) {
-    await this.contexteAppelant(user);
-    return this.prisma.referentielNationalMedicament.findMany({
-      where: {
-        deletedAt: null,
-        ...(filtres.statut ? { statutHomologation: filtres.statut } : { statutHomologation: { not: 'RETIRE' } }),
-      },
-      orderBy: [{ classeTherapeutique: 'asc' }, { denominationCommune: 'asc' }],
-    });
-  }
+  // Catalogue national : activation / désactivation et liste → `CatalogueActivationService` (ADR-009).
 
   // --- Gardes / helpers ----------------------------------------
 

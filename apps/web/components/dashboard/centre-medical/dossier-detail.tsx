@@ -44,6 +44,7 @@ import {
   type MedecinCentre,
 } from './champs-acte';
 import { TicketDetail, type DossierFacturation } from './ticket-detail';
+import { ChampsMedicamentsOrdonnance, lireLignesOrdonnance } from './champs-medicaments';
 import {
   LIBELLE_STATUT_CONSULTATION,
   LIBELLE_STATUT_DOSSIER,
@@ -464,6 +465,7 @@ export function DossierDetail({
                       categories={optionsCategories()}
                       estAccueil={estAccueil}
                       medecins={medecins}
+                      typeVisite={dossier.typeVisite}
                     />
                   </FormulaireModal>
                 )}
@@ -478,39 +480,17 @@ export function DossierDetail({
                     }
                     libelleSoumettre="Établir l’ordonnance"
                     onSoumettre={async (fd) => {
-                      const lignes = String(fd.get('lignes') ?? '')
-                        .split('\n')
-                        .map((l) => l.trim())
-                        .filter(Boolean)
-                        .map((l) => {
-                          const [medicament, posologie, duree] = l
-                            .split('|')
-                            .map((s) => s.trim());
-                          return {
-                            medicament: medicament ?? '',
-                            posologie: posologie ?? '',
-                            duree: duree || undefined,
-                          };
-                        })
-                        .filter((x) => x.medicament && x.posologie);
+                      const lues = lireLignesOrdonnance(fd);
+                      if (!lues.ok) return { ok: false, error: lues.error, erreurs: [] };
                       return emettreOrdonnance(dossier.id, {
                         consultationId: c.id,
                         medecinId: c.medecinId,
-                        lignes,
+                        lignes: lues.lignes,
                       });
                     }}
                     onSucces={() => router.refresh()}
                   >
-                    <ChampZone
-                      name="lignes"
-                      label="Médicaments"
-                      required
-                      rows={5}
-                      aide="Une ligne par médicament : Nom | Posologie | Durée (optionnelle)"
-                      placeholder={
-                        'Paracétamol 500mg | 1 cp x3/j | 5 jours\nAmoxicilline 1g | 1 cp x2/j | 7 jours'
-                      }
-                    />
+                    <ChampsMedicamentsOrdonnance />
                   </FormulaireModal>
                 )}
               </div>
@@ -554,6 +534,7 @@ export function DossierDetail({
                 categories={optionsCategories()}
                 estAccueil={estAccueil}
                 medecins={medecins}
+                typeVisite={dossier.typeVisite}
               />
             </FormulaireModal>
           )}

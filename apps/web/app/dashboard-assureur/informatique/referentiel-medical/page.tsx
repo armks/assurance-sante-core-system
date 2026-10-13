@@ -1,63 +1,47 @@
 import type { Metadata } from 'next';
+import { Pill, Stethoscope } from 'lucide-react';
 
-import {
-  ReferentielMedicalEcran,
-  type ActeReferentiel,
-  type MedicamentReferentiel,
-} from '@/components/dashboard/referentiel-medical-ecran';
+import { chargerCatalogue } from '@/app/dashboard-assureur/catalogue-chargement';
+import { CatalogueActivationEcran } from '@/components/dashboard/catalogue-activation-ecran';
 import { PageTitre } from '@/components/page-titre';
-import { verdictsListe } from '@/app/dependances-actions';
-import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
+import { peutActiverReferentiel } from '@/lib/referentiel';
 
 export const metadata: Metadata = {
   title: 'Référentiel médical — Assurance Informatique',
 };
 
-/** Droit exclusif côté API — reference.types.ts, ROLE_PROPOSITION. */
-const ROLE_PROPOSITION = 'ASSUREUR_INFORMATIQUE';
-
 export default async function ReferentielMedical() {
-  const [etat, resActes, resMedicaments] = await Promise.all([
+  const [etat, actes, medicaments] = await Promise.all([
     exigerIdentite('/dashboard-assureur/informatique/referentiel-medical'),
-    apiFetch('/api/v1/reference/actes'),
-    apiFetch('/api/v1/reference/medicaments'),
+    chargerCatalogue('actes'),
+    chargerCatalogue('medicaments'),
   ]);
-  const actes: ActeReferentiel[] = resActes.ok ? await resActes.json() : [];
-  const medicaments: MedicamentReferentiel[] = resMedicaments.ok
-    ? await resMedicaments.json()
-    : [];
-  const erreur = resActes.ok
-    ? resMedicaments.ok
-      ? null
-      : await messageErreur(resMedicaments)
-    : await messageErreur(resActes);
   const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
-  const peutProposer = roleChain.includes(ROLE_PROPOSITION);
-  const [verdictsActes, verdictsMedicaments] = peutProposer
-    ? await Promise.all([
-        verdictsListe('referentielActe', actes.map((a) => a.id)),
-        verdictsListe('medicament', medicaments.map((m) => m.id)),
-      ])
-    : [{}, {}];
+  const peutGerer = peutActiverReferentiel(roleChain);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <PageTitre
         titre="Référentiel médical"
-        description="Actes et médicaments proposés directement par l’Assurance Informatique — l’homologation reste réservée au médecin conseil / pharmacien conseil."
+        description="Le référentiel médical est le catalogue national : activez ou désactivez les actes et médicaments homologués. Seuls les éléments activés sont proposés à la saisie."
       />
-      {erreur ? (
-        <p className="text-sm text-destructive">{erreur}</p>
-      ) : (
-        <ReferentielMedicalEcran
-          actes={actes}
-          medicaments={medicaments}
-          peutProposer={peutProposer}
-          verdictsActes={verdictsActes}
-          verdictsMedicaments={verdictsMedicaments}
-        />
-      )}
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Stethoscope className="size-5 text-muted-foreground" /> Actes
+        </h2>
+        {actes.erreur ? <p className="text-sm text-destructive">{actes.erreur}</p> : <CatalogueActivationEcran type="actes" elements={actes.elements} peutGerer={peutGerer} />}
+      </section>
+      <section className="space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <Pill className="size-5 text-muted-foreground" /> Médicaments
+        </h2>
+        {medicaments.erreur ? (
+          <p className="text-sm text-destructive">{medicaments.erreur}</p>
+        ) : (
+          <CatalogueActivationEcran type="medicaments" elements={medicaments.elements} peutGerer={peutGerer} />
+        )}
+      </section>
     </div>
   );
 }

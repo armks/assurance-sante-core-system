@@ -246,6 +246,15 @@ export class PreauthorizationController {
   }
 
   /**
+   * Recherche d'un médicament dans la base HOMOLOGUÉE du système (dénomination, nom commercial ou code) — alimente la saisie des lignes
+   * d'une ordonnance. **Aucun prix** n'est renvoyé : une prescription ne porte pas de montant.
+   */
+  @Get('medicaments/catalogue')
+  rechercherMedicamentsCatalogue(@CurrentUser() user: AuthenticatedUser, @Query('q') q?: string) {
+    return this.preauth.rechercherMedicamentsCatalogue(user, q ?? '');
+  }
+
+  /**
    * Recherche d'un acte dans le référentiel HOMOLOGUÉ du système (libellé ou code) — alimente le champ « libellé de l'acte » du
    * formulaire d'ajout d'un acte de soins. Déclarée avant toute route `actes/:id`.
    */

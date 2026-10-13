@@ -26,6 +26,16 @@ export const ROLE_PROPOSITION = 'ASSUREUR_INFORMATIQUE';
 export const ROLE_HOMOLOGATION_ACTE = 'ASSUREUR_MEDECIN_CONSEIL';
 export const ROLE_HOMOLOGATION_MEDICAMENT = 'ASSUREUR_PHARMACIEN_CONSEIL';
 
+/**
+ * ADR-009 — le référentiel médical de l'assureur est le catalogue national : l'ACTIVATION / DÉSACTIVATION d'un acte ou d'un médicament
+ * homologué est ouverte à ces trois rôles de l'assureur, et à eux seuls (actes comme médicaments).
+ */
+export const ROLES_ACTIVATION_REFERENTIEL = [
+  'ASSUREUR_INFORMATIQUE',
+  'ASSUREUR_MEDECIN_CONSEIL',
+  'ASSUREUR_PHARMACIEN_CONSEIL',
+] as const;
+
 export interface ContexteAppelant {
   userId: string;
   organisationId: string;

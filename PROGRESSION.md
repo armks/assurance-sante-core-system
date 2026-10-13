@@ -8596,3 +8596,7 @@ Terminé.
 
 ## 2026-10-13 — Recette navigateur : photo et pseudo du superadmin
 - Sans photo : initiales ; pseudo enregistré (sans organisation) ; photo enregistrée, servie par `/profil/photo` (bucket privé, chemin `profils/{id}/…`) et visible dans la barre latérale et l'en-tête ; remplacement : l'ancienne photo est supprimée du stockage ; suppression : photo retirée du profil et du stockage, retour aux initiales ; journal : 4 modifications du profil tracées au superadmin (organisation vide), noms de champs `pseudo` / `photoUrl` sans valeurs. Zéro résidu (photos de test supprimées du stockage).
+
+## 2026-10-13 — Lenteur de la page « Sociétés » du superadmin : diagnostic et correction
+- Mesures (Playwright, serveur de développement) : la page HTML répondait en 1,3–1,7 s ; le délai restant (« load » 3–30 s) vient du serveur de développement Next (compilation à la demande d'une page à sa première visite, jusqu'à 25 s, et gros paquet `main-app.js` non minifié, 2–17 s) — artefact du mode développement, absent en production (pages précompilées). Ce n'était pas la page : les appels API durent 0,3–0,6 s chacun, dont l'essentiel est le coût d'`IdentityService.getMe` (5–6 allers-retours vers la base) répété à chaque appel de service.
+- Correction (API) : `getMe` est chargé UNE fois par requête HTTP (mémorisé dans le contexte de l'acteur — jamais partagé entre requêtes ni utilisateurs ; un refus est mémorisé aussi) et les 25 sous-rôles ne sont relus qu'une fois par minute. Page « Sociétés » : 1,3–1,7 s → 0,95–1,05 s. 4 tests ajoutés (1575 jest verts).

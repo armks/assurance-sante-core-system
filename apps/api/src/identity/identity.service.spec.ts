@@ -2,6 +2,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
+import { acteurStorage } from '../common/acteur.context';
 import { IdentityService } from './identity.service';
 
 type SousRoleRow = {
@@ -297,5 +298,46 @@ describe('IdentityService.getMe', () => {
   it('rejette un compte introuvable', async () => {
     prisma.profil.findFirst.mockResolvedValue(null);
     await expect(service.getMe(USER)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  describe('performances : une seule lecture de l’identité par requête', () => {
+    it('dans une requête, getMe n’interroge la base qu’une fois, quel que soit le nombre d’appels', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil());
+      await acteurStorage.run({ userId: USER.sub }, async () => {
+        const a = await service.getMe(USER);
+        const b = await service.getMe(USER);
+        const c = await service.getMe(USER);
+        expect(b).toBe(a);
+        expect(c).toBe(a);
+      });
+      expect(prisma.profil.findFirst).toHaveBeenCalledTimes(1);
+    });
+
+    it('requêtes distinctes : identité relue (aucun partage entre requêtes ni entre utilisateurs)', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil());
+      await acteurStorage.run({ userId: USER.sub }, () => service.getMe(USER));
+      await acteurStorage.run({ userId: USER.sub }, () => service.getMe(USER));
+      expect(prisma.profil.findFirst).toHaveBeenCalledTimes(2);
+      // un autre utilisateur dans le contexte d'une requête n'hérite jamais de l'identité mémorisée
+      await acteurStorage.run({ userId: 'autre' }, () => service.getMe(USER));
+      expect(prisma.profil.findFirst).toHaveBeenCalledTimes(3);
+    });
+
+    it('hors requête : toujours rechargée ; les sous-rôles ne sont relus qu’une fois par minute', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil());
+      await service.getMe(USER);
+      await service.getMe(USER);
+      expect(prisma.profil.findFirst).toHaveBeenCalledTimes(2);
+      expect(prisma.sousRole.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it('un refus (compte révoqué…) est mémorisé comme un résultat : pas de requête supplémentaire', async () => {
+      prisma.profil.findFirst.mockResolvedValue(makeProfil({ statut: 'REVOQUE' }));
+      await acteurStorage.run({ userId: USER.sub }, async () => {
+        await expect(service.getMe(USER)).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.getMe(USER)).rejects.toBeInstanceOf(ForbiddenException);
+      });
+      expect(prisma.profil.findFirst).toHaveBeenCalledTimes(1);
+    });
   });
 });

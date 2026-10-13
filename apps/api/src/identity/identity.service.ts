@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { SousRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { acteurCourant } from '../common/acteur.context';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   IdentityMeResponse,
@@ -31,6 +32,17 @@ export class IdentityService {
    * @param user contexte d'auth issu du JWT vérifié (SupabaseAuthGuard)
    */
   async getMe(user: AuthenticatedUser): Promise<IdentityMeResponse> {
+    // Une requête HTTP appelle getMe plusieurs fois (garde de service, sous-services…) : l'identité est chargée UNE fois par requête
+    // (cinq à six allers-retours vers la base à chaque appel) puis réutilisée. Hors requête (tâches, tests) : toujours rechargée.
+    const acteur = acteurCourant();
+    if (acteur && acteur.userId === user.sub) {
+      acteur.identite ??= this.chargerIdentite(user);
+      return acteur.identite as Promise<IdentityMeResponse>;
+    }
+    return this.chargerIdentite(user);
+  }
+
+  private async chargerIdentite(user: AuthenticatedUser): Promise<IdentityMeResponse> {
     const profil = await this.prisma.profil.findFirst({
       where: { id: user.sub, deletedAt: null },
       include: {
@@ -130,7 +142,7 @@ export class IdentityService {
 
     // 25 sous-rôles au total : on les charge tous une fois pour résoudre la
     // chaîne d'héritage en mémoire sans requêtes récursives.
-    const tousSousRoles = await this.prisma.sousRole.findMany();
+    const tousSousRoles = await this.sousRoles();
     const parCode = new Map(tousSousRoles.map((r) => [r.code, r]));
     const chaine = this.resoudreChaineRoles(profil.sousRole, parCode);
 
@@ -156,6 +168,17 @@ export class IdentityService {
     };
 
     return { profil: profilResume, permissions };
+  }
+
+  /** Les sous-rôles (25 lignes de référence) changent très rarement : relus au plus toutes les 60 s plutôt qu'à chaque requête. */
+  private sousRolesCache: { lu: number; lignes: SousRole[] } | null = null;
+
+  private async sousRoles(): Promise<SousRole[]> {
+    const maintenant = Date.now();
+    if (this.sousRolesCache && maintenant - this.sousRolesCache.lu < 60_000) return this.sousRolesCache.lignes;
+    const lignes = await this.prisma.sousRole.findMany();
+    this.sousRolesCache = { lu: maintenant, lignes };
+    return lignes;
   }
 
   private async assertPerimetreActif(profil: {

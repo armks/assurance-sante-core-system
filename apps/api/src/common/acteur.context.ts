@@ -17,6 +17,8 @@ export interface ActeurCourant {
   userId: string;
   /** Périmètre chargé à la première écriture de la requête, puis réutilisé. */
   perimetre?: Promise<PerimetreActeur>;
+  /** Identité complète chargée une première fois pour la requête (`IdentityService.getMe`), puis réutilisée par chaque service appelé. */
+  identite?: Promise<unknown>;
 }
 
 export const acteurStorage = new AsyncLocalStorage<ActeurCourant>();

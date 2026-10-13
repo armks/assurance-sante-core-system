@@ -23,6 +23,7 @@ import {
   TON_STATUT_BENEFICIAIRE,
 } from '@/lib/member';
 import { PhotoUploader } from '@/components/dashboard/adherents/photo-uploader';
+import { ChampsContactsBeneficiaire, lireContacts } from '@/components/dashboard/adherents/champs-contacts';
 import type { Beneficiaire } from '@/components/dashboard/adherents/types';
 
 const LIBELLE_LIEN = Object.fromEntries(LIENS_PARENTE.map((l) => [l.valeur, l.libelle]));
@@ -60,6 +61,7 @@ function ChampsBeneficiaire({ beneficiaire }: { beneficiaire?: Beneficiaire }) {
           options={SEXES}
         />
       </div>
+      <ChampsContactsBeneficiaire telephone={beneficiaire?.telephone} email={beneficiaire?.email} />
     </>
   );
 }
@@ -71,6 +73,7 @@ function lireDto(fd: FormData) {
     prenom: String(fd.get('prenom') ?? ''),
     dateNaissance: String(fd.get('dateNaissance') ?? ''),
     sexe: String(fd.get('sexe') ?? ''),
+    ...lireContacts(fd),
   };
 }
 

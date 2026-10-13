@@ -45,6 +45,7 @@ import {
   TON_STATUT_MEMBRE,
 } from '@/lib/member';
 import { CarteBouton } from './carte-bouton';
+import { ChampsContactsBeneficiaire, lireContacts } from './champs-contacts';
 import { BoutonLienInvitation } from './lien-invitation';
 import { Medaillon } from './medaillon';
 import { PhotoUploader } from './photo-uploader';
@@ -145,6 +146,11 @@ export function AdherentDetail({
       entete: 'Naissance',
       valeur: (b) => b.dateNaissance,
       rendu: (b) => dateFr(b.dateNaissance),
+    },
+    {
+      cle: 'contact',
+      entete: 'Contact',
+      valeur: (b) => [b.telephone, b.email].filter(Boolean).join(' · ') || '—',
     },
     {
       cle: 'numeroCarte',
@@ -419,6 +425,7 @@ export function AdherentDetail({
                       prenom: String(fd.get('prenom') ?? ''),
                       dateNaissance: String(fd.get('dateNaissance') ?? ''),
                       sexe: String(fd.get('sexe') ?? ''),
+                      ...lireContacts(fd),
                     })
                   }
                   onSucces={() => router.refresh()}
@@ -454,6 +461,7 @@ export function AdherentDetail({
                       options={SEXES}
                     />
                   </div>
+                  <ChampsContactsBeneficiaire />
                 </FormulaireModal>
               ) : undefined
             }
@@ -524,6 +532,7 @@ export function AdherentDetail({
                         prenom: String(fd.get('prenom') ?? ''),
                         dateNaissance: String(fd.get('dateNaissance') ?? ''),
                         sexe: String(fd.get('sexe') ?? ''),
+                        ...lireContacts(fd),
                       })
                     }
                     onSucces={() => router.refresh()}
@@ -567,6 +576,7 @@ export function AdherentDetail({
                         options={SEXES}
                       />
                     </div>
+                    <ChampsContactsBeneficiaire telephone={b.telephone} email={b.email} />
                   </FormulaireModal>
                 )}
                 {peutGerer && b.statut !== 'RADIE' && (

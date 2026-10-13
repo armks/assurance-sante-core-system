@@ -112,6 +112,9 @@ export interface Beneficiaire {
   /** EN_ATTENTE_SOCIETE | EN_ATTENTE_ASSUREUR | ACTIF | SUSPENDU | RADIE. */
   statut: string;
   photoUrl?: string | null;
+  /** Contacts facultatifs. */
+  telephone?: string | null;
+  email?: string | null;
 }
 
 export interface AdherentDetail extends AdherentListe {

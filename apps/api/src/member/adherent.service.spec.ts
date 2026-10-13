@@ -180,6 +180,16 @@ describe('AdherentService — fichier des membres', () => {
     expect(prisma.adherent.create).not.toHaveBeenCalled();
   });
 
+  it('bénéficiaire : contacts facultatifs, normalisés s’ils sont fournis ; format invalide → 400', async () => {
+    await service.ajouterBeneficiaire(USER, 'adh-1', { lienParente: 'ENFANT', nom: 'K', prenom: 'A', dateNaissance: '2015-03-02', sexe: 'F', telephone: '07 11 22 33 44', email: ' Maman@Exemple.CI ' });
+    expect(prisma.beneficiaire.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ telephone: '0711223344', email: 'maman@exemple.ci' }) }),
+    );
+    await expect(
+      service.ajouterBeneficiaire(USER, 'adh-1', { lienParente: 'ENFANT', nom: 'K', prenom: 'B', dateNaissance: '2015-03-02', sexe: 'F', email: 'x' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
   it('ajoute un bénéficiaire à un adhérent', async () => {
     const res = await service.ajouterBeneficiaire(USER, 'adh-1', {
       lienParente: 'ENFANT',

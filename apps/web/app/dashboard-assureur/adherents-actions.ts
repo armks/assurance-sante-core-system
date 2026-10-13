@@ -75,11 +75,14 @@ export async function ajouterBeneficiaire(
     prenom: string;
     dateNaissance: string;
     sexe: string;
+    telephone?: string;
+    email?: string;
   },
 ): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
   const res = await apiFetch(
     `/api/v1/member/adherents/${adherentId}/beneficiaires`,
-    { method: 'POST', body: JSON.stringify(input) },
+    { method: 'POST', body: JSON.stringify(body) },
   );
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalider(`/${adherentId}`);
@@ -96,6 +99,8 @@ export async function modifierBeneficiaire(
     prenom?: string;
     dateNaissance?: string;
     sexe?: string;
+    telephone?: string;
+    email?: string;
   },
 ): Promise<ResultatSoumission> {
   const body = Object.fromEntries(

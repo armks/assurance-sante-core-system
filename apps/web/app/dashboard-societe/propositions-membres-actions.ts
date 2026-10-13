@@ -54,6 +54,8 @@ export async function proposerBeneficiaireMembre(input: {
   prenom: string;
   dateNaissance: string;
   sexe: string;
+  telephone?: string;
+  email?: string;
 }): Promise<ResultatPropositionMembre> {
   return traiter(await post('/beneficiaire', input));
 }

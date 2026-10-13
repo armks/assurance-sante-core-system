@@ -18,11 +18,12 @@ async function traiter(res: Response): Promise<ResultatBeneficiaire> {
 
 export async function proposerMonBeneficiaire(
   adherentId: string,
-  input: { lienParente: string; nom: string; prenom: string; dateNaissance: string; sexe: string },
+  input: { lienParente: string; nom: string; prenom: string; dateNaissance: string; sexe: string; telephone?: string; email?: string },
 ): Promise<ResultatBeneficiaire> {
+  const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
   const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/beneficiaires/proposition`, {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: JSON.stringify(body),
   });
   return traiter(res);
 }
@@ -30,7 +31,7 @@ export async function proposerMonBeneficiaire(
 export async function modifierMonBeneficiaire(
   adherentId: string,
   beneficiaireId: string,
-  input: { lienParente?: string; nom?: string; prenom?: string; dateNaissance?: string; sexe?: string },
+  input: { lienParente?: string; nom?: string; prenom?: string; dateNaissance?: string; sexe?: string; telephone?: string; email?: string },
 ): Promise<ResultatSoumission> {
   const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
   const res = await apiFetch(`/api/v1/member/adherents/${adherentId}/beneficiaires/${beneficiaireId}/proposition`, {

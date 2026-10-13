@@ -8411,3 +8411,19 @@ Code complet et testé en unitaire ; recette bout en bout à faire.
 
 ### Statut
 Terminé côté API ; écrans compilés et branchés, recette visuelle à faire.
+
+
+## 2026-10-13 — E-mail et téléphone sur tous les formulaires de bénéficiaire
+
+### Réalisé
+- Migration 088 : `beneficiaires.telephone` / `email` (facultatifs — un enfant peut n'avoir aucun contact ; formats contrôlés par l'API si fournis, `contacts-membre.ts`).
+- API : création directe, modification, proposition par l'adhérent (et sa modification) et proposition de la société ; à la validation d'une proposition, les contacts sont recopiés sur la fiche du bénéficiaire.
+- Web : composant `champs-contacts.tsx` utilisé dans les 4 formulaires (fiche adhérent : ajout et modification ; « Mes bénéficiaires » : proposition et modification ; proposition de la société) ;
+  colonne « Contact » dans la liste des bénéficiaires de la fiche. Un contact déjà saisi ne peut pas être vidé par la modification (valeur vide ignorée).
+
+### Tests
+- API 1 487/1 487 (56 suites) ; typage API et web sans erreur ; HTTP réel (13 contrôles, zéro résidu) : création sans/avec contacts, formats invalides (400), modification, lecture sur la fiche,
+  proposition de l'adhérent + modification, proposition de la société (400 si e-mail invalide) puis validation avec recopie. Recette navigateur non faite.
+
+### Statut
+Terminé côté API ; écrans compilés.

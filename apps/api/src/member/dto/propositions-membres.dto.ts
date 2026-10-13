@@ -24,6 +24,9 @@ export class ProposerBeneficiaireMembreDto {
   @IsString({ message: 'prenom est requis.' }) @IsNotEmpty({ message: 'prenom est requis.' }) @MaxLength(120) prenom!: string;
   @IsDateString({}, { message: 'dateNaissance doit être une date valide.' }) dateNaissance!: string;
   @IsIn(SEXES, { message: 'sexe doit être M ou F.' }) sexe!: string;
+  /** Facultatifs pour un bénéficiaire (formats contrôlés par le service). */
+  @IsOptional() @IsString() @MaxLength(20) telephone?: string;
+  @IsOptional() @IsString() @MaxLength(200) email?: string;
 }
 
 export class RejeterPropositionMembreDto {

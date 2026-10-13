@@ -13,6 +13,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberCarteService } from './carte.service';
+import { validerContactsMembre } from './contacts-membre';
 import type {
   ListerPropositionsMembresQueryDto,
   ProposerAdherentMembreDto,
@@ -167,6 +168,8 @@ export class PropositionsMembresService {
     });
     if (!parent) throw new NotFoundException('Adhérent titulaire introuvable pour votre société.');
     if (parent.statut === 'RADIE') throw new ConflictException("L'adhérent titulaire est radié : aucune proposition de bénéficiaire.");
+    // contacts facultatifs pour un bénéficiaire, mais contrôlés s'ils sont fournis
+    const contacts = validerContactsMembre(dto.telephone, dto.email, false);
 
     const cree = await this.prisma.$transaction(async (tx) => {
       const p = await tx.propositionMembre.create({
@@ -180,6 +183,8 @@ export class PropositionsMembresService {
           sexe: dto.sexe,
           adherentParentId: parent.id,
           lienParente: dto.lienParente,
+          telephone: contacts.telephone,
+          email: contacts.email,
           proposePar: ctx.userId,
         },
       });
@@ -315,7 +320,7 @@ export class PropositionsMembresService {
         if (!parent) throw new ConflictException('L’adhérent titulaire n’existe plus dans cette société.');
         if (parent.statut === 'RADIE') throw new ConflictException('L’adhérent titulaire est radié : validation impossible.');
         const b = await tx.beneficiaire.create({
-          data: { adherentId: parent.id, lienParente: p.lienParente!, nom: p.nom, prenom: p.prenom, dateNaissance: p.dateNaissance, sexe: p.sexe },
+          data: { adherentId: parent.id, lienParente: p.lienParente!, nom: p.nom, prenom: p.prenom, dateNaissance: p.dateNaissance, sexe: p.sexe, telephone: p.telephone, email: p.email },
         });
         beneficiaireCreeId = b.id;
         await tx.$executeRaw`

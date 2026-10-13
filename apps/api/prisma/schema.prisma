@@ -381,6 +381,9 @@ model Beneficiaire {
   /// Modifiable par l'adhérent (sa propre photo ou celle d'un bénéficiaire),
   /// sans validation, y compris pendant la double validation en cours.
   photoUrl      String?   @map("photo_url")
+  /// Contacts facultatifs (prisma/sql/088)
+  telephone     String?
+  email         String?
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)

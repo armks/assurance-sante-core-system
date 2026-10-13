@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { LIENS_PARENTE, SEXES } from '@/lib/member';
+import { ChampsContactsBeneficiaire } from './champs-contacts';
 import type { AdherentListe, PoliceRef, PropositionMembre } from './types';
 
 const LIBELLE_STATUT: Record<string, string> = {
@@ -93,6 +94,7 @@ function ChampsBeneficiaire({ adherents }: { adherents: AdherentListe[] }) {
         <ChampSelect name="sexe" label="Sexe" required placeholder="Choisir…" options={SEXES} />
       </div>
       <ChampTexte name="dateNaissance" label="Date de naissance" type="date" required />
+      <ChampsContactsBeneficiaire />
     </>
   );
 }
@@ -223,6 +225,7 @@ export function PropositionsMembresPanel({
                 const r = await proposerBeneficiaireMembre({
                   adherentId: lire(fd, 'adherentId'), lienParente: lire(fd, 'lienParente'), nom: lire(fd, 'nom'), prenom: lire(fd, 'prenom'),
                   dateNaissance: lire(fd, 'dateNaissance'), sexe: lire(fd, 'sexe'),
+                  telephone: lire(fd, 'telephone') || undefined, email: lire(fd, 'email') || undefined,
                 });
                 return r.ok ? { ok: true, message: 'Proposition envoyée à l’assureur.' } : { ok: false, error: r.error, erreurs: r.erreurs };
               }}

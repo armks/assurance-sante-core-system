@@ -78,6 +78,16 @@ describe('PropositionsMembresService — proposer', () => {
     await expect(service.proposerAdherent(USER, { ...ADH, moisEffet: '2020-01-10' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('bénéficiaire : contacts facultatifs mais contrôlés, recopiés sur la proposition', async () => {
+    const { service, prisma } = creer('SOCIETE_ADMINISTRATION');
+    prisma.adherent.findFirst.mockResolvedValueOnce({ id: 'adh-1', statut: 'ACTIF' });
+    const dto = { adherentId: '11111111-1111-4111-8111-111111111111', lienParente: 'ENFANT', nom: 'A', prenom: 'B', dateNaissance: '2015-01-01', sexe: 'M' };
+    await service.proposerBeneficiaire(USER, { ...dto, telephone: '07 00 00 00 07', email: 'Papa@Exemple.ci' });
+    expect(prisma.propositionMembre.create).toHaveBeenCalledWith({ data: expect.objectContaining({ type: 'BENEFICIAIRE', telephone: '0700000007', email: 'papa@exemple.ci' }) });
+    prisma.adherent.findFirst.mockResolvedValueOnce({ id: 'adh-1', statut: 'ACTIF' });
+    await expect(service.proposerBeneficiaire(USER, { ...dto, email: 'pas-un-mail' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it.each(['ASSUREUR_INFORMATIQUE', 'SOCIETE_RECEPTION', 'SOCIETE_COMPTABLE', 'ADHERENT_TITULAIRE'])('%s ne peut pas proposer (403)', async (role) => {
     const { service } = creer(role);
     await expect(service.proposerAdherent(USER, ADH)).rejects.toBeInstanceOf(ForbiddenException);
@@ -112,6 +122,16 @@ describe('PropositionsMembresService — décisions', () => {
     prisma.propositionMembre.findUniqueOrThrow.mockResolvedValue({ ...EN_ATTENTE, statut: 'VALIDEE', adherentCreeId: 'a-new', moisEffet: mois });
     await service.valider(USER, 'p1');
     expect(prisma.adherent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ dateValidation: new Date(Date.UTC(new Date().getUTCFullYear() + 1, 4, 31)) }) });
+  });
+
+  it('valide un bénéficiaire : ses contacts sont recopiés sur la fiche créée', async () => {
+    const { service, prisma } = creer('ASSUREUR_EXPLOITATION', null);
+    const benef = { ...EN_ATTENTE, type: 'BENEFICIAIRE', policeId: null, adherentParentId: 'adh-1', lienParente: 'ENFANT', telephone: '0700000007', email: 'papa@exemple.ci' };
+    prisma.propositionMembre.findFirst.mockResolvedValue(benef);
+    prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-1', statut: 'ACTIF' });
+    prisma.propositionMembre.findUniqueOrThrow.mockResolvedValue({ ...benef, statut: 'VALIDEE', beneficiaireCreeId: 'b-new' });
+    await service.valider(USER, 'p1');
+    expect(prisma.beneficiaire.create).toHaveBeenCalledWith({ data: expect.objectContaining({ telephone: '0700000007', email: 'papa@exemple.ci' }) });
   });
 
   it('valide un bénéficiaire : créé ACTIF sur son titulaire', async () => {

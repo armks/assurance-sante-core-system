@@ -677,6 +677,7 @@ export class AdherentService {
     this.assertCreationDirecte(ctx);
     const adherent = await this.chargerAdherent(ctx, adherentId);
     this.assertGestion(ctx, adherent.souscripteurId);
+    const contacts = validerContactsMembre(dto.telephone, dto.email, false);
 
     const id = await this.prisma.$transaction(async (tx) => {
       const benef = await tx.beneficiaire.create({
@@ -687,6 +688,8 @@ export class AdherentService {
           prenom: dto.prenom,
           dateNaissance: new Date(dto.dateNaissance),
           sexe: dto.sexe,
+          telephone: contacts.telephone,
+          email: contacts.email,
         },
       });
       await this.audit(
@@ -736,6 +739,11 @@ export class AdherentService {
       data.dateNaissance = new Date(dto.dateNaissance);
     }
     if (dto.sexe !== undefined) data.sexe = dto.sexe;
+    if (dto.telephone !== undefined || dto.email !== undefined) {
+      const contacts = validerContactsMembre(dto.telephone, dto.email, false);
+      if (dto.telephone !== undefined) data.telephone = contacts.telephone;
+      if (dto.email !== undefined) data.email = contacts.email;
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.beneficiaire.update({ where: { id: beneficiaireId }, data });
@@ -836,6 +844,7 @@ export class AdherentService {
   ) {
     const ctx = await this.contexteAppelant(user);
     this.assertEntiteAdherent(ctx);
+    const contacts = validerContactsMembre(dto.telephone, dto.email, false);
 
     const id = await this.prisma.$transaction(async (tx) => {
       const benef = await tx.beneficiaire.create({
@@ -846,6 +855,8 @@ export class AdherentService {
           prenom: dto.prenom,
           dateNaissance: new Date(dto.dateNaissance),
           sexe: dto.sexe,
+          telephone: contacts.telephone,
+          email: contacts.email,
           numeroCarte: null,
           statut: STATUT_BENEFICIAIRE_EN_ATTENTE_SOCIETE,
         },
@@ -894,6 +905,11 @@ export class AdherentService {
       data.dateNaissance = new Date(dto.dateNaissance);
     }
     if (dto.sexe !== undefined) data.sexe = dto.sexe;
+    if (dto.telephone !== undefined || dto.email !== undefined) {
+      const contacts = validerContactsMembre(dto.telephone, dto.email, false);
+      if (dto.telephone !== undefined) data.telephone = contacts.telephone;
+      if (dto.email !== undefined) data.email = contacts.email;
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.beneficiaire.update({ where: { id: beneficiaireId }, data });

@@ -91,6 +91,9 @@ export class CreateBeneficiaireDto {
 
   @IsIn(SEXES)
   sexe!: string;
+
+  @IsOptional() @IsString() @MaxLength(20) telephone?: string;
+  @IsOptional() @IsString() @MaxLength(200) email?: string;
 }
 
 export class UpdateBeneficiaireDto {
@@ -99,6 +102,8 @@ export class UpdateBeneficiaireDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(120) prenom?: string;
   @IsOptional() @IsDateString() dateNaissance?: string;
   @IsOptional() @IsIn(SEXES) sexe?: string;
+  @IsOptional() @IsString() @MaxLength(20) telephone?: string;
+  @IsOptional() @IsString() @MaxLength(200) email?: string;
 }
 
 /** Archivage (sortie) d'un adhérent ou d'un bénéficiaire — motif facultatif, tracé. */

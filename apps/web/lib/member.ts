@@ -157,3 +157,13 @@ export function peutProposerSortants(roleChain: string[] | undefined): boolean {
 export function peutValiderSortants(roleChain: string[] | undefined): boolean {
   return peutValiderImportAdherents(roleChain);
 }
+
+/**
+ * Lien d'invitation « créer son profil » d'un adhérent (ADHERENT_TITULAIRE) — miroir des règles de provisioning
+ * (ASSUREUR_INFORMATIQUE, SOCIETE_ADMINISTRATION, SOCIETE_RECEPTION). Ne fait que masquer le bouton : l'API revérifie
+ * le rôle, le périmètre, le statut et le compte existant.
+ */
+export function peutInviterAdherent(roleChain: string[] | undefined): boolean {
+  const rc = roleChain ?? [];
+  return rc.includes('ASSUREUR_INFORMATIQUE') || rc.includes('SOCIETE_ADMINISTRATION') || rc.includes('SOCIETE_RECEPTION');
+}

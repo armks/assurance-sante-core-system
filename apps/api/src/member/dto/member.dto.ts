@@ -57,6 +57,10 @@ export class CreateAdherentDto {
   @IsOptional() @IsString() @MaxLength(64) ibanOuRib?: string;
   @IsOptional() @IsString() @MaxLength(120) banqueNom?: string;
 
+  /** Au moins un contact (téléphone ou e-mail) est exigé par le service. */
+  @IsOptional() @IsString() @MaxLength(20) telephone?: string;
+  @IsOptional() @IsString() @MaxLength(200) email?: string;
+
   @IsOptional()
   @IsIn(MODES_PAIEMENT)
   modePaiementPrefere?: string;
@@ -71,6 +75,8 @@ export class UpdateAdherentDto {
   @IsOptional() @IsString() @MaxLength(64) ibanOuRib?: string;
   @IsOptional() @IsString() @MaxLength(120) banqueNom?: string;
   @IsOptional() @IsIn(MODES_PAIEMENT) modePaiementPrefere?: string;
+  @IsOptional() @IsString() @MaxLength(20) telephone?: string;
+  @IsOptional() @IsString() @MaxLength(200) email?: string;
 }
 
 export class CreateBeneficiaireDto {

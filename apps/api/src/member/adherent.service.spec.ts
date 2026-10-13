@@ -117,12 +117,15 @@ describe('AdherentService — fichier des membres', () => {
   });
 
   it('crée un adhérent et expose les numéros générés en base', async () => {
+    prisma.adherent.findFirst.mockResolvedValueOnce(null); // e-mail libre
     const res = await service.creerAdherent(USER, {
       souscripteurId: 'sous-1',
       nom: 'Konan',
       prenom: 'Yao',
       dateNaissance: '1990-05-14',
       sexe: 'M',
+      telephone: '07 00 00 00 00',
+      email: ' Yao@Exemple.CI ',
     });
 
     expect(prisma.adherent.create).toHaveBeenCalledWith(
@@ -131,6 +134,8 @@ describe('AdherentService — fichier des membres', () => {
           organisationId: 'org-1',
           souscripteurId: 'sous-1',
           nom: 'Konan',
+          telephone: '0700000000',
+          email: 'yao@exemple.ci',
         }),
       }),
     );
@@ -141,6 +146,38 @@ describe('AdherentService — fichier des membres', () => {
     expect(res.numeroAdherent).toBe('ADH-2026-000007');
     expect(res.numeroCarte).toBe('CM-0000000042');
     expect(prisma.$executeRaw).toHaveBeenCalled(); // audit
+  });
+
+  it('création : au moins un contact (téléphone ou e-mail) est obligatoire (400), rien n’est créé', async () => {
+    await expect(
+      service.creerAdherent(USER, { souscripteurId: 'sous-1', nom: 'Konan', prenom: 'Yao', dateNaissance: '1990-05-14', sexe: 'M' }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(prisma.adherent.create).not.toHaveBeenCalled();
+  });
+
+  it('création : e-mail ou téléphone mal formé → 400 ; e-mail déjà pris → 409', async () => {
+    const base = { souscripteurId: 'sous-1', nom: 'Konan', prenom: 'Yao', dateNaissance: '1990-05-14', sexe: 'M' };
+    await expect(service.creerAdherent(USER, { ...base, email: 'pas-un-mail' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.creerAdherent(USER, { ...base, telephone: '12' })).rejects.toMatchObject({ status: 400 });
+    prisma.adherent.findFirst.mockResolvedValueOnce({ id: 'autre' });
+    await expect(service.creerAdherent(USER, { ...base, email: 'yao@exemple.ci' })).rejects.toMatchObject({ status: 409 });
+    expect(prisma.adherent.create).not.toHaveBeenCalled();
+  });
+
+  it('création : au moins un contact (téléphone ou e-mail) est obligatoire (400), rien n’est créé', async () => {
+    await expect(
+      service.creerAdherent(USER, { souscripteurId: 'sous-1', nom: 'Konan', prenom: 'Yao', dateNaissance: '1990-05-14', sexe: 'M' }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(prisma.adherent.create).not.toHaveBeenCalled();
+  });
+
+  it('création : e-mail ou téléphone mal formé → 400 ; e-mail déjà pris → 409', async () => {
+    const base = { souscripteurId: 'sous-1', nom: 'Konan', prenom: 'Yao', dateNaissance: '1990-05-14', sexe: 'M' };
+    await expect(service.creerAdherent(USER, { ...base, email: 'pas-un-mail' })).rejects.toMatchObject({ status: 400 });
+    await expect(service.creerAdherent(USER, { ...base, telephone: '12' })).rejects.toMatchObject({ status: 400 });
+    prisma.adherent.findFirst.mockResolvedValueOnce({ id: 'autre' });
+    await expect(service.creerAdherent(USER, { ...base, email: 'yao@exemple.ci' })).rejects.toMatchObject({ status: 409 });
+    expect(prisma.adherent.create).not.toHaveBeenCalled();
   });
 
   it('ajoute un bénéficiaire à un adhérent', async () => {

@@ -13,6 +13,8 @@ export class ProposerAdherentMembreDto {
   @IsUUID('all', { message: 'policeId (formule rattachée) est requis.' }) policeId!: string;
   @IsOptional() @IsString() @MaxLength(20) telephone?: string;
   @IsOptional() @IsString() @MaxLength(200) email?: string;
+  /** Entrant : mois d'effet (n'importe quel jour du mois, ramené au 1er) — vide = effet immédiat à la validation. */
+  @IsOptional() @IsDateString({}, { message: 'moisEffet doit être une date valide.' }) moisEffet?: string;
 }
 
 export class ProposerBeneficiaireMembreDto {

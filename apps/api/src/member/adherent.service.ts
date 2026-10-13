@@ -12,6 +12,7 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { MemberCarteService } from './carte.service';
+import { validerContactsMembre } from './contacts-membre';
 import {
   ArchiverMembreDto,
   ChangerStatutDto,
@@ -106,12 +107,17 @@ export class AdherentService {
       );
     }
 
+    const contacts = validerContactsMembre(dto.telephone, dto.email, true);
+    await this.assertEmailLibre(contacts.email, null);
+
     const id = await this.prisma.$transaction(async (tx) => {
       const adherent = await tx.adherent.create({
         data: {
           organisationId: ctx.organisationId,
           souscripteurId: dto.souscripteurId,
           policeId: dto.policeId ?? null,
+          telephone: contacts.telephone,
+          email: contacts.email,
           nom: dto.nom,
           prenom: dto.prenom,
           dateNaissance: new Date(dto.dateNaissance),
@@ -302,6 +308,16 @@ export class AdherentService {
     throw new NotFoundException('Aucun membre trouvé pour ce numéro de carte.');
   }
 
+  /** Un e-mail identifie l'adhérent (invitation, notifications) : jamais deux fiches avec le même. */
+  private async assertEmailLibre(email: string | null, sauf: string | null): Promise<void> {
+    if (!email) return;
+    const pris = await this.prisma.adherent.findFirst({
+      where: { email, deletedAt: null, ...(sauf ? { id: { not: sauf } } : {}) },
+      select: { id: true },
+    });
+    if (pris) throw new ConflictException(`Cet e-mail est déjà utilisé par un autre adhérent (${email}).`);
+  }
+
   async modifierAdherent(
     user: AuthenticatedUser,
     id: string,
@@ -335,6 +351,14 @@ export class AdherentService {
     if (dto.banqueNom !== undefined) data.banqueNom = dto.banqueNom;
     if (dto.modePaiementPrefere !== undefined) {
       data.modePaiementPrefere = dto.modePaiementPrefere;
+    }
+    if (dto.telephone !== undefined || dto.email !== undefined) {
+      const contacts = validerContactsMembre(dto.telephone, dto.email, false);
+      if (dto.telephone !== undefined) data.telephone = contacts.telephone;
+      if (dto.email !== undefined) {
+        await this.assertEmailLibre(contacts.email, id);
+        data.email = contacts.email;
+      }
     }
 
     await this.prisma.$transaction(async (tx) => {

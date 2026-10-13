@@ -2244,6 +2244,8 @@ model PropositionMembre {
   policeId           String?   @map("police_id") @db.Uuid
   telephone          String?
   email              String?
+  /// Entrant : 1er du mois d'effet (prisma/sql/087) ; NULL = effet immédiat
+  moisEffet          DateTime? @map("mois_effet") @db.Date
   adherentParentId   String?   @map("adherent_parent_id") @db.Uuid
   lienParente        String?   @map("lien_parente")
   motifRejet         String?   @map("motif_rejet")

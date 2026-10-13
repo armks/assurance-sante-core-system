@@ -531,6 +531,8 @@ describe('ImportAdherentsService', () => {
             moisEffet: moisSuivantAttendu,
             nbLignesValides: 1,
             nbLignesErreur: 0,
+            // soumis d'emblée à l'assureur : plus d'écran d'édition du brouillon
+            statut: 'EN_ATTENTE_VALIDATION',
           }),
         }),
       );

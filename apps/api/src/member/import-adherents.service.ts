@@ -320,6 +320,8 @@ export class ImportAdherentsService {
         nbLignesValides: lignesMaj.length,
         nbLignesErreur: erreursMaj.length,
         moisEffet,
+        // Plus d'écran d'édition du brouillon (circuit par lot retiré) : un fichier d'entrants est SOUMIS d'emblée à l'assureur.
+        ...(lignesMaj.length > 0 ? { statut: 'EN_ATTENTE_VALIDATION' } : {}),
       },
     });
     await this.audit(this.prisma, ctx.userId, 'IMPORT_ENTRANTS_EXCEL', imp.id, {

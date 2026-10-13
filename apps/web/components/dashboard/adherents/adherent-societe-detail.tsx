@@ -13,6 +13,7 @@ import {
   LIBELLE_STATUT_MEMBRE,
   TON_STATUT_MEMBRE,
   peutGererMembres,
+  peutInviterAdherent,
   peutValiderBeneficiaireSociete,
 } from '@/lib/member';
 import { AdherentDetail } from './adherent-detail';
@@ -72,6 +73,7 @@ export async function AdherentSocieteDetail({
         adherent={sansCheminsPhoto(adherent)}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
         peutValiderBeneficiaireSociete={peutValiderBeneficiaireSociete(etat.identity.permissions.roleChain)}
+        peutInviter={peutInviterAdherent(etat.identity.permissions.roleChain) && !!adherent.dateValidation}
         photoAdherentUrl={photos.adherent}
         photosParBeneficiaire={photos.beneficiaires}
         estSociete={etat.identity.permissions.roleChain.every((r) => !r.startsWith('ASSUREUR_'))}

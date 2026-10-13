@@ -22,8 +22,10 @@ export async function creerAdherent(input: {
   prenom: string;
   dateNaissance: string;
   sexe: string;
+  telephone?: string;
+  email?: string;
   modePaiementPrefere?: string;
-}): Promise<ResultatSoumission> {
+}): Promise<ResultatSoumission | { ok: true; message: string; adherentId: string }> {
   const body = Object.fromEntries(
     Object.entries(input).filter(([, v]) => v !== undefined && v !== ''),
   );
@@ -32,9 +34,9 @@ export async function creerAdherent(input: {
     body: JSON.stringify(body),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
-  const a = (await res.json()) as { numeroAdherent: string };
+  const a = (await res.json()) as { id: string; numeroAdherent: string };
   revalider();
-  return { ok: true, message: `Adhérent ${a.numeroAdherent} créé.` };
+  return { ok: true, message: `Adhérent ${a.numeroAdherent} créé.`, adherentId: a.id };
 }
 
 export async function changerStatutAdherent(
@@ -271,7 +273,7 @@ export async function televerserPhotoBeneficiairePersonnel(
 /** Modifie l'identité d'un adhérent (refusé s'il est archivé : désarchivez-le d'abord). */
 export async function modifierAdherent(
   id: string,
-  input: { nom?: string; prenom?: string; dateNaissance?: string; sexe?: string },
+  input: { nom?: string; prenom?: string; dateNaissance?: string; sexe?: string; telephone?: string; email?: string },
 ): Promise<ResultatSoumission> {
   const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
   const res = await apiFetch(`/api/v1/member/adherents/${id}`, { method: 'PATCH', body: JSON.stringify(body) });

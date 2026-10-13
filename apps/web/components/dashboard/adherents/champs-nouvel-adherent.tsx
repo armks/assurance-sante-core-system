@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 import {
+  ChampCheckbox,
   ChampSelect,
   ChampTexte,
 } from '@/components/dashboard/patterns';
@@ -13,16 +14,19 @@ import { LIBELLE_POLICE } from '@/lib/police';
 /**
  * Champs du formulaire « Nouvel adhérent ». Le choix du souscripteur filtre la
  * liste des polices. `souscripteurVerrou` : société qui ne gère que ses propres
- * adhérents — souscripteur imposé.
+ * adhérents — souscripteur imposé. `avecInvitation` : propose de générer le lien
+ * d'invitation (création de son profil par l'adhérent) juste après la création.
  */
 export function ChampsNouvelAdherent({
   souscripteurs,
   polices,
   souscripteurVerrou,
+  avecInvitation = false,
 }: {
   souscripteurs: OptionRef[];
   polices: PoliceRef[];
   souscripteurVerrou?: string;
+  avecInvitation?: boolean;
 }) {
   const [souscripteurId, setSouscripteurId] = useState(
     souscripteurVerrou ?? souscripteurs[0]?.id ?? '',
@@ -81,12 +85,28 @@ export function ChampsNouvelAdherent({
           options={SEXES}
         />
       </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <ChampTexte
+          name="telephone"
+          label="Téléphone"
+          type="tel"
+          maxLength={20}
+          aide="Au moins un des deux contacts ; les deux sont recommandés."
+        />
+        <ChampTexte name="email" label="E-mail" type="email" maxLength={200} />
+      </div>
       <ChampSelect
         name="modePaiementPrefere"
         label="Mode de paiement préféré"
         placeholder="Non renseigné"
         options={MODES_PAIEMENT}
       />
+      {avecInvitation && (
+        <ChampCheckbox
+          name="genererInvitation"
+          label="Générer le lien d’invitation (l’adhérent crée son profil) — nécessite l’e-mail"
+        />
+      )}
     </>
   );
 }

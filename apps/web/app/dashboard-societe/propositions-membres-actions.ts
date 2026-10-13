@@ -6,6 +6,7 @@ import { apiFetch } from '@/lib/api';
 
 /** Écrans qui affichent la liste des propositions (société) ou leur validation (assureur). */
 const CIBLES = [
+  '/dashboard-societe/administration/mouvements',
   '/dashboard-societe/administration/adherents',
   '/dashboard-societe/reception',
   '/dashboard-societe/assuree',
@@ -40,6 +41,8 @@ export async function proposerAdherentMembre(input: {
   policeId: string;
   telephone?: string;
   email?: string;
+  /** Entrant : mois d'effet (AAAA-MM-JJ, ramené au 1er) — absent = effet immédiat à la validation. */
+  moisEffet?: string;
 }): Promise<ResultatPropositionMembre> {
   return traiter(await post('/adherent', input));
 }

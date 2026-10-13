@@ -742,7 +742,8 @@ export class InvitationsService {
     if (!adherent) {
       throw new NotFoundException('Adhérent introuvable dans votre périmètre.');
     }
-    if (!adherent.dateValidation) {
+    // L'assureur invite l'adhérent qu'il vient de créer (avant sa validation) ; la société, elle, ne voit que des adhérents validés.
+    if (societeId && !adherent.dateValidation) {
       throw new ConflictException("Cet adhérent n'est pas encore validé par l'assureur : aucune invitation possible.");
     }
     if (adherent.statut !== 'ACTIF') {

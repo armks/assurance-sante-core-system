@@ -8384,3 +8384,30 @@ Code complet et testé en unitaire ; recette bout en bout à faire.
 - **Bug trouvé et corrigé** : la validation renvoyait 500 — la contrainte `propositions_membres_validee_creee` exige l'élément créé dès que le statut passe à VALIDEE ;
   le verrou se pose désormais sur `date_decision` et le statut VALIDEE est écrit avec l'élément créé. Les tests unitaires (mocks) ne pouvaient pas le détecter.
 - Non fait : recette navigateur de l'écran `propositions-membres-panel`. Service Java d'adjudication non démarré (sans effet sur cette fonctionnalité).
+
+
+## 2026-10-13 — Formulaires d'adhérent (contacts, invitation), propositions branchées, entrants / sortants opérationnels
+
+### Constat de départ
+- Le panneau `propositions-membres-panel` n'était monté sur aucun écran ; l'ancien panneau (brouillon par lot) appelait des routes désormais en 410 ; « Proposer un entrant »
+  appelait elles aussi l'ancien circuit ; la société voyait toujours « Nouvel adhérent » (refusé 403 par l'API) ; le formulaire de création n'avait ni e-mail ni téléphone ;
+  aucun bouton « lien d'invitation » ; un fichier d'entrants restait en BROUILLON, sans bouton pour le soumettre (jamais visible de l'assureur).
+
+### Réalisé
+- API : création / modification d'adhérent avec `telephone` et `email` (au moins un à la création, formats contrôlés, e-mail unique) — `member/contacts-membre.ts` ;
+  migration 087 (`mois_effet` des propositions : l'**entrant** est validé la veille du 1er du mois d'effet) ; import de fichier d'entrants soumis d'emblée (EN_ATTENTE_VALIDATION) ;
+  invitation `ADHERENT_TITULAIRE` : l'assureur peut inviter l'adhérent qu'il vient de créer (non validé) ; la société n'invite que des adhérents validés de sa société.
+- Web : « Nouvel adhérent » (assureur seulement) avec téléphone, e-mail et case « Générer le lien d'invitation » (bandeau avec lien copiable) ; la société n'a plus ce bouton —
+  panneau de propositions (adhérent, entrant, bénéficiaire, retrait, motif de rejet) monté sur l'écran adhérents de la société ; file de validation montée côté assureur ;
+  « Proposer un entrant » (mois d'effet) sur l'écran Entrants / sortants ; bouton « Générer le lien d'invitation » sur la fiche adhérent (assureur et société) ; contacts modifiables sur la fiche ;
+  ancien panneau supprimé.
+- NB : la société ne peut que PROPOSER ; le lien d'invitation d'une proposition n'existe qu'après validation (bouton « Fiche · lien d'invitation » sur la ligne validée).
+
+### Tests
+- API 1 484/1 484 ; typage API et web sans erreur ; HTTP réel (≈ 45 contrôles, zéro résidu) : contacts (400/409), société 403 à la création directe, invitations (assureur non validé OK,
+  société non validé 409, autre société 404, comptable 403, réception OK, compte créé par le lien, second lien 409), propositions adhérent / entrant / bénéficiaire, sortie proposée puis
+  validée, import de sortants (1 proposé, 1 erreur), import d'entrants puis validation par l'assureur.
+- **Non fait** : recette dans le navigateur (aucun outil navigateur disponible dans cette session).
+
+### Statut
+Terminé côté API ; écrans compilés et branchés, recette visuelle à faire.

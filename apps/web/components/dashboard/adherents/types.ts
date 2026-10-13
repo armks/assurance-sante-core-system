@@ -149,6 +149,10 @@ export interface PropositionMembre {
   formule: string | null;
   telephone: string | null;
   email: string | null;
+  /** Entrant : 1er du mois d'effet (AAAA-MM-JJ) ; null = effet immédiat. */
+  moisEffet?: string | null;
+  /** Adhérent créé à la validation (accès à sa fiche et au lien d'invitation). */
+  adherentCreeId?: string | null;
   lienParente: string | null;
   adherentParentId: string | null;
   motifRejet: string | null;

@@ -2,7 +2,6 @@
 
 import { useRouter } from 'next/navigation';
 
-import { proposerAdherent } from '@/app/dashboard-societe/propositions-actions';
 import {
   importerEntrantsExcel,
   importerSortantsExcel,
@@ -27,7 +26,8 @@ import {
   peutProposerMembres,
   peutProposerSortants,
 } from '@/lib/member';
-import type { AdherentListe, ImportAdherentsResume } from './types';
+import { BoutonProposerEntrant } from './propositions-membres-panel';
+import type { AdherentListe, ImportAdherentsResume, PoliceRef } from './types';
 
 const LIBELLE_STATUT_IMPORT: Record<string, string> = {
   EN_ATTENTE_VALIDATION: 'En attente de validation',
@@ -69,11 +69,14 @@ export function MouvementsEcran({
   adherents,
   roleChain,
   imports,
+  polices,
 }: {
   souscripteurId: string;
   adherents: AdherentListe[];
   roleChain: string[];
   imports: ImportAdherentsResume[];
+  /** Polices ACTIVES de la société (formule rattachée de l'entrant). */
+  polices: PoliceRef[];
 }) {
   const router = useRouter();
   const peutSortants = peutProposerSortants(roleChain);
@@ -189,41 +192,7 @@ export function MouvementsEcran({
           <CardTitle className="text-base">Entrants — effet différé au mois suivant</CardTitle>
           {peutEntrants && (
             <div className="flex flex-wrap gap-2">
-              <FormulaireModal
-                titre="Proposer un entrant"
-                description="Prend effet au mois indiqué (par défaut : le mois suivant) — cohérent avec la coupure de facturation."
-                declencheurLabel="Proposer un entrant"
-                libelleSoumettre="Proposer"
-                onSoumettre={async (fd) => {
-                  const r = await proposerAdherent(souscripteurId, {
-                    nom: String(fd.get('nom') ?? ''),
-                    prenom: String(fd.get('prenom') ?? ''),
-                    telephone: String(fd.get('telephone') ?? ''),
-                    email: String(fd.get('email') ?? ''),
-                    dateNaissance: String(fd.get('dateNaissance') ?? ''),
-                    moisEffet: moisEffetVersISO(String(fd.get('moisEffet') ?? '')),
-                  });
-                  if (!r.ok) return { ok: false, error: r.error, erreurs: r.erreurs };
-                  return { ok: true, message: 'Entrant proposé — en attente de validation.' };
-                }}
-                onSucces={() => router.refresh()}
-              >
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <ChampTexte name="nom" label="Nom" required maxLength={120} />
-                  <ChampTexte name="prenom" label="Prénom" required maxLength={120} />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <ChampTexte name="telephone" label="Téléphone" required maxLength={20} />
-                  <ChampTexte name="email" label="E-mail" type="email" required maxLength={200} />
-                </div>
-                <ChampTexte name="dateNaissance" label="Date de naissance" type="date" required />
-                <ChampTexte
-                  name="moisEffet"
-                  label="Mois d'effet"
-                  type="month"
-                  aide="Laisser vide pour le mois suivant (par défaut)."
-                />
-              </FormulaireModal>
+              <BoutonProposerEntrant polices={polices} onSucces={() => router.refresh()} />
 
               <FormulaireModal
                 titre="Importer un fichier d'entrants"

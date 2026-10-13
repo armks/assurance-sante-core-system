@@ -70,6 +70,14 @@ describe('PropositionsMembresService — proposer', () => {
     await expect(service.proposerAdherent(USER, ADH)).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it('entrant : mois d’effet ramené au 1er du mois ; un mois écoulé est refusé (400)', async () => {
+    const { service, prisma } = creer('SOCIETE_ADMINISTRATION');
+    const futur = new Date(Date.UTC(new Date().getUTCFullYear() + 1, 5, 17)).toISOString().slice(0, 10);
+    await service.proposerAdherent(USER, { ...ADH, moisEffet: futur });
+    expect(prisma.propositionMembre.create).toHaveBeenCalledWith({ data: expect.objectContaining({ moisEffet: new Date(Date.UTC(new Date().getUTCFullYear() + 1, 5, 1)) }) });
+    await expect(service.proposerAdherent(USER, { ...ADH, moisEffet: '2020-01-10' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it.each(['ASSUREUR_INFORMATIQUE', 'SOCIETE_RECEPTION', 'SOCIETE_COMPTABLE', 'ADHERENT_TITULAIRE'])('%s ne peut pas proposer (403)', async (role) => {
     const { service } = creer(role);
     await expect(service.proposerAdherent(USER, ADH)).rejects.toBeInstanceOf(ForbiddenException);
@@ -95,6 +103,15 @@ describe('PropositionsMembresService — décisions', () => {
     expect(cartes.genererCarteAdherent).toHaveBeenCalledWith(USER, 'a-new');
     expect(audits).toEqual(expect.arrayContaining(['CREATION_ADHERENT_PROPOSITION', 'VALIDATION_PROPOSITION_MEMBRE']));
     expect(r.carteGeneree).toBe(true);
+  });
+
+  it('valide un entrant : date de validation = veille du 1er du mois d’effet', async () => {
+    const { service, prisma } = creer('ASSUREUR_EXPLOITATION', null);
+    const mois = new Date(Date.UTC(new Date().getUTCFullYear() + 1, 5, 1));
+    prisma.propositionMembre.findFirst.mockResolvedValue({ ...EN_ATTENTE, moisEffet: mois });
+    prisma.propositionMembre.findUniqueOrThrow.mockResolvedValue({ ...EN_ATTENTE, statut: 'VALIDEE', adherentCreeId: 'a-new', moisEffet: mois });
+    await service.valider(USER, 'p1');
+    expect(prisma.adherent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ dateValidation: new Date(Date.UTC(new Date().getUTCFullYear() + 1, 4, 31)) }) });
   });
 
   it('valide un bénéficiaire : créé ACTIF sur son titulaire', async () => {

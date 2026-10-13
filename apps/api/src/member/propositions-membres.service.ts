@@ -37,6 +37,14 @@ interface Ctx {
 
 type Db = Prisma.TransactionClient | PrismaService;
 
+/** Date de validation d'un adhérent : la veille du 1er du mois d'effet (entrant), sinon maintenant ; jamais antérieure à maintenant. */
+function dateValidation(moisEffet: Date | null): Date {
+  const maintenant = new Date();
+  if (!moisEffet) return maintenant;
+  const veille = new Date(Date.UTC(moisEffet.getUTCFullYear(), moisEffet.getUTCMonth(), 0));
+  return veille > maintenant ? veille : maintenant;
+}
+
 const aUnRole = (ctx: Ctx, roles: readonly string[]) => ctx.roleChain.some((r) => roles.includes(r));
 
 /**
@@ -88,12 +96,25 @@ export class PropositionsMembresService {
     return { telephone: tel || null, email: mail || null };
   }
 
+  /** Entrant : 1er du mois d'effet (UTC). Vide = effet immédiat. Un mois déjà écoulé est refusé. */
+  private resoudreMoisEffet(valeur?: string): Date | null {
+    if (!valeur) return null;
+    const d = new Date(valeur);
+    if (Number.isNaN(d.getTime())) throw new BadRequestException('moisEffet invalide (date attendue).');
+    const mois = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    const maintenant = new Date();
+    const debutCourant = new Date(Date.UTC(maintenant.getUTCFullYear(), maintenant.getUTCMonth(), 1));
+    if (mois < debutCourant) throw new BadRequestException("Le mois d'effet ne peut pas être antérieur au mois en cours.");
+    return mois;
+  }
+
   // --- Société : proposer ------------------------------------------------------------
 
   async proposerAdherent(user: AuthenticatedUser, dto: ProposerAdherentMembreDto) {
     const ctx = await this.contexte(user);
     const societeId = this.assertProposer(ctx);
     const { telephone, email } = this.validerContacts(dto.telephone, dto.email);
+    const moisEffet = this.resoudreMoisEffet(dto.moisEffet);
 
     const souscripteur = await this.prisma.souscripteur.findFirst({ where: { id: societeId, organisationId: ctx.organisationId, deletedAt: null } });
     if (!souscripteur) throw new NotFoundException('Société introuvable.');
@@ -126,6 +147,7 @@ export class PropositionsMembresService {
           policeId: police.id,
           telephone,
           email,
+          moisEffet,
           proposePar: ctx.userId,
         },
       });
@@ -276,7 +298,8 @@ export class PropositionsMembresService {
             sexe: p.sexe,
             email: p.email,
             telephone: p.telephone,
-            dateValidation: new Date(),
+            // entrant : validé la veille du 1er du mois d'effet (coupure de facturation) ; jamais dans le passé
+            dateValidation: dateValidation(p.moisEffet),
             valideParId: ctx.userId,
           },
         });
@@ -347,6 +370,7 @@ export class PropositionsMembresService {
       policeId: p.policeId,
       telephone: p.telephone,
       email: p.email,
+      moisEffet: p.moisEffet ? p.moisEffet.toISOString().slice(0, 10) : null,
       adherentParentId: p.adherentParentId,
       lienParente: p.lienParente,
       motifRejet: p.motifRejet,

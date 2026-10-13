@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { MouvementsEcran } from '@/components/dashboard/adherents/mouvements-ecran';
-import type { AdherentListe, ImportAdherentsResume } from '@/components/dashboard/adherents/types';
+import type { AdherentListe, ImportAdherentsResume, PoliceRef } from '@/components/dashboard/adherents/types';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
@@ -15,10 +15,12 @@ export default async function MouvementsPage() {
 
   const societeId = etat.identity.permissions.scope.societeId ?? undefined;
 
-  const [resA, resI] = await Promise.all([
+  const [resA, resI, resP] = await Promise.all([
     apiFetch('/api/v1/member/adherents'),
     apiFetch('/api/v1/member/imports-adherents'),
+    apiFetch('/api/v1/policy/polices'),
   ]);
+  const polices: PoliceRef[] = resP.ok ? ((await resP.json()) as PoliceRef[]).filter((p) => p.statut === 'ACTIVE') : [];
   const adherents: AdherentListe[] = resA.ok ? await resA.json() : [];
   const erreur = resA.ok ? null : await messageErreur(resA);
   const imports: ImportAdherentsResume[] = resI.ok ? await resI.json() : [];
@@ -37,6 +39,7 @@ export default async function MouvementsPage() {
           adherents={adherents}
           roleChain={etat.identity.permissions.roleChain}
           imports={imports.filter((i) => !!i.moisEffet)}
+          polices={polices}
         />
       )}
     </div>

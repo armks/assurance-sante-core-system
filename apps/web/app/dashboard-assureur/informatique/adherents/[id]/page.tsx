@@ -14,6 +14,7 @@ import { exigerIdentite } from '@/lib/identity';
 import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
 import {
   peutGererMembres,
+  peutInviterAdherent,
   peutModifierPhotoMembre,
   peutValiderAdherent,
   peutValiderBeneficiaireAssureur,
@@ -71,6 +72,7 @@ export default async function AdherentPage({
         peutValiderBeneficiaireSociete={peutValiderBeneficiaireSociete(etat.identity.permissions.roleChain)}
         peutValiderBeneficiaireAssureur={peutValiderBeneficiaireAssureur(etat.identity.permissions.roleChain)}
         peutModifierPhoto={peutModifierPhoto}
+        peutInviter={peutInviterAdherent(etat.identity.permissions.roleChain)}
         photoAdherentUrl={photos.adherent}
         photosParBeneficiaire={photos.beneficiaires}
       />

@@ -14,6 +14,7 @@ import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
 import { useState } from 'react';
 
 import {
+  Alerte,
   CarteResume,
   ConfirmationAction,
   DataTable,
@@ -23,6 +24,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { BandeauLienInvitation, genererLienInvitation, type LienInvitation } from './lien-invitation';
 import {
   LIBELLE_STATUT_MEMBRE,
   STATUTS_MEMBRE_FILTRE,
@@ -40,6 +42,7 @@ export function AdherentsListe({
   souscripteurVerrou,
   verdicts = {},
   estSociete = false,
+  peutInviter = false,
 }: {
   adherents: AdherentListe[];
   souscripteurs: OptionRef[];
@@ -51,8 +54,14 @@ export function AdherentsListe({
   verdicts?: VerdictsListe;
   /** Rôle société : « Archiver » PROPOSE la sortie (validée par l'assureur). */
   estSociete?: boolean;
+  /** Rôle autorisé à générer le lien d'invitation « créer son profil » (case du formulaire). */
+  peutInviter?: boolean;
 }) {
   const router = useRouter();
+  // La société PROPOSE (panneau des propositions) : seul l'assureur crée directement un adhérent.
+  const peutAjouter = peutCreer && !estSociete;
+  const [lienInvitation, setLienInvitation] = useState<LienInvitation | null>(null);
+  const [avertissement, setAvertissement] = useState<string | null>(null);
   const [voirArchives, setVoirArchives] = useState(false);
   let adherents = adherentsEntrants;
   const tous = adherentsEntrants;
@@ -121,6 +130,13 @@ export function AdherentsListe({
         <CarteResume libelle="Radiés" valeur={parStatut('RADIE')} />
       </GrilleCartes>
 
+      {lienInvitation && <BandeauLienInvitation lien={lienInvitation} onFermer={() => setLienInvitation(null)} />}
+      {avertissement && (
+        <Alerte ton="avertissement" titre="Adhérent créé, lien d’invitation non généré">
+          {avertissement} Vous pouvez le générer depuis la fiche de l’adhérent.
+        </Alerte>
+      )}
+
       {nbArchives > 0 && (
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
@@ -160,30 +176,45 @@ export function AdherentsListe({
         ]}
         colonnes={colonnes}
         actions={
-          peutCreer ? (
+          peutAjouter ? (
             <FormulaireModal
               titre="Nouvel adhérent"
               description="L’adhérent est créé ACTIF ; ses numéros d’adhérent et de carte sont générés automatiquement."
               declencheurLabel="Nouvel adhérent"
               libelleSoumettre="Créer l’adhérent"
-              onSoumettre={async (fd) =>
-                creerAdherent({
+              onSoumettre={async (fd) => {
+                const email = String(fd.get('email') ?? '').trim();
+                const inviter = fd.get('genererInvitation') === 'on';
+                setLienInvitation(null);
+                setAvertissement(null);
+                if (inviter && !email) {
+                  return { ok: false, error: 'Renseignez l’e-mail de l’adhérent pour générer son lien d’invitation.' };
+                }
+                const r = await creerAdherent({
                   souscripteurId: String(fd.get('souscripteurId') ?? ''),
                   policeId: String(fd.get('policeId') ?? '') || undefined,
                   nom: String(fd.get('nom') ?? ''),
                   prenom: String(fd.get('prenom') ?? ''),
                   dateNaissance: String(fd.get('dateNaissance') ?? ''),
                   sexe: String(fd.get('sexe') ?? ''),
+                  telephone: String(fd.get('telephone') ?? '').trim() || undefined,
+                  email: email || undefined,
                   modePaiementPrefere:
                     String(fd.get('modePaiementPrefere') ?? '') || undefined,
-                })
-              }
+                });
+                if (!r.ok || !inviter || !('adherentId' in r)) return r;
+                const inv = await genererLienInvitation(r.adherentId, email);
+                if (inv.ok) setLienInvitation(inv.lien);
+                else setAvertissement(inv.error);
+                return r;
+              }}
               onSucces={() => router.refresh()}
             >
               <ChampsNouvelAdherent
                 souscripteurs={souscripteurs}
                 polices={polices}
                 souscripteurVerrou={souscripteurVerrou}
+                avecInvitation={peutInviter}
               />
             </FormulaireModal>
           ) : undefined

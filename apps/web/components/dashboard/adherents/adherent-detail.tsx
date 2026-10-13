@@ -45,6 +45,7 @@ import {
   TON_STATUT_MEMBRE,
 } from '@/lib/member';
 import { CarteBouton } from './carte-bouton';
+import { BoutonLienInvitation } from './lien-invitation';
 import { Medaillon } from './medaillon';
 import { PhotoUploader } from './photo-uploader';
 import type { AdherentDetail as AdherentDetailType, Beneficiaire } from './types';
@@ -72,6 +73,7 @@ export function AdherentDetail({
   peutValiderBeneficiaireSociete: peutValiderSociete = false,
   peutValiderBeneficiaireAssureur: peutValiderAssureur = false,
   peutModifierPhoto = false,
+  peutInviter = false,
   photoAdherentUrl = null,
   photosParBeneficiaire = {},
   estSociete = false,
@@ -90,6 +92,8 @@ export function AdherentDetail({
   /** ASSUREUR_INFORMATIQUE/EXPLOITATION — photo de l'adhérent et de ses
    * bénéficiaires (mêmes endpoints et même dossier famille que le self-service). */
   peutModifierPhoto?: boolean;
+  /** Génère le lien d'invitation par lequel l'adhérent crée son profil (rôle autorisé, adhérent actif). */
+  peutInviter?: boolean;
   /** URLs signées courte durée, résolues côté serveur par la page
    * (`chargerPhotosFamille`). Affichées à tout lecteur de la fiche ;
    * modifiables seulement si `peutModifierPhoto`. */
@@ -221,6 +225,20 @@ export function AdherentDetail({
             {adherent.modePaiementPrefere?.replace(/_/g, ' ') ?? null}
           </Ligne>
           <Ligne label="Créé le">{dateFr(adherent.createdAt)}</Ligne>
+          {peutInviter && actif && (
+            <Ligne label="Accès à son profil">
+              <div className="space-y-1">
+                <BoutonLienInvitation
+                  adherentId={adherent.id}
+                  emailFiche={adherent.email}
+                  nom={`${adherent.prenom} ${adherent.nom}`}
+                />
+                <p className="text-xs text-muted-foreground">
+                  L’adhérent crée son profil avec ce lien et accède à sa page adhérent.
+                </p>
+              </div>
+            </Ligne>
+          )}
           <Ligne label="Validation (facturation)">
             {adherent.dateValidation ? (
               `Validé le ${dateFr(adherent.dateValidation)}`
@@ -286,6 +304,8 @@ export function AdherentDetail({
                       nom: String(fd.get('nom') ?? ''),
                       prenom: String(fd.get('prenom') ?? ''),
                       dateNaissance: String(fd.get('dateNaissance') ?? ''),
+                      telephone: String(fd.get('telephone') ?? '').trim(),
+                      email: String(fd.get('email') ?? '').trim(),
                     })
                   }
                   onSucces={() => router.refresh()}
@@ -293,6 +313,10 @@ export function AdherentDetail({
                   <ChampTexte name="nom" label="Nom" required defaultValue={adherent.nom} />
                   <ChampTexte name="prenom" label="Prénom" required defaultValue={adherent.prenom} />
                   <ChampTexte name="dateNaissance" label="Date de naissance" type="date" required defaultValue={adherent.dateNaissance?.slice(0, 10)} />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <ChampTexte name="telephone" label="Téléphone" type="tel" maxLength={20} defaultValue={adherent.telephone ?? ''} />
+                    <ChampTexte name="email" label="E-mail" type="email" maxLength={200} defaultValue={adherent.email ?? ''} />
+                  </div>
                 </FormulaireModal>
                 {(adherent.statut === 'ACTIF' || adherent.statut === 'SUSPENDU') && (
                   <FormulaireModal

@@ -279,13 +279,13 @@ describe('InvitationsService', () => {
       await expect(inviter()).rejects.toMatchObject({ status: 409 });
     });
 
-    it('ASSUREUR_INFORMATIQUE : adhérent hors organisation → 404 (périmètre vérifié) ; non validé → 409', async () => {
+    it('ASSUREUR_INFORMATIQUE : adhérent hors organisation → 404 (périmètre vérifié) ; non actif → 409 ; non validé accepté (il vient de le créer)', async () => {
       connecte({ role: 'ASSUREUR_INFORMATIQUE', entite: 'ASSUREUR', organisationId: 'org-1', societeId: null, roleChain: ['ASSUREUR_INFORMATIQUE'] });
       prisma.regleProvisioning.findFirst.mockResolvedValue({ mode: 'CREATION_DIRECTE', scopeVerifie: 'organisation_id', roleValidateur: null });
       prisma.adherent.findFirst.mockResolvedValueOnce(null);
       await expect(inviter()).rejects.toMatchObject({ status: 404 });
       expect(prisma.adherent.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ organisationId: 'org-1' }) }));
-      prisma.adherent.findFirst.mockResolvedValueOnce({ id: 'adh-1', statut: 'ACTIF', dateValidation: null, email: null });
+      prisma.adherent.findFirst.mockResolvedValueOnce({ id: 'adh-1', statut: 'RADIE', dateValidation: null, email: null });
       await expect(inviter()).rejects.toMatchObject({ status: 409 });
     });
   });

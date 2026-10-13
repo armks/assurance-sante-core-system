@@ -1,13 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Metadata } from 'next';
-import { Outfit } from 'next/font/google';
+import localFont from 'next/font/local';
 
 import { EnTeteAccueil } from '@/components/accueil/en-tete';
 import { PiedDePage } from '@/components/accueil/pied-de-page';
 import { depuisVuePublique, parNom, type LieuAnnuaire } from '@/components/reseau-soins/lieu';
 import { ReseauSoinsRecherche } from '@/components/reseau-soins/reseau-soins-recherche';
 
-const outfit = Outfit({ subsets: ['latin'], variable: '--font-display', display: 'swap' });
+// Police hébergée avec l'application (voir components/accueil/page-accueil.tsx).
+const outfit = localFont({ src: '../fonts/Outfit-latin.woff2', weight: '100 900', variable: '--font-display', display: 'swap' });
 
 export const metadata: Metadata = {
   title: 'Réseau de soins : établissements et pharmacies conventionnés',

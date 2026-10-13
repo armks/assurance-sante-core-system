@@ -1,4 +1,4 @@
-import { Outfit } from 'next/font/google';
+import localFont from 'next/font/local';
 
 import type { EvenementPublic } from '@/lib/evenements-publics';
 import type { StatistiquesPubliques } from '@/lib/statistiques-publiques';
@@ -14,7 +14,8 @@ import { QuiSommesNous } from './qui-sommes-nous';
 import { ReseauSoins } from './reseau-soins';
 
 /** Titres de la page d'accueil uniquement (les tableaux de bord gardent la police système). */
-const outfit = Outfit({ subsets: ['latin'], variable: '--font-display', display: 'swap' });
+// Police hébergée avec l'application (sous-ensemble latin, poids variable 100–900) : le build ne dépend d'aucun accès réseau à Google Fonts.
+const outfit = localFont({ src: '../../app/fonts/Outfit-latin.woff2', weight: '100 900', variable: '--font-display', display: 'swap' });
 
 /**
  * Page d'accueil — structure UNIQUE partagée par la page principale de la

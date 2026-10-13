@@ -384,6 +384,7 @@ export class AdherentService {
     const ctx = await this.contexteAppelant(user);
     const actuel = await this.chargerAdherent(ctx, id);
     this.assertGestion(ctx, actuel.souscripteurId);
+    this.assertAssureur(ctx, 'Le changement de statut d’un adhérent est réservé au personnel de l’assureur : la société PROPOSE une suspension (POST /member/sortants/proposer, statutCible SUSPENDU).');
     this.assertStatutHorsArchivage('adhérent', actuel.statut, dto.statut);
 
     await this.prisma.$transaction(async (tx) => {
@@ -408,6 +409,7 @@ export class AdherentService {
     const ctx = await this.contexteAppelant(user);
     const actuel = await this.chargerAdherent(ctx, id);
     this.assertGestion(ctx, actuel.souscripteurId);
+    this.assertAssureur(ctx, 'La suppression d’un adhérent est réservée au personnel de l’assureur : la société ne fait que des propositions.');
 
     // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
     await this.dependances.assertPossible(user, 'adherent', id, 'supprimer');
@@ -455,19 +457,8 @@ export class AdherentService {
     const ctx = await this.contexteAppelant(user);
     const actuel = await this.chargerAdherent(ctx, id);
     this.assertGestion(ctx, actuel.souscripteurId);
+    this.assertAssureur(ctx, 'L’archivage d’un adhérent est réservé au personnel de l’assureur : la société propose une sortie depuis « Entrants / sortants ».');
     await this.dependances.assertPossible(user, 'adherent', id, 'archiver');
-
-    if (!this.aRoleAssureur(ctx)) {
-      const motif = dto.motif ?? 'Sortie demandée par la société';
-      await this.prisma.$transaction(async (tx) => {
-        await tx.adherent.update({
-          where: { id },
-          data: { statut: STATUT_ADHERENT_PROPOSE_SORTANT, statutSortantCible: 'RADIE', motifSortie: motif },
-        });
-        await this.audit(tx, ctx.userId, 'PROPOSITION_SORTANT', id, { statutCible: 'RADIE', motif }, 'adherents');
-      });
-      return { ...(await this.chargerAdherent(ctx, id)), proposition: true };
-    }
 
     await this.prisma.$transaction(async (tx) => {
       const radies = await this.radierAvecBeneficiaires(tx, id, dto.motif ?? actuel.motifSortie ?? null);
@@ -521,6 +512,7 @@ export class AdherentService {
     const adherent = await this.chargerAdherent(ctx, adherentId);
     this.assertGestion(ctx, adherent.souscripteurId);
     const actuel = await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    this.assertAssureur(ctx, 'L’archivage d’un bénéficiaire est réservé au personnel de l’assureur : la société ne fait que des propositions.');
     await this.dependances.assertPossible(user, 'beneficiaire', beneficiaireId, 'archiver');
 
     await this.prisma.$transaction(async (tx) => {
@@ -774,6 +766,7 @@ export class AdherentService {
       adherentId,
       beneficiaireId,
     );
+    this.assertAssureur(ctx, 'Le changement de statut d’un bénéficiaire est réservé au personnel de l’assureur : la société ne fait que des propositions.');
     this.assertStatutHorsArchivage('bénéficiaire', actuel.statut, dto.statut);
 
     await this.prisma.$transaction(async (tx) => {
@@ -808,6 +801,7 @@ export class AdherentService {
     const adherent = await this.chargerAdherent(ctx, adherentId);
     this.assertGestion(ctx, adherent.souscripteurId);
     await this.chargerBeneficiaire(ctx, adherentId, beneficiaireId);
+    this.assertAssureur(ctx, 'La suppression d’un bénéficiaire est réservée au personnel de l’assureur : la société ne fait que des propositions.');
 
     // ADR-007 : aucune suppression d'un élément encore lié (409 + raison, refus tracé)
     await this.dependances.assertPossible(user, 'beneficiaire', beneficiaireId, 'supprimer');
@@ -1195,6 +1189,11 @@ export class AdherentService {
         "La société cliente ne crée plus d'adhérent ni de bénéficiaire : elle les propose (POST /member/propositions-membres/...) et l'assureur les valide.",
       );
     }
+  }
+
+  /** Action réservée à l'assureur : la société ne fait que PROPOSER (adhérents, bénéficiaires, entrants, sortants). */
+  private assertAssureur(ctx: ContexteAppelant, message: string): void {
+    if (!this.aRoleAssureur(ctx)) throw new ForbiddenException(message);
   }
 
   private assertGestion(

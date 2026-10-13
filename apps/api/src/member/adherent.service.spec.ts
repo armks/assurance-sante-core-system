@@ -289,6 +289,14 @@ describe('AdherentService — fichier des membres', () => {
     expect(res).toBeDefined();
   });
 
+  it('SOCIETE_ADMINISTRATION ne change PAS le statut d’un adhérent ni d’un bénéficiaire (403) — elle propose la suspension', async () => {
+    identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+    await expect(service.changerStatutAdherent(USER, 'adh-1', { statut: 'SUSPENDU' })).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.changerStatutBeneficiaire(USER, 'adh-1', 'ben-1', { statut: 'SUSPENDU' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.adherent.update).not.toHaveBeenCalled();
+    expect(prisma.beneficiaire.update).not.toHaveBeenCalled();
+  });
+
   describe('lot 4 — archiver / désarchiver (sortie)', () => {
     beforeEach(() => {
       prisma.beneficiaire.updateMany = jest.fn().mockResolvedValue({ count: 2 });
@@ -317,16 +325,19 @@ describe('AdherentService — fichier des membres', () => {
       expect(prisma.$executeRaw).not.toHaveBeenCalled();
     });
 
-    it('SOCIETE_ADMINISTRATION : ne radie pas, PROPOSE la sortie (mécanisme sortants) — aucun bénéficiaire touché', async () => {
+    it('SOCIETE_ADMINISTRATION : ne peut NI archiver NI supprimer un bénéficiaire (403)', async () => {
       identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
-      const res: any = await service.archiverAdherent(USER, 'adh-1', {});
-      expect(prisma.adherent.update).toHaveBeenCalledWith({
-        where: { id: 'adh-1' },
-        data: { statut: 'PROPOSE_SORTANT', statutSortantCible: 'RADIE', motifSortie: 'Sortie demandée par la société' },
-      });
+      await expect(service.archiverBeneficiaire(USER, 'adh-1', 'ben-1', {})).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.supprimerBeneficiaire(USER, 'adh-1', 'ben-1')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.beneficiaire.update).not.toHaveBeenCalled();
+    });
+
+    it('SOCIETE_ADMINISTRATION : ne peut NI archiver NI supprimer (403) — elle propose les sorties depuis « Entrants / sortants »', async () => {
+      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }));
+      await expect(service.archiverAdherent(USER, 'adh-1', {})).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.supprimerAdherent(USER, 'adh-1')).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.adherent.update).not.toHaveBeenCalled();
       expect(prisma.beneficiaire.updateMany).not.toHaveBeenCalled();
-      expect(prisma.$executeRaw.mock.calls[0][1]).toBe('PROPOSITION_SORTANT');
-      expect(res.proposition).toBe(true);
     });
 
     it('société d’une AUTRE société : 403, rien d’écrit', async () => {

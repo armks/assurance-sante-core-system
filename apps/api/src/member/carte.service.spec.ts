@@ -275,6 +275,14 @@ describe('MemberCarteService — cartes de membre (PDF + QR + storage)', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each(['SOCIETE_ADMINISTRATION', 'SOCIETE_RECEPTION', 'SOCIETE_ASSUREE'])('%s ne génère AUCUNE carte (adhérent, bénéficiaire, lot) : 403', async (role) => {
+    identity.getMe.mockResolvedValue(identite([role], { societeId: 'sous-1' }));
+    await expect(service.genererCarteAdherent(USER, 'adh-1')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.genererCarteBeneficiaire(USER, 'adh-1', 'ben-1')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.genererCartesSouscripteur(USER, 'sous-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('génère la carte d’un bénéficiaire (QR = sa propre carte)', async () => {
     const res = await service.genererCarteBeneficiaire(USER, 'adh-1', 'ben-1');
     expect(res.numeroCarte).toBe('CM-0000000100');

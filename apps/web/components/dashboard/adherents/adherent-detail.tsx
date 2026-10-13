@@ -45,6 +45,7 @@ import {
   TON_STATUT_MEMBRE,
 } from '@/lib/member';
 import { CarteBouton } from './carte-bouton';
+import { proposerSortants } from '@/app/dashboard-societe/mouvements-actions';
 import { ChampsContactsBeneficiaire, lireContacts } from './champs-contacts';
 import { BoutonLienInvitation } from './lien-invitation';
 import { Medaillon } from './medaillon';
@@ -277,7 +278,7 @@ export function AdherentDetail({
           <CardTitle className="text-base">Carte de membre & statut</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {peutGerer ? (
+          {peutGerer && !estSociete ? (
             <CarteBouton
               adherentId={adherent.id}
               actif={actif}
@@ -288,8 +289,7 @@ export function AdherentDetail({
           ) : (
             <p className="text-sm text-muted-foreground">
               N° carte : <span className="font-mono">{adherent.numeroCarte}</span>{' '}
-              — la génération de carte est réservée au personnel habilité
-              (assureur ou administration de votre société).
+              — la carte est générée par l’assureur (à la validation de votre proposition).
             </p>
           )}
 
@@ -325,7 +325,26 @@ export function AdherentDetail({
                     <ChampTexte name="email" label="E-mail" type="email" maxLength={200} defaultValue={adherent.email ?? ''} />
                   </div>
                 </FormulaireModal>
-                {(adherent.statut === 'ACTIF' || adherent.statut === 'SUSPENDU') && (
+                {estSociete && adherent.statut === 'ACTIF' && (
+                  <FormulaireModal
+                    titre="Proposer la suspension de l’adhérent"
+                    mode="center"
+                    description="L’assureur décide : la suspension n’est effective qu’après sa validation, et le motif lui est communiqué."
+                    declencheur={<Button size="sm" variant="outline" disabled={pending}>Proposer la suspension</Button>}
+                    libelleSoumettre="Proposer"
+                    onSoumettre={async (fd) => {
+                      const r = await proposerSortants(adherent.souscripteurId, [
+                        { adherentId: adherent.id, statutCible: 'SUSPENDU', motif: String(fd.get('motif') ?? '') },
+                      ]);
+                      if (!r.ok) return { ok: false, error: r.error, erreurs: r.erreurs };
+                      return { ok: true, message: 'Suspension proposée — en attente de validation.' };
+                    }}
+                    onSucces={() => router.refresh()}
+                  >
+                    <ChampTexte name="motif" label="Motif" required maxLength={400} aide="Tracé dans l’audit et transmis à l’assureur." />
+                  </FormulaireModal>
+                )}
+                {!estSociete && (adherent.statut === 'ACTIF' || adherent.statut === 'SUSPENDU') && (
                   <FormulaireModal
                     titre={adherent.statut === 'ACTIF' ? 'Suspendre l’adhérent' : 'Réactiver l’adhérent'}
                     mode="center"
@@ -354,7 +373,13 @@ export function AdherentDetail({
                     <ChampTexte name="motif" label="Motif" maxLength={400} aide="Optionnel — tracé dans l’audit." />
                   </FormulaireModal>
                 )}
-                {adherent.statut === 'RADIE' ? (
+                {estSociete ? (
+                  <span className="self-center text-xs text-muted-foreground">
+                    {adherent.statut === 'PROPOSE_SORTANT'
+                      ? `${adherent.statutSortantCible === 'SUSPENDU' ? 'Suspension' : 'Sortie'} proposée : en attente de l’assureur.`
+                      : 'Archivage et suppression : réservés à l’assureur. Pour une sortie, utilisez « Entrants / sortants ».'}
+                  </span>
+                ) : adherent.statut === 'RADIE' ? (
                   !estSociete && (
                     <ConfirmationAction
                       action="desarchiver"
@@ -366,8 +391,6 @@ export function AdherentDetail({
                       declencheur={<Button size="sm" variant="outline">Désarchiver</Button>}
                     />
                   )
-                ) : adherent.statut === 'PROPOSE_SORTANT' && estSociete ? (
-                  <span className="self-center text-xs text-muted-foreground">Sortie proposée : en attente de l’assureur.</span>
                 ) : (
                   <ConfirmationAction
                     action="archiver"
@@ -386,6 +409,7 @@ export function AdherentDetail({
                     declencheur={<Button size="sm" variant="destructive">Archiver</Button>}
                   />
                 )}
+                {!estSociete && (
                 <ConfirmationAction
                   action="supprimer"
                   element={`l’adhérent « ${adherent.prenom} ${adherent.nom} »`}
@@ -395,6 +419,7 @@ export function AdherentDetail({
                   onSucces={() => router.push(retourHref ?? '/dashboard')}
                   declencheur={<Button size="sm" variant="outline">Supprimer</Button>}
                 />
+                )}
               </div>
             </div>
           )}
@@ -501,7 +526,7 @@ export function AdherentDetail({
                     Valider (assureur) — génère la carte
                   </Button>
                 )}
-                {peutGerer && (
+                {peutGerer && !estSociete && (
                   <CarteBouton
                     adherentId={adherent.id}
                     beneficiaireId={b.id}
@@ -581,7 +606,7 @@ export function AdherentDetail({
                     <ChampsContactsBeneficiaire telephone={b.telephone} email={b.email} />
                   </FormulaireModal>
                 )}
-                {peutGerer && b.statut !== 'RADIE' && (
+                {peutGerer && !estSociete && b.statut !== 'RADIE' && (
                   <Button
                     size="xs"
                     variant="ghost"
@@ -602,7 +627,7 @@ export function AdherentDetail({
                     {b.statut === 'ACTIF' ? 'Suspendre' : 'Réactiver'}
                   </Button>
                 )}
-                {peutGerer &&
+                {peutGerer && !estSociete &&
                   (b.statut === 'RADIE' ? (
                     <ConfirmationAction
                       action="desarchiver"
@@ -622,7 +647,7 @@ export function AdherentDetail({
                       onSucces={() => router.refresh()}
                     />
                   ))}
-                {peutGerer && (
+                {peutGerer && !estSociete && (
                   <ConfirmationAction
                     action="supprimer"
                     element={`le bénéficiaire « ${b.prenom} ${b.nom} »`}

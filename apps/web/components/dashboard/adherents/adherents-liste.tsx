@@ -227,7 +227,10 @@ export function AdherentsListe({
               <Button asChild size="xs" variant="ghost">
                 <Link href={`${basePath}/${a.id}`}>Détails</Link>
               </Button>
-              {peutCreer &&
+              {estSociete && a.statut === 'PROPOSE_SORTANT' && (
+                <span className="text-xs text-muted-foreground">Sortie proposée</span>
+              )}
+              {peutAjouter &&
                 (a.statut === 'RADIE' ? (
                   !estSociete && (
                     <ConfirmationAction
@@ -258,7 +261,7 @@ export function AdherentsListe({
                     onSucces={() => router.refresh()}
                   />
                 ))}
-              {peutCreer && (
+              {peutAjouter && (
                 <ConfirmationAction
                   action="supprimer"
                   element={nom}

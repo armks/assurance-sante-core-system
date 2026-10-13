@@ -31,7 +31,6 @@ import {
   ContexteAppelant,
   ENTITE_ADHERENT,
   ENTITE_SOCIETE_AFFILIEE,
-  ROLE_GESTION_MEMBRE_SOCIETE,
   ROLES_GESTION_MEMBRE,
 } from './member.types';
 
@@ -769,15 +768,9 @@ export class MemberCarteService {
   ): void {
     if (estPropreCarte) return;
     if (this.aRoleAssureur(ctx)) return;
-    if (
-      ctx.roleChain.includes(ROLE_GESTION_MEMBRE_SOCIETE) &&
-      souscripteurId !== null &&
-      ctx.societeId === souscripteurId
-    ) {
-      return;
-    }
+    // La société ne génère aucune carte : elle PROPOSE, l'assureur valide (et la carte est générée à la validation).
     throw new ForbiddenException(
-      "La génération des cartes est réservée au personnel ASSUREUR habilité, à SOCIETE_ADMINISTRATION pour ses propres adhérents, ou à l'adhérent pour sa propre carte.",
+      "La génération des cartes est réservée au personnel ASSUREUR habilité, ou à l'adhérent pour sa propre carte.",
     );
   }
 

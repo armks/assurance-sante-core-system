@@ -8436,3 +8436,22 @@ Terminé côté API ; écrans compilés.
 - **Défauts trouvés et corrigés** : colonnes « Contact » (fiche, propositions), « Type », « Société », « Formule » vides (`DataTable` n'affiche que `rendu`) ; « Ajouter un bénéficiaire » encore proposé à la société
   sur la fiche (l'API le refuse — elle propose).
 - Avertissements React ignorés car hors application : balise `script` du thème, `caret-color` injecté par l'automatisation.
+
+
+## 2026-10-13 — La société ne génère plus de carte et ne supprime / archive plus : elle propose
+
+### Réalisé
+- API : génération de carte (adhérent, bénéficiaire, lot par société) réservée à l'assureur (et à l'adhérent pour SA carte) ; archivage et suppression d'un adhérent ET d'un bénéficiaire réservés
+  à l'assureur (403 pour la société) — la société propose les sorties depuis « Entrants / sortants » (`sortants/proposer`, import de sortants), inchangé.
+- Web : liste société sans « Archiver » / « Supprimer » (reste « Détails » et « Sortie proposée ») ; fiche société sans bouton de carte, sans archiver / supprimer (adhérent et bénéficiaires),
+  avec une note renvoyant à « Entrants / sortants » ; l'assureur garde tout.
+- Complément : la société garde le lien d'invitation « créer son profil » (adhérents validés) et PROPOSE la suspension d'un adhérent (motif obligatoire, validée par l'assureur) ; changement direct de statut (suspendre / réactiver adhérent ou bénéficiaire) réservé à l'assureur. Reste possible côté société : Modifier.
+
+### Tests
+- API suite complète verte ; typage API et web sans erreur ; HTTP réel + navigateur (Chromium, comptes société et assureur), 20 contrôles OK, zéro résidu : 403 carte (adhérent, bénéficiaire, lot), archiver et supprimer
+  (adhérent, bénéficiaire), proposition de sortie toujours acceptée ; écrans société sans ces boutons, écrans assureur complets.
+
+### Statut
+Terminé.
+- Complément testé (HTTP réel + Chromium, 11 contrôles OK, zéro résidu) : 403 sur le changement direct de statut (adhérent, bénéficiaire) ; fiche société : « Proposer la suspension » → PROPOSE_SORTANT / SUSPENDU avec motif,
+  lien d'invitation généré ; assureur : la proposition apparaît dans « Sortants en attente de validation », validation → SUSPENDU.

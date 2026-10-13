@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 
+import { DefilementAncres } from '@/components/defilement-ancres';
 import { EffetDefilement } from '@/components/effet-defilement';
 import { EffetParallaxe } from '@/components/effet-parallaxe';
 import { ThemeProvider } from '@/components/theme-provider';
@@ -29,6 +30,7 @@ export default function RootLayout({
         >
           <EffetDefilement />
           <EffetParallaxe />
+          <DefilementAncres />
           {children}
           {modal}
         </ThemeProvider>

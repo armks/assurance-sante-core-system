@@ -110,7 +110,7 @@ export function CarrouselHero({ personnalisation }: { personnalisation?: HeroPer
       }}
     >
       {/* Photos empilées : seule l'active est opaque (fondu enchaîné). Couche en parallaxe : elle avance plus lentement que la page. */}
-      <div data-parallaxe="0.4" data-parallaxe-origine="haut" className="absolute inset-x-0 -bottom-[20%] -top-[20%]">
+      <div data-parallaxe="0.4" data-parallaxe-origine="haut" className="hero-premiere-image absolute inset-x-0 -bottom-[20%] -top-[20%]">
       {diapos.map((d, i) => (
         <Image
           key={d.photo.src}

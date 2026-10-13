@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { DashboardShell } from '@/components/dashboard/shell';
+import { resumeUtilisateur } from '@/components/dashboard/utilisateur-resume';
 import { EcranMessage } from '@/components/ecran-message';
 import { exigerIdentite } from '@/lib/identity';
 
@@ -56,6 +57,7 @@ export default async function DashboardPharmacieLayout({
   return (
     <DashboardShell
       email={etat.email}
+      utilisateur={resumeUtilisateur(profil, etat.email)}
       role={profil.role}
       libelleRole={profil.libelleRole}
       entite={profil.entite}

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { IdentityController } from './identity.controller';
 import { IdentityService } from './identity.service';
 import { OrganisationsService } from './organisations.service';
+import { ProfilPersonnelService } from './profil-personnel.service';
 import { ProvisioningService } from './provisioning.service';
 
 /**
@@ -13,7 +14,7 @@ import { ProvisioningService } from './provisioning.service';
  */
 @Module({
   controllers: [IdentityController],
-  providers: [IdentityService, ProvisioningService, OrganisationsService],
+  providers: [IdentityService, ProvisioningService, OrganisationsService, ProfilPersonnelService],
   exports: [IdentityService, ProvisioningService],
 })
 export class IdentityModule {}

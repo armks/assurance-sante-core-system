@@ -29,6 +29,15 @@ export interface ProfilResume {
   adherentId: string | null;
   createdAt: Date | null;
   updatedAt: Date | null;
+  /** Pseudo d'affichage choisi par l'utilisateur (facultatif). */
+  pseudo: string | null;
+  /** Vrai si l'utilisateur a une photo (URL signée à la demande : GET /identity/me/photo). */
+  aPhoto: boolean;
+  /** Nom de la structure d'appartenance, pour l'affichage du profil. */
+  organisationNom: string | null;
+  etablissementNom: string | null;
+  pharmacieNom: string | null;
+  societeNom: string | null;
 }
 
 export interface PermissionsResume {

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { Brand } from '@/components/brand';
@@ -12,6 +13,7 @@ import {
 import { LogoutButton } from '@/components/logout-button';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Badge } from '@/components/ui/badge';
+import { AvatarUtilisateur, CarteUtilisateur, nomAffiche, type UtilisateurResume } from '@/components/dashboard/utilisateur-resume';
 import {
   RANG_NIVEAU,
   navPourDashboard,
@@ -22,6 +24,8 @@ import { cn } from '@/lib/utils';
 
 export interface ShellProps {
   email: string;
+  /** Qui est connecté : pseudo, photo, structure d'appartenance (facultatif : repli sur l'e-mail). */
+  utilisateur?: UtilisateurResume;
   role: string | null;
   libelleRole: string | null;
   entite: string | null;
@@ -39,6 +43,7 @@ const LIBELLE_NIVEAU: Record<NiveauAcces, string> = {
 
 export function DashboardShell({
   email,
+  utilisateur,
   role,
   libelleRole,
   entite,
@@ -62,6 +67,11 @@ export function DashboardShell({
 
   const enteteRole = (
     <>
+      {utilisateur && (
+        <div className="mb-3 border-b pb-3">
+          <CarteUtilisateur utilisateur={utilisateur} />
+        </div>
+      )}
       <p className="text-sm font-medium leading-tight">
         {libelleRole ?? role ?? 'Rôle inconnu'}
       </p>
@@ -98,9 +108,18 @@ export function DashboardShell({
           <div className="md:hidden">
             <Brand />
           </div>
-          <span className="ml-auto truncate text-sm text-muted-foreground">
-            {email}
-          </span>
+          {utilisateur ? (
+            <Link href="/profil" className="ml-auto flex min-w-0 items-center gap-2 rounded-full py-0.5 pl-0.5 pr-3 text-sm hover:bg-muted/60" title="Mon profil">
+              <AvatarUtilisateur utilisateur={utilisateur} taille="sm" />
+              <span className="min-w-0 truncate">
+                <span className="font-medium">{nomAffiche(utilisateur)}</span>
+                {utilisateur.libelleRole && <span className="hidden text-muted-foreground lg:inline"> · {utilisateur.libelleRole}</span>}
+                {utilisateur.structure && <span className="hidden text-muted-foreground xl:inline"> · {utilisateur.structure}</span>}
+              </span>
+            </Link>
+          ) : (
+            <span className="ml-auto truncate text-sm text-muted-foreground">{email}</span>
+          )}
           <ModeToggle />
           <div className="md:hidden">
             <LogoutButton />

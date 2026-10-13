@@ -154,6 +154,9 @@ model Profil {
   revoqueLe          DateTime? @map("revoque_le") @db.Timestamptz(6)
   revoquePar         String?   @map("revoque_par") @db.Uuid
   revoqueMotif       String?   @map("revoque_motif")
+  /// Pseudo d'affichage (facultatif) et photo (chemin du bucket privé `photos`) — prisma/sql/092
+  pseudo             String?
+  photoUrl           String?   @map("photo_url")
 
   organisation          Organisation?          @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   sousRole              SousRole?              @relation(fields: [role], references: [code], onDelete: NoAction, onUpdate: NoAction)
@@ -2272,4 +2275,26 @@ model PropositionMembre {
   @@index([organisationId, statut])
   @@index([souscripteurId, statut])
   @@map("propositions_membres")
+}
+
+/// journal_actions — qui a créé / modifié / supprimé quoi (prisma/sql/092), en ajout seul ; noms des champs, jamais les valeurs.
+model JournalAction {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  userId           String   @map("user_id") @db.Uuid
+  role             String?
+  organisationId   String?  @map("organisation_id") @db.Uuid
+  etablissementId  String?  @map("etablissement_id") @db.Uuid
+  pharmacieId      String?  @map("pharmacie_id") @db.Uuid
+  societeId        String?  @map("societe_id") @db.Uuid
+  tableCible       String   @map("table_cible")
+  enregistrementId String?  @map("enregistrement_id")
+  operation        String
+  champsModifies   String[] @map("champs_modifies")
+  requete          String?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([tableCible, enregistrementId, createdAt(sort: Desc)])
+  @@index([organisationId, createdAt(sort: Desc)])
+  @@map("journal_actions")
 }

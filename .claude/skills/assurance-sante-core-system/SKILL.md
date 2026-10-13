@@ -255,3 +255,8 @@ de données cloud est peut-être intacte."*
 - Formulaire « Ajouter un acte de soins » : **catégorie d'abord**, libellé en tableau popup filtré dans la base, montant unitaire repris de la convention s'il existe (un seul appel au Java pour
   tout le tableau) ; un acte ne se rattache qu'à un dossier **ouvert** (même règle pour l'ordonnance). L'accueil peut aussi proposer un tarif (acte non tarifable).
 - **Société** : elle PROPOSE (adhérents, bénéficiaires, entrants, sorties, suspension) ; ni carte, ni archivage, ni suppression, ni changement de statut direct.
+
+## Traçabilité et profil (ADR-010, migration 092)
+
+- **Toute écriture via l'API est journalisée** (`journal_actions`) à l'identité de l'utilisateur : ne jamais contourner `PrismaService` (pas de second `PrismaClient`) ; pour une écriture en SQL brut, appeler `log_audit()`. Le journal est en ajout seul et ne stocke que des noms de champs.
+- Profil : pseudo unique par organisation, photo dans le bucket privé `photos` (`profils/{id}/…`) ; l'identité affichée (structure, rôle, pseudo, photo) vient de `GET /identity/me`.

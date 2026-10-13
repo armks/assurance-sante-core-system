@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -16,6 +17,8 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { ModifierSlugDto } from './dto/organisation.dto';
 import { IdentityService } from './identity.service';
+import { ModifierMonProfilDto } from './dto/profil-personnel.dto';
+import { ProfilPersonnelService, type FichierPhotoProfil } from './profil-personnel.service';
 import { IdentityMeResponse } from './identity.types';
 import { OrganisationsService, type FichierLogo } from './organisations.service';
 import { ProvisioningService } from './provisioning.service';
@@ -28,6 +31,7 @@ export class IdentityController {
     private readonly identityService: IdentityService,
     private readonly provisioningService: ProvisioningService,
     private readonly organisationsService: OrganisationsService,
+    private readonly profilPersonnel: ProfilPersonnelService,
   ) {}
 
   /**
@@ -37,6 +41,30 @@ export class IdentityController {
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): Promise<IdentityMeResponse> {
     return this.identityService.getMe(user);
+  }
+
+  /** PATCH /api/v1/identity/me/profil — pseudo d'affichage (vide = le retirer). */
+  @Patch('me/profil')
+  modifierMonProfil(@CurrentUser() user: AuthenticatedUser, @Body() dto: ModifierMonProfilDto) {
+    return this.profilPersonnel.modifierPseudo(user, dto.pseudo);
+  }
+
+  /** POST /api/v1/identity/me/photo (multipart, champ `photo`) — sa propre photo. */
+  @Post('me/photo')
+  @UseInterceptors(FileInterceptor('photo'))
+  televerserMaPhoto(@CurrentUser() user: AuthenticatedUser, @UploadedFile() fichier: FichierPhotoProfil | undefined) {
+    return this.profilPersonnel.televerserPhoto(user, fichier);
+  }
+
+  /** GET /api/v1/identity/me/photo — URL signée courte durée de sa photo (404 sans photo). */
+  @Get('me/photo')
+  maPhoto(@CurrentUser() user: AuthenticatedUser) {
+    return this.profilPersonnel.urlPhoto(user);
+  }
+
+  @Delete('me/photo')
+  supprimerMaPhoto(@CurrentUser() user: AuthenticatedUser) {
+    return this.profilPersonnel.supprimerPhoto(user);
   }
 
   /**

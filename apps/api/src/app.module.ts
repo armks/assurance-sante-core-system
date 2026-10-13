@@ -1,4 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ActeurInterceptor } from './common/acteur.interceptor';
+import { JournalModule } from './journal/journal.module';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { BillingModule } from './billing/billing.module';
@@ -58,6 +61,9 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     VitrineModule,
     SanteModule,
     DependancesModule,
+    JournalModule,
   ],
+  // Identité de l'utilisateur propagée à toute écriture de la requête (journal des actions)
+  providers: [{ provide: APP_INTERCEPTOR, useClass: ActeurInterceptor }],
 })
 export class AppModule {}

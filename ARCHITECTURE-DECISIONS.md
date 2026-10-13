@@ -1186,3 +1186,6 @@ via le circuit du tarif proposé). Le superadmin reste seul maître du contenu d
 ### ADR-009 — Addendum (2026-10-13)
 - La cotation nationale est répercutée par triggers (migration 091) sur les lignes activées ; le Java continue de lire la ligne de l'organisation.
 - Le catalogue national est mis à jour par le superadmin ET l'assurance informatique (création, modification, homologation, retrait, suppression, import Excel), toujours audité ; les lettres-clés restent au superadmin seul.
+
+### ADR-010 — Traçabilité des responsabilités (2026-10-13)
+Chaque écriture faite via l'API est attribuée à un utilisateur : contexte asynchrone posé par un intercepteur global + extension du client Prisma qui alimente `journal_actions` (ajout seul, noms de champs sans valeurs, périmètre de l'auteur figé à l'instant de l'action). Complète `audit_log` / `log_audit()` (événements métier explicites) sans le remplacer. Consultation réservée à la direction et à l'informatique de l'assureur (leur organisation) et au superadmin.

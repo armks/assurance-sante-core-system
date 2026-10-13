@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   LineChart,
   BookMarked,
+  History,
   type LucideIcon,
   MapPin,
   Package,
@@ -338,6 +339,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     { label: 'Conventions', href: `${DIRECTION}/conventions`, icon: FileSignature },
     // Tarifs proposés non décidés (escalade J+5) : lecture seule — lot barème 5
     { label: 'Tarifs proposés', href: `${DIRECTION}/tarifs-proposes`, icon: FileSignature },
+    { label: 'Journal des actions', href: `${DIRECTION}/journal-actions`, icon: History },
     {
       label: 'Réclamations',
       href: `${INFORMATIQUE}/reclamations`,
@@ -543,6 +545,8 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
     ...(racineVueEnsemble === INFORMATIQUE
       ? [{ label: 'Catalogue national', href: `${INFORMATIQUE}/catalogue-national`, icon: BookMarked }]
       : []),
+    // Traçabilité : qui a fait quoi (informatique et direction de l'assureur)
+    { label: 'Journal des actions', href: `${INFORMATIQUE}/journal-actions`, icon: History },
     {
       label: 'Adhérents',
       href: `${INFORMATIQUE}/adherents`,

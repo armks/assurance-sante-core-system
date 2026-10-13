@@ -15,6 +15,12 @@ export interface IdentityMe {
     libelleRole: string | null;
     entite: string | null;
     email: string | null;
+    pseudo?: string | null;
+    aPhoto?: boolean;
+    organisationNom?: string | null;
+    etablissementNom?: string | null;
+    pharmacieNom?: string | null;
+    societeNom?: string | null;
   };
   permissions: {
     roleChain: string[];

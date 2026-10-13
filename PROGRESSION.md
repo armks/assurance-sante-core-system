@@ -8549,3 +8549,6 @@ Terminé.
 - **Type de visite non défini** : aucun tarif annoncé ni repris (contexte indéterminé) ; l'écran d'ajout d'acte affiche le contexte (ambulatoire / hospitalisation) et un indice.
 - **Catalogue national mis à jour par l'assurance informatique comme par le superadmin** : rôles `ROLES_GESTION_CATALOGUE_NATIONAL` (superadmin + `ASSUREUR_INFORMATIQUE`) sur les routes `superadmin/catalogue-national/*`, l'import Excel, le registre des dépendances ; nouvelle action **Homologuer** (unitaire et en masse) pour les éléments PROPOSÉS ; lettres-clés lisibles par l'informatique, création/modification réservées au superadmin. Nouvelle page « Catalogue national » dans le tableau de bord informatique. Tests : 1549 jest verts + recette HTTP (403 pour le médecin conseil, audit tracé).
 - Statut : terminé côté API et écran ; recette navigateur de la nouvelle page non faite.
+
+## 2026-10-13 — Recette navigateur : page « Catalogue national » de l'assurance informatique
+- Menu visible, page chargée, ajout d'acte disponible, bouton Homologuer fonctionnel (statut PROPOSÉ → HOMOLOGUÉ en base). Zéro résidu. Statut : validé.

@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 
 import {
   importerEntrantsExcel,
@@ -79,6 +80,8 @@ export function MouvementsEcran({
   polices: PoliceRef[];
 }) {
   const router = useRouter();
+  // Compte rendu du dernier import (la fenêtre se ferme au succès : sans ce bandeau, le nombre de lignes en erreur serait perdu).
+  const [compteRendu, setCompteRendu] = useState<{ titre: string; details: string[] } | null>(null);
   const peutSortants = peutProposerSortants(roleChain);
   const peutEntrants = peutProposerMembres(roleChain);
 
@@ -97,6 +100,17 @@ export function MouvementsEcran({
 
   return (
     <div className="space-y-8">
+      {compteRendu && (
+        <div role="status" className="flex items-start justify-between gap-4 rounded-md border bg-muted/40 p-3 text-sm">
+          <div className="space-y-1">
+            <p className="font-medium">{compteRendu.titre}</p>
+            {compteRendu.details.map((d) => (
+              <p key={d} className="text-xs text-destructive">{d}</p>
+            ))}
+          </div>
+          <Button type="button" size="xs" variant="ghost" onClick={() => setCompteRendu(null)}>Fermer</Button>
+        </div>
+      )}
       {/* --- Sortants ------------------------------------------------ */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
@@ -110,6 +124,10 @@ export function MouvementsEcran({
               onSoumettre={async (fd) => {
                 const r = await importerSortantsExcel(souscripteurId, fd);
                 if (!r.ok) return { ok: false, error: r.error, erreurs: r.erreurs };
+                setCompteRendu({
+                  titre: `${r.nbProposes} sortie(s) proposée(s) — ${r.erreursDetail.length} ligne(s) en erreur.`,
+                  details: r.erreursDetail.map((e) => `Ligne ${e.ligne} : ${e.erreurs.join(' ; ')}`),
+                });
                 return {
                   ok: true,
                   message: `${r.nbProposes} sortie(s) proposée(s) — ${r.erreursDetail.length} ligne(s) en erreur.`,
@@ -207,6 +225,10 @@ export function MouvementsEcran({
                   if (moisEffet) donnees.set('moisEffet', moisEffet);
                   const r = await importerEntrantsExcel(souscripteurId, donnees);
                   if (!r.ok) return { ok: false, error: r.error, erreurs: r.erreurs };
+                  setCompteRendu({
+                    titre: `${r.import.nbLignesValides} entrant(s) proposé(s) — ${r.import.nbLignesErreur} ligne(s) en erreur.`,
+                    details: [],
+                  });
                   return {
                     ok: true,
                     message: `${r.import.nbLignesValides} entrant(s) proposé(s) — ${r.import.nbLignesErreur} ligne(s) en erreur.`,

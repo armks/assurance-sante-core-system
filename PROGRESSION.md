@@ -8552,3 +8552,7 @@ Terminé.
 
 ## 2026-10-13 — Recette navigateur : page « Catalogue national » de l'assurance informatique
 - Menu visible, page chargée, ajout d'acte disponible, bouton Homologuer fonctionnel (statut PROPOSÉ → HOMOLOGUÉ en base). Zéro résidu. Statut : validé.
+
+## 2026-10-13 — Recette navigateur : import de sortants et création de profil par lien d'invitation
+- Import d'un fichier de sortants (société) : sortie proposée, ligne inconnue signalée, validation par l'assureur → RADIÉ ; lien d'invitation « créer son profil » : activation du compte → tableau de bord adhérent, profil rattaché, lien non réutilisable. Zéro résidu.
+- Correction trouvée par la recette : après un import d'entrants/sortants la fenêtre se fermait sans afficher le nombre de lignes en erreur → bandeau de compte rendu (détail « Ligne N : motif » pour les sortants) sur l'écran Entrants / sortants.

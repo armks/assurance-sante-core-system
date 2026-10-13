@@ -15,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import { annoncerOuvertureLente } from '@/components/effet-defilement'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
@@ -39,6 +40,7 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
       })
       if (error) throw error
       const next = new URLSearchParams(window.location.search).get('next')
+      annoncerOuvertureLente() // la première page affichée après la connexion s'ouvre lentement (du haut vers le bas)
       router.push(safeNextPath(next, '/dashboard'))
     } catch (error: unknown) {
       setError(messageErreurAuth(error))

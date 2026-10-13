@@ -26,10 +26,13 @@ export function ConnexionModale() {
         >
           <DialogPrimitive.Title className="sr-only">Connexion</DialogPrimitive.Title>
           <div className="relative">
-            <div className="mb-4 flex justify-center rounded-xl border bg-card px-4 py-3 shadow-2xl">
+            {/* Même effet d'ouverture que le méga menu : le logo descend en fondu, puis la carte de connexion se déroule du haut. */}
+            <div className="megamenu-colonne mb-4 flex justify-center rounded-xl border bg-card px-4 py-3 shadow-2xl" style={{ animationDelay: '250ms' }}>
               <Brand />
             </div>
-            <LoginForm className="[&>div]:shadow-2xl" />
+            <div className="megamenu-panneau" style={{ animationDelay: '500ms' }}>
+              <LoginForm className="[&>div]:shadow-2xl" />
+            </div>
             <DialogPrimitive.Close className="absolute right-3 top-[4.75rem] rounded-md p-1.5 text-muted-foreground transition hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               <X className="size-4" aria-hidden="true" />
               <span className="sr-only">Fermer</span>

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { destinationApresDeconnexion } from '@/app/deconnexion-actions';
+import { annoncerOuvertureLente } from '@/components/effet-defilement';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 
@@ -37,6 +38,7 @@ export function LogoutButton() {
       setEchec(true);
       return;
     }
+    annoncerOuvertureLente(); // retour sur la page d'accueil : ouverture lente (en-tête, blocs et première image de la bannière)
     router.replace(destination);
   };
 

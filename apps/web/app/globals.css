@@ -163,6 +163,9 @@
 .megamenu-panneau { animation: megamenu-ouverture 1400ms cubic-bezier(0.4, 0, 0.2, 1) backwards; }
 .megamenu-colonne { animation: megamenu-colonne 1150ms cubic-bezier(0.33, 0, 0.2, 1) backwards; }
 
+/* Première page après une connexion réussie : même descente, encore plus lente. */
+.defilement-entree.defilement-lent { animation-duration: 2200ms; }
+
 @media (prefers-reduced-motion: reduce) {
   .defilement-cache { opacity: 1; transform: none; }
   .defilement-entree { animation: none; }

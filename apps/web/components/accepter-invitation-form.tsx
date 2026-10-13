@@ -6,6 +6,7 @@ import { useState, useTransition } from 'react';
 import { accepterInvitation } from '@/app/accepter-invitation/[token]/actions';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
+import { annoncerOuvertureLente } from '@/components/effet-defilement';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -55,6 +56,7 @@ export function AccepterInvitationForm({
             router.push('/login');
             return;
           }
+          annoncerOuvertureLente();
           router.push(res.dashboardRoute);
           router.refresh();
         });

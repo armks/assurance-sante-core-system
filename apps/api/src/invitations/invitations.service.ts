@@ -643,6 +643,9 @@ export class InvitationsService {
         scope.pharmacieId = dto.pharmacieId ?? null;
       }
 
+      if (dto.rolePropose === 'ADHERENT_TITULAIRE') {
+        await this.assertAdherentInvitable(ctx.organisationId, null, dto);
+      }
       scope.adherentId = dto.adherentId ?? null;
       return scope;
     }
@@ -682,6 +685,9 @@ export class InvitationsService {
           );
         }
       }
+      if (dto.rolePropose === 'ADHERENT_TITULAIRE') {
+        await this.assertAdherentInvitable(ctx.organisationId as string, ctx.societeId, dto);
+      }
       scope.organisationId = ctx.organisationId;
       scope.societeId = ctx.societeId;
       scope.adherentId = dto.adherentId ?? null;
@@ -709,6 +715,46 @@ export class InvitationsService {
     }
     scope.organisationId = org.id;
     return scope;
+  }
+
+  /**
+   * Invitation d'un ADHERENT_TITULAIRE : seulement pour un adhérent VALIDÉ de l'organisation (et de la société de l'appelant s'il est
+   * de la société), actif, pas encore titulaire d'un compte, et avec l'e-mail de sa fiche s'il en a un. Vérifié côté serveur, jamais
+   * sur la seule foi de l'écran ; un adhérent hors périmètre est « introuvable » (rien n'est révélé).
+   */
+  private async assertAdherentInvitable(
+    organisationId: string,
+    societeId: string | null,
+    dto: CreerInvitationDto,
+  ): Promise<void> {
+    if (!dto.adherentId) {
+      throw new BadRequestException("adherentId est requis pour inviter un adhérent.");
+    }
+    const adherent = await this.prisma.adherent.findFirst({
+      where: {
+        id: dto.adherentId,
+        organisationId,
+        deletedAt: null,
+        ...(societeId ? { souscripteurId: societeId } : {}),
+      },
+      select: { id: true, statut: true, dateValidation: true, email: true },
+    });
+    if (!adherent) {
+      throw new NotFoundException('Adhérent introuvable dans votre périmètre.');
+    }
+    if (!adherent.dateValidation) {
+      throw new ConflictException("Cet adhérent n'est pas encore validé par l'assureur : aucune invitation possible.");
+    }
+    if (adherent.statut !== 'ACTIF') {
+      throw new ConflictException(`Cet adhérent n'est pas actif (statut : ${adherent.statut}) : aucune invitation possible.`);
+    }
+    if (adherent.email && adherent.email.toLowerCase() !== dto.email.trim().toLowerCase()) {
+      throw new BadRequestException("L'e-mail de l'invitation doit être celui enregistré sur la fiche de l'adhérent.");
+    }
+    const compte = await this.prisma.profil.findFirst({ where: { adherentId: adherent.id, deletedAt: null }, select: { id: true } });
+    if (compte) {
+      throw new ConflictException('Cet adhérent a déjà un compte.');
+    }
   }
 
   private async assertPasDejaCompte(email: string): Promise<void> {

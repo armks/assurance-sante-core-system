@@ -36,6 +36,10 @@ export interface AdherentListe {
   /** Renseigné uniquement pendant `statut = 'PROPOSE_SORTANT'`. */
   statutSortantCible?: string | null;
   motifSortie?: string | null;
+  /** Renseignés par la liste (colonnes de la fiche) — la date de validation conditionne l'invitation. */
+  email?: string | null;
+  telephone?: string | null;
+  dateValidation?: string | null;
 }
 
 /** Adhérent PRINCIPAL — issu d'un import Excel OU d'une proposition société. */
@@ -129,4 +133,27 @@ export interface AdherentDetail extends AdherentListe {
         dateFin: string | null;
       })
     | null;
+}
+
+/** Proposition d'adhérent ou de bénéficiaire (une ligne par proposition, prisma/sql/086). */
+export interface PropositionMembre {
+  id: string;
+  type: 'ADHERENT' | 'BENEFICIAIRE';
+  statut: 'EN_ATTENTE' | 'VALIDEE' | 'REJETEE' | 'RETIREE';
+  souscripteurId: string;
+  societe: string | null;
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  sexe: string;
+  formule: string | null;
+  telephone: string | null;
+  email: string | null;
+  lienParente: string | null;
+  adherentParentId: string | null;
+  motifRejet: string | null;
+  dateProposition: string;
+  dateDecision: string | null;
+  /** « Action possible ? » décidée par le serveur (rôle, statut) — l'écran ne fait que l'afficher. */
+  actions: Record<'valider' | 'rejeter' | 'retirer', { possible: boolean; raison: string | null }>;
 }

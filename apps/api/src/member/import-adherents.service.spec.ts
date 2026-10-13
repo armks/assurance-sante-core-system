@@ -1,3 +1,4 @@
+import { GoneException } from '@nestjs/common';
 import {
   BadRequestException,
   ConflictException,
@@ -379,116 +380,10 @@ describe('ImportAdherentsService', () => {
   //  Propositions collaboratives société — SOCIETE_ASSUREE/ADMINISTRATION
   //  uniquement, jamais une autre société (ctx.societeId === souscripteurId).
   // ═══════════════════════════════════════════════════════════════════════
-  describe('proposerAdherent', () => {
-    const DTO = { nom: 'Yao', prenom: 'Awa', telephone: '0700000001', email: 'awa@test.ci', dateNaissance: '1990-05-14' };
-
-    it('refuse un rôle non habilité (comptable société)', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_COMPTABLE'], 'sous-1'));
-      await expect(service.proposerAdherent(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it("refuse une AUTRE société que la sienne", async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
-      await expect(service.proposerAdherent(USER, 'sous-AUTRE', DTO)).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it('ligne invalide (téléphone) → 400, aucun brouillon créé', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
-      await expect(
-        service.proposerAdherent(USER, 'sous-1', { ...DTO, telephone: 'abc' }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-      expect(prisma.importAdherents.create).not.toHaveBeenCalled();
-    });
-
-    it('email déjà utilisé par un adhérent existant → 409', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
-      prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-existant' });
-      await expect(service.proposerAdherent(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ConflictException);
-    });
-
-    it('crée le brouillon (inexistant) et y ajoute la ligne', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
-      prisma.importAdherents.findFirst.mockResolvedValue(null); // pas de brouillon existant
-      prisma.importAdherents.create.mockResolvedValue({ id: 'imp-1', lignesValides: [] });
-      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1', lignesValides: [{ type: 'ADHERENT', ...DTO }] });
-
-      const res = await service.proposerAdherent(USER, 'sous-1', DTO);
-
-      expect(prisma.importAdherents.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ souscripteurId: 'sous-1', statut: 'BROUILLON', fichierNom: null }) }),
-      );
-      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'imp-1' },
-          data: expect.objectContaining({
-            lignesValides: [expect.objectContaining({ type: 'ADHERENT', nom: 'Yao', email: 'awa@test.ci' })],
-            nbLignesTotal: 1,
-            nbLignesValides: 1,
-          }),
-        }),
-      );
-      expect(res.id).toBe('imp-1');
-    });
-
-    it('réutilise le brouillon déjà ouvert plutôt que d’en créer un second', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
-      prisma.importAdherents.findFirst.mockResolvedValue({
-        id: 'imp-1',
-        lignesValides: [{ type: 'ADHERENT', nom: 'Konan', prenom: 'Yves', telephone: '0700000002', email: 'yves@test.ci', dateNaissance: '1985-01-01' }],
-      });
-      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
-
-      await service.proposerAdherent(USER, 'sous-1', DTO);
-
-      expect(prisma.importAdherents.create).not.toHaveBeenCalled();
-      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ nbLignesTotal: 2 }) }),
-      );
-    });
-
-    it('email déjà proposé dans le brouillon en cours → 409', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
-      prisma.importAdherents.findFirst.mockResolvedValue({
-        id: 'imp-1',
-        lignesValides: [{ type: 'ADHERENT', nom: 'Autre', prenom: 'Personne', telephone: '0700009999', email: DTO.email, dateNaissance: '1980-01-01' }],
-      });
-      await expect(service.proposerAdherent(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ConflictException);
-      expect(prisma.importAdherents.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('proposerBeneficiaire', () => {
-    const DTO = { adherentId: 'adh-1', lienParente: 'ENFANT', nom: 'Petit', prenom: 'Yao', dateNaissance: '2015-03-10', sexe: 'M' };
-
-    it('refuse un rôle non habilité', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_RECEPTION'], 'sous-1'));
-      await expect(service.proposerBeneficiaire(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(ForbiddenException);
-    });
-
-    it("adhérent introuvable pour cette société → 404", async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ASSUREE'], 'sous-1'));
-      prisma.adherent.findFirst.mockResolvedValue(null);
-      await expect(service.proposerBeneficiaire(USER, 'sous-1', DTO)).rejects.toBeInstanceOf(NotFoundException);
-    });
-
-    it('crée le brouillon et y ajoute la proposition de bénéficiaire', async () => {
-      identity.getMe.mockResolvedValue(identite(['SOCIETE_ADMINISTRATION'], 'sous-1'));
-      prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-1', nom: 'Yao', prenom: 'Awa' });
-      prisma.importAdherents.findFirst.mockResolvedValue(null);
-      prisma.importAdherents.create.mockResolvedValue({ id: 'imp-1', lignesValides: [] });
-      prisma.importAdherents.update.mockResolvedValue({ id: 'imp-1' });
-
-      await service.proposerBeneficiaire(USER, 'sous-1', DTO);
-
-      expect(prisma.importAdherents.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            lignesValides: [
-              expect.objectContaining({ type: 'BENEFICIAIRE', adherentId: 'adh-1', adherentNom: 'Yao Awa', lienParente: 'ENFANT' }),
-            ],
-          }),
-        }),
-      );
+  describe('propositions par lot (circuit remplacé)', () => {
+    it('proposerAdherent / proposerBeneficiaire : 410 — remplacés par les propositions unitaires (prisma/sql/086)', async () => {
+      await expect(service.proposerAdherent(USER, 'sous-1', {} as never)).rejects.toBeInstanceOf(GoneException);
+      await expect(service.proposerBeneficiaire(USER, 'sous-1', {} as never)).rejects.toBeInstanceOf(GoneException);
     });
   });
 

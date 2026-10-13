@@ -186,3 +186,11 @@ export const ROLES_LECTURE_PLAFONDS = [
   'SOCIETE_ASSUREE',
   'SOCIETE_ADMINISTRATION',
 ] as const;
+
+/**
+ * Propositions d'adhérents / bénéficiaires par la société (prisma/sql/086) : validation ou rejet motivé par ASSUREUR_INFORMATIQUE ou
+ * ASSUREUR_EXPLOITATION (mêmes rôles que la validation d'un import). La société ne crée plus rien directement.
+ */
+export const ROLES_VALIDATION_PROPOSITION_MEMBRE = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION'] as const;
+export const ROLES_LECTURE_PROPOSITIONS_ASSUREUR = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION', 'ASSUREUR_DIRECTION'] as const;
+export const ROLES_LECTURE_PROPOSITIONS_SOCIETE = ['SOCIETE_ASSUREE', 'SOCIETE_ADMINISTRATION', 'SOCIETE_RECEPTION'] as const;

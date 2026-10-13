@@ -1099,7 +1099,7 @@ gestion des comptes, qui consommera `GET /api/v1/identity/roles-proposables`).
   est gitignoré).
 - **apps/api — module `email/`** (`@Global`) : `EmailService.envoyerEmail(destinataire,
   sujet, contenu)` — enveloppe **unique et générique** de l'envoi via Resend (expéditeur
-  provisoire `onboarding@resend.dev`), réutilisable par tous les besoins futurs. Si
+  provisoire `noreply@africonnexion.net`), réutilisable par tous les besoins futurs. Si
   `RESEND_API_KEY` est absent : journalisation sans envoi, `{ envoye: false }`, pas de crash.
 - **Supabase** (`prisma/sql/016_prompt22_licences_superadmin.sql`) :
   - Table **`licences_organisation`** (v14 §5) : `organisation_id` PK FK, `plan`
@@ -8359,3 +8359,28 @@ Terminé.
 
 ### Statut
 Terminé. Reste à votre décision : domaine d'expédition e-mail vérifié (puis `CODES_CONSULTATION_EMAIL_REEL=oui`) et choix du fournisseur SMS.
+
+
+## 2026-10-13 — La société propose ses adhérents et bénéficiaires, l'assureur valide (reprise)
+
+### Réalisé
+- Migration 086 (`propositions_membres` : statuts EN_ATTENTE / VALIDEE / REJETEE / RETIREE, motif de rejet ≥ 5 caractères, décision tracée, un seul e-mail en attente par
+  organisation ; règle de provisioning `SOCIETE_RECEPTION` → invitation d'un ADHERENT_TITULAIRE de sa société).
+- API `member/` : `PropositionsMembresService` + contrôleur + DTO ; la société ne crée plus d'adhérent ni de bénéficiaire (403, elle les propose) ; import Excel et invitations adaptés.
+- Web : `propositions-membres-panel.tsx` (file filtrable, valider / rejeter avec motif / retirer) et server actions `propositions-membres-actions.ts`.
+- Reprise après interruption : correction d'une apostrophe cassant `adherent.service.spec.ts` et de la propriété `vide` (et non `messageVide`) de `DataTable`.
+
+### Tests
+- API 1 478/1 478 (56 suites), typage API et web sans erreur.
+- **Non fait** : recette HTTP réelle + navigateur de cette fonctionnalité (à exécuter avant validation).
+
+### Statut
+Code complet et testé en unitaire ; recette bout en bout à faire.
+
+### Addendum (même jour) — recette HTTP réelle
+- Recette HTTP réelle (35 contrôles, zéro résidu, comptes Auth compris) : refus 403 (comptable, assureur qui propose, société qui valide), validation de saisie, périmètre
+  (autre société / autre organisation : 400 / 404), doublon d'e-mail en attente (409), rejet motivé, validation (adhérent créé validé, bon périmètre), double et
+  double validation concurrente (une seule gagne), retrait, audit.
+- **Bug trouvé et corrigé** : la validation renvoyait 500 — la contrainte `propositions_membres_validee_creee` exige l'élément créé dès que le statut passe à VALIDEE ;
+  le verrou se pose désormais sur `date_decision` et le statut VALIDEE est écrit avec l'élément créé. Les tests unitaires (mocks) ne pouvaient pas le détecter.
+- Non fait : recette navigateur de l'écran `propositions-membres-panel`. Service Java d'adjudication non démarré (sans effet sur cette fonctionnalité).

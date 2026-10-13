@@ -185,18 +185,30 @@ describe('AdherentService — fichier des membres', () => {
     expect(prisma.adherent.create).not.toHaveBeenCalled();
   });
 
-  it('SOCIETE_ADMINISTRATION crée un adhérent pour SON souscripteur', async () => {
+  it('SOCIETE_ADMINISTRATION ne crée PLUS d’adhérent (403, elle le propose) — même pour SON souscripteur', async () => {
     identity.getMe.mockResolvedValue(
       identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }),
     );
-    await service.creerAdherent(USER, {
-      souscripteurId: 'sous-1',
-      nom: 'A',
-      prenom: 'B',
-      dateNaissance: '1990-01-01',
-      sexe: 'F',
-    });
-    expect(prisma.adherent.create).toHaveBeenCalled();
+    await expect(
+      service.creerAdherent(USER, {
+        souscripteurId: 'sous-1',
+        nom: 'A',
+        prenom: 'B',
+        dateNaissance: '1990-01-01',
+        sexe: 'F',
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.adherent.create).not.toHaveBeenCalled();
+  });
+
+  it('SOCIETE_ADMINISTRATION ne crée PLUS de bénéficiaire (403, elle le propose)', async () => {
+    identity.getMe.mockResolvedValue(
+      identite(['SOCIETE_ADMINISTRATION'], { societeId: 'sous-1' }),
+    );
+    await expect(
+      service.ajouterBeneficiaire(USER, 'adh-1', { lienParente: 'ENFANT', nom: 'A', prenom: 'B', dateNaissance: '2015-01-01', sexe: 'F' } as never),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.beneficiaire.create).not.toHaveBeenCalled();
   });
 
   it('SOCIETE_ADMINISTRATION ne peut PAS créer pour un autre souscripteur', async () => {

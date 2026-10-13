@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  GoneException,
   Injectable,
   Logger,
   NotFoundException,
@@ -168,6 +169,17 @@ export class ImportAdherentsService {
   /** Proposition d'ajout par une société — réservée à SOCIETE_ASSUREE/
    * SOCIETE_ADMINISTRATION, et seulement pour SA PROPRE société (même
    * principe que `AdherentService.assertGestion`). */
+  /** Circuit de lots remplacé par les propositions unitaires (`PropositionsMembresService`, prisma/sql/086) : plus de nouvelle ligne de brouillon. */
+  private circuitActif(): boolean {
+    return false;
+  }
+
+  private circuitRetire(): GoneException {
+    return new GoneException(
+      "Ce circuit de propositions par lot est remplacé : utilisez les propositions unitaires (POST /member/propositions-membres/adherent ou /beneficiaire).",
+    );
+  }
+
   private assertProposition(ctx: ContexteAppelant, souscripteurId: string): void {
     const aLeRole = ctx.roleChain.some((code) =>
       (ROLES_PROPOSITION_ADHERENTS_SOCIETE as readonly string[]).includes(code),
@@ -447,6 +459,7 @@ export class ImportAdherentsService {
    * périmètre différent de l'import par lot.
    */
   async proposerAdherent(user: AuthenticatedUser, souscripteurId: string, dto: ProposerAdherentDto) {
+    if (!this.circuitActif()) throw this.circuitRetire();
     const ctx = await this.contexteAppelant(user);
     this.assertProposition(ctx, souscripteurId);
 
@@ -505,6 +518,7 @@ export class ImportAdherentsService {
   /** Ajoute une proposition de bénéficiaire, rattaché à un adhérent EXISTANT
    * de la propre société de l'appelant. */
   async proposerBeneficiaire(user: AuthenticatedUser, souscripteurId: string, dto: ProposerBeneficiaireDto) {
+    if (!this.circuitActif()) throw this.circuitRetire();
     const ctx = await this.contexteAppelant(user);
     this.assertProposition(ctx, souscripteurId);
 

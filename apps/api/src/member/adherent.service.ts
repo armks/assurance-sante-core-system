@@ -77,6 +77,7 @@ export class AdherentService {
 
   async creerAdherent(user: AuthenticatedUser, dto: CreateAdherentDto) {
     const ctx = await this.contexteAppelant(user);
+    this.assertCreationDirecte(ctx);
     this.assertGestion(ctx, dto.souscripteurId);
 
     const souscripteur = await this.prisma.souscripteur.findFirst({
@@ -649,6 +650,7 @@ export class AdherentService {
     dto: CreateBeneficiaireDto,
   ) {
     const ctx = await this.contexteAppelant(user);
+    this.assertCreationDirecte(ctx);
     const adherent = await this.chargerAdherent(ctx, adherentId);
     this.assertGestion(ctx, adherent.souscripteurId);
 
@@ -1143,6 +1145,18 @@ export class AdherentService {
    * Écriture autorisée si : rôle ASSUREUR habilité, OU SOCIETE_ADMINISTRATION
    * dont le `societe_id` correspond au souscripteur de l'adhérent visé.
    */
+  /**
+   * La société cliente ne CRÉE plus d'adhérent ni de bénéficiaire : elle les PROPOSE (`PropositionsMembresService`), l'assureur valide.
+   * Refus côté serveur même si l'écran est contourné (403). Les adhérents déjà créés restent modifiables comme avant.
+   */
+  private assertCreationDirecte(ctx: ContexteAppelant): void {
+    if (!this.aRoleAssureur(ctx)) {
+      throw new ForbiddenException(
+        "La société cliente ne crée plus d'adhérent ni de bénéficiaire : elle les propose (POST /member/propositions-membres/...) et l'assureur les valide.",
+      );
+    }
+  }
+
   private assertGestion(
     ctx: ContexteAppelant,
     souscripteurId: string | null,

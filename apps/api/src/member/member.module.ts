@@ -6,6 +6,8 @@ import { MemberCarteService } from './carte.service';
 import { ImportAdherentsService } from './import-adherents.service';
 import { MemberController } from './member.controller';
 import { PlafondsService } from './plafonds.service';
+import { PropositionsMembresController } from './propositions-membres.controller';
+import { PropositionsMembresService } from './propositions-membres.service';
 import { DependancesModule } from '../dependances/dependances.module';
 
 /**
@@ -19,8 +21,8 @@ import { DependancesModule } from '../dependances/dependances.module';
  */
 @Module({
   imports: [IdentityModule, DependancesModule, AdjudicationClientModule],
-  controllers: [MemberController],
-  providers: [AdherentService, MemberCarteService, ImportAdherentsService, PlafondsService],
+  controllers: [MemberController, PropositionsMembresController],
+  providers: [AdherentService, MemberCarteService, ImportAdherentsService, PlafondsService, PropositionsMembresService],
   exports: [AdherentService],
 })
 export class MemberModule {}

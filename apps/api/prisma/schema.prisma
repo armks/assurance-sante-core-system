@@ -2229,3 +2229,34 @@ model TarifPropose {
   @@index([organisationId, statut])
   @@map("tarifs_proposes")
 }
+
+/// Propositions d'adhérents / bénéficiaires par la société cliente (prisma/sql/086) : rien n'est créé avant la validation de l'assureur.
+model PropositionMembre {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId     String    @map("organisation_id") @db.Uuid
+  souscripteurId     String    @map("souscripteur_id") @db.Uuid
+  type               String // ADHERENT | BENEFICIAIRE
+  statut             String    @default("EN_ATTENTE") // EN_ATTENTE | VALIDEE | REJETEE | RETIREE
+  nom                String
+  prenom             String
+  dateNaissance      DateTime  @map("date_naissance") @db.Date
+  sexe               String // M | F
+  policeId           String?   @map("police_id") @db.Uuid
+  telephone          String?
+  email              String?
+  adherentParentId   String?   @map("adherent_parent_id") @db.Uuid
+  lienParente        String?   @map("lien_parente")
+  motifRejet         String?   @map("motif_rejet")
+  proposePar         String    @map("propose_par") @db.Uuid
+  decidePar          String?   @map("decide_par") @db.Uuid
+  dateDecision       DateTime? @map("date_decision") @db.Timestamptz(6)
+  adherentCreeId     String?   @map("adherent_cree_id") @db.Uuid
+  beneficiaireCreeId String?   @map("beneficiaire_cree_id") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([organisationId, statut])
+  @@index([souscripteurId, statut])
+  @@map("propositions_membres")
+}

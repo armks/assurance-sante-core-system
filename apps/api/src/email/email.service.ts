@@ -3,7 +3,7 @@ import { Resend } from 'resend';
 
 /** Adresse d'expédition — provisoire (bac à sable Resend).
  *  À remplacer par un domaine vérifié (ex: no-reply@assurance-sante.ci). */
-const EXPEDITEUR = 'onboarding@resend.dev';
+const EXPEDITEUR = 'noreply@africonnexion.net';
 
 export interface ResultatEnvoi {
   envoye: boolean;

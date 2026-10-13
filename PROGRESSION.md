@@ -8587,3 +8587,6 @@ Terminé.
 
 ## 2026-10-13 — Recette navigateur : comptes financiers et paiement des factures mensuelles
 - Écrans « Comptes financiers » et « Suivi des paiements » du comptable : création d'un compte à 12 000, approvisionnement, paiement partiel de 4 000 puis solde sans saisie de montant (PAYEE), programmation à 5 jours (aucun débit) puis confirmation en solde insuffisant (message d'erreur affiché dans la fenêtre, aucun débit), approvisionnement et confirmation, regroupement de 2 factures de pharmacie et paiement du groupe ; l'adjoint ne voit aucun bouton « Payer ». Le diagramme de consommation s'affiche (vérifié séparément : un cliché pris trop tôt le montrait vide). Zéro résidu.
+
+## 2026-10-13 — Recette navigateur : écran « Journal des actions » (direction, informatique)
+- Direction : menu, 66 actions de son organisation (aucune d'une autre), auteur affiché par son pseudo avec rôle et établissement, pagination 50 par page (page 2 : 16 lignes), filtres opération (suppressions), table, période (message « Aucune action enregistrée ») et clic sur un auteur ; une autre direction ne voit que ses propres traces ; informatique : même écran par son menu ; comptable : pas de menu, accès direct par l'adresse refusé. Zéro résidu.

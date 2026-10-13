@@ -14,6 +14,8 @@ function blocsDe(main: Element): Element[] {
   let n: Element = main;
   while (n.children.length === 1 && n.firstElementChild?.tagName === 'DIV') n = n.firstElementChild;
   return [...n.children].flatMap((enfant) => {
+    // bloc qui porte son propre effet d'ouverture (ex. page de connexion) : pas d'apparition générique par-dessus
+    if (enfant.hasAttribute('data-sans-defilement')) return [];
     if (enfant.tagName === 'SECTION') {
       if (enfant.hasAttribute('aria-roledescription')) return [];
       return enfant.firstElementChild ? [enfant.firstElementChild] : [];

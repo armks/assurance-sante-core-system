@@ -8649,3 +8649,6 @@ Terminé.
 
 ## 2026-10-13 — Méga menu : vitesse légèrement augmentée
 - Ouverture un peu moins lente : panneau 1,8 → 1,4 s, colonnes 1,5 → 1,15 s, décalages 0,5 / 0,8 / 1,1 s → 0,35 / 0,6 / 0,85 s ; tout est visible vers 1,7 s (avant ≈ 2,6 s). Fermeture différée (0,45 s) et absence de masque résiduel inchangées.
+
+## 2026-10-13 — Page de connexion (/login) : même effet d'ouverture que le méga menu
+- Le bloc d'accueil (logo + texte) descend en fondu (350 ms de délai), la carte de connexion se déroule du haut (600 ms), puis la note de bas de page apparaît (1,1 s) — mêmes animations et mêmes courbes que le méga menu (`megamenu-colonne` / `megamenu-panneau`). Le bloc porte `data-sans-defilement` : l'apparition générique n'est pas ajoutée par-dessus (pas de double animation). Mesuré : tout à 0 à l'ouverture, ordre accueil → carte → note, tout net à 2,6 s, aucun masque ni transformation résiduels, formulaire utilisable, mouvement réduit = affichage immédiat, mobile sans débordement.

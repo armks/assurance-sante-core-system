@@ -151,6 +151,7 @@ export function AdherentDetail({
       cle: 'contact',
       entete: 'Contact',
       valeur: (b) => [b.telephone, b.email].filter(Boolean).join(' · ') || '—',
+      rendu: (b) => [b.telephone, b.email].filter(Boolean).join(' · ') || '—',
     },
     {
       cle: 'numeroCarte',
@@ -412,7 +413,8 @@ export function AdherentDetail({
             parPage={0}
             colonnes={colBenef}
             actions={
-              peutGerer ? (
+              // La société PROPOSE ses bénéficiaires (panneau de la liste) : elle n'en crée pas directement (l'API refuse).
+              peutGerer && !estSociete ? (
                 <FormulaireModal
                   titre="Ajouter un bénéficiaire"
                   description="Ayant droit rattaché à cet adhérent. Le numéro de carte est généré automatiquement."

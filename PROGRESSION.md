@@ -8427,3 +8427,12 @@ Terminé côté API ; écrans compilés et branchés, recette visuelle à faire.
 
 ### Statut
 Terminé côté API ; écrans compilés.
+
+### Addendum — recette navigateur (Chromium / Playwright, vrais comptes : assureur informatique, société administration, réception)
+- 40 contrôles OK, zéro résidu, aucune erreur console applicative : « Nouvel adhérent » (téléphone, e-mail, case lien d'invitation → bandeau avec lien copiable) ; fiche adhérent (lien généré,
+  e-mail de la fiche en lecture seule, ajout de bénéficiaire avec contacts) ; société sans « Nouvel adhérent », propositions d'adhérent / entrant (mois d'effet) / bénéficiaire, retrait, motif de rejet affiché,
+  lien d'invitation depuis la fiche d'un adhérent validé ; Entrants / sortants (proposer un entrant, sortie individuelle, deux imports de fichier, import d'entrants visible « En attente de validation ») ;
+  assureur : validation et rejet motivé depuis le panneau ; réception sans bouton de création.
+- **Défauts trouvés et corrigés** : colonnes « Contact » (fiche, propositions), « Type », « Société », « Formule » vides (`DataTable` n'affiche que `rendu`) ; « Ajouter un bénéficiaire » encore proposé à la société
+  sur la fiche (l'API le refuse — elle propose).
+- Avertissements React ignorés car hors application : balise `script` du thème, `caret-color` injecté par l'automatisation.

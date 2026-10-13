@@ -106,6 +106,9 @@ const moisEffetISO = (fd: FormData) => (lire(fd, 'moisEffet') ? `${lire(fd, 'moi
 
 const moisFr = (d: string) => new Date(d).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
+const libelleType = (p: PropositionMembre) =>
+  p.type === 'ADHERENT' ? (p.moisEffet ? `Entrant (effet ${moisFr(p.moisEffet)})` : 'Adhérent') : `Bénéficiaire (${p.lienParente ?? ''})`;
+
 /** Soumission commune « adhérent » / « entrant » : l'entrant porte un mois d'effet. */
 async function soumettreAdherent(fd: FormData, entrant: boolean): Promise<ResultatSoumission> {
   const r = await proposerAdherentMembre({
@@ -173,13 +176,14 @@ export function PropositionsMembresPanel({
 
   const colonnes: ColonneTable<PropositionMembre>[] = [
     { cle: 'nom', entete: 'Personne', triable: true, valeur: (p) => `${p.nom} ${p.prenom}`, rendu: (p) => <span className="font-medium">{p.prenom} {p.nom}</span> },
-    { cle: 'type', entete: 'Type', valeur: (p) => (p.type === 'ADHERENT' ? (p.moisEffet ? `Entrant (effet ${moisFr(p.moisEffet)})` : 'Adhérent') : `Bénéficiaire (${p.lienParente ?? ''})`) },
-    ...(mode === 'assureur' ? [{ cle: 'societe', entete: 'Société', valeur: (p: PropositionMembre) => p.societe ?? '—' } as ColonneTable<PropositionMembre>] : []),
-    { cle: 'formule', entete: 'Formule', valeur: (p) => p.formule ?? '—' },
+    { cle: 'type', entete: 'Type', valeur: libelleType, rendu: libelleType },
+    ...(mode === 'assureur' ? [{ cle: 'societe', entete: 'Société', valeur: (p: PropositionMembre) => p.societe ?? '—', rendu: (p: PropositionMembre) => p.societe ?? '—' } as ColonneTable<PropositionMembre>] : []),
+    { cle: 'formule', entete: 'Formule', valeur: (p) => p.formule ?? '—', rendu: (p) => p.formule ?? '—' },
     {
       cle: 'contact',
       entete: 'Contact',
       valeur: (p) => [p.email, p.telephone].filter(Boolean).join(' · ') || '—',
+      rendu: (p) => [p.email, p.telephone].filter(Boolean).join(' · ') || '—',
     },
     { cle: 'dateProposition', entete: 'Proposée le', triable: true, valeur: (p) => p.dateProposition, rendu: (p) => dateFr(p.dateProposition) },
     {

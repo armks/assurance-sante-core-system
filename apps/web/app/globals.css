@@ -141,10 +141,24 @@
   to { opacity: 1; transform: translateY(0); }
 }
 .defilement-cache { opacity: 0; transform: translateY(-28px); }
-.defilement-entree { animation: defilement-descente 900ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+.defilement-entree { animation: defilement-descente 1300ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
+/* Méga menu de la vitrine : ouverture très lente — le panneau se déroule du haut vers le bas, puis chaque colonne descend en fondu l'une
+ * après l'autre. `backwards` : ni masque ni transformation ne subsiste une fois l'animation terminée (l'ombre du panneau reste visible). */
+@keyframes megamenu-ouverture {
+  from { opacity: 0; clip-path: inset(0 0 100% 0); transform: translateY(-16px); }
+  to { opacity: 1; clip-path: inset(0 0 0 0); transform: translateY(0); }
+}
+@keyframes megamenu-colonne {
+  from { opacity: 0; transform: translateY(-18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.megamenu-panneau { animation: megamenu-ouverture 1800ms cubic-bezier(0.45, 0, 0.25, 1) backwards; }
+.megamenu-colonne { animation: megamenu-colonne 1500ms cubic-bezier(0.35, 0, 0.2, 1) backwards; }
+
 @media (prefers-reduced-motion: reduce) {
   .defilement-cache { opacity: 1; transform: none; }
   .defilement-entree { animation: none; }
+  .megamenu-panneau, .megamenu-colonne { animation: none; }
 }
 @media print {
   .defilement-cache { opacity: 1 !important; transform: none !important; }

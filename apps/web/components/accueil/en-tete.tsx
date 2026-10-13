@@ -75,7 +75,7 @@ export function EnTeteAccueil({ marque, racine: accueil = '/' }: { marque?: Marq
   };
   const fermerBientot = () => {
     annulerFermeture();
-    minuterie.current = setTimeout(() => setOuvert(null), 160);
+    minuterie.current = setTimeout(() => setOuvert(null), 450); // fermeture tardive : le menu ne se referme pas au moindre écart de souris
   };
 
   // Échap ferme et rend le focus au déclencheur ; clic hors de l'en-tête ferme.
@@ -170,16 +170,17 @@ export function EnTeteAccueil({ marque, racine: accueil = '/' }: { marque?: Marq
         role="region"
         aria-label="Nos services"
         hidden={!ouvert}
-        className="accueil-apparition absolute inset-x-0 top-full border-b border-white/10 bg-nuit text-white shadow-[0_24px_48px_-24px_hsl(253_40%_10%/0.6)]"
+        className="megamenu-panneau absolute inset-x-0 top-full border-b border-white/10 bg-nuit text-white shadow-[0_24px_48px_-24px_hsl(253_40%_10%/0.6)]"
       >
         <div className="mx-auto grid max-w-7xl grid-cols-3 gap-4 px-6 py-8">
-          {COLONNES.map((c) => {
+          {COLONNES.map((c, rang) => {
             const Icone = c.icone;
             return (
               <div
                 key={c.id}
+                style={{ animationDelay: `${500 + rang * 300}ms` }}
                 className={cn(
-                  'rounded-2xl p-5 transition-colors',
+                  'megamenu-colonne rounded-2xl p-5 transition-colors duration-500',
                   ouvert === c.id ? 'bg-white/[0.06]' : 'bg-transparent',
                 )}
               >

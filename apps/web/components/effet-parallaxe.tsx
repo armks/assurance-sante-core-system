@@ -3,15 +3,15 @@
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 
-/** Coefficient de lissage : à chaque image, la couche rattrape 7 % de l'écart avec sa cible — elle « traîne » derrière la molette (effet ralenti). */
-const INERTIE = 0.07;
+/** Coefficient de lissage : à chaque image, la couche rattrape 3,5 % de l'écart avec sa cible — elle « traîne » longuement derrière la molette (≈ 1,3 s pour se poser) : effet très ralenti. */
+const INERTIE = 0.035;
 
 /**
  * Parallaxe douce : les éléments marqués `data-parallaxe="vitesse"` se déplacent plus lentement que le défilement (vitesse > 0 : 0,2 = la
  * couche avance à 80 % de la vitesse de la page ; vitesse < 0 : elle devance la page). Le décalage est mesuré par rapport au CENTRE de
  * l'écran (ou, avec `data-parallaxe-origine="haut"`, par rapport au haut de la page), puis lissé par inertie : au défilement la couche retarde, puis se pose en douceur quand on s'arrête.
  *
- * Mise en page : l'élément marqué doit DÉPASSER son parent (qui rogne, `overflow-hidden`) de la marge dont il peut bouger — le décalage est
+ * Mise en page : l'élément marqué doit DÉPASSER son parent (ou porter `data-parallaxe-max="px"`, plafond du décalage pour un bloc de texte) (qui rogne, `overflow-hidden`) de la marge dont il peut bouger — le décalage est
  * plafonné à cette marge, donc jamais de bord vide visible. La mesure se fait sur le parent (immobile) pour éviter toute boucle de rétroaction.
  *
  * Sûretés : désactivé si l'utilisateur préfère réduire les animations ; seuls les éléments proches de l'écran sont recalculés ; la boucle
@@ -32,7 +32,8 @@ export function EffetParallaxe() {
       // origine « haut » (bannière en tête de page) : décalage nul à l'ouverture, qui croît avec le défilement ; sinon nul quand le parent
       // est centré à l'écran
       const ecart = el.dataset.parallaxeOrigine === 'haut' ? -window.scrollY : r.top + r.height / 2 - window.innerHeight / 2;
-      const marge = Math.max((el.offsetHeight - parent.clientHeight) / 2, 0);
+      // marge de déplacement : explicite (`data-parallaxe-max`, en px, pour un bloc qui ne dépasse pas son parent) ou débordement de l'élément
+      const marge = el.dataset.parallaxeMax ? Number(el.dataset.parallaxeMax) : Math.max((el.offsetHeight - parent.clientHeight) / 2, 0);
       const brut = -ecart * (Number(el.dataset.parallaxe) || 0);
       return Math.max(-marge, Math.min(marge, brut));
     };

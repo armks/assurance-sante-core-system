@@ -141,7 +141,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 .defilement-cache { opacity: 0; transform: translateY(-28px); }
-.defilement-entree { animation: defilement-descente 650ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+.defilement-entree { animation: defilement-descente 900ms cubic-bezier(0.22, 1, 0.36, 1) backwards; }
 @media (prefers-reduced-motion: reduce) {
   .defilement-cache { opacity: 1; transform: none; }
   .defilement-entree { animation: none; }

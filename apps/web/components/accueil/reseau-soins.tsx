@@ -59,14 +59,18 @@ export function ReseauSoins() {
         </div>
 
         <div className="md:col-span-5">
-          <Image
-            src={PHOTOS.consultation.src}
-            alt={PHOTOS.consultation.alt}
-            width={PHOTOS.consultation.largeur}
-            height={PHOTOS.consultation.hauteur}
-            sizes="(min-width: 768px) 40vw, 100vw"
-            className="aspect-[4/5] w-full rounded-2xl object-cover md:aspect-[3/4]"
-          />
+          {/* Photo en parallaxe : elle glisse doucement dans son cadre arrondi pendant le défilement. */}
+          <div className="relative aspect-[4/5] w-full overflow-hidden rounded-2xl md:aspect-[3/4]">
+            <div data-parallaxe="0.1" className="absolute inset-x-0 -bottom-[12%] -top-[12%]">
+              <Image
+                src={PHOTOS.consultation.src}
+                alt={PHOTOS.consultation.alt}
+                fill
+                sizes="(min-width: 768px) 40vw, 100vw"
+                className="object-cover"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </section>

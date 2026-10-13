@@ -60,13 +60,15 @@ export function CeQueNousFaisons({
 
           {/* Réseau : tuile photo. */}
           <article className="relative isolate flex min-h-[260px] flex-col justify-end overflow-hidden rounded-2xl p-6 text-white md:col-span-2 md:row-span-2">
-            <Image
-              src={PHOTOS.heroPharmacie.src}
-              alt=""
-              fill
-              sizes="(min-width: 768px) 33vw, 100vw"
-              className="-z-10 object-cover"
-            />
+            <div data-parallaxe="0.12" className="absolute inset-x-0 -bottom-[14%] -top-[14%] -z-10">
+              <Image
+                src={PHOTOS.heroPharmacie.src}
+                alt=""
+                fill
+                sizes="(min-width: 768px) 33vw, 100vw"
+                className="object-cover"
+              />
+            </div>
             <div aria-hidden="true" className="absolute inset-0 -z-10 bg-gradient-to-t from-nuit/95 via-nuit/55 to-transparent" />
             <h3 className="font-display text-xl font-semibold">Réseau de soins conventionné</h3>
             <p className="mt-2 text-sm leading-relaxed text-white/85">

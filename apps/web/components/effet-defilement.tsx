@@ -25,7 +25,7 @@ function blocsDe(main: Element): Element[] {
 /**
  * Effet « du haut vers le bas » à l'ouverture de chaque page et au défilement de la souris : les blocs de la page descendent en
  * fondu (de -28 px vers leur place) à mesure qu'ils entrent dans l'écran. Ceux déjà visibles à l'ouverture apparaissent en cascade
- * (80 ms d'écart), les autres au moment où l'on fait défiler jusqu'à eux. Monté une seule fois dans le layout racine : toutes les pages
+ * (110 ms d’écart), les autres au moment où l'on fait défiler jusqu'à eux. Monté une seule fois dans le layout racine : toutes les pages
  * (accueil, connexion, tableaux de bord, superadmin, profil) en profitent sans modification.
  *
  * Sûretés : rien n'est caché sans JavaScript ; désactivé si l'utilisateur préfère réduire les animations ; l'animation ne laisse aucune
@@ -62,7 +62,7 @@ export function EffetDefilement() {
         const visible = r.top < window.innerHeight && r.bottom > 0;
         if (visible) {
           // déjà à l'écran à l'ouverture : cascade
-          el.style.animationDelay = `${Math.min(rang, 5) * 80}ms`;
+          el.style.animationDelay = `${Math.min(rang, 5) * 110}ms`;
           el.classList.add('defilement-entree');
           el.addEventListener('animationend', () => { el.classList.remove('defilement-entree'); el.style.animationDelay = ''; }, { once: true });
           rang += 1;

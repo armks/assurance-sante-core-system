@@ -109,7 +109,8 @@ export function CarrouselHero({ personnalisation }: { personnalisation?: HeroPer
         if (!e.currentTarget.contains(e.relatedTarget as Node)) setSuspendu(false);
       }}
     >
-      {/* Photos empilées : seule l'active est opaque (fondu enchaîné). */}
+      {/* Photos empilées : seule l'active est opaque (fondu enchaîné). Couche en parallaxe : elle avance plus lentement que la page. */}
+      <div data-parallaxe="0.3" data-parallaxe-origine="haut" className="absolute inset-x-0 -bottom-[20%] -top-[20%]">
       {diapos.map((d, i) => (
         <Image
           key={d.photo.src}
@@ -125,6 +126,7 @@ export function CarrouselHero({ personnalisation }: { personnalisation?: HeroPer
           )}
         />
       ))}
+      </div>
       {/* Voile : lisibilité du texte blanc (plein sur mobile, dégradé depuis la gauche au-delà). */}
       <div
         aria-hidden="true"

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 import { EffetDefilement } from '@/components/effet-defilement';
+import { EffetParallaxe } from '@/components/effet-parallaxe';
 import { ThemeProvider } from '@/components/theme-provider';
 
 export const metadata: Metadata = {
@@ -27,6 +28,7 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <EffetDefilement />
+          <EffetParallaxe />
           {children}
           {modal}
         </ThemeProvider>

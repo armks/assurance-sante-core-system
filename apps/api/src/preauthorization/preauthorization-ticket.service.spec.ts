@@ -91,9 +91,17 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
     dossier: {
       organisationId: 'org-1',
       etablissementId: 'etab-1',
+      statut: 'OUVERT',
       typeVisite,
       police: { produitId: 'prod-1' },
     },
+  });
+
+  it.each(['SUSPENDU', 'CLOTURE', 'TRANSFERE'])('dossier %s : aucun acte ne peut s’y rattacher (409)', async (statut) => {
+    identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_ACCUEIL'));
+    prisma.ticketSoins.findFirst.mockResolvedValue({ ...ticket('OUVERT'), dossier: { ...ticket('OUVERT').dossier, statut } });
+    await expect(service.ajouterActe(USER, 'tkt-1', ACTE)).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.acteDossier.create).not.toHaveBeenCalled();
   });
 
   it('ajoute un acte quand le ticket est OUVERT', async () => {
@@ -170,6 +178,95 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
   //  la garantie. Ne bloque JAMAIS l'ajout de l'acte (renvoie null si rien
   //  n'est simulable).
   // ═══════════════════════════════════════════════════════════════════════
+  describe('recherche d’un acte et tarif de référence (formulaire d’ajout)', () => {
+    beforeEach(() => {
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_ACCUEIL'));
+      prisma.referentielActe = { ...prisma.referentielActe, findMany: jest.fn().mockResolvedValue([{ id: 'ra-1', code: 'CONS-GEN', libelle: 'Consultation généraliste', categorie: null, categorieGarantie: 'CONSULTATION' }]) };
+      prisma.dossierSoins.findFirst.mockResolvedValue({ id: 'dos-1', policeId: 'pol-1', adherentId: 'adh-1', beneficiaireId: null, etablissementId: 'etab-1', typeVisite: null, police: { produitId: 'prod-1' } });
+    });
+
+    it('catégorie choisie : seuls les actes de cette catégorie, même sans terme (liste de la catégorie)', async () => {
+      await service.rechercherActesCatalogue(USER, '', 'CONSULTATION');
+      expect(prisma.referentielActe.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ OR: [{ categorieGarantie: 'CONSULTATION' }, { categorieGarantie: null, categorie: 'CONSULTATION' }] }),
+        }),
+      );
+      expect(prisma.referentielActe.findMany.mock.calls[0][0].where.AND).toBeUndefined();
+      prisma.referentielActe.findMany.mockClear();
+      await service.rechercherActesCatalogue(USER, 'gen', 'CONSULTATION');
+      expect(prisma.referentielActe.findMany.mock.calls[0][0].where.AND).toBeDefined();
+    });
+
+    it('moins de 2 caractères → aucune recherche ; sinon référentiel HOMOLOGUÉ de l’organisation (libellé ou code)', async () => {
+      expect(await service.rechercherActesCatalogue(USER, ' c ')).toEqual([]);
+      expect(prisma.referentielActe.findMany).not.toHaveBeenCalled();
+      const res = await service.rechercherActesCatalogue(USER, 'consult');
+      expect(res).toEqual([{ id: 'ra-1', code: 'CONS-GEN', libelle: 'Consultation généraliste', categorieActe: 'CONSULTATION' }]);
+      expect(prisma.referentielActe.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ organisationId: 'org-1', statut: 'HOMOLOGUE', deletedAt: null }), take: 20 }),
+      );
+    });
+
+    it('avec le dossier : le tarif unitaire de chaque acte est joint, résolu en UN seul appel au microservice', async () => {
+      prisma.referentielActe.findMany.mockResolvedValue([
+        { id: 'ra-1', code: 'CONS-GEN', libelle: 'Consultation généraliste', categorie: null, categorieGarantie: 'CONSULTATION' },
+        { id: 'ra-2', code: 'CONS-SPE', libelle: 'Consultation spécialiste', categorie: null, categorieGarantie: 'CONSULTATION' },
+      ]);
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-1' });
+      adjudication.simuler.mockResolvedValueOnce({
+        lignes: [
+          { decision: 'AUTO_ADJUDIQUE', montant_couvert: 0, plafond_restant_apres: null, codes_rejet: [], trace_tarif: { statut_tarif: 'TARIFABLE', tarif_unitaire: 15000 } },
+          { decision: 'AUTO_ADJUDIQUE', montant_couvert: 0, plafond_restant_apres: null, codes_rejet: [], trace_tarif: { statut_tarif: 'NON_TARIFABLE', tarif_unitaire: null } },
+        ],
+      } as never);
+      const res = await service.rechercherActesCatalogue(USER, 'consult', 'CONSULTATION', 'dos-1');
+      expect(adjudication.simuler).toHaveBeenCalledTimes(1);
+      expect(adjudication.simuler.mock.calls[0][0].lignes.map((l: { code_acte: string | null }) => l.code_acte)).toEqual(['CONS-GEN', 'CONS-SPE']);
+      expect(res.map((a: { tarifUnitaire?: number | null }) => a.tarifUnitaire)).toEqual([15000, null]);
+    });
+
+    it('sans dossier : aucun tarif demandé (champ absent), aucun appel au microservice', async () => {
+      const res = await service.rechercherActesCatalogue(USER, 'consult', 'CONSULTATION');
+      expect(adjudication.simuler).not.toHaveBeenCalled();
+      expect(res[0]).not.toHaveProperty('tarifUnitaire');
+    });
+
+    it('microservice indisponible : la recherche répond quand même, tarifs à null', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-1' });
+      adjudication.simuler.mockRejectedValueOnce(new Error('injoignable'));
+      const res = await service.rechercherActesCatalogue(USER, 'consult', 'CONSULTATION', 'dos-1');
+      expect(res[0]).toMatchObject({ code: 'CONS-GEN', tarifUnitaire: null });
+    });
+
+    it('rôle sans droit d’ajout d’acte → 403', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_COMPTABLE'));
+      await expect(service.rechercherActesCatalogue(USER, 'consult')).rejects.toBeInstanceOf(ForbiddenException);
+      await expect(service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('tarif de référence : repris de la convention (Java) ; absent → null (saisie libre)', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-1' });
+      adjudication.simuler.mockResolvedValueOnce({
+        lignes: [{ decision: 'AUTO_ADJUDIQUE', montant_couvert: 0, plafond_restant_apres: null, codes_rejet: [], trace_tarif: { statut_tarif: 'TARIFABLE', tarif_unitaire: 15000 } }],
+      } as never);
+      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toEqual({ tarifUnitaire: 15000 });
+      adjudication.simuler.mockResolvedValueOnce({
+        lignes: [{ decision: 'AUTO_ADJUDIQUE', montant_couvert: 0, plafond_restant_apres: null, codes_rejet: [], trace_tarif: { statut_tarif: 'NON_TARIFABLE', tarif_unitaire: null } }],
+      } as never);
+      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toEqual({ tarifUnitaire: null });
+      expect(await service.tarifReferenceActe(USER, 'dos-1', '', 'CONSULTATION')).toEqual({ tarifUnitaire: null });
+    });
+
+    it('dossier d’un AUTRE établissement → 403 ; dossier inconnu → 404', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_ACCUEIL', 'etab-2'));
+      await expect(service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).rejects.toBeInstanceOf(ForbiddenException);
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_ACCUEIL'));
+      prisma.dossierSoins.findFirst.mockResolvedValue(null);
+      await expect(service.tarifReferenceActe(USER, 'dos-x', 'CONS-GEN', 'CONSULTATION')).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
   describe('simulation du montant (ajouterActe)', () => {
     const ACTE_AVEC_MONTANT = {
       categorieActe: 'CONSULTATION' as const,
@@ -198,6 +295,64 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
         }),
       );
       expect(res.categorieCouverte).toBe(false);
+    });
+
+    it('acte du référentiel sans montant saisi → le tarif de la convention est repris et affiché dès l’ajout', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-1', tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      adjudication.simuler.mockResolvedValueOnce({
+        lignes: [
+          {
+            decision: 'AUTO_ADJUDIQUE',
+            montant_couvert: 0,
+            plafond_restant_apres: null,
+            codes_rejet: [],
+            trace_tarif: { statut_tarif: 'TARIFABLE', tarif_unitaire: 15000, tarif_reconnu: 15000, quantite: 1 },
+          },
+        ],
+      } as never);
+      await service.ajouterActe(USER, 'tkt-1', { ...ACTE, codeActe: 'CONS-GEN' });
+      // première demande = résolution du tarif sur une ligne à 0 F, avec le code de l'acte
+      expect(adjudication.simuler.mock.calls[0][0].lignes[0]).toMatchObject({ montant: '0.00', code_acte: 'CONS-GEN' });
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ montantPrescrit: '15000.00', origineMontant: 'TARIF_CONVENTION' }) }),
+      );
+    });
+
+    it('montant saisi → conservé (origine SAISI), aucune résolution de tarif', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-1', tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      await service.ajouterActe(USER, 'tkt-1', { ...ACTE_AVEC_MONTANT, codeActe: 'CONS-GEN' });
+      expect(adjudication.simuler).toHaveBeenCalledTimes(1);
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ montantPrescrit: '10000.00', origineMontant: 'SAISI' }) }),
+      );
+    });
+
+    it('tarif non résolu (microservice indisponible) → pas de montant, l’ajout n’est pas bloqué', async () => {
+      prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-1', tauxCouverture: '80', ticketModerateur: '20', plafondParActe: null });
+      adjudication.simuler.mockRejectedValueOnce(new Error('injoignable'));
+      await expect(service.ajouterActe(USER, 'tkt-1', { ...ACTE, codeActe: 'CONS-GEN' })).resolves.toBeDefined();
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ montantPrescrit: null, origineMontant: null }) }),
+      );
+    });
+
+    it('« proposer à l’assurance avant exécution » : pré-autorisation demandée même hors analyses / hospitalisation', async () => {
+      prisma.garantie.findFirst.mockResolvedValue(null);
+      await service.ajouterActe(USER, 'tkt-1', { ...ACTE, demanderPreautorisation: true });
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ statutPreautorisation: 'EN_ATTENTE_EXPLOITATION' }) }),
+      );
+      prisma.acteDossier.create.mockClear();
+      await service.ajouterActe(USER, 'tkt-1', ACTE);
+      expect(prisma.acteDossier.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ statutPreautorisation: 'NON_REQUISE' }) }),
+      );
+    });
+
+    it('l’accueil peut ajouter un acte (facturation sur information du médecin)', async () => {
+      identity.getMe.mockResolvedValue(personnelCentre('CENTRE_MEDICAL_ACCUEIL'));
+      prisma.garantie.findFirst.mockResolvedValue(null);
+      await expect(service.ajouterActe(USER, 'tkt-1', ACTE)).resolves.toBeDefined();
     });
 
     it('sans garantie pour la catégorie → NON COUVERT annoncé dès l’ajout : assurance 0, patient 100 %', async () => {
@@ -453,6 +608,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       dossier: {
         organisationId: 'org-1',
         etablissementId: 'etab-1',
+        statut: 'OUVERT',
         typeVisite,
         adherentId: 'adh-1',
         beneficiaireId: null,
@@ -623,6 +779,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       dossier: {
         organisationId: 'org-1',
         etablissementId: 'etab-1',
+        statut: 'OUVERT',
         typeVisite,
         adherentId: 'adh-1',
         beneficiaireId: null,

@@ -304,7 +304,7 @@ export class TarifsProposesService {
     const ctx = await this.contexte(user);
     if (!this.aRole(ctx, ROLES_PROPOSITION_TARIF) || !ctx.etablissementId) {
       throw new ForbiddenException(
-        'Seuls le comptable et l’administratif d’un établissement peuvent proposer un tarif.',
+        'Seuls le comptable, l’administratif et l’accueil d’un établissement peuvent proposer un tarif.',
       );
     }
     const acte = await this.prisma.acteDossier.findFirst({

@@ -101,7 +101,15 @@ export const ROLES_GENERATION_FACTURE = [
   'ASSUREUR_INFORMATIQUE',
   'CENTRE_MEDICAL_COMPTABLE',
   'CENTRE_MEDICAL_ADMINISTRATIF',
+  /// L'accueil facture les actes que le médecin l'a informé avoir effectués (prisma/sql/089)
+  'CENTRE_MEDICAL_ACCUEIL',
 ] as const;
+
+/**
+ * Rôle qui peut DÉCLARER la réalisation d'un acte « sur information du médecin » (le médecin indiqué est tracé). Le médecin traitant
+ * continue de l'attester lui-même (`ROLE_MEDECIN_TRAITANT`).
+ */
+export const ROLE_DECLARATION_REALISATION = 'CENTRE_MEDICAL_ACCUEIL';
 
 /** La confirmation de paiement est réservée à ASSUREUR_COMPTABLE (v8 §5). */
 export const ROLE_CONFIRMATION_PAIEMENT = 'ASSUREUR_COMPTABLE';

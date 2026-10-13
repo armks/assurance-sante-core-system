@@ -42,6 +42,15 @@ export class CareEpisodeController {
     return this.careEpisode.listerDossiers(user, dto);
   }
 
+  /**
+   * Médecins de l'établissement de l'appelant — pour désigner le médecin d'une consultation ou celui qui a effectué un acte
+   * (accueil). Déclarée AVANT `:id` : sinon « medecins » serait pris pour un identifiant.
+   */
+  @Get('medecins')
+  medecins(@CurrentUser() user: AuthenticatedUser) {
+    return this.careEpisode.listerMedecinsEtablissement(user);
+  }
+
   @Get(':id')
   obtenir(
     @CurrentUser() user: AuthenticatedUser,

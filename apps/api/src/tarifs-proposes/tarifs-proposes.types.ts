@@ -1,7 +1,8 @@
 /** Tarif proposé (ADR-008, lot 4) — rôles, statuts et libellés. */
 
 /** L'établissement propose un montant pour un acte non tarifable : comptable ou administratif, jamais le médecin. */
-export const ROLES_PROPOSITION_TARIF = ['CENTRE_MEDICAL_COMPTABLE', 'CENTRE_MEDICAL_ADMINISTRATIF'] as const;
+// L'accueil propose aussi : il facture les actes que le médecin l'a informé avoir effectués, y compris ceux sans tarif de convention.
+export const ROLES_PROPOSITION_TARIF = ['CENTRE_MEDICAL_COMPTABLE', 'CENTRE_MEDICAL_ADMINISTRATIF', 'CENTRE_MEDICAL_ACCUEIL'] as const;
 
 /** Lecture côté assureur (la file et les décisions du médecin conseil arrivent au lot 5). */
 export const ROLES_LECTURE_ASSUREUR_TARIF_PROPOSE = [

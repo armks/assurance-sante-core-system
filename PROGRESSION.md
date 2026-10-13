@@ -8460,3 +8460,48 @@ Terminé.
 - Le bouton n'apparaissait que pour les adhérents validés : l'API n'exige plus la validation préalable (périmètre société, adhérent actif et e-mail de la fiche restent contrôlés).
 - Bouton « Lien d'invitation » ajouté sur chaque ligne de la liste (société administration, réception, assureur informatique) et sur la fiche, pour tout adhérent actif ; adresse saisie si la fiche n'a pas d'e-mail.
 - Testé (HTTP réel + Chromium, administration et réception, adhérent validé / non validé / sans e-mail, zéro résidu) ; API : suite complète verte.
+
+
+## 2026-10-13 — Dossier de soins : l'accueil renseigne consultation et actes, les facture, et propose les actes à l'assurance
+
+### Réalisé
+- **Consultation** : l'accueil la renseigne en désignant le médecin de l'établissement (`GET care-episode/dossiers/medecins`, médecins de SON établissement uniquement).
+- **Actes « effectués par le médecin »** : l'accueil déclare la réalisation « sur information du médecin » — médecin obligatoire (de l'établissement), déclarant et médecin tracés sur l'acte
+  (`medecin_realisateur_id`, `realisation_declaree_par`, migration 089) et dans l'audit (`REALISATION_ACTE_DECLAREE_ACCUEIL`) ; le médecin continue d'attester lui-même.
+  Tolérance : une heure arrondie à la minute et antérieure de moins d'une minute à l'ouverture du dossier est ramenée à l'ouverture.
+- **Montant affiché dès l'ajout** : acte du référentiel sans montant saisi → tarif de la convention repris (résolu par le microservice Java, `origine_montant` = TARIF_CONVENTION), colonnes « Montant unitaire »,
+  « Montant », « Médecin » dans le tableau ; indisponible (pas de convention, catégorie non couverte, Java injoignable) → saisie manuelle, jamais bloquant.
+- **Proposition à l'assurance AVANT exécution** (accueil **et** médecin) : « Situation de l'acte » = à effectuer / proposé à l'assurance (pré-autorisation, même circuit exploitation → médecin conseil, acte non facturable
+  tant qu'il n'est pas approuvé) / déjà effectué. Obligatoire comme avant pour analyses-examens et hospitalisation.
+- **Facturation par l'accueil** : accueil ajouté aux rôles de génération de facture (section « Actes — sélection pour facturation » dans le dossier) ; acte sans tarif de convention = circuit du **tarif proposé**,
+  désormais ouvert à l'accueil. La **facture mensuelle consolidée** (comptable de l'assurance) reste un circuit distinct, inchangé.
+
+### Tests
+- API suite complète verte ; typage API et web sans erreur ; HTTP réel (microservice Java démarré, 30 contrôles, zéro résidu) : médecins de l'établissement, consultation par l'accueil, tarif repris (15 000 F, assurance 12 000 / patient 3 000),
+  déclaration (médecin obligatoire, autre établissement refusé, base et audit), 403 comptable assureur, facture 15 000 / 12 000, proposition → file de l'exploitation → approbation, acte non tarifable → tarif proposé par l'accueil →
+  validation médecin conseil → facture, médecin qui atteste lui-même.
+- Navigateur (Chromium, compte accueil) : consultation avec choix du médecin, formulaire d'acte (situations), montant de convention affiché dès l'ajout, mention « déclaré par l'accueil », acte proposé en attente (sans « Déclarer réalisé »),
+  « Déclarer réalisé », facture générée depuis le dossier, aucune erreur console.
+
+### Statut
+Terminé.
+
+### Addendum — bouton « Ajouter un acte de soins »
+- Bouton « Ajouter un acte de soins » dans la carte « Actes du ticket de soins » (en plus de « + Acte » par consultation) : même formulaire (situation, catégorie, acte du référentiel, montant, médecin) ; consultation rattachée
+  facultative (choix « Aucune » possible, dernière consultation proposée par défaut). Masqué sans ticket de soins ouvert. Testé dans le navigateur (compte accueil, avec et sans consultation, zéro résidu).
+
+### Addendum — « Ajouter un acte de soins » : catégorie d'abord, recherche du libellé dans la base, montant automatique
+- Ordre de saisie : **catégorie** → **libellé** (recherche dans le référentiel homologué du système, limitée à la catégorie ; ses actes s'affichent dès le choix de la catégorie puis se filtrent à la frappe)
+  → **montant unitaire** repris de la convention de l'établissement s'il existe en base, sinon à saisir. Libellé désactivé tant que la catégorie n'est pas choisie ; changer de catégorie abandonne l'acte choisi ;
+  sans correspondance, le libellé tapé est conservé (acte hors référentiel, sans code).
+- API : `GET preauthorization/actes/catalogue?q=&categorie=` et `GET preauthorization/actes/tarif-reference?dossierId=&codeActe=&categorieActe=` ; un acte ne s'ajoute qu'à un dossier de soins **OUVERT** (409 sinon), en plus du ticket ouvert.
+  Montant repris puis inchangé : résolu par l'API à l'ajout (origine TARIF_CONVENTION) ; modifié à la main : conservé (origine SAISI).
+- Testé : API suite complète verte, typage API et web sans erreur ; navigateur (Chromium, accueil) : catégorie obligatoire avant la recherche, résultats limités à la catégorie (acte non homologué exclu), montant 15 000 F affiché, acte sans tarif
+  (saisie), montant modifié, acte hors référentiel, dossier suspendu sans bouton, aucune erreur console, zéro résidu.
+
+### Addendum — libellé de l'acte : tableau popup filtré à la frappe, montants affichés
+- Dès le choix de la catégorie le curseur se place dans le libellé et un **tableau popup** (acte, code, montant unitaire) liste les actes de la catégorie ; chaque lettre tapée filtre dans la base (250 ms) ; sélection à la souris ou au clavier
+  (↑ ↓ Entrée) : libellé, code et montant unitaire renseignés ; « Échap » ferme le tableau sans fermer la fenêtre. Aucun résultat : message dans le tableau, libellé libre conservé.
+- API : `GET preauthorization/actes/catalogue?q=&categorie=&dossierId=` joint le `tarifUnitaire` de chaque acte, résolu en UN seul appel au microservice (une ligne à 0 F par acte) ; `null` = pas de tarif en base ; microservice indisponible → recherche
+  répondue quand même, tarifs à `null`.
+- Testé : API suite complète verte, typage API et web sans erreur ; navigateur (Chromium, accueil) : tableau avec montants 15 000 / 25 000 / « — », filtrage « spé », choix à Entrée et au clic, Échap, hors référentiel, aucune erreur console, zéro résidu.

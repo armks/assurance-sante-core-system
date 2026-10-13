@@ -67,6 +67,7 @@ import {
   ROLES_CENTRE_MEDICAL,
   ROLES_FACTURATION_MENSUELLE_ETABLISSEMENT,
   ROLES_GENERATION_FACTURE,
+  ROLE_DECLARATION_REALISATION,
   ROLES_PHARMACIE,
   ROLE_AUTORISATION_REPETITION,
   ROLE_COMPTABLE_FACTURE_MENSUELLE_ETABLISSEMENT,
@@ -976,6 +977,12 @@ export class PreauthorizationService {
       );
     }
 
+    // Un acte ne se rattache qu'à un dossier de soins OUVERT (jamais suspendu, transféré ou clôturé).
+    if (ticket.dossier.statut !== 'OUVERT') {
+      throw new ConflictException(
+        `Le dossier de soins est ${ticket.dossier.statut} — un acte ne peut être ajouté qu'à un dossier ouvert.`,
+      );
+    }
     // GARDE CENTRALE : le ticket doit être OUVERT (le trigger Postgres double
     // ce contrôle même pour un INSERT SQL direct).
     if (ticket.statut !== 'OUVERT') {
@@ -1111,6 +1118,28 @@ export class PreauthorizationService {
       }
     }
 
+    // Montant AFFICHÉ DÈS L'AJOUT : acte du référentiel sans montant saisi → tarif reconnu par la convention de l'établissement
+    // (calculé par le microservice d'adjudication, jamais ici). Indisponible (pas de convention, catégorie non couverte,
+    // microservice injoignable) → pas de montant, la saisie reste possible.
+    let origineMontant: 'SAISI' | 'TARIF_CONVENTION' | null = dto.montantPrescrit !== undefined ? 'SAISI' : null;
+    if (dto.montantPrescrit === undefined && dto.codeActe) {
+      const tarifUnitaire = await this.tarifReferenceUnitaire(
+        {
+          policeId: ticket.dossier.policeId,
+          adherentId: ticket.dossier.adherentId,
+          beneficiaireId: ticket.dossier.beneficiaireId,
+          etablissementId: ticket.dossier.etablissementId,
+          typeVisite: ticket.dossier.typeVisite,
+        },
+        ticket.dossier.police.produitId,
+        dto,
+      );
+      if (tarifUnitaire !== null) {
+        dto = { ...dto, montantPrescrit: tarifUnitaire };
+        origineMontant = 'TARIF_CONVENTION';
+      }
+    }
+
     // Simulation INDICATIVE (v3 §5 étendu) — lecture seule, avant la
     // transaction d'écriture. Ne bloque jamais l'ajout de l'acte. Catégorie
     // sans garantie dans le produit : annoncée NON COUVERTE dès maintenant
@@ -1131,11 +1160,13 @@ export class PreauthorizationService {
     // hospitalisation) : décidée EXCLUSIVEMENT depuis le type de visite RÉEL
     // du dossier (jamais une valeur envoyée par le client) — v3 §5 étendu,
     // circuit à deux niveaux. Premier niveau = ASSUREUR_EXPLOITATION.
-    const statutPreautorisation = (
-      TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE as readonly string[]
-    ).includes(ticket.dossier.typeVisite ?? '')
-      ? 'EN_ATTENTE_EXPLOITATION'
-      : 'NON_REQUISE';
+    // Elle peut aussi être DEMANDÉE par l'accueil ou le médecin pour tout autre acte (« proposé à l'assurance pour validation avant
+    // exécution ») : même circuit, même exclusion de la facturation tant que l'assureur n'a pas approuvé.
+    const statutPreautorisation =
+      (TYPES_VISITE_PREAUTORISATION_OBLIGATOIRE as readonly string[]).includes(ticket.dossier.typeVisite ?? '') ||
+      dto.demanderPreautorisation === true
+        ? 'EN_ATTENTE_EXPLOITATION'
+        : 'NON_REQUISE';
 
     // acte du référentiel de l'ORGANISATION portant ce code (prisma/sql/080) : lien fort, jamais un code
     // d'une autre organisation ; absent → l'acte n'a pas de tarif négocié possible
@@ -1166,6 +1197,7 @@ export class PreauthorizationService {
           ticketModerateurSimule: simulation?.ticketModerateurSimule ?? null,
           // trace du calcul (prisma/sql/074)
           tarifConventionneId: simulation?.tarifConventionneId ?? null,
+          origineMontant,
           statutPreautorisation,
           dateRealisation: dto.dateRealisation
             ? new Date(dto.dateRealisation)
@@ -1184,6 +1216,8 @@ export class PreauthorizationService {
           categorieCouverte,
           simulation: simulation ?? null,
           statutPreautorisation,
+          preautorisationDemandee: dto.demanderPreautorisation === true,
+          origineMontant,
           autorisationRepetitionId,
           autorisationRepetitionConsultationId,
         },
@@ -1226,6 +1260,184 @@ export class PreauthorizationService {
 
     const acte = await this.prisma.acteDossier.findUnique({ where: { id } });
     return { ...acte, categorieCouverte };
+  }
+
+  /**
+   * Recherche dans le référentiel HOMOLOGUÉ de l'organisation (libellé ou code, insensible à la casse) : au plus 20 résultats.
+   * La CATÉGORIE est choisie avant la recherche : elle restreint les actes à cette catégorie (garantie, à défaut catégorie du catalogue) et,
+   * seule, liste ses premiers actes. Sans catégorie : 2 caractères minimum. Réservée aux rôles qui peuvent ajouter un acte.
+   */
+  async rechercherActesCatalogue(user: AuthenticatedUser, q: string, categorie = '', dossierId?: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertAjoutActe(ctx);
+    const terme = q.trim();
+    const cat = categorie.trim();
+    if (!cat && terme.length < 2) return [];
+    const actes = await this.prisma.referentielActe.findMany({
+      where: {
+        organisationId: ctx.organisationId,
+        statut: 'HOMOLOGUE',
+        deletedAt: null,
+        ...(cat ? { OR: [{ categorieGarantie: cat }, { categorieGarantie: null, categorie: cat }] } : {}),
+        ...(terme.length >= 2
+          ? {
+              AND: [
+                {
+                  OR: [
+                    { libelle: { contains: terme, mode: 'insensitive' as const } },
+                    { code: { contains: terme, mode: 'insensitive' as const } },
+                  ],
+                },
+              ],
+            }
+          : {}),
+      },
+      select: { id: true, code: true, libelle: true, categorie: true, categorieGarantie: true },
+      orderBy: { libelle: 'asc' },
+      take: 20,
+    });
+    // Avec le dossier ET la catégorie : le tarif unitaire de chaque acte est joint au résultat (tableau de sélection), résolu en UN
+    // appel au microservice. `null` = pas de tarif en base pour cet acte ; absent = tarif non demandé.
+    let tarifs: Map<string, number | null> | null = null;
+    if (dossierId && cat && actes.length > 0) {
+      const dossier = await this.chargerDossierPourTarif(ctx, dossierId);
+      tarifs = await this.tarifsReferenceUnitaires(dossier.contexte, dossier.produitId, cat, actes.map((a) => a.code));
+    }
+    return actes.map((a) => ({
+      id: a.id,
+      code: a.code,
+      libelle: a.libelle,
+      // catégorie de garantie si renseignée, sinon la catégorie libre du catalogue (l'écran ne la retient que si elle est valide)
+      categorieActe: a.categorieGarantie ?? a.categorie ?? null,
+      ...(tarifs ? { tarifUnitaire: tarifs.get(a.code) ?? null } : {}),
+    }));
+  }
+
+  /** Dossier lu pour résoudre un tarif : de l'organisation de l'appelant, et de SON établissement pour le personnel d'un centre. */
+  private async chargerDossierPourTarif(ctx: ContexteAppelant, dossierId: string) {
+    const dossier = await this.prisma.dossierSoins.findFirst({
+      where: { id: dossierId, organisationId: ctx.organisationId, deletedAt: null },
+      include: { police: true },
+    });
+    if (!dossier) throw new NotFoundException('Dossier de soins introuvable.');
+    const estCentreMedical = ctx.roleChain.some((r) => (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r));
+    if (estCentreMedical && ctx.etablissementId !== dossier.etablissementId) {
+      throw new ForbiddenException("Vous n'appartenez pas à l'établissement de ce dossier de soins.");
+    }
+    return {
+      produitId: dossier.police.produitId,
+      contexte: {
+        policeId: dossier.policeId,
+        adherentId: dossier.adherentId,
+        beneficiaireId: dossier.beneficiaireId,
+        etablissementId: dossier.etablissementId,
+        typeVisite: dossier.typeVisite,
+      } as ContexteFinancierActe,
+    };
+  }
+
+  /**
+   * Tarif unitaire reconnu d'un acte du référentiel pour un dossier : même résolution que l'ajout de l'acte (microservice
+   * d'adjudication, convention de l'établissement du dossier). `tarifUnitaire: null` → pas de tarif en base, la saisie reste libre.
+   */
+  async tarifReferenceActe(user: AuthenticatedUser, dossierId: string, codeActe: string, categorieActe: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertAjoutActe(ctx);
+    const dossier = await this.chargerDossierPourTarif(ctx, dossierId);
+    if (!codeActe || !categorieActe) return { tarifUnitaire: null };
+    const tarifUnitaire = await this.tarifReferenceUnitaire(dossier.contexte, dossier.produitId, { categorieActe, codeActe, quantite: 1 });
+    return { tarifUnitaire };
+  }
+
+  private assertAjoutActe(ctx: ContexteAppelant): void {
+    if (!ctx.roleChain.some((r) => (ROLES_AJOUT_ACTE as readonly string[]).includes(r))) {
+      throw new ForbiddenException('Rôle insuffisant pour ajouter un acte à un ticket de soins.');
+    }
+  }
+
+  /**
+   * Tarifs unitaires de PLUSIEURS actes d'une même catégorie en UN SEUL appel au microservice (une ligne à 0 F par acte). Les actes sans
+   * tarif, ou tous les actes si la catégorie n'a pas de garantie ou si le microservice est indisponible, valent `null`.
+   */
+  private async tarifsReferenceUnitaires(
+    contexte: ContexteFinancierActe,
+    produitId: string,
+    categorieActe: string,
+    codes: string[],
+  ): Promise<Map<string, number | null>> {
+    const tarifs = new Map<string, number | null>(codes.map((c) => [c, null]));
+    const garantie = await this.prisma.garantie.findFirst({
+      where: { produitId, categorieActe, deletedAt: null },
+      select: { id: true },
+    });
+    if (!garantie || codes.length === 0) return tarifs;
+    try {
+      const resultat = await this.adjudication.simuler(
+        this.demandeSimulation(
+          contexte,
+          codes.map((code) => ({
+            garantie_id: garantie.id,
+            montant: '0.00',
+            code_acte: code,
+            acte_dossier_id: null,
+            quantite: 1,
+            date_soins: null,
+          })),
+        ),
+      );
+      codes.forEach((code, i) => {
+        const trace = resultat.lignes[i]?.trace_tarif;
+        if (trace && trace.statut_tarif === 'TARIFABLE' && trace.tarif_unitaire != null && trace.tarif_unitaire > 0) {
+          tarifs.set(code, trace.tarif_unitaire);
+        }
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Tarifs de référence indisponibles (microservice d'adjudication) : ${err instanceof Error ? err.message : String(err)} — aucun montant affiché.`,
+      );
+    }
+    return tarifs;
+  }
+
+  /**
+   * Tarif reconnu PAR UNITÉ d'un acte du référentiel, d'après la convention de l'établissement — résolu par le microservice
+   * d'adjudication (`ResolveurTarif`, ADR-008) en simulant une ligne à 0 F : seule la trace du tarif est utilisée. `null` si la
+   * catégorie n'a pas de garantie, si l'acte n'est pas tarifable, ou si le microservice est indisponible (jamais bloquant).
+   */
+  private async tarifReferenceUnitaire(
+    contexte: ContexteFinancierActe,
+    produitId: string,
+    dto: Pick<AjouterActeDto, 'categorieActe' | 'codeActe' | 'quantite'>,
+  ): Promise<number | null> {
+    if (!dto.codeActe) return null;
+    const garantie = await this.prisma.garantie.findFirst({
+      where: { produitId, categorieActe: dto.categorieActe, deletedAt: null },
+      select: { id: true },
+    });
+    if (!garantie) return null;
+    try {
+      const resultat = await this.adjudication.simuler(
+        this.demandeSimulation(contexte, [
+          {
+            garantie_id: garantie.id,
+            montant: '0.00',
+            code_acte: dto.codeActe,
+            acte_dossier_id: null,
+            quantite: dto.quantite ?? 1,
+            date_soins: null,
+          },
+        ]),
+      );
+      const trace = resultat.lignes[0]?.trace_tarif;
+      if (trace && trace.statut_tarif === 'TARIFABLE' && trace.tarif_unitaire != null && trace.tarif_unitaire > 0) {
+        return trace.tarif_unitaire;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Tarif de référence indisponible (microservice d'adjudication) : ${err instanceof Error ? err.message : String(err)} — aucun montant prérempli.`,
+      );
+    }
+    return null;
   }
 
   /**
@@ -1353,9 +1565,11 @@ export class PreauthorizationService {
     dto: MarquerActeRealiseDto,
   ) {
     const ctx = await this.contexteAppelant(user);
-    if (ctx.role !== ROLE_MEDECIN_TRAITANT) {
+    const estMedecin = ctx.role === ROLE_MEDECIN_TRAITANT;
+    const estAccueil = !estMedecin && ctx.roleChain.includes(ROLE_DECLARATION_REALISATION);
+    if (!estMedecin && !estAccueil) {
       throw new ForbiddenException(
-        'Seul le médecin traitant (CENTRE_MEDICAL_MEDECIN) peut marquer un acte comme réalisé.',
+        "Seul le médecin traitant (CENTRE_MEDICAL_MEDECIN), ou l'accueil du centre sur information du médecin, peut marquer un acte comme réalisé.",
       );
     }
 
@@ -1371,6 +1585,27 @@ export class PreauthorizationService {
         "Vous n'appartenez pas à l'établissement de ce dossier de soins.",
       );
     }
+    // L'accueil déclare « sur information du médecin » : le médecin qui a effectué l'acte est OBLIGATOIRE et doit être un médecin
+    // de CET établissement (tracé sur l'acte et dans l'audit). Le médecin qui atteste lui-même est son propre réalisateur.
+    let medecinRealisateurId = ctx.userId;
+    if (estAccueil) {
+      if (!dto.medecinId) {
+        throw new BadRequestException("Indiquez le médecin qui a effectué l'acte.");
+      }
+      const medecin = await this.prisma.profil.findFirst({
+        where: {
+          id: dto.medecinId,
+          role: ROLE_MEDECIN_TRAITANT,
+          etablissementId: acte.dossier.etablissementId,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+      if (!medecin) {
+        throw new BadRequestException("Le médecin indiqué n'est pas un médecin de l'établissement de ce dossier.");
+      }
+      medecinRealisateurId = medecin.id;
+    }
     if (acte.statut !== 'PRESCRIT') {
       throw new ConflictException(
         acte.statut === 'ANNULE'
@@ -1385,29 +1620,42 @@ export class PreauthorizationService {
     }
 
     const maintenant = new Date();
-    const dateRealisation = dto.dateRealisation ? new Date(dto.dateRealisation) : maintenant;
+    let dateRealisation = dto.dateRealisation ? new Date(dto.dateRealisation) : maintenant;
     // Tolérance d'horloge de 5 minutes entre le poste et le serveur.
     if (dateRealisation.getTime() > maintenant.getTime() + 5 * 60_000) {
       throw new BadRequestException('La date de réalisation ne peut pas être dans le futur.');
     }
     if (dateRealisation < acte.dossier.dateOuverture) {
-      throw new BadRequestException(
-        "La date de réalisation ne peut pas précéder l'ouverture du dossier de soins.",
-      );
+      // Le champ « date et heure » du poste est arrondi à la MINUTE : un acte déclaré juste après l'ouverture du dossier tomberait
+      // quelques secondes avant elle. Moins d'une minute d'écart = l'heure d'ouverture ; au-delà, c'est une vraie incohérence.
+      if (acte.dossier.dateOuverture.getTime() - dateRealisation.getTime() < 60_000) {
+        dateRealisation = acte.dossier.dateOuverture;
+      } else {
+        throw new BadRequestException(
+          "La date de réalisation ne peut pas précéder l'ouverture du dossier de soins.",
+        );
+      }
     }
 
     return this.prisma.$transaction(async (tx) => {
       const maj = await tx.acteDossier.update({
         where: { id: acte.id },
-        data: { statut: 'REALISE', dateRealisation },
+        data: {
+          statut: 'REALISE',
+          dateRealisation,
+          medecinRealisateurId,
+          realisationDeclareePar: estAccueil ? ctx.userId : null,
+        },
       });
       await this.audit(
         tx,
         ctx.userId,
-        'REALISATION_ACTE',
+        estAccueil ? 'REALISATION_ACTE_DECLAREE_ACCUEIL' : 'REALISATION_ACTE',
         acte.id,
         {
           dossierSoinsId: acte.dossierSoinsId,
+          medecinRealisateurId,
+          declareeParAccueil: estAccueil,
           statutPrecedent: acte.statut,
           dateRealisation: dateRealisation.toISOString(),
           dateSaisie: maintenant.toISOString(),

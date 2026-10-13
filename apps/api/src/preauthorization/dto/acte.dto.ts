@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -44,11 +45,21 @@ export class AjouterActeDto {
   montantPrescrit?: number;
 
   @IsOptional() @IsString() dateRealisation?: string;
+
+  /**
+   * Proposer l'acte à l'assurance pour VALIDATION AVANT exécution (pré-autorisation par l'exploitation, puis le médecin conseil si
+   * escalade). Toujours appliquée pour analyses / examens et hospitalisation ; ici, à l'initiative de l'accueil ou du médecin pour tout acte.
+   */
+  @IsOptional() @IsBoolean() demanderPreautorisation?: boolean;
 }
 
-/** Date effective de réalisation — maintenant par défaut. */
+/**
+ * Date effective de réalisation — maintenant par défaut. `medecinId` : le médecin qui a effectué l'acte — OBLIGATOIRE quand c'est
+ * l'accueil qui déclare la réalisation (« sur information du médecin »), ignoré quand le médecin l'atteste lui-même.
+ */
 export class MarquerActeRealiseDto {
   @IsOptional() @IsISO8601() dateRealisation?: string;
+  @IsOptional() @IsUUID() medecinId?: string;
 }
 
 export class ValiderPreautorisationDto {

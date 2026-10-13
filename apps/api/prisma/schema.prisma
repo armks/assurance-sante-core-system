@@ -1588,6 +1588,10 @@ model ActeDossier {
   etablissementExecutionId String? @map("etablissement_execution_id") @db.Uuid
   /// tarif conventionné appliqué au calcul (facture, simulation, adjudication) — prisma/sql/074
   tarifConventionneId   String?   @map("tarif_conventionne_id") @db.Uuid
+  /// Médecin qui a effectué l'acte ; compte d'accueil qui l'a déclaré (NULL si le médecin l'atteste lui-même) ; origine du montant (prisma/sql/089)
+  medecinRealisateurId    String? @map("medecin_realisateur_id") @db.Uuid
+  realisationDeclareePar  String? @map("realisation_declaree_par") @db.Uuid
+  origineMontant          String? @map("origine_montant") // SAISI | TARIF_CONVENTION
   statut                String    @default("PRESCRIT") // PRESCRIT | REALISE | ANNULE | LIQUIDE
   datePrescription      DateTime  @default(now()) @map("date_prescription") @db.Timestamptz(6)
   dateRealisation       DateTime? @map("date_realisation") @db.Timestamptz(6)

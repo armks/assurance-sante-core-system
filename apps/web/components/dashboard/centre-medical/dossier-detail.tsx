@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import {
-  ajouterActe,
+  ajouterActeSituation,
   ajouterConsultation,
   cloturerDossier,
   definirTypeVisite,
@@ -26,14 +26,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   LIBELLE_PREAUTORISATION,
+  ROLES_GENERATION_FACTURE,
   ROLES_GESTION_DOSSIER,
   ROLES_ORDONNANCE_DELEGUEE,
+  ROLE_DECLARATION_REALISATION,
   ROLE_MEDECIN_TRAITANT,
   TON_PREAUTORISATION,
   TYPES_VISITE,
   aUnRole,
 } from '@/lib/centre-medical';
 import { StatutActe } from './statut-acte';
+import {
+  ChampDateRealisation,
+  ChampMedecinRealisateur,
+  ChampsNouvelActe,
+  lireRealisation,
+  type MedecinCentre,
+} from './champs-acte';
+import { TicketDetail, type DossierFacturation } from './ticket-detail';
 import {
   LIBELLE_STATUT_CONSULTATION,
   LIBELLE_STATUT_DOSSIER,
@@ -63,6 +73,10 @@ interface Acte {
   statutPreautorisation: string;
   statut: string;
   dateRealisation: string | null;
+  /** Médecin qui a effectué l'acte ; compte d'accueil qui l'a déclaré ; origine du montant (prisma/sql/089). */
+  medecinRealisateurId?: string | null;
+  realisationDeclareePar?: string | null;
+  origineMontant?: 'SAISI' | 'TARIF_CONVENTION' | null;
 }
 interface NoteDossier {
   id: string;
@@ -94,31 +108,8 @@ const dateHeureFr = (d: string) => new Date(d).toLocaleString('fr-FR');
 const montant = (v: string | null) =>
   v === null || v === '' ? '—' : `${Number(v).toLocaleString('fr-FR')} F`;
 
-/** Heure locale du poste au format `datetime-local` (AAAA-MM-JJTHH:MM). */
-function maintenantLocal(): string {
-  const d = new Date();
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-  return d.toISOString().slice(0, 16);
-}
-
-/**
- * Initialisé au montage — le formulaire est remonté à chaque ouverture, la
- * valeur proposée est donc toujours « maintenant ».
- */
-function ChampDateRealisation() {
-  const [valeur] = useState(maintenantLocal);
-  return (
-    <ChampTexte
-      name="dateRealisation"
-      label="Date et heure de réalisation"
-      type="datetime-local"
-      required
-      defaultValue={valeur}
-      max={valeur}
-      aide="Maintenant par défaut — modifiez-la si l’acte a été effectué à un autre moment que sa saisie."
-    />
-  );
-}
+/** Pré-autorisation en cours ou refusée : l'acte n'est pas encore à effectuer / à déclarer réalisé (miroir de l'API). */
+const PREAUTORISATION_BLOQUANTE = ['EN_ATTENTE_EXPLOITATION', 'EN_ATTENTE_MEDECIN_CONSEIL', 'REFUSEE'];
 
 function Ligne({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -134,14 +125,15 @@ export function DossierDetail({
   moiId,
   role,
   roleChain,
-  actesDisponibles,
+  medecins = [],
 }: {
   dossier: DossierComplet;
   moiId: string;
   /** Rôle exact du compte connecté (pas la chaîne de rôles). */
   role: string;
   roleChain: string[];
-  actesDisponibles: { id: string; code: string; libelle: string }[];
+  /** Médecins de l'établissement (désignés par l'accueil pour une consultation ou un acte effectué). */
+  medecins?: MedecinCentre[];
 }) {
   const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
@@ -155,6 +147,40 @@ export function DossierDetail({
   const suisMedecin = roleChain.includes(ROLE_MEDECIN_TRAITANT);
   const peutGerer = aUnRole(roleChain, ROLES_GESTION_DOSSIER);
   const peutAjouterActe = ouvert && ticketOuvert && peutGerer;
+  /** L'accueil renseigne la consultation et les actes « sur information du médecin ». */
+  const estAccueil = !suisMedecin && roleChain.includes(ROLE_DECLARATION_REALISATION);
+  const peutAjouterConsultation = ouvert && (suisMedecin || estAccueil);
+  const peutFacturer = aUnRole(roleChain, ROLES_GENERATION_FACTURE);
+  const nomMedecin = (id: string | null | undefined) =>
+    id ? (medecins.find((m) => m.id === id)?.libelle ?? (id === moiId ? 'Moi' : 'Médecin du centre')) : '—';
+
+  /**
+   * Ajout d'un acte (formulaire commun). `consultation` : celle de la ligne depuis laquelle on ajoute ; à défaut (bouton général), la
+   * consultation éventuellement choisie dans le formulaire — son médecin devient le prescripteur, sinon le médecin connecté.
+   */
+  async function soumettreActe(fd: FormData, consultation?: Consultation) {
+    // montant repris de la convention et non modifié : on ne l'envoie pas, l'API le résout elle-même (origine tracée)
+    const m = fd.get('montantAuto') === '1' ? null : fd.get('montantPrescrit');
+    const q = fd.get('quantite');
+    const codeActe = String(fd.get('codeActe') ?? '');
+    const choisie =
+      consultation ?? dossier.consultations.find((x) => x.id === String(fd.get('consultationId') ?? '')) ?? undefined;
+    return ajouterActeSituation(
+      dossier.id,
+      dossier.ticket!.id,
+      {
+        categorieActe: String(fd.get('categorieActe') ?? ''),
+        libelle: String(fd.get('libelle') ?? ''),
+        codeActe: codeActe || undefined,
+        consultationId: choisie?.id,
+        medecinPrescripteurId: choisie?.medecinId ?? (suisMedecin ? moiId : undefined),
+        quantite: q && q !== '' ? Number(q) : undefined,
+        montantPrescrit: m && m !== '' ? Number(m) : undefined,
+      },
+      String(fd.get('situation') ?? 'A_EFFECTUER') as 'A_EFFECTUER' | 'PROPOSE' | 'EFFECTUE',
+      lireRealisation(fd),
+    );
+  }
 
   const colConsultations: ColonneTable<Consultation>[] = [
     { cle: 'numeroConsultation', entete: 'N°', triable: true },
@@ -185,10 +211,33 @@ export function DossierDetail({
     { cle: 'quantite', entete: 'Qté', aligneDroite: true },
     {
       cle: 'montantPrescrit',
-      entete: 'Montant prescrit',
+      entete: 'Montant unitaire',
       aligneDroite: true,
       valeur: (a) => Number(a.montantPrescrit ?? 0),
-      rendu: (a) => montant(a.montantPrescrit),
+      rendu: (a) => (
+        <span title={a.origineMontant === 'TARIF_CONVENTION' ? 'Tarif repris de la convention de l’établissement' : undefined}>
+          {montant(a.montantPrescrit)}
+          {a.origineMontant === 'TARIF_CONVENTION' && <span className="ml-1 text-xs text-muted-foreground">(convention)</span>}
+        </span>
+      ),
+    },
+    {
+      cle: 'montantTotal',
+      entete: 'Montant',
+      aligneDroite: true,
+      valeur: (a) => Number(a.montantPrescrit ?? 0) * a.quantite,
+      rendu: (a) => (a.montantPrescrit === null || a.montantPrescrit === '' ? '—' : montant(String(Number(a.montantPrescrit) * a.quantite))),
+    },
+    {
+      cle: 'medecinRealisateurId',
+      entete: 'Médecin',
+      valeur: (a) => nomMedecin(a.medecinRealisateurId),
+      rendu: (a) => (
+        <span>
+          {nomMedecin(a.medecinRealisateurId)}
+          {a.realisationDeclareePar && <span className="block text-xs text-muted-foreground">déclaré par l’accueil</span>}
+        </span>
+      ),
     },
     {
       cle: 'ticketModerateurSimule',
@@ -234,6 +283,8 @@ export function DossierDetail({
 
   /** Rôle EXACT : seul le médecin traitant atteste la réalisation d'un acte. */
   const peutMarquerRealise = role === ROLE_MEDECIN_TRAITANT && dossier.ticket?.statut !== 'ANNULE';
+  /** L'accueil déclare la réalisation « sur information du médecin » (médecin désigné, tracé). */
+  const peutDeclarerRealise = estAccueil && dossier.ticket?.statut !== 'ANNULE';
 
   /** Peut émettre une ordonnance sur CETTE consultation ? */
   function peutOrdonnance(c: Consultation): boolean {
@@ -328,9 +379,9 @@ export function DossierDetail({
               ajoutée.
             </p>
           )}
-          {ouvert && !suisMedecin && (
+          {ouvert && !peutAjouterConsultation && (
             <p className="mb-3 text-sm text-muted-foreground">
-              Seul un médecin du centre peut ajouter une consultation.
+              Seuls le médecin du centre et l’accueil peuvent ajouter une consultation.
             </p>
           )}
           <DataTable
@@ -339,14 +390,18 @@ export function DossierDetail({
             parPage={0}
             colonnes={colConsultations}
             actions={
-              ouvert && suisMedecin ? (
+              peutAjouterConsultation ? (
                 <FormulaireModal
                   titre="Nouvelle consultation"
-                  description="Vous êtes enregistré comme médecin de cette consultation."
+                  description={
+                    suisMedecin
+                      ? 'Vous êtes enregistré comme médecin de cette consultation.'
+                      : 'Renseignez la consultation sur information du médecin : il est enregistré comme médecin de cette consultation.'
+                  }
                   declencheurLabel="Ajouter une consultation"
                   libelleSoumettre="Enregistrer"
                   onSoumettre={async (fd) =>
-                    ajouterConsultation(dossier.id, moiId, {
+                    ajouterConsultation(dossier.id, suisMedecin ? moiId : String(fd.get('medecinId') ?? ''), {
                       motif: String(fd.get('motif') ?? ''),
                       observations:
                         String(fd.get('observations') ?? '') || undefined,
@@ -356,6 +411,15 @@ export function DossierDetail({
                   }
                   onSucces={() => router.refresh()}
                 >
+                  {estAccueil && (
+                    <ChampSelect
+                      name="medecinId"
+                      label="Médecin de la consultation"
+                      required
+                      placeholder={medecins.length > 0 ? 'Choisir le médecin…' : 'Aucun médecin dans cet établissement'}
+                      options={medecins.map((m) => ({ valeur: m.id, libelle: m.libelle }))}
+                    />
+                  )}
                   <ChampTexte name="motif" label="Motif" required maxLength={300} />
                   <ChampZone
                     name="observations"
@@ -389,58 +453,17 @@ export function DossierDetail({
                       </Button>
                     }
                     libelleSoumettre="Ajouter l’acte"
-                    onSoumettre={async (fd) => {
-                      const m = fd.get('montantPrescrit');
-                      const q = fd.get('quantite');
-                      const codeActe = String(fd.get('codeActe') ?? '');
-                      return ajouterActe(dossier.id, dossier.ticket!.id, {
-                        categorieActe: String(fd.get('categorieActe') ?? ''),
-                        libelle: String(fd.get('libelle') ?? ''),
-                        codeActe: codeActe || undefined,
-                        consultationId: c.id,
-                        medecinPrescripteurId: c.medecinId,
-                        quantite: q && q !== '' ? Number(q) : undefined,
-                        montantPrescrit:
-                          m && m !== '' ? Number(m) : undefined,
-                      });
-                    }}
+                    onSoumettre={(fd) => soumettreActe(fd, c)}
                     onSucces={(message) => {
                       setAvisActe(message ?? null);
                       router.refresh();
                     }}
                   >
-                    <ChampSelect
-                      name="categorieActe"
-                      label="Catégorie"
-                      required
-                      placeholder="Choisir…"
-                      options={optionsCategories()}
-                    />
-                    <ChampTexte
-                      name="libelle"
-                      label="Libellé de l’acte"
-                      required
-                      maxLength={300}
-                    />
-                    {actesDisponibles.length > 0 && (
-                      <ChampSelect
-                        name="codeActe"
-                        label="Acte du référentiel"
-                        placeholder="Aucun (montant facturé sans tarif conventionné)"
-                        aide="Permet d'appliquer le tarif conventionné de l'établissement, s'il en existe un pour cet acte."
-                        options={actesDisponibles.map((a) => ({
-                          valeur: a.code,
-                          libelle: `${a.libelle} (${a.code})`,
-                        }))}
-                      />
-                    )}
-                    <ChampNombre name="quantite" label="Quantité" min={1} defaultValue={1} />
-                    <ChampNombre
-                      name="montantPrescrit"
-                      label="Montant prescrit (F)"
-                      min={0}
-                      step="0.01"
-                      aide="Sert aussi à calculer immédiatement une simulation indicative de remboursement."
+                    <ChampsNouvelActe
+                      dossierId={dossier.id}
+                      categories={optionsCategories()}
+                      estAccueil={estAccueil}
+                      medecins={medecins}
                     />
                   </FormulaireModal>
                 )}
@@ -499,8 +522,41 @@ export function DossierDetail({
 
       {/* --- Actes --- */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-base">Actes du ticket de soins</CardTitle>
+          {peutAjouterActe && (
+            <FormulaireModal
+              titre="Ajouter un acte de soins"
+              description="Consultation, analyse, examen, hospitalisation, soin… — effectué, à effectuer, ou proposé à l’assurance pour validation avant exécution."
+              mode="center"
+              declencheurLabel="Ajouter un acte de soins"
+              libelleSoumettre="Ajouter l’acte"
+              onSoumettre={(fd) => soumettreActe(fd)}
+              onSucces={(message) => {
+                setAvisActe(message ?? null);
+                router.refresh();
+              }}
+            >
+              {dossier.consultations.length > 0 && (
+                <ChampSelect
+                  name="consultationId"
+                  label="Consultation rattachée"
+                  defaultValue={dossier.consultations[dossier.consultations.length - 1].id}
+                  options={[
+                    { valeur: '', libelle: 'Aucune (acte du dossier)' },
+                    ...dossier.consultations.map((c) => ({ valeur: c.id, libelle: `${c.numeroConsultation} — ${c.motif ?? 'sans motif'}` })),
+                  ]}
+                  aide="Facultatif : rattache l’acte à une consultation du dossier."
+                />
+              )}
+              <ChampsNouvelActe
+                dossierId={dossier.id}
+                categories={optionsCategories()}
+                estAccueil={estAccueil}
+                medecins={medecins}
+              />
+            </FormulaireModal>
+          )}
         </CardHeader>
         <CardContent>
           <p className="mb-3 text-sm text-muted-foreground">
@@ -515,25 +571,27 @@ export function DossierDetail({
             parPage={0}
             colonnes={colActes}
             actionLigne={(a) =>
-              peutMarquerRealise && a.statut === 'PRESCRIT' ? (
+              (peutMarquerRealise ||
+                (peutDeclarerRealise && !PREAUTORISATION_BLOQUANTE.includes(a.statutPreautorisation))) &&
+              a.statut === 'PRESCRIT' ? (
                 <FormulaireModal
-                  titre="Marquer l’acte comme réalisé"
+                  titre={estAccueil ? 'Déclarer l’acte réalisé' : 'Marquer l’acte comme réalisé'}
                   mode="center"
-                  description={`« ${a.libelle} » — un acte n’est facturable qu’une fois marqué réalisé. Cette attestation est tracée dans l’audit.`}
+                  description={`« ${a.libelle} » — un acte n’est facturable qu’une fois réalisé. ${estAccueil ? 'Vous déclarez sur information du médecin désigné' : 'Cette attestation'} : tracé dans l’audit.`}
                   declencheur={
                     <Button type="button" size="xs" variant="outline">
-                      Marquer comme réalisé
+                      {estAccueil ? 'Déclarer réalisé' : 'Marquer comme réalisé'}
                     </Button>
                   }
                   libelleSoumettre="Confirmer la réalisation"
                   onSoumettre={async (fd) => {
-                    const v = String(fd.get('dateRealisation') ?? '');
                     // datetime-local = heure locale du poste → ISO avec fuseau.
-                    const iso = v ? new Date(v).toISOString() : undefined;
-                    return marquerActeRealise(dossier.id, a.id, iso);
+                    const r = lireRealisation(fd);
+                    return marquerActeRealise(dossier.id, a.id, r.dateRealisation, estAccueil ? r.medecinId : undefined);
                   }}
                   onSucces={() => router.refresh()}
                 >
+                  {estAccueil && <ChampMedecinRealisateur medecins={medecins} />}
                   <ChampDateRealisation />
                 </FormulaireModal>
               ) : null
@@ -542,6 +600,11 @@ export function DossierDetail({
           />
         </CardContent>
       </Card>
+
+      {/* --- Facturation : l'accueil facture les actes réalisés, sans passer par le comptable --- */}
+      {peutFacturer && dossier.ticket && (
+        <TicketDetail dossier={dossier as unknown as DossierFacturation} peutFacturer />
+      )}
 
       {/* --- Clôture --- */}
       <Card>

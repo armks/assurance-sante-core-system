@@ -245,6 +245,31 @@ export class PreauthorizationController {
     return this.preauth.traiterParExploitation(user, id, dto);
   }
 
+  /**
+   * Recherche d'un acte dans le référentiel HOMOLOGUÉ du système (libellé ou code) — alimente le champ « libellé de l'acte » du
+   * formulaire d'ajout d'un acte de soins. Déclarée avant toute route `actes/:id`.
+   */
+  @Get('actes/catalogue')
+  rechercherActesCatalogue(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('q') q?: string,
+    @Query('categorie') categorie?: string,
+    @Query('dossierId', new ParseUUIDPipe({ optional: true })) dossierId?: string,
+  ) {
+    return this.preauth.rechercherActesCatalogue(user, q ?? '', categorie ?? '', dossierId);
+  }
+
+  /** Tarif unitaire reconnu d'un acte du référentiel pour CE dossier (convention de son établissement) ; `null` s'il n'existe pas. */
+  @Get('actes/tarif-reference')
+  tarifReferenceActe(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('dossierId', ParseUUIDPipe) dossierId: string,
+    @Query('codeActe') codeActe: string,
+    @Query('categorieActe') categorieActe: string,
+  ) {
+    return this.preauth.tarifReferenceActe(user, dossierId, codeActe, categorieActe);
+  }
+
   /** Côté ASSUREUR_EXPLOITATION(_CONJOINTE) : GrilleCartes de la vue d'ensemble. */
   @Get('actes/statistiques-exploitation')
   statistiquesExploitation(@CurrentUser() user: AuthenticatedUser) {

@@ -40,7 +40,12 @@ export const ROLES_GENERATION_FACTURE = [
   'ASSUREUR_INFORMATIQUE',
   'CENTRE_MEDICAL_COMPTABLE',
   'CENTRE_MEDICAL_ADMINISTRATIF',
+  // l'accueil facture les actes que le médecin l'a informé avoir effectués
+  'CENTRE_MEDICAL_ACCUEIL',
 ];
+
+/** preauthorization : `ROLE_DECLARATION_REALISATION` — l'accueil déclare la réalisation d'un acte « sur information du médecin ». */
+export const ROLE_DECLARATION_REALISATION = 'CENTRE_MEDICAL_ACCUEIL';
 
 export const ROLE_MEDECIN_TRAITANT = 'CENTRE_MEDICAL_MEDECIN';
 

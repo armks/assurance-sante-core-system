@@ -86,6 +86,7 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
     prisma = {
       etablissementSante: { findUnique: jest.fn().mockResolvedValue({ nom: 'Centre A', statut: 'ACTIF', deletedAt: null }) },
       dossierSoins: { findFirst: jest.fn() },
+      profil: { findFirst: jest.fn() },
       acteDossier: {
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
@@ -177,9 +178,59 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
       expect(res.dateRealisation!.getTime()).toBeGreaterThanOrEqual(avant);
       expect(prisma.acteDossier.update).toHaveBeenCalledWith({
         where: { id: 'acte-1' },
-        data: { statut: 'REALISE', dateRealisation: expect.any(Date) },
+        data: { statut: 'REALISE', dateRealisation: expect.any(Date), medecinRealisateurId: 'u1', realisationDeclareePar: null },
       });
       expect(prisma.$executeRaw).toHaveBeenCalled(); // log_audit
+    });
+
+    describe('déclaration par l’accueil « sur information du médecin »', () => {
+      const MEDECIN_ID = '22222222-2222-4222-8222-222222222222';
+      const accueil = () => profil('CENTRE_MEDICAL_ACCUEIL', { etablissementId: 'etab-1' });
+
+      it('médecin obligatoire (400), rien n’est écrit', async () => {
+        identity.getMe.mockResolvedValue(accueil());
+        prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+        await expect(service.marquerActeRealise(USER, 'acte-1', {})).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.acteDossier.update).not.toHaveBeenCalled();
+      });
+
+      it('médecin d’un autre établissement ou inconnu → 400', async () => {
+        identity.getMe.mockResolvedValue(accueil());
+        prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+        prisma.profil.findFirst.mockResolvedValue(null);
+        await expect(service.marquerActeRealise(USER, 'acte-1', { medecinId: MEDECIN_ID })).rejects.toBeInstanceOf(BadRequestException);
+        expect(prisma.profil.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: expect.objectContaining({ id: MEDECIN_ID, role: 'CENTRE_MEDICAL_MEDECIN', etablissementId: 'etab-1' }) }),
+        );
+        expect(prisma.acteDossier.update).not.toHaveBeenCalled();
+      });
+
+      it('accueil + médecin de l’établissement : REALISE, médecin et déclarant tracés, audit dédié', async () => {
+        identity.getMe.mockResolvedValue(accueil());
+        prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+        prisma.profil.findFirst.mockResolvedValue({ id: MEDECIN_ID });
+        const res = await service.marquerActeRealise(USER, 'acte-1', { medecinId: MEDECIN_ID });
+        expect(res.statut).toBe('REALISE');
+        expect(prisma.acteDossier.update).toHaveBeenCalledWith({
+          where: { id: 'acte-1' },
+          data: { statut: 'REALISE', dateRealisation: expect.any(Date), medecinRealisateurId: MEDECIN_ID, realisationDeclareePar: 'u1' },
+        });
+        expect(prisma.$executeRaw.mock.calls.some((c: unknown[]) => c[1] === 'REALISATION_ACTE_DECLAREE_ACCUEIL')).toBe(true);
+      });
+
+      it('accueil d’un AUTRE établissement → 403', async () => {
+        identity.getMe.mockResolvedValue(profil('CENTRE_MEDICAL_ACCUEIL', { etablissementId: 'etab-2' }));
+        prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+        await expect(service.marquerActeRealise(USER, 'acte-1', { medecinId: MEDECIN_ID })).rejects.toBeInstanceOf(ForbiddenException);
+      });
+    });
+
+    it('heure arrondie à la minute : moins d’une minute avant l’ouverture → ramenée à l’ouverture ; au-delà → 400', async () => {
+      identity.getMe.mockResolvedValue(medecin());
+      prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
+      const res = await service.marquerActeRealise(USER, 'acte-1', { dateRealisation: '2026-09-01T07:59:30Z' });
+      expect(res.dateRealisation!.toISOString()).toBe(OUVERTURE.toISOString());
+      await expect(service.marquerActeRealise(USER, 'acte-1', { dateRealisation: '2026-09-01T07:58:00Z' })).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('date de réalisation antérieure à la saisie acceptée (acte fait avant d’être saisi)', async () => {
@@ -191,11 +242,11 @@ describe('PreauthorizationService — Facturation par sélection d’actes (paie
     });
 
     it.each([
-      ['CENTRE_MEDICAL_ACCUEIL'],
       ['CENTRE_MEDICAL_COMPTABLE'],
+      ['CENTRE_MEDICAL_ADMINISTRATIF'],
       ['ASSUREUR_MEDECIN_CONSEIL'],
       ['ASSUREUR_INFORMATIQUE'],
-    ])('%s → 403 (réservé au médecin traitant)', async (role) => {
+    ])('%s → 403 (réservé au médecin traitant et à l’accueil sur information du médecin)', async (role) => {
       identity.getMe.mockResolvedValue(profil(role, { etablissementId: 'etab-1' }));
       prisma.acteDossier.findFirst.mockResolvedValue(acteEnBase());
       await expect(service.marquerActeRealise(USER, 'acte-1', {})).rejects.toBeInstanceOf(ForbiddenException);

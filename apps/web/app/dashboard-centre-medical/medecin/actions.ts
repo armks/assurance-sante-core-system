@@ -147,12 +147,104 @@ export async function marquerActeRealise(
   dossierId: string,
   acteId: string,
   dateRealisation?: string,
+  /** Accueil : le médecin qui a effectué l'acte (obligatoire côté API pour l'accueil). */
+  medecinId?: string,
 ): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/preauthorization/actes/${acteId}/realiser`, {
     method: 'POST',
-    body: JSON.stringify(dateRealisation ? { dateRealisation } : {}),
+    body: JSON.stringify({ ...(dateRealisation ? { dateRealisation } : {}), ...(medecinId ? { medecinId } : {}) }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(cible(dossierId));
   return { ok: true, message: 'Acte marqué comme réalisé.' };
+}
+
+export type SituationActe = 'A_EFFECTUER' | 'PROPOSE' | 'EFFECTUE';
+
+/**
+ * Ajoute un acte selon sa SITUATION :
+ *  - `A_EFFECTUER` : acte prescrit, à effectuer (aucune validation préalable de l'assurance) ;
+ *  - `PROPOSE` : proposé à l'assurance pour VALIDATION AVANT exécution (pré-autorisation) ;
+ *  - `EFFECTUE` : déjà effectué — l'accueil le déclare « sur information du médecin » (médecin désigné et tracé), le médecin l'atteste.
+ * Si l'acte est créé mais que sa déclaration de réalisation est refusée, l'ajout est conservé (jamais de doublon à la nouvelle
+ * soumission) et l'avertissement est renvoyé : la déclaration se refait depuis la ligne de l'acte.
+ */
+export async function ajouterActeSituation(
+  dossierId: string,
+  ticketSoinsId: string,
+  input: {
+    categorieActe: string;
+    libelle: string;
+    codeActe?: string;
+    consultationId?: string;
+    medecinPrescripteurId?: string;
+    quantite?: number;
+    montantPrescrit?: number;
+  },
+  situation: SituationActe,
+  realisation?: { medecinId?: string; dateRealisation?: string },
+): Promise<ResultatSoumission> {
+  const corps = Object.fromEntries(
+    Object.entries({ ...input, ...(situation === 'PROPOSE' ? { demanderPreautorisation: true } : {}) }).filter(
+      ([, v]) => v !== undefined && v !== '',
+    ),
+  );
+  const res = await apiFetch(`/api/v1/preauthorization/tickets-soins/${ticketSoinsId}/actes`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const acte = (await res.json().catch(() => null)) as
+    | { id?: string; categorieCouverte?: boolean; montantPrescrit?: string | null; origineMontant?: string | null }
+    | null;
+  revalidatePath(cible(dossierId));
+
+  const notes: string[] = [];
+  if (acte?.categorieCouverte === false) {
+    notes.push('catégorie NON COUVERTE par le produit du patient : aucune prise en charge, le patient paiera l’intégralité de cet acte');
+  }
+  if (acte?.origineMontant === 'TARIF_CONVENTION' && acte.montantPrescrit) {
+    notes.push(`montant repris de la convention : ${Number(acte.montantPrescrit).toLocaleString('fr-FR')} F`);
+  }
+  if (situation === 'PROPOSE') notes.push('proposé à l’assurance pour validation avant exécution');
+
+  if (situation === 'EFFECTUE' && acte?.id) {
+    const r = await marquerActeRealise(dossierId, acte.id, realisation?.dateRealisation, realisation?.medecinId);
+    if (!r.ok) {
+      return {
+        ok: true,
+        message: `Acte ajouté, mais sa réalisation n’a pas pu être déclarée (${r.error}). Utilisez « Déclarer réalisé » sur la ligne de l’acte.`,
+      };
+    }
+    notes.push('réalisation déclarée');
+  }
+  return { ok: true, message: `Acte ajouté${notes.length ? ` — ${notes.join(' ; ')}` : ' au ticket de soins'}.` };
+}
+
+export interface ActeCatalogue {
+  id: string;
+  code: string;
+  libelle: string;
+  /** Catégorie de garantie de l'acte (ou catégorie libre du catalogue) — l'écran ne la retient que si elle est valide. */
+  categorieActe: string | null;
+  /** Tarif unitaire de la convention de l'établissement du dossier ; `null` = pas de tarif en base ; absent = non demandé. */
+  tarifUnitaire?: number | null;
+}
+
+/** Recherche d'un acte dans le référentiel homologué du système, limitée à la catégorie choisie (libellé ou code) — 20 résultats, chacun avec son tarif unitaire pour ce dossier. */
+export async function rechercherActesCatalogue(q: string, categorie: string, dossierId: string): Promise<ActeCatalogue[]> {
+  // la catégorie est choisie avant la recherche : seule, elle liste ses premiers actes ; sinon 2 caractères minimum
+  if (!categorie && q.trim().length < 2) return [];
+  const params = new URLSearchParams({ q: q.trim(), categorie, dossierId });
+  const res = await apiFetch(`/api/v1/preauthorization/actes/catalogue?${params.toString()}`);
+  return res.ok ? ((await res.json()) as ActeCatalogue[]) : [];
+}
+
+/** Tarif unitaire reconnu par la convention de l'établissement du dossier pour cet acte ; `null` = pas de tarif en base (saisie libre). */
+export async function tarifReferenceActe(dossierId: string, codeActe: string, categorieActe: string): Promise<number | null> {
+  const params = new URLSearchParams({ dossierId, codeActe, categorieActe });
+  const res = await apiFetch(`/api/v1/preauthorization/actes/tarif-reference?${params.toString()}`);
+  if (!res.ok) return null;
+  const r = (await res.json()) as { tarifUnitaire: number | null };
+  return r.tarifUnitaire ?? null;
 }

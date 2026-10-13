@@ -25,14 +25,14 @@ export default async function DossierPage({
   const etat = await exigerIdentite(`/dashboard-centre-medical/medecin/${id}`);
   if (etat.kind !== 'ok') redirect('/dashboard');
 
-  const [res, resActes] = await Promise.all([
+  const [res, resMedecins] = await Promise.all([
     apiFetch(`/api/v1/care-episode/dossiers/${id}`),
-    apiFetch('/api/v1/reference/actes?statut=HOMOLOGUE'),
+    // médecins de l'établissement (403 attendu pour un rôle hors centre médical : liste vide)
+    apiFetch('/api/v1/care-episode/dossiers/medecins'),
   ]);
   if (res.status === 404) notFound();
   const dossier = (await res.json()) as DossierComplet;
-  const actesDisponibles: { id: string; code: string; libelle: string }[] =
-    resActes.ok ? await resActes.json() : [];
+  const medecins: { id: string; libelle: string }[] = resMedecins.ok ? await resMedecins.json() : [];
 
   const { profil, permissions } = etat.identity;
 
@@ -60,7 +60,7 @@ export default async function DossierPage({
         moiId={profil.id}
         role={profil.role ?? ''}
         roleChain={permissions.roleChain}
-        actesDisponibles={actesDisponibles}
+        medecins={medecins}
       />
     </div>
   );

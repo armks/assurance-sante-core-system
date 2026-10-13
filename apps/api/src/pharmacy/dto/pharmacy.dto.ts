@@ -86,6 +86,26 @@ export class ListerMesDispensationsQueryDto extends PeriodeQueryDto {
   statut?: (typeof STATUTS_DISPENSATION)[number];
 }
 
+/**
+ * Nouveau médicament ajouté au catalogue national par le pharmacien, avec son PRIX NATIONAL (obligatoire). Le taux de remboursement et
+ * le plafond ne sont pas du ressort de la pharmacie : ils se règlent par les garanties de l'assureur.
+ */
+export class CreerMedicamentCatalogueDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  denominationCommune!: string;
+
+  @IsOptional() @IsString() @MaxLength(200) nomCommercial?: string;
+  @IsOptional() @IsString() @MaxLength(80) dosage?: string;
+  @IsOptional() @IsString() @MaxLength(120) forme?: string;
+  @IsOptional() @IsString() @MaxLength(200) classeTherapeutique?: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  prixReferenceXof!: number;
+}
+
 /** Mise à jour d'un médicament de la liste de la pharmacie : disponibilité et/ou note. Aucun tarif. */
 export class ModifierMedicamentListeDto {
   @IsOptional()

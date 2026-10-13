@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   DefinirPrixStockDto,
+  CreerMedicamentCatalogueDto,
   ListerDispensationsQueryDto,
   ListerMesDispensationsQueryDto,
   ModifierMedicamentListeDto,
@@ -50,6 +51,12 @@ export class PharmacyController {
   @Get('medicaments-remboursables')
   listerMedicamentsRemboursables(@CurrentUser() user: AuthenticatedUser) {
     return this.pharmacy.listerMedicamentsRemboursables(user);
+  }
+
+  /** Côté PHARMACIE_PHARMACIEN exclusivement : ajoute un NOUVEAU médicament au catalogue national, avec son prix national. */
+  @Post('catalogue-national/medicaments')
+  creerMedicamentCatalogue(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreerMedicamentCatalogueDto) {
+    return this.pharmacy.creerMedicamentCatalogue(user, dto);
   }
 
   /** Côté PHARMACIE_PHARMACIEN exclusivement : ajoute un médicament du catalogue à sa liste. */

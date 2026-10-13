@@ -143,4 +143,45 @@ describe('PharmacyService — liste des médicaments remboursables de la pharmac
       expect(Object.keys(prisma.medicament)).toEqual(['findFirst']);
     });
   });
+
+  describe('creerMedicamentCatalogue — nouveau médicament au catalogue national avec son prix national', () => {
+    const DTO = { denominationCommune: ' Ibuprofène ', nomCommercial: 'Advil', dosage: '400 mg', forme: 'Comprimé', prixReferenceXof: 1500 };
+
+    beforeEach(() => {
+      prisma.pharmacie = { findUnique: jest.fn().mockResolvedValue({ nom: 'Pharmacie test', statut: 'ACTIVE', deletedAt: null }) };
+      prisma.$transaction = jest.fn((cb: any) => cb(prisma));
+      prisma.$executeRaw = jest.fn().mockResolvedValue(1);
+      prisma.referentielNationalMedicament.findFirst.mockResolvedValue(null);
+      prisma.referentielNationalMedicament.create = jest.fn().mockResolvedValue({ id: 'nat-new' });
+    });
+
+    it.each(['PHARMACIE_CAISSIERE', 'PHARMACIE_COMPTABLE', 'ASSUREUR_PHARMACIEN_CONSEIL', 'CENTRE_MEDICAL_MEDECIN'])('%s : refusé (403), rien n’est créé', async (role) => {
+      identity.getMe.mockResolvedValue(profil(role, role.startsWith('PHARMACIE') ? 'pharm-1' : null));
+      await expect(service.creerMedicamentCatalogue(USER, DTO)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(prisma.referentielNationalMedicament.create).not.toHaveBeenCalled();
+    });
+
+    it('le pharmacien crée le médicament : prix national enregistré, homologué, origine PHARMACIE, aucune donnée de remboursement imposée', async () => {
+      identity.getMe.mockResolvedValue(profil('PHARMACIE_PHARMACIEN'));
+      await expect(service.creerMedicamentCatalogue(USER, DTO)).resolves.toEqual({ id: 'nat-new' });
+      const data = prisma.referentielNationalMedicament.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({ denominationCommune: 'Ibuprofène', nomCommercial: 'Advil', dosage: '400 mg', forme: 'Comprimé', prixReferenceXof: '1500.00', statutHomologation: 'HOMOLOGUE', sourceListe: 'PHARMACIE' });
+      expect(data.tauxRemboursementStd).toBeUndefined();
+      expect(data.prixMaxRemboursable).toBeUndefined();
+    });
+
+    it('refuse un doublon (même DCI, nom commercial, dosage, forme) : 409', async () => {
+      identity.getMe.mockResolvedValue(profil('PHARMACIE_PHARMACIEN'));
+      prisma.referentielNationalMedicament.findFirst.mockResolvedValue({ id: 'existant' });
+      await expect(service.creerMedicamentCatalogue(USER, DTO)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.referentielNationalMedicament.create).not.toHaveBeenCalled();
+    });
+
+    it('pharmacie archivée : aucun ajout au catalogue', async () => {
+      identity.getMe.mockResolvedValue(profil('PHARMACIE_PHARMACIEN'));
+      prisma.pharmacie.findUnique.mockResolvedValue({ nom: 'P', statut: 'RESILIEE', deletedAt: null });
+      await expect(service.creerMedicamentCatalogue(USER, DTO)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.referentielNationalMedicament.create).not.toHaveBeenCalled();
+    });
+  });
 });

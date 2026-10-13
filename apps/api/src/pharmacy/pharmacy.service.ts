@@ -26,6 +26,7 @@ import { bornesPage, conditionRecherche, filtrePeriode, versPage } from '../comm
 import { PrismaService } from '../prisma/prisma.service';
 import {
   DefinirPrixStockDto,
+  CreerMedicamentCatalogueDto,
   LigneChoisieDto,
   ListerDispensationsQueryDto,
   ModifierMedicamentListeDto,
@@ -306,6 +307,55 @@ export class PharmacyService {
     });
   }
 
+  /**
+   * Le pharmacien met à jour le CATALOGUE NATIONAL en y ajoutant un nouveau médicament avec son prix national. Il est créé « homologué »
+   * mais n'a AUCUN effet financier tant qu'un assureur ne l'a pas activé (ADR-009) : pas de prescription, de dispensation ni de
+   * remboursement avant cette activation. Ajout seul — un médicament existant du catalogue n'est jamais modifié par la pharmacie (ni son prix).
+   * Un doublon (même DCI, nom commercial, dosage et forme) est refusé. Origine tracée sur la fiche (`sourceListe`), au journal et à l'audit.
+   */
+  async creerMedicamentCatalogue(user: AuthenticatedUser, dto: CreerMedicamentCatalogueDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacien(ctx);
+    await this.assertPharmacieNonArchivee(ctx.pharmacieId!, 'aucun ajout au catalogue');
+    const net = (v?: string) => v?.trim() || null;
+    const dci = dto.denominationCommune.trim();
+    const nom = net(dto.nomCommercial);
+    const dosage = net(dto.dosage);
+    const forme = net(dto.forme);
+    const doublon = await this.prisma.referentielNationalMedicament.findFirst({
+      where: {
+        deletedAt: null,
+        denominationCommune: { equals: dci, mode: 'insensitive' },
+        nomCommercial: nom === null ? null : { equals: nom, mode: 'insensitive' },
+        dosage: dosage === null ? null : { equals: dosage, mode: 'insensitive' },
+        forme: forme === null ? null : { equals: forme, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    if (doublon) throw new ConflictException('Ce médicament existe déjà dans le catalogue national.');
+    return this.prisma.$transaction(async (tx) => {
+      const m = await tx.referentielNationalMedicament.create({
+        data: {
+          denominationCommune: dci,
+          nomCommercial: nom,
+          dosage,
+          forme,
+          classeTherapeutique: net(dto.classeTherapeutique),
+          remboursable: true,
+          prixReferenceXof: new Decimal(dto.prixReferenceXof).toFixed(2),
+          statutHomologation: 'HOMOLOGUE',
+          sourceListe: 'PHARMACIE',
+        },
+      });
+      await this.audit(tx, ctx.userId, 'CREATION_MEDICAMENT_CATALOGUE_PAR_PHARMACIEN', 'referentiel_national_medicaments', m.id, {
+        dci,
+        prixReferenceXof: new Decimal(dto.prixReferenceXof).toFixed(2),
+        pharmacieId: ctx.pharmacieId,
+      });
+      return m;
+    });
+  }
+
   /** Ajoute un médicament du catalogue à la liste de la pharmacie (pharmacien) — le catalogue n'est jamais modifié. */
   async ajouterMedicamentAMaListe(user: AuthenticatedUser, nationalId: string) {
     const ctx = await this.contexteAppelant(user);
@@ -378,17 +428,27 @@ export class PharmacyService {
   ): Promise<Map<string, Decimal>> {
     const uniques = [...new Set(denominations.map((d) => d.trim()).filter(Boolean))];
     const clef = (d: string) => d.trim().toLowerCase();
-    const ou = uniques.flatMap((d) => [
-      { denominationCommune: { equals: d, mode: 'insensitive' as const } },
-      { nomCommercial: { equals: d, mode: 'insensitive' as const } },
-    ]);
+    // Une ligne d'ordonnance prescrite depuis le catalogue porte le libellé « DCI (nom commercial) » : on retrouve aussi le produit exact
+    // par ce libellé, sinon le prix national (et l'alerte de majoration) n'étaient jamais repris pour ces médicaments.
+    const condition = (d: string) => {
+      const m = /^(.+?)\s*\((.+)\)$/.exec(d);
+      return [
+        { denominationCommune: { equals: d, mode: 'insensitive' as const } },
+        { nomCommercial: { equals: d, mode: 'insensitive' as const } },
+        ...(m ? [{ denominationCommune: { equals: m[1], mode: 'insensitive' as const }, nomCommercial: { equals: m[2], mode: 'insensitive' as const } }] : []),
+      ];
+    };
+    const ou = uniques.flatMap(condition);
     const resultat = new Map<string, Decimal>();
     const retenir = (rows: { denominationCommune: string; nomCommercial: string | null; prixReferenceXof: unknown }[]) => {
       const nom = new Map<string, Decimal>();
       const dci = new Map<string, Decimal>();
       for (const m of rows) {
         const prix = new Decimal(String(m.prixReferenceXof));
-        if (m.nomCommercial) nom.set(clef(m.nomCommercial), prix);
+        if (m.nomCommercial) {
+          nom.set(clef(m.nomCommercial), prix);
+          nom.set(clef(`${m.denominationCommune} (${m.nomCommercial})`), prix);
+        }
         const k = clef(m.denominationCommune);
         if (!dci.has(k) || prix.gt(dci.get(k)!)) dci.set(k, prix);
       }
@@ -410,10 +470,7 @@ export class PharmacyService {
           statutHomologation: 'HOMOLOGUE',
           deletedAt: null,
           prixReferenceXof: { not: null },
-          OR: manquants.flatMap((d) => [
-            { denominationCommune: { equals: d, mode: 'insensitive' as const } },
-            { nomCommercial: { equals: d, mode: 'insensitive' as const } },
-          ]),
+          OR: manquants.flatMap(condition),
         },
         select: { denominationCommune: true, nomCommercial: true, prixReferenceXof: true },
       });

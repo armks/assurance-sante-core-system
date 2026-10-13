@@ -257,6 +257,22 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       expect(res.alertes).toEqual([{ medicament: 'amlo-denk cpr. 5mg pq 10', prixUnitaire: '2500.00', prixReference: '1900.00', majorationPourcent: '31.58' }]);
     });
 
+    it('libellé de prescription « DCI (nom commercial) » : le prix national du produit exact est retrouvé (alerte de majoration)', async () => {
+      prisma.medicament.findMany.mockResolvedValue([]);
+      prisma.referentielNationalMedicament.findMany.mockResolvedValue([
+        { denominationCommune: 'Ibuprofène', nomCommercial: 'Advil', prixReferenceXof: dec(1500) },
+        { denominationCommune: 'Ibuprofène', nomCommercial: 'Nurofen', prixReferenceXof: dec(2500) },
+      ]);
+      prisma.ligneOrdonnance.findMany.mockResolvedValue([
+        { id: 'ligne-1', ordonnanceId: 'ord-1', denominationMedicament: 'Ibuprofène (Advil)', statut: 'DISPONIBLE', quantitePrescrite: 1 },
+      ]);
+      const res: any = await service.preparerDispensation(USER, 'ord-1', [{ ligneOrdonnanceId: 'ligne-1', prixUnitaire: 2400 }]);
+      expect(res.alertes).toEqual([{ medicament: 'Ibuprofène (Advil)', prixUnitaire: '2400.00', prixReference: '1500.00', majorationPourcent: '60.00' }]);
+      // la requête cherche aussi le couple (DCI, nom commercial) extrait du libellé
+      const ou = prisma.referentielNationalMedicament.findMany.mock.calls[0][0].where.OR;
+      expect(ou).toContainEqual({ denominationCommune: { equals: 'Ibuprofène', mode: 'insensitive' }, nomCommercial: { equals: 'Advil', mode: 'insensitive' } });
+    });
+
     it('prix national pris dans le référentiel national à défaut du médicament de l’organisation', async () => {
       prisma.medicament.findMany.mockResolvedValue([]);
       prisma.referentielNationalMedicament.findMany.mockResolvedValue([{ denominationCommune: 'Paracetamol', prixReferenceXof: dec(5000) }]);

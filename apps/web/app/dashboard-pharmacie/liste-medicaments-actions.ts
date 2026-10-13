@@ -28,6 +28,24 @@ export async function modifierMedicamentDeMaListe(
   return { ok: true, message: 'Liste mise à jour.' };
 }
 
+/**
+ * Ajout d'un NOUVEAU médicament au catalogue national, avec son prix national (pharmacien seul, 403 sinon). Aucun effet financier tant que
+ * l'assureur ne l'a pas activé ; un médicament existant n'est jamais modifié.
+ */
+export async function creerMedicamentCatalogue(input: {
+  denominationCommune: string;
+  nomCommercial?: string;
+  dosage?: string;
+  forme?: string;
+  classeTherapeutique?: string;
+  prixReferenceXof: number;
+}): Promise<ResultatSoumission> {
+  const res = await apiFetch('/api/v1/pharmacy/catalogue-national/medicaments', { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Médicament ajouté au catalogue national.' };
+}
+
 export async function retirerMedicamentDeMaListe(nationalId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const res = await apiFetch(`/api/v1/pharmacy/medicaments-remboursables/${nationalId}`, { method: 'DELETE' });
   if (!res.ok) return { ok: false, error: await messageErreur(res) };

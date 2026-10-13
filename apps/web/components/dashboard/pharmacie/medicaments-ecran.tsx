@@ -5,11 +5,13 @@ import { useState, useTransition } from 'react';
 
 import {
   ajouterMedicamentAMaListe,
+  creerMedicamentCatalogue,
   modifierMedicamentDeMaListe,
   retirerMedicamentDeMaListe,
 } from '@/app/dashboard-pharmacie/liste-medicaments-actions';
 import {
   ChampCheckbox,
+  ChampNombre,
   ChampTexte,
   ConfirmationAction,
   DataTable,
@@ -123,6 +125,35 @@ export function MedicamentsEcran({ medicaments, peutModifier }: { medicaments: M
           },
         ]}
         colonnes={colonnes}
+        actions={
+          peutModifier ? (
+            <FormulaireModal
+              titre="Nouveau médicament au catalogue national"
+              description="Le médicament est ajouté au catalogue national avec son prix national. Il ne sera prescrit, dispensé et remboursé qu'une fois activé par votre assureur ; un médicament existant n'est jamais modifié."
+              declencheurLabel="Nouveau médicament"
+              libelleSoumettre="Ajouter au catalogue"
+              onSoumettre={async (fd) => {
+                const texte = (k: string) => String(fd.get(k) ?? '').trim() || undefined;
+                return creerMedicamentCatalogue({
+                  denominationCommune: String(fd.get('denominationCommune') ?? '').trim(),
+                  nomCommercial: texte('nomCommercial'),
+                  dosage: texte('dosage'),
+                  forme: texte('forme'),
+                  classeTherapeutique: texte('classeTherapeutique'),
+                  prixReferenceXof: Number(fd.get('prixReferenceXof')),
+                });
+              }}
+              onSucces={rafraichir}
+            >
+              <ChampTexte name="denominationCommune" label="Dénomination commune (DCI)" required placeholder="Paracétamol" />
+              <ChampTexte name="nomCommercial" label="Nom commercial" placeholder="Doliprane" />
+              <ChampTexte name="dosage" label="Dosage" placeholder="500 mg" />
+              <ChampTexte name="forme" label="Forme" placeholder="Comprimé" />
+              <ChampTexte name="classeTherapeutique" label="Classe thérapeutique" />
+              <ChampNombre name="prixReferenceXof" label="Prix national (F)" required min={0.01} step="0.01" aide="Prix de référence national du médicament." />
+            </FormulaireModal>
+          ) : undefined
+        }
         actionLigne={
           peutModifier
             ? (m) =>

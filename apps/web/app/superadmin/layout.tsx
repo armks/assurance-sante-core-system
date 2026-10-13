@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import { EcranMessage } from '@/components/ecran-message';
+import { resumeUtilisateur } from '@/components/dashboard/utilisateur-resume';
 import { SuperadminShell } from '@/components/superadmin/shell';
 import { exigerIdentite } from '@/lib/identity';
 import { CategoriesActeProvider } from '@/components/categories-acte';
@@ -48,7 +49,7 @@ export default async function SuperadminLayout({
   }
 
   return (
-    <SuperadminShell email={etat.email}>
+    <SuperadminShell email={etat.email} utilisateur={resumeUtilisateur(etat.identity.profil, etat.email)}>
       <CategoriesActeProvider categories={await chargerCategoriesActe()}>
         {children}
       </CategoriesActeProvider>

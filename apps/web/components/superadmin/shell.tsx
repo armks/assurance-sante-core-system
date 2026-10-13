@@ -1,9 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   Activity,
   Building2,
+  History,
   Library,
   ShieldCheck,
   SlidersHorizontal,
@@ -18,6 +20,7 @@ import {
   NavMobile,
   type EntreeNav,
 } from '@/components/dashboard/navigation-shell';
+import { AvatarUtilisateur, CarteUtilisateur, nomAffiche, type UtilisateurResume } from '@/components/dashboard/utilisateur-resume';
 import { LogoutButton } from '@/components/logout-button';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Badge } from '@/components/ui/badge';
@@ -40,13 +43,17 @@ const NAV: (EntreeNav & { largeur?: LargeurPage })[] = [
     icon: Library,
   },
   { label: 'Lettres-clés', href: '/superadmin/lettres-cles', icon: Type },
+  // Traçabilité : qui a fait quoi, dans toutes les organisations
+  { label: 'Journal des actions', href: '/superadmin/journal-actions', icon: History },
 ];
 
 export function SuperadminShell({
   email,
+  utilisateur,
   children,
 }: {
   email: string;
+  utilisateur?: UtilisateurResume;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -54,6 +61,11 @@ export function SuperadminShell({
 
   const enteteRole = (
     <>
+      {utilisateur && (
+        <div className="mb-3 border-b pb-3">
+          <CarteUtilisateur utilisateur={utilisateur} />
+        </div>
+      )}
       <p className="flex items-center gap-1.5 text-sm font-medium leading-tight">
         <ShieldCheck aria-hidden="true" className="size-4 text-muted-foreground" />
         Super administration
@@ -84,9 +96,17 @@ export function SuperadminShell({
           <div className="md:hidden">
             <Brand />
           </div>
-          <span className="ml-auto truncate text-sm text-muted-foreground">
-            {email}
-          </span>
+          {utilisateur ? (
+            <Link href="/profil" className="ml-auto flex min-w-0 items-center gap-2 rounded-full py-0.5 pl-0.5 pr-3 text-sm hover:bg-muted/60" title="Mon profil">
+              <AvatarUtilisateur utilisateur={utilisateur} taille="sm" />
+              <span className="min-w-0 truncate">
+                <span className="font-medium">{nomAffiche(utilisateur)}</span>
+                <span className="hidden text-muted-foreground lg:inline"> · Superadministrateur</span>
+              </span>
+            </Link>
+          ) : (
+            <span className="ml-auto truncate text-sm text-muted-foreground">{email}</span>
+          )}
           <ModeToggle />
           <div className="md:hidden">
             <LogoutButton />

@@ -8590,3 +8590,6 @@ Terminé.
 
 ## 2026-10-13 — Recette navigateur : écran « Journal des actions » (direction, informatique)
 - Direction : menu, 66 actions de son organisation (aucune d'une autre), auteur affiché par son pseudo avec rôle et établissement, pagination 50 par page (page 2 : 16 lignes), filtres opération (suppressions), table, période (message « Aucune action enregistrée ») et clic sur un auteur ; une autre direction ne voit que ses propres traces ; informatique : même écran par son menu ; comptable : pas de menu, accès direct par l'adresse refusé. Zéro résidu.
+
+## 2026-10-13 — Espace superadmin : profil affiché et journal des actions
+- Le shell du superadmin affiche désormais pseudo, photo (ou initiales) et lien « Mon profil » (barre latérale, en-tête, menu mobile) ; nouvelle entrée « Journal des actions » (`/superadmin/journal-actions`) : traces de toutes les organisations. Recette navigateur : pseudo affiché, journal avec les traces de deux organisations, page « Mon profil » et retour vers `/superadmin`. Zéro résidu.

@@ -73,7 +73,7 @@ export async function AdherentSocieteDetail({
         adherent={sansCheminsPhoto(adherent)}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}
         peutValiderBeneficiaireSociete={peutValiderBeneficiaireSociete(etat.identity.permissions.roleChain)}
-        peutInviter={peutInviterAdherent(etat.identity.permissions.roleChain) && !!adherent.dateValidation}
+        peutInviter={peutInviterAdherent(etat.identity.permissions.roleChain)}
         photoAdherentUrl={photos.adherent}
         photosParBeneficiaire={photos.beneficiaires}
         estSociete={etat.identity.permissions.roleChain.every((r) => !r.startsWith('ASSUREUR_'))}

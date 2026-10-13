@@ -239,12 +239,13 @@ describe('InvitationsService', () => {
       connecte({ role, entite: 'SOCIETE_AFFILIEE', organisationId: 'org-1', societeId: 'soc-1', roleChain: [role] });
     const inviter = () => service.creerInvitation(USER, { email: 'adherent@societe.ci', rolePropose: 'ADHERENT_TITULAIRE', adherentId: 'adh-1' });
 
-    it.each(['SOCIETE_ADMINISTRATION', 'SOCIETE_RECEPTION'])('%s : refusé (409) tant que l’adhérent n’est pas validé par l’assureur', async (role) => {
+    it.each(['SOCIETE_ADMINISTRATION', 'SOCIETE_RECEPTION'])('%s : peut inviter un adhérent actif de SA société, même avant sa validation par l’assureur', async (role) => {
       connecteSociete(role);
       prisma.regleProvisioning.findFirst.mockResolvedValue(regle);
       prisma.adherent.findFirst.mockResolvedValue({ id: 'adh-1', statut: 'ACTIF', dateValidation: null, email: null });
-      await expect(inviter()).rejects.toMatchObject({ status: 409 });
-      expect(prisma._tx.invitation.create).not.toHaveBeenCalled();
+      prisma._tx.invitation.create.mockImplementation(({ data }: any) => ({ id: 'inv-9', ...data, expireLe: DANS_72H, accepteLe: null, createdAt: new Date() }));
+      await expect(inviter()).resolves.toBeDefined();
+      expect(prisma._tx.invitation.create).toHaveBeenCalled();
     });
 
     it('SOCIETE_RECEPTION : invite un adhérent validé de SA société', async () => {

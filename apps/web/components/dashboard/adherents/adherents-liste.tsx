@@ -24,7 +24,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
-import { BandeauLienInvitation, genererLienInvitation, type LienInvitation } from './lien-invitation';
+import { BandeauLienInvitation, BoutonLienInvitationListe, genererLienInvitation, type LienInvitation } from './lien-invitation';
 import {
   LIBELLE_STATUT_MEMBRE,
   STATUTS_MEMBRE_FILTRE,
@@ -227,6 +227,9 @@ export function AdherentsListe({
               <Button asChild size="xs" variant="ghost">
                 <Link href={`${basePath}/${a.id}`}>Détails</Link>
               </Button>
+              {peutInviter && a.statut === 'ACTIF' && (
+                <BoutonLienInvitationListe adherentId={a.id} emailFiche={a.email} nom={`${a.prenom} ${a.nom}`} />
+              )}
               {estSociete && a.statut === 'PROPOSE_SORTANT' && (
                 <span className="text-xs text-muted-foreground">Sortie proposée</span>
               )}

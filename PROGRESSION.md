@@ -8455,3 +8455,8 @@ Terminé côté API ; écrans compilés.
 Terminé.
 - Complément testé (HTTP réel + Chromium, 11 contrôles OK, zéro résidu) : 403 sur le changement direct de statut (adhérent, bénéficiaire) ; fiche société : « Proposer la suspension » → PROPOSE_SORTANT / SUSPENDU avec motif,
   lien d'invitation généré ; assureur : la proposition apparaît dans « Sortants en attente de validation », validation → SUSPENDU.
+
+### Addendum — lien d'invitation pour tous les adhérents actifs de la société
+- Le bouton n'apparaissait que pour les adhérents validés : l'API n'exige plus la validation préalable (périmètre société, adhérent actif et e-mail de la fiche restent contrôlés).
+- Bouton « Lien d'invitation » ajouté sur chaque ligne de la liste (société administration, réception, assureur informatique) et sur la fiche, pour tout adhérent actif ; adresse saisie si la fiche n'a pas d'e-mail.
+- Testé (HTTP réel + Chromium, administration et réception, adhérent validé / non validé / sans e-mail, zéro résidu) ; API : suite complète verte.

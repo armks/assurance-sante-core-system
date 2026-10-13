@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { Brand } from '@/components/brand';
+import { LienAccueil } from '@/components/lien-accueil';
 import { LoginForm } from '@/components/login-form';
 import { ModeToggle } from '@/components/mode-toggle';
 
@@ -10,7 +11,8 @@ export const metadata: Metadata = {
 
 export default function LoginPage() {
   return (
-    <main className="relative flex min-h-svh flex-col items-center justify-center bg-gradient-to-b from-muted/40 to-background px-6 py-10">
+    <main className="relative flex min-h-svh flex-col items-center justify-center bg-gradient-to-b from-muted/40 to-background px-6 pb-10 pt-16">
+      <LienAccueil />
       <div className="absolute right-4 top-4">
         <ModeToggle />
       </div>

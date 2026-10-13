@@ -1,3 +1,4 @@
+import { LienAccueil } from '@/components/lien-accueil'
 import Link from 'next/link'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -6,7 +7,8 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ e
   const params = await searchParams
 
   return (
-    <div className="flex min-h-svh w-full items-center justify-center p-6 md:p-10">
+    <div className="relative flex min-h-svh w-full items-center justify-center p-6 pt-16 md:p-10">
+      <LienAccueil />
       {/* Même effet d'ouverture que le méga menu et la page de connexion. */}
       <div className="megamenu-panneau w-full max-w-sm" style={{ animationDelay: '350ms' }}>
         <div className="flex flex-col gap-6">

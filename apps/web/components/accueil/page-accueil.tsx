@@ -7,6 +7,7 @@ import { BandeauPartenaires } from './bandeau-partenaires';
 import { CarrouselHero, type HeroPersonnalise } from './carrousel-hero';
 import { CeQueNousFaisons } from './ce-que-nous-faisons';
 import { EnTeteAccueil } from './en-tete';
+import { MemoireAccueil } from '@/components/memoire-accueil';
 import { Formulaires } from './formulaires';
 import type { MarqueVitrine } from './marque';
 import { PiedDePage } from './pied-de-page';
@@ -42,6 +43,7 @@ export function PageAccueil({
   const racine = societe ? `/${societe.slug}` : '/';
   return (
     <div className={`${outfit.variable} flex min-h-svh flex-col bg-background`}>
+      <MemoireAccueil racine={racine} />
       <EnTeteAccueil marque={societe} racine={racine} />
       <main id="contenu-principal" className="flex-1">
         <CarrouselHero personnalisation={societe?.hero} />

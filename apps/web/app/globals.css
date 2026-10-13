@@ -130,3 +130,23 @@
   .accueil-trait-y,
   .accueil-fondu { animation: none; }
 }
+
+/* ---------------------------------------------------------------------------
+ * Effet « du haut vers le bas » (components/effet-defilement.tsx) : à l'ouverture de chaque page et au défilement, les blocs descendent
+ * en fondu à mesure qu'ils entrent à l'écran. « backwards » : l'état initial ne s'applique que PENDANT le délai — aucune transformation
+ * ne reste après l'animation. Désactivé si l'utilisateur préfère réduire les animations ; à l'impression tout est visible.
+ * ------------------------------------------------------------------------- */
+@keyframes defilement-descente {
+  from { opacity: 0; transform: translateY(-28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.defilement-cache { opacity: 0; transform: translateY(-28px); }
+.defilement-entree { animation: defilement-descente 650ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
+@media (prefers-reduced-motion: reduce) {
+  .defilement-cache { opacity: 1; transform: none; }
+  .defilement-entree { animation: none; }
+}
+@media print {
+  .defilement-cache { opacity: 1 !important; transform: none !important; }
+  .defilement-entree { animation: none !important; }
+}

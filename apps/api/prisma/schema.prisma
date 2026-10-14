@@ -2301,3 +2301,20 @@ model JournalAction {
   @@index([organisationId, createdAt(sort: Desc)])
   @@map("journal_actions")
 }
+
+/// partenaires_vitrine — logos des partenaires d'une société d'assurance, en bandeau défilant sur SA page d'accueil (prisma/sql/094).
+model PartenaireVitrine {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String    @map("organisation_id") @db.Uuid
+  nom            String
+  logoUrl        String    @map("logo_url")
+  siteUrl        String?   @map("site_url")
+  ordreAffichage Int       @default(0) @map("ordre_affichage")
+  actif          Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([organisationId, ordreAffichage])
+  @@map("partenaires_vitrine")
+}

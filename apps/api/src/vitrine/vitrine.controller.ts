@@ -2,6 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestj
 import type { Request } from 'express';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
 import { EvenementsService } from './evenements.service';
+import { PartenairesVitrineService } from './partenaires-vitrine.service';
 import { VitrineService } from './vitrine.service';
 
 /**
@@ -20,6 +21,7 @@ export class VitrineController {
   constructor(
     private readonly vitrine: VitrineService,
     private readonly evenements: EvenementsService,
+    private readonly partenaires: PartenairesVitrineService,
   ) {}
 
   @Post('demandes')
@@ -47,6 +49,14 @@ export class VitrineController {
     const slug = typeof organisation === 'string' && /^[a-z0-9-]{2,60}$/.test(organisation) ? organisation : undefined;
     if (organisation !== undefined && !slug) return [];
     return this.evenements.publics(ipClient(req), slug);
+  }
+
+  /** Logos des partenaires du bandeau défilant sous la bannière (PartenairesVitrineService.publics) : ceux de la société `?organisation={slug}`, sinon de l'organisation vitrine. */
+  @Get('partenaires')
+  obtenirPartenaires(@Req() req: Request, @Query('organisation') organisation?: string) {
+    const slug = typeof organisation === 'string' && /^[a-z0-9-]{2,60}$/.test(organisation) ? organisation : undefined;
+    if (organisation !== undefined && !slug) return [];
+    return this.partenaires.publics(ipClient(req), slug);
   }
 
   /** Nom, chemin et logo d'une société active (page /{slug}) ; 404 sinon. */

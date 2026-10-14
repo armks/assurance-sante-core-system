@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   LineChart,
   BookMarked,
+  Handshake,
   History,
   type LucideIcon,
   MapPin,
@@ -529,6 +530,10 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
     // exact côté API et RLS) — absent de la navigation de l'adjoint.
     ...(racineVueEnsemble === INFORMATIQUE
       ? [{ label: 'Événements', href: `${INFORMATIQUE}/evenements`, icon: CalendarDays }]
+      : []),
+    // Logos des partenaires du bandeau défilant de la page d'accueil de SA société : même rôle exact que les événements.
+    ...(racineVueEnsemble === INFORMATIQUE
+      ? [{ label: 'Logos partenaires', href: `${INFORMATIQUE}/partenaires`, icon: Handshake }]
       : []),
     // Demandes du formulaire « Adhésion » (ROLES_DEMANDES_ADHESION, vitrine.types.ts).
     { label: 'Demandes d’adhésion', href: `${INFORMATIQUE}/demandes-adhesion`, icon: Inbox },

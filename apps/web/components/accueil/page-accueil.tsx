@@ -1,6 +1,7 @@
 import localFont from 'next/font/local';
 
 import type { EvenementPublic } from '@/lib/evenements-publics';
+import type { PartenairePublic } from '@/lib/partenaires-publics';
 import type { StatistiquesPubliques } from '@/lib/statistiques-publiques';
 
 import { BandeauPartenaires } from './bandeau-partenaires';
@@ -30,10 +31,13 @@ const outfit = localFont({ src: '../../app/fonts/Outfit-latin.woff2', weight: '1
 export function PageAccueil({
   statistiques,
   evenements,
+  partenaires = [],
   societe,
 }: {
   statistiques: StatistiquesPubliques | null;
   evenements: EvenementPublic[];
+  /** Logos des partenaires du bandeau défilant (ceux de la société sur sa page, ceux de la plateforme sur la page principale). */
+  partenaires?: PartenairePublic[];
   societe?: MarqueVitrine & {
     slug: string;
     hero: HeroPersonnalise;
@@ -47,7 +51,7 @@ export function PageAccueil({
       <EnTeteAccueil marque={societe} racine={racine} />
       <main id="contenu-principal" className="flex-1">
         <CarrouselHero personnalisation={societe?.hero} />
-        <BandeauPartenaires />
+        <BandeauPartenaires partenaires={partenaires} societe={!!societe} />
         <QuiSommesNous evenements={evenements} />
         <CeQueNousFaisons statistiques={statistiques} perimetre={societe?.nom} />
         <ReseauSoins />

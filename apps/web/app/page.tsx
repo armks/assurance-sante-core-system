@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { PageAccueil } from '@/components/accueil/page-accueil';
 import { aUneSession } from '@/lib/identity';
 import { chargerEvenementsPublics } from '@/lib/evenements-publics';
+import { chargerPartenairesPublics } from '@/lib/partenaires-publics';
 import { chargerStatistiquesPubliques } from '@/lib/statistiques-publiques';
 
 export const metadata: Metadata = {
@@ -21,7 +22,11 @@ export default async function Accueil() {
   if (await aUneSession()) {
     redirect('/dashboard');
   }
-  const [statistiques, evenements] = await Promise.all([chargerStatistiquesPubliques(), chargerEvenementsPublics()]);
+  const [statistiques, evenements, partenaires] = await Promise.all([
+    chargerStatistiquesPubliques(),
+    chargerEvenementsPublics(),
+    chargerPartenairesPublics(),
+  ]);
 
-  return <PageAccueil statistiques={statistiques} evenements={evenements} />;
+  return <PageAccueil statistiques={statistiques} evenements={evenements} partenaires={partenaires} />;
 }

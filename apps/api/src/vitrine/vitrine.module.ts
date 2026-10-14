@@ -4,6 +4,8 @@ import { DemandesAdhesionController } from './demandes-adhesion.controller';
 import { DemandesAdhesionService } from './demandes-adhesion.service';
 import { EvenementsController } from './evenements.controller';
 import { EvenementsService } from './evenements.service';
+import { PartenairesVitrineController } from './partenaires-vitrine.controller';
+import { PartenairesVitrineService } from './partenaires-vitrine.service';
 import { VitrineController } from './vitrine.controller';
 import { StatistiquesService } from './statistiques.service';
 import { VitrineService } from './vitrine.service';
@@ -18,7 +20,7 @@ import { DependancesModule } from '../dependances/dependances.module';
  */
 @Module({
   imports: [IdentityModule, DependancesModule],
-  controllers: [VitrineController, EvenementsController, DemandesAdhesionController],
-  providers: [VitrineService, StatistiquesService, EvenementsService, DemandesAdhesionService],
+  controllers: [VitrineController, EvenementsController, PartenairesVitrineController, DemandesAdhesionController],
+  providers: [VitrineService, StatistiquesService, EvenementsService, PartenairesVitrineService, DemandesAdhesionService],
 })
 export class VitrineModule {}

@@ -1,12 +1,27 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
-import { NB_MAX_PARTENAIRES_ACTIFS, PartenairesVitrineService } from './partenaires-vitrine.service';
+import sharp from 'sharp';
+import { LOGO_HAUTEUR, LOGO_LARGEUR, NB_MAX_PARTENAIRES_ACTIFS, PartenairesVitrineService } from './partenaires-vitrine.service';
 
 const USER: AuthenticatedUser = { sub: 'u1', email: 'armelk01+testunitaire@gmail.com', postgresRole: 'authenticated', claimRole: null, aud: 'authenticated', token: 'jwt' };
 const ORG = '11111111-1111-4111-8111-111111111111';
 const profil = (role: string, organisationId: string | null = ORG) => ({ profil: { id: 'u1', role, organisationId }, permissions: { roleChain: [role] } });
 
-const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+/** Vrai PNG (le logo est désormais décodé puis mis au format standard) : construit une fois pour toutes. */
+let PNG: Buffer;
+beforeAll(async () => {
+  PNG = await sharp({ create: { width: 240, height: 90, channels: 3, background: { r: 200, g: 30, b: 30 } } }).png().toBuffer();
+});
+/** Image de synthèse : fond transparent avec, au centre, un rectangle de couleur de la taille voulue. */
+async function logoSynthese(largeur: number, hauteur: number, cadre?: { l: number; h: number }) {
+  const c = cadre ?? { l: largeur, h: hauteur };
+  const forme = await sharp({ create: { width: c.l, height: c.h, channels: 3, background: { r: 20, g: 90, b: 200 } } }).png().toBuffer();
+  return sharp({ create: { width: largeur, height: hauteur, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: forme, left: Math.floor((largeur - c.l) / 2), top: Math.floor((hauteur - c.h) / 2) }])
+    .png()
+    .toBuffer();
+}
+const corpsEnvoye = (fetchSpy: jest.SpyInstance, i = 0) => fetchSpy.mock.calls[i][1].body as Buffer;
 const logo = (over: Record<string, unknown> = {}) => ({ buffer: PNG, originalname: 'logo.png', mimetype: 'image/png', size: PNG.length, ...over });
 const LIGNE = { id: 'p1', organisationId: ORG, nom: 'Clinique Test', logoUrl: 'https://projet.supabase.co/storage/v1/object/public/evenements/' + ORG + '/partenaires/p1-1.png', siteUrl: null, ordreAffichage: 0, actif: true, createdAt: new Date(), updatedAt: new Date(), deletedAt: null };
 
@@ -78,6 +93,87 @@ describe('PartenairesVitrineService', () => {
       await expect(svc.creer(USER, { nom: 'Trop lourd' }, logo({ size: 6 * 1024 * 1024 }))).rejects.toThrow(/volumineux/);
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(prisma.partenaireVitrine.create).not.toHaveBeenCalled();
+    });
+
+    describe('dimension homologuée des logos', () => {
+      const dimensions = async (octets: Buffer) => {
+        const m = await sharp(octets).metadata();
+        return { l: m.width, h: m.height, format: m.format, alpha: m.hasAlpha };
+      };
+      /** Étendue horizontale / verticale des pixels opaques du logo enregistré. */
+      const empreinte = async (octets: Buffer, seuilAlpha: number) => {
+        const sortie = await sharp(octets).raw().ensureAlpha().toBuffer({ resolveWithObject: true });
+        let minX = 1e9, maxX = -1, minY = 1e9, maxY = -1;
+        for (let y = 0; y < sortie.info.height; y++) {
+          for (let x = 0; x < sortie.info.width; x++) {
+            if (sortie.data[(y * sortie.info.width + x) * 4 + 3] > seuilAlpha) {
+              minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+            }
+          }
+        }
+        return { largeur: maxX - minX + 1, hauteur: maxY - minY + 1, minX, minY };
+      };
+
+      it.each([
+        ['horizontal 600 × 200', 600, 200],
+        ['carré 300 × 300', 300, 300],
+        ['très allongé 900 × 200', 900, 200],
+        ['vertical 120 × 240', 120, 240],
+        ['petit 90 × 40', 90, 40],
+      ])('logo %s : enregistré exactement au format standard', async (_nom, l, h) => {
+        void _nom;
+        const source = await logoSynthese(l, h);
+        await svc.creer(USER, { nom: 'Clinique Format' }, logo({ buffer: source, size: source.length }));
+        expect(await dimensions(corpsEnvoye(fetchSpy))).toEqual({ l: LOGO_LARGEUR, h: LOGO_HAUTEUR, format: 'png', alpha: true });
+        expect(fetchSpy.mock.calls[0][1].headers['Content-Type']).toBe('image/png');
+        expect(fetchSpy.mock.calls[0][0]).toMatch(/\.png$/);
+      });
+
+      it('un JPEG est converti en PNG au format standard', async () => {
+        const jpeg = await sharp({ create: { width: 500, height: 200, channels: 3, background: { r: 250, g: 250, b: 250 } } }).jpeg().toBuffer();
+        await svc.creer(USER, { nom: 'Clinique JPEG' }, logo({ buffer: jpeg, size: jpeg.length, mimetype: 'image/jpeg', originalname: 'l.jpg' }));
+        expect(await dimensions(corpsEnvoye(fetchSpy))).toEqual({ l: LOGO_LARGEUR, h: LOGO_HAUTEUR, format: 'png', alpha: true });
+      });
+
+      it('les marges vides (transparentes) sont retirées : un petit motif noyé dans un grand cadre vide remplit le cadre standard', async () => {
+        const source = await logoSynthese(1200, 600, { l: 300, h: 100 }); // motif 3:1 au centre d'un grand cadre transparent
+        await svc.creer(USER, { nom: 'Clinique Marges' }, logo({ buffer: source, size: source.length }));
+        const e = await empreinte(corpsEnvoye(fetchSpy), 0);
+        expect(e.largeur).toBeGreaterThanOrEqual(390); // motif 3:1 limité par la hauteur utile (160 - 2 × 14 = 132 px) : 396 px de large
+        expect(e.minX).toBeGreaterThanOrEqual(26);
+      });
+
+      it('le logo n’est jamais déformé : le rapport largeur / hauteur du motif est conservé', async () => {
+        const source = await logoSynthese(400, 100); // 4:1
+        await svc.creer(USER, { nom: 'Clinique Rapport' }, logo({ buffer: source, size: source.length }));
+        const e = await empreinte(corpsEnvoye(fetchSpy), 128);
+        expect(e.largeur / e.hauteur).toBeGreaterThan(3.8);
+        expect(e.largeur / e.hauteur).toBeLessThan(4.2);
+      });
+
+      it.each([
+        ['trop petit (60 × 20)', 60, 20, /trop petit/i],
+        ['trop allongé (1500 × 100, 15:1)', 1500, 100, /Proportions/],
+        ['trop haut (100 × 600, 1:6)', 100, 600, /Proportions/],
+      ])('refuse un logo %s', async (_nom, l, h, message) => {
+        void _nom;
+        const source = await logoSynthese(l, h);
+        await expect(svc.creer(USER, { nom: 'Clinique Refus' }, logo({ buffer: source, size: source.length }))).rejects.toThrow(message);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(prisma.partenaireVitrine.create).not.toHaveBeenCalled();
+      });
+
+      it('refuse une image corrompue (signature valide, contenu illisible) sans rien enregistrer', async () => {
+        const corrompu = Buffer.concat([PNG.subarray(0, 40), Buffer.from('contenu invalide')]);
+        await expect(svc.creer(USER, { nom: 'Clinique Corrompue' }, logo({ buffer: corrompu, size: corrompu.length }))).rejects.toThrow(/illisible/i);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      });
+
+      it('la modification avec un nouveau logo applique aussi le format standard', async () => {
+        const source = await logoSynthese(700, 200);
+        await svc.modifier(USER, 'p1', {}, logo({ buffer: source, size: source.length }));
+        expect(await dimensions(corpsEnvoye(fetchSpy))).toEqual({ l: LOGO_LARGEUR, h: LOGO_HAUTEUR, format: 'png', alpha: true });
+      });
     });
 
     it(`plafonne à ${NB_MAX_PARTENAIRES_ACTIFS} logos actifs`, async () => {

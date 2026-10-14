@@ -4,6 +4,12 @@ import type { PartenairePublic } from '@/lib/partenaires-publics';
 
 const EMPLACEMENTS = [Building2, Pill, Building2, Pill, Building2, Pill];
 
+/**
+ * Cadre UNIQUE de tous les logos : 12 × 4 rem (3:1, comme le format homologué 480 × 160 px des logos enregistrés par l'API) — tous les logos ont
+ * donc la même taille et le même alignement dans le bandeau, quel que soit le fichier d'origine.
+ */
+const CADRE = 'block h-16 w-48 shrink-0';
+
 /** Un logo du bandeau : lien vers le site du partenaire s'il en a un (ouvert dans un nouvel onglet, sans transmettre l'origine). */
 function Logo({ p, decoratif }: { p: PartenairePublic; decoratif?: boolean }) {
   const image = (
@@ -12,15 +18,15 @@ function Logo({ p, decoratif }: { p: PartenairePublic; decoratif?: boolean }) {
       src={p.logoUrl}
       alt={decoratif ? '' : p.nom}
       loading="lazy"
-      className="h-12 w-auto max-w-[11rem] object-contain opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0"
+      className="h-full w-full object-contain opacity-80 grayscale transition hover:opacity-100 hover:grayscale-0"
     />
   );
   return p.siteUrl && !decoratif ? (
-    <a href={p.siteUrl} target="_blank" rel="noopener noreferrer" title={p.nom} className="shrink-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+    <a href={p.siteUrl} target="_blank" rel="noopener noreferrer" title={p.nom} className={`${CADRE} rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}>
       {image}
     </a>
   ) : (
-    <span className="shrink-0" title={decoratif ? undefined : p.nom}>
+    <span className={CADRE} title={decoratif ? undefined : p.nom}>
       {image}
     </span>
   );
@@ -39,7 +45,7 @@ export function BandeauPartenaires({ partenaires = [], societe = false }: { part
   const avecLogos = partenaires.length > 0;
   if (!avecLogos && societe) return null;
 
-  const repetitions = avecLogos ? Math.max(1, Math.ceil(10 / partenaires.length)) : 1;
+  const repetitions = avecLogos ? Math.max(1, Math.ceil(14 / partenaires.length)) : 1;
   const moitie = avecLogos
     ? Array.from({ length: repetitions }, (_, r) => partenaires.map((p) => ({ p, cle: `${r}-${p.id}` }))).flat()
     : [];

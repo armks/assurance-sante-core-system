@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import sharp from 'sharp';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,6 +32,23 @@ export const ROLE_GESTION_PARTENAIRES = ROLE_GESTION_EVENEMENTS;
 /** Plafond de logos ACTIFS par société : au-delà le bandeau n'a plus de sens (et la page devient lourde). */
 export const NB_MAX_PARTENAIRES_ACTIFS = 30;
 export const TAILLE_MAX_LOGO_PARTENAIRE = 5 * 1024 * 1024;
+
+/**
+ * Dimension HOMOLOGUÉE des logos : tous les logos enregistrés ont exactement ce format (PNG, fond transparent, rapport 3:1), quel que
+ * soit le fichier fourni — le bandeau défilant affiche ainsi des logos de même taille, bien alignés, sans déformation.
+ */
+export const LOGO_LARGEUR = 480;
+export const LOGO_HAUTEUR = 160;
+/** Marge intérieure (px) conservée autour du logo dans le cadre standard. */
+const LOGO_MARGE_X = 28;
+const LOGO_MARGE_Y = 14;
+/** Logo source : au moins 80 × 30 px (en deçà il serait flou une fois agrandi) ; pas plus de 24 millions de pixels (image piégée). */
+const LOGO_MIN_LARGEUR = 80;
+const LOGO_MIN_HAUTEUR = 30;
+const LOGO_MAX_PIXELS = 24_000_000;
+/** Rapport largeur / hauteur toléré après recadrage des marges vides : de 1:3 (très haut) à 6:1 (très allongé). */
+const LOGO_RAPPORT_MIN = 1 / 3;
+const LOGO_RAPPORT_MAX = 6;
 /** Bucket PUBLIC des images de la vitrine (prisma/sql/060) — les logos sont rangés sous `{organisation}/partenaires/`. */
 const BUCKET = 'evenements';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,12 +83,14 @@ export class PartenairesVitrineService {
     const ctx = await this.contexteGestion(user);
     if (!fichier) throw new BadRequestException('Un logo (image) est requis pour ajouter un partenaire.');
     const image = this.validerImage(fichier);
+    const normalise = await this.normaliserLogo(fichier.buffer);
     if ((dto.actif ?? true) && (await this.nbActifs(ctx.organisationId)) >= NB_MAX_PARTENAIRES_ACTIFS) {
       throw new BadRequestException(`Au plus ${NB_MAX_PARTENAIRES_ACTIFS} logos actifs : archivez-en un avant d'en ajouter.`);
     }
     const id = randomUUID();
-    const chemin = `${ctx.organisationId}/partenaires/${id}-${Date.now()}.${image.ext}`;
-    await this.televerser(chemin, fichier.buffer, image.mime);
+    const chemin = `${ctx.organisationId}/partenaires/${id}-${Date.now()}.png`;
+    void image; // le format d'origine n'est qu'un contrôle : le logo enregistré est toujours le PNG normalisé
+    await this.televerser(chemin, normalise, 'image/png');
     try {
       const cree = await this.prisma.$transaction(async (tx) => {
         const c = await tx.partenaireVitrine.create({
@@ -103,9 +123,10 @@ export class PartenairesVitrineService {
     let logoUrl: string | undefined;
     let nouveauChemin: string | undefined;
     if (fichier) {
-      const image = this.validerImage(fichier);
-      nouveauChemin = `${ctx.organisationId}/partenaires/${id}-${Date.now()}.${image.ext}`;
-      await this.televerser(nouveauChemin, fichier.buffer, image.mime);
+      this.validerImage(fichier);
+      const normalise = await this.normaliserLogo(fichier.buffer);
+      nouveauChemin = `${ctx.organisationId}/partenaires/${id}-${Date.now()}.png`;
+      await this.televerser(nouveauChemin, normalise, 'image/png');
       logoUrl = this.urlPublique(nouveauChemin);
     }
     let maj;
@@ -203,6 +224,50 @@ export class PartenairesVitrineService {
     const format = formatImageEvenement(fichier.buffer);
     if (!format) throw new BadRequestException('Formats de logo acceptés : JPEG, PNG, WEBP.');
     return format;
+  }
+
+  /**
+   * Met le logo au format homologué : marges vides (transparentes ou de couleur unie) retirées, logo agrandi ou réduit SANS déformation pour
+   * tenir dans le cadre 480 × 160 px avec une marge intérieure, centré sur fond transparent, enregistré en PNG. Refuse un logo trop petit,
+   * démesuré, ou dont les proportions (une fois recadré) sortent de 1:3 à 6:1 — il serait illisible dans le bandeau.
+   */
+  private async normaliserLogo(octets: Buffer): Promise<Buffer> {
+    try {
+      const source = sharp(octets, { limitInputPixels: LOGO_MAX_PIXELS }).rotate(); // rotate() applique l'orientation EXIF
+      const meta = await source.metadata();
+      if (!meta.width || !meta.height) throw new Error('dimensions inconnues');
+      if (meta.width < LOGO_MIN_LARGEUR || meta.height < LOGO_MIN_HAUTEUR) {
+        throw new BadRequestException(`Logo trop petit (${meta.width} × ${meta.height} px) : au moins ${LOGO_MIN_LARGEUR} × ${LOGO_MIN_HAUTEUR} px.`);
+      }
+      // marges vides retirées ; une image uniforme ne peut pas être recadrée : on la garde telle quelle
+      let recadre: Buffer;
+      try {
+        recadre = await source.clone().trim({ threshold: 12 }).png().toBuffer();
+      } catch {
+        recadre = await source.clone().png().toBuffer();
+      }
+      const m = await sharp(recadre).metadata();
+      const rapport = (m.width ?? 1) / (m.height ?? 1);
+      if (rapport < LOGO_RAPPORT_MIN || rapport > LOGO_RAPPORT_MAX) {
+        throw new BadRequestException('Proportions du logo inadaptées au bandeau (entre 1:3 et 6:1 attendu, marges vides retirées).');
+      }
+      const interne = await sharp(recadre)
+        .resize({ width: LOGO_LARGEUR - 2 * LOGO_MARGE_X, height: LOGO_HAUTEUR - 2 * LOGO_MARGE_Y, fit: 'inside', withoutEnlargement: false })
+        .png()
+        .toBuffer();
+      const d = await sharp(interne).metadata();
+      const w = d.width ?? 0;
+      const h = d.height ?? 0;
+      const gauche = Math.floor((LOGO_LARGEUR - w) / 2);
+      const haut = Math.floor((LOGO_HAUTEUR - h) / 2);
+      return await sharp(interne)
+        .extend({ top: haut, bottom: LOGO_HAUTEUR - h - haut, left: gauche, right: LOGO_LARGEUR - w - gauche, background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .png({ compressionLevel: 9 })
+        .toBuffer();
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      throw new BadRequestException('Image illisible ou trop grande : fournissez un logo JPEG, PNG ou WEBP valide (24 millions de pixels au plus).');
+    }
   }
 
   private get baseStorage(): string {

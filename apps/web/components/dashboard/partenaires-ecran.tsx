@@ -50,8 +50,8 @@ function ChampsPartenaire({ p }: { p?: PartenaireGestion }) {
         required={!p}
         aide={
           p
-            ? 'Laisser vide pour garder le logo actuel. JPEG, PNG ou WEBP, 5 Mo au plus.'
-            : 'JPEG, PNG ou WEBP, 5 Mo au plus. Fond transparent (PNG) ou blanc conseillé, logo plutôt horizontal.'
+            ? 'Laisser vide pour garder le logo actuel. Le nouveau logo est lui aussi mis au format standard 480 × 160 px.'
+            : 'JPEG, PNG ou WEBP, 5 Mo au plus, 80 × 30 px au minimum. Votre logo est automatiquement mis au format standard 480 × 160 px (marges vides retirées, centré, sans déformation, fond transparent) pour un affichage homogène dans le bandeau.'
         }
       />
       <ChampTexte
@@ -92,7 +92,7 @@ export function PartenairesEcran({ partenaires, slug }: { partenaires: Partenair
       entete: 'Logo',
       rendu: (p) => (
         // eslint-disable-next-line @next/next/no-img-element -- logos hébergés dans le stockage public, dimensions variables
-        <img src={p.logoUrl} alt={`Logo de ${p.nom}`} className="h-10 w-24 rounded-md border bg-white object-contain p-1" />
+        <img src={p.logoUrl} alt={`Logo de ${p.nom}`} className="h-12 w-36 rounded-md border bg-white object-contain" />
       ),
     },
     { cle: 'nom', entete: 'Partenaire', triable: true, rendu: (p) => <span className="font-medium">{p.nom}</span> },

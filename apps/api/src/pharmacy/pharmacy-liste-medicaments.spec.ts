@@ -8,6 +8,8 @@ import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
+import { NotificationCodeService } from '../notifications/notification-code.service';
+import { AdherentService } from '../member/adherent.service';
 import { PharmacyService } from './pharmacy.service';
 
 const USER: AuthenticatedUser = { sub: 'u1', email: 'armelk01+testunitaire@gmail.com', postgresRole: 'authenticated', claimRole: null, aud: 'authenticated', token: 'jwt' };
@@ -41,6 +43,8 @@ describe('PharmacyService — liste des médicaments remboursables de la pharmac
         { provide: AdjudicationClientService, useValue: adjudicationClientDeTest() },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PharmacyService,
+        { provide: NotificationCodeService, useValue: { canauxDisponibles: jest.fn().mockReturnValue({ EMAIL: { actif: true }, SMS: { actif: false } }), smsActif: jest.fn().mockReturnValue(false), envoyer: jest.fn() } },
+        { provide: AdherentService, useValue: { urlPhotoSignee: jest.fn().mockResolvedValue(null) } },
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
         { provide: ClaimsService, useValue: {} },

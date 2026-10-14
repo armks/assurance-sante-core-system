@@ -39,6 +39,16 @@ export interface PatientRecherche {
   prenom: string;
   numeroCarte: string;
   statut: string;
+  dateNaissance: string;
+  sexe: string | null;
+  lien: string;
+  photoUrl: string | null;
+  societe: string | null;
+  police: string | null;
+  /** Formule d'assurance (produit de la police). */
+  produit: string | null;
+  /** Contacts enregistrés du titulaire (masqués) — canaux d'envoi du code. */
+  contacts: { canal: 'EMAIL' | 'SMS'; masque: string; actif: boolean; avertissement: string | null }[];
 }
 
 export interface RecherchePrescriptionsResultat {

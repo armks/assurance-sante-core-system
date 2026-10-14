@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import {
+  annulerDispensation,
   confirmerPaiementDispensation,
   obtenirDispensation,
   obtenirStock,
@@ -21,6 +22,7 @@ import {
   FormulaireModal,
   StatutBadge,
 } from '@/components/dashboard/patterns';
+import { FichePatient } from '../centre-medical/fiche-patient';
 import { ChampMedicamentBase } from './champ-medicament-base';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,6 +81,8 @@ export function DispensationFlowEcran({
     setDispensation(null);
     setPaiementErreur(null);
     setNumeroCarte('');
+    setCanal('');
+    setNonCouvert(false);
   }
 
   function rechercher() {
@@ -128,6 +132,10 @@ export function DispensationFlowEcran({
 
   const auMoinsUneLigneChoisie = Object.values(selections).some(Boolean);
 
+  const contacts = resultat?.patient.contacts ?? [];
+  const [canal, setCanal] = useState<'EMAIL' | 'SMS' | ''>('');
+  const [nonCouvert, setNonCouvert] = useState(false);
+
   function envoyerCode() {
     if (!ordonnanceSelectionnee) return;
     setPreparationErreur(null);
@@ -135,14 +143,29 @@ export function DispensationFlowEcran({
       .filter((l) => selections[l.id])
       .map((l) => ({ ligneOrdonnanceId: l.id, prixUnitaire: Number(prixLocal[l.id]) }));
     startTransition(async () => {
-      const res = await preparerDispensation(ordonnanceSelectionnee.id, lignes, cible);
+      const res = await preparerDispensation(ordonnanceSelectionnee.id, lignes, cible, canal || undefined);
       if (!res.ok) {
         setPreparationErreur(res.error);
         return;
       }
       setAlertesPreparation(res.alertes ?? []);
+      setNonCouvert(res.pharmacieCouverte === false);
       const detail = await obtenirDispensation(res.dispensationId!);
       setDispensation(detail);
+    });
+  }
+
+  function supprimerFacture() {
+    if (!dispensation) return;
+    if (!window.confirm('Supprimer cette facture non réglée ? Le code envoyé au patient ne sera plus valable.')) return;
+    setPaiementErreur(null);
+    startTransition(async () => {
+      const res = await annulerDispensation(dispensation.id, cible);
+      if (!res.ok) {
+        setPaiementErreur(res.error);
+        return;
+      }
+      reinitialiser();
     });
   }
 
@@ -179,14 +202,14 @@ export function DispensationFlowEcran({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* --- Recherche par numéro de carte --- */}
       <Card>
-        <CardHeader>
+        <CardHeader className="pb-0">
           <CardTitle className="text-base">Rechercher un patient</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-wrap items-end gap-3">
-          <div className="min-w-64 flex-1">
+        <CardContent className="flex flex-wrap items-end gap-2">
+          <div className="w-full max-w-60">
             <label className="mb-1 block text-sm font-medium">Numéro de carte</label>
             <Input
               value={numeroCarte}
@@ -213,33 +236,66 @@ export function DispensationFlowEcran({
       {/* --- Résultat : patient + liste des prescriptions actives --- */}
       {resultat && (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              {resultat.patient.prenom} {resultat.patient.nom}
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                {resultat.patient.qualite === 'TITULAIRE' ? 'Titulaire' : 'Bénéficiaire'} —{' '}
-                {resultat.patient.numeroCarte}
-              </span>
-            </CardTitle>
+          <CardHeader className="pb-0">
+            <div className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-2.5 sm:flex-row sm:items-stretch sm:gap-4" data-testid="fiche-patient-pharmacie">
+              <FichePatient
+                compact
+                patient={{
+                  nom: resultat.patient.nom,
+                  prenom: resultat.patient.prenom,
+                  dateNaissance: resultat.patient.dateNaissance,
+                  sexe: resultat.patient.sexe,
+                  numeroCarte: resultat.patient.numeroCarte,
+                  societe: resultat.patient.societe,
+                  photoUrl: resultat.patient.photoUrl,
+                  lien: resultat.patient.lien,
+                  formule: resultat.patient.produit,
+                }}
+              />
+              <dl className="grid flex-1 content-between gap-y-1.5 text-sm">
+                <div>
+                  <dt className="text-sm text-muted-foreground">Statut de la carte</dt>
+                  <dd className="font-medium">{resultat.patient.statut}</dd>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4">
+                  <div><dt className="text-sm text-muted-foreground">Police</dt><dd>{resultat.patient.police ?? '—'}</dd></div>
+                  <div><dt className="text-sm text-muted-foreground">Souscripteur</dt><dd>{resultat.patient.societe ?? '—'}</dd></div>
+                </div>
+                {contacts.length > 0 ? (
+                  <fieldset className="space-y-0.5 border-t pt-1.5" disabled={!!dispensation}>
+                    <legend className="text-sm font-medium">Canal d’envoi du code</legend>
+                    {contacts.map((c) => (
+                      <label key={c.canal} className={`flex items-center gap-1.5 text-sm ${c.actif ? '' : 'opacity-60'}`}>
+                        <input type="radio" name="canal" value={c.canal} checked={canal === c.canal} disabled={!c.actif} onChange={() => setCanal(c.canal)} data-testid={`canal-${c.canal}`} />
+                        <span>{c.canal === 'EMAIL' ? 'E-mail' : 'Téléphone (SMS)'} — <span className="font-mono">{c.masque}</span></span>
+                        {c.avertissement && <span className="text-[11px] text-muted-foreground">({c.avertissement})</span>}
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : (
+                  <p className="border-t pt-1.5 text-sm text-amber-700">Aucun contact enregistré : le code restera visible dans l’application du patient.</p>
+                )}
+              </dl>
+            </div>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-1.5">
             {resultat.ordonnances.length === 0 ? (
               <p className="text-sm text-muted-foreground">Aucune prescription active pour ce patient.</p>
             ) : (
               resultat.ordonnances.map((o) => (
                 <div
                   key={o.id}
-                  className={`flex items-center justify-between rounded-md border p-3 ${
-                    o.id === ordonnanceId ? 'border-primary bg-primary/5' : ''
+                  className={`flex items-center justify-between gap-3 rounded-md border px-3 py-1.5 transition-colors ${
+                    o.id === ordonnanceId ? 'border-primary bg-primary/5' : 'hover:bg-muted/40'
                   }`}
                 >
-                  <div className="text-sm">
-                    <p className="font-medium">{o.numeroTraitement}</p>
-                    <p className="text-muted-foreground">
+                  <p className="flex min-w-0 flex-wrap items-baseline gap-x-3 text-sm">
+                    <span className="font-semibold">{o.numeroTraitement}</span>
+                    <span className="whitespace-nowrap text-muted-foreground">
                       {o.lignes.length} médicament(s) — prescrite le{' '}
                       {new Date(o.datePrescription).toLocaleDateString('fr-FR')}
-                    </p>
-                  </div>
+                    </span>
+                  </p>
                   <Button
                     size="sm"
                     variant={o.id === ordonnanceId ? 'default' : 'outline'}
@@ -372,9 +428,12 @@ export function DispensationFlowEcran({
             </div>
 
             {preparationErreur && <p className="text-sm text-destructive">{preparationErreur}</p>}
+            {contacts.length > 0 && !canal && (
+              <p className="text-sm text-muted-foreground">Choisissez d’abord le canal d’envoi du code (fiche du patient ci-dessus).</p>
+            )}
 
             <div className="flex justify-end">
-              <Button onClick={envoyerCode} disabled={pending || !auMoinsUneLigneChoisie || prixManquant}>
+              <Button onClick={envoyerCode} disabled={pending || !auMoinsUneLigneChoisie || prixManquant || (contacts.length > 0 && !canal)}>
                 Envoyer le code de confirmation au patient
               </Button>
             </div>
@@ -405,6 +464,11 @@ export function DispensationFlowEcran({
                 {alertesPreparation
                   .map((a) => `${a.medicament} (+${a.majorationPourcent} % : ${montantFr(a.prixUnitaire)} pour un prix national de ${montantFr(a.prixReference)})`)
                   .join(' ; ')}
+              </div>
+            )}
+            {nonCouvert && (
+              <div role="alert" className="rounded-md border border-amber-300 bg-amber-50/60 p-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-400">
+                La formule du patient ne comporte aucune garantie « Pharmacie » : aucune part assurance n’est applicable (taux de couverture et ticket modérateur à définir sur le produit).
               </div>
             )}
             <ul className="space-y-2 text-sm">
@@ -473,6 +537,9 @@ export function DispensationFlowEcran({
               </div>
             ) : (
               <div className="flex flex-wrap items-center justify-end gap-3">
+                <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={supprimerFacture} disabled={pending}>
+                  Supprimer la facture
+                </Button>
                 <Button variant="ghost" onClick={() => void rafraichirDispensation()} disabled={pending}>
                   Rafraîchir le statut
                 </Button>

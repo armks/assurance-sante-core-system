@@ -48,6 +48,11 @@ export class PreparerDispensationDto {
   @ValidateNested({ each: true })
   @Type(() => LigneChoisieDto)
   lignes!: LigneChoisieDto[];
+
+  /** Canal d'envoi du code au patient (contact enregistré sur sa fiche). */
+  @IsOptional()
+  @IsIn(['EMAIL', 'SMS'])
+  canal?: 'EMAIL' | 'SMS';
 }
 
 export class ValiderCodeDispensationDto {

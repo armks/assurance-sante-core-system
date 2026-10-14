@@ -106,7 +106,7 @@ export class PharmacyController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: PreparerDispensationDto,
   ) {
-    return this.pharmacy.preparerDispensation(user, dto.ordonnanceId, dto.lignes);
+    return this.pharmacy.preparerDispensation(user, dto.ordonnanceId, dto.lignes, dto.canal);
   }
 
   /**
@@ -143,6 +143,15 @@ export class PharmacyController {
     @Body() dto: ValiderCodeDispensationDto,
   ) {
     return this.pharmacy.validerCodeDispensation(user, dto);
+  }
+
+  /** Côté PHARMACIE : supprime (annule) une facture d'ordonnance non réglée de SA pharmacie. */
+  @Post('dispensations/:id/annuler')
+  annuler(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.annulerDispensation(user, id);
   }
 
   /** Côté PHARMACIE : confirme le paiement — bloqué si le code n'est pas validé. */

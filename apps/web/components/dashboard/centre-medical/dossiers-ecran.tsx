@@ -1,14 +1,14 @@
-'use client';
+"use client";
 
-import Link from 'next/link';
+import Link from "next/link";
 
 import {
   DataTable,
   StatutBadge,
   type ColonneTable,
-} from '@/components/dashboard/patterns';
-import { Button } from '@/components/ui/button';
-import { LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
+} from "@/components/dashboard/patterns";
+import { Button } from "@/components/ui/button";
+import { LIBELLE_STATUT_DOSSIER } from "@/lib/dossier-soins";
 
 export interface DossierResume {
   id: string;
@@ -28,61 +28,97 @@ export interface DossierResume {
 }
 
 const LIBELLE_LIEN: Record<string, string> = {
-  CONJOINT: 'conjoint(e)',
-  ENFANT: 'enfant',
-  PERE: 'père',
-  MERE: 'mère',
-  AUTRE: 'bénéficiaire',
+  CONJOINT: "conjoint(e)",
+  ENFANT: "enfant",
+  PERE: "père",
+  MERE: "mère",
+  AUTRE: "bénéficiaire",
 };
 
 const dateFr = (d: string | null) =>
-  d ? new Date(d).toLocaleDateString('fr-FR') : '—';
+  d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
-export function DossiersEcran({ dossiers }: { dossiers: DossierResume[] }) {
-  const colonnes: ColonneTable<DossierResume>[] = [
-    { cle: 'numeroTraitement', entete: 'N° traitement', triable: true, className: 'font-mono text-xs' },
+/** Dossier portant l'identité de son patient (renvoyée par `GET /care-episode/dossiers`). */
+export interface AvecPatient {
+  beneficiaireId?: string | null;
+  patient?: DossierResume["patient"];
+}
+
+/** Colonnes « Patient · N° de carte · Société », partagées par les listes de dossiers (soins, facturation). */
+export function colonnesPatient<T extends AvecPatient>(): ColonneTable<T>[] {
+  return [
     {
-      cle: 'patient.nom',
-      entete: 'Patient',
+      cle: "patient.nom",
+      entete: "Patient",
       triable: true,
-      valeur: (d) => (d.patient ? `${d.patient.nom} ${d.patient.prenom}` : ''),
+      valeur: (d) => (d.patient ? `${d.patient.nom} ${d.patient.prenom}` : ""),
       rendu: (d) =>
         d.patient ? (
           <span>
             <span className="font-medium">
-              {d.patient.prenom} <span className="uppercase">{d.patient.nom}</span>
+              {d.patient.prenom}{" "}
+              <span className="uppercase">{d.patient.nom}</span>
             </span>
-            {d.patient.lien !== 'TITULAIRE' && <span className="text-xs text-muted-foreground"> · {LIBELLE_LIEN[d.patient.lien] ?? d.patient.lien}</span>}
+            {d.patient.lien !== "TITULAIRE" && (
+              <span className="text-xs text-muted-foreground">
+                {" "}
+                · {LIBELLE_LIEN[d.patient.lien] ?? d.patient.lien}
+              </span>
+            )}
           </span>
+        ) : d.beneficiaireId ? (
+          "Bénéficiaire"
         ) : (
-          (d.beneficiaireId ? 'Bénéficiaire' : 'Adhérent')
+          "Adhérent"
         ),
     },
     {
-      cle: 'patient.numeroCarte',
-      entete: 'N° de carte',
-      className: 'font-mono text-xs',
-      rendu: (d) => d.patient?.numeroCarte ?? '—',
+      cle: "patient.numeroCarte",
+      entete: "N° de carte",
+      className: "font-mono text-xs",
+      rendu: (d) => d.patient?.numeroCarte ?? "—",
     },
     {
-      cle: 'patient.societe',
-      entete: 'Société',
+      cle: "patient.societe",
+      entete: "Société",
       triable: true,
-      rendu: (d) => d.patient?.societe ?? '—',
+      rendu: (d) => d.patient?.societe ?? "—",
+    },
+  ];
+}
+
+/** Champs de recherche de ces colonnes. */
+export const CHAMPS_RECHERCHE_PATIENT = [
+  "patient.nom",
+  "patient.prenom",
+  "patient.numeroCarte",
+  "patient.societe",
+];
+
+export function DossiersEcran({ dossiers }: { dossiers: DossierResume[] }) {
+  const colonnes: ColonneTable<DossierResume>[] = [
+    {
+      cle: "numeroTraitement",
+      entete: "N° traitement",
+      triable: true,
+      className: "font-mono text-xs",
+    },
+    ...colonnesPatient<DossierResume>(),
+    {
+      cle: "motifConsultation",
+      entete: "Motif",
+      rendu: (d) => d.motifConsultation ?? "—",
     },
     {
-      cle: 'motifConsultation',
-      entete: 'Motif',
-      rendu: (d) => d.motifConsultation ?? '—',
+      cle: "statut",
+      entete: "Statut",
+      rendu: (d) => (
+        <StatutBadge statut={d.statut} libelles={LIBELLE_STATUT_DOSSIER} />
+      ),
     },
     {
-      cle: 'statut',
-      entete: 'Statut',
-      rendu: (d) => <StatutBadge statut={d.statut} libelles={LIBELLE_STATUT_DOSSIER} />,
-    },
-    {
-      cle: 'dateOuverture',
-      entete: 'Ouvert le',
+      cle: "dateOuverture",
+      entete: "Ouvert le",
       triable: true,
       valeur: (d) => d.dateOuverture,
       rendu: (d) => dateFr(d.dateOuverture),
@@ -96,8 +132,12 @@ export function DossiersEcran({ dossiers }: { dossiers: DossierResume[] }) {
       cleLigne={(d) => d.id}
       parPage={10}
       recherche={{
-        placeholder: 'Patient, carte, société…',
-        champs: ['numeroTraitement', 'motifConsultation', 'patient.nom', 'patient.prenom', 'patient.numeroCarte', 'patient.societe'],
+        placeholder: "Patient, carte, société…",
+        champs: [
+          "numeroTraitement",
+          "motifConsultation",
+          ...CHAMPS_RECHERCHE_PATIENT,
+        ],
       }}
       colonnes={colonnes}
       actionLigne={(d) => (

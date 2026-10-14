@@ -22,6 +22,9 @@ import {
   STATUTS_CONTESTATION_EN_LITIGE,
 } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
+import { masquerEmail, masquerTelephone } from '../accueil/accueil-carte.service';
+import { AdherentService } from '../member/adherent.service';
+import { NotificationCodeService, type CanalCode } from '../notifications/notification-code.service';
 import { bornesPage, conditionRecherche, filtrePeriode, versPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -76,7 +79,49 @@ export class PharmacyService {
     private readonly identity: IdentityService,
     private readonly claims: ClaimsService,
     private readonly adjudication: AdjudicationClientService,
+    private readonly adherents: AdherentService,
+    private readonly notifications: NotificationCodeService,
   ) {}
+
+  private contactsMasques(t: { email: string | null; telephone: string | null }) {
+    const canaux = this.notifications.canauxDisponibles();
+    const liste: { canal: CanalCode; masque: string; actif: boolean; avertissement: string | null }[] = [];
+    if (t.email) liste.push({ canal: 'EMAIL', masque: masquerEmail(t.email), actif: canaux.EMAIL.actif, avertissement: canaux.EMAIL.raison ?? null });
+    if (t.telephone) liste.push({ canal: 'SMS', masque: masquerTelephone(t.telephone), actif: canaux.SMS.actif, avertissement: canaux.SMS.raison ?? null });
+    return liste;
+  }
+
+  /** Identité du patient pour le comptoir : mêmes informations que la fiche d'accueil de l'établissement. */
+  private async fichePatient(
+    adherent: {
+      nom: string; prenom: string; numeroCarte: string; statut: string; dateNaissance: Date; sexe: string | null; photoUrl: string | null;
+      email: string | null; telephone: string | null;
+      souscripteur: { nom: string }; police: { numeroPolice: string; produit: { nom: string } } | null;
+    } | null,
+    beneficiaire: {
+      nom: string; prenom: string; numeroCarte: string | null; statut: string; dateNaissance: Date; sexe: string | null; photoUrl: string | null; lienParente: string;
+      adherent: { email: string | null; telephone: string | null; souscripteur: { nom: string }; police: { numeroPolice: string; produit: { nom: string } } | null };
+    } | null,
+  ) {
+    const membre = (adherent ?? beneficiaire)!;
+    const titulaire = adherent ?? beneficiaire!.adherent;
+    return {
+      qualite: adherent ? ('TITULAIRE' as const) : ('BENEFICIAIRE' as const),
+      nom: membre.nom,
+      prenom: membre.prenom,
+      numeroCarte: membre.numeroCarte,
+      statut: membre.statut,
+      dateNaissance: membre.dateNaissance.toISOString().slice(0, 10),
+      sexe: membre.sexe ?? null,
+      lien: beneficiaire ? beneficiaire.lienParente : 'TITULAIRE',
+      photoUrl: await this.adherents.urlPhotoSignee(membre.photoUrl),
+      societe: titulaire.souscripteur.nom,
+      police: titulaire.police ? titulaire.police.numeroPolice : null,
+      produit: titulaire.police ? titulaire.police.produit.nom : null,
+      // contacts ENREGISTRÉS (ceux du titulaire), masqués : jamais saisis au comptoir
+      contacts: this.contactsMasques(titulaire),
+    };
+  }
 
   // --- Recherche par carte -----------------------------------------
 
@@ -87,7 +132,12 @@ export class PharmacyService {
     const carte = numeroCarte.trim();
     const adherent = await this.prisma.adherent.findFirst({
       where: { numeroCarte: carte, organisationId: ctx.organisationId, deletedAt: null },
-      select: { id: true, nom: true, prenom: true, numeroCarte: true, statut: true },
+      select: {
+        id: true, nom: true, prenom: true, numeroCarte: true, statut: true, dateNaissance: true, sexe: true, photoUrl: true,
+        email: true, telephone: true,
+        souscripteur: { select: { nom: true } },
+        police: { select: { numeroPolice: true, produit: { select: { nom: true } } } },
+      },
     });
     const beneficiaire = adherent
       ? null
@@ -104,6 +154,18 @@ export class PharmacyService {
             numeroCarte: true,
             statut: true,
             adherentId: true,
+            dateNaissance: true,
+            sexe: true,
+            lienParente: true,
+            photoUrl: true,
+            adherent: {
+              select: {
+                email: true,
+                telephone: true,
+                souscripteur: { select: { nom: true } },
+                police: { select: { numeroPolice: true, produit: { select: { nom: true } } } },
+              },
+            },
           },
         });
 
@@ -148,9 +210,7 @@ export class PharmacyService {
 
     return {
       seuilMajorationPourcent,
-      patient: adherent
-        ? { qualite: 'TITULAIRE' as const, nom: adherent.nom, prenom: adherent.prenom, numeroCarte: adherent.numeroCarte, statut: adherent.statut }
-        : { qualite: 'BENEFICIAIRE' as const, nom: beneficiaire!.nom, prenom: beneficiaire!.prenom, numeroCarte: beneficiaire!.numeroCarte, statut: beneficiaire!.statut },
+      patient: await this.fichePatient(adherent, beneficiaire),
       ordonnances: ordonnances.map((o) => ({
         id: o.id,
         numeroTraitement: o.dossier.numeroTraitement,
@@ -546,6 +606,7 @@ export class PharmacyService {
     user: AuthenticatedUser,
     ordonnanceId: string,
     lignesChoisies: LigneChoisieDto[],
+    canal?: CanalCode,
   ) {
     const ctx = await this.contexteAppelant(user);
     this.assertPharmacie(ctx);
@@ -570,6 +631,26 @@ export class PharmacyService {
     }
     if (['EXPIREE', 'ANNULEE'].includes(ordonnance.statut)) {
       throw new ConflictException(`Ordonnance ${ordonnance.statut.toLowerCase()} — dispensation impossible.`);
+    }
+
+    // Canal d'envoi du code : le contact vient de la fiche du titulaire, jamais du client.
+    let destinataire: string | null = null;
+    if (canal) {
+      const titulaire = await this.prisma.adherent.findFirst({
+        where: ordonnance.dossier.adherentId
+          ? { id: ordonnance.dossier.adherentId }
+          : { beneficiaires: { some: { id: ordonnance.dossier.beneficiaireId! } } },
+        select: { email: true, telephone: true },
+      });
+      destinataire = (canal === 'EMAIL' ? titulaire?.email : titulaire?.telephone) ?? null;
+      if (!destinataire) {
+        throw new ConflictException(
+          canal === 'EMAIL' ? 'Aucune adresse e-mail n’est enregistrée sur la fiche.' : 'Aucun numéro de téléphone n’est enregistré sur la fiche.',
+        );
+      }
+      if (canal === 'SMS' && !this.notifications.smsActif()) {
+        throw new ConflictException('SMS indisponible : fournisseur non configuré.');
+      }
     }
 
     // Part assurance / part patient — même logique que
@@ -744,6 +825,12 @@ export class PharmacyService {
       return mis;
     });
 
+    let envoi: { statut: string; detail: string } | null = null;
+    if (canal && destinataire) {
+      const pharmacie = await this.prisma.pharmacie.findUnique({ where: { id: pharmacieId }, select: { nom: true } });
+      envoi = await this.notifications.envoyer(canal, destinataire, code, pharmacie?.nom ?? 'Pharmacie', 'Dispensation');
+    }
+
     const montantAssuranceTotal = detail.reduce((acc, d) => acc.add(d.montantAssurance), new Decimal(0));
     const montantPatientTotal = detail.reduce((acc, d) => acc.add(d.montantPatient), new Decimal(0));
 
@@ -763,7 +850,12 @@ export class PharmacyService {
           prixReference: d.prixReference!.toFixed(2),
           majorationPourcent: d.majorationPourcent!.toFixed(2),
         })),
-      message: "Dispensation préparée. Le code de confirmation a été transmis au patient pour validation.",
+      pharmacieCouverte: !!garantiePharmacie,
+      envoi: envoi && canal ? { canal, statut: envoi.statut } : null,
+      message:
+        envoi && envoi.statut === 'ENVOYE'
+          ? 'Dispensation préparée. Le code de confirmation a été envoyé au patient.'
+          : 'Dispensation préparée. Le code de confirmation a été transmis au patient pour validation (visible dans son application).',
     };
   }
 
@@ -992,6 +1084,33 @@ export class PharmacyService {
       };
     });
     return versPage(items, total, page, limite);
+  }
+
+  /**
+   * Suppression (annulation) d'une facture d'ordonnance NON RÉGLÉE de SA pharmacie : passe à ANNULEE, le code
+   * de confirmation devient inutilisable. Une dispensation PAYÉE est définitive (réclamation, facture mensuelle).
+   * La ligne reste en base (traçabilité financière) et dans l'historique, au statut « Annulée ».
+   */
+  async annulerDispensation(user: AuthenticatedUser, dispensationId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+    const d = await this.prisma.dispensationPharmacie.findFirst({
+      where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
+      select: { id: true, statut: true, montantTotal: true },
+    });
+    if (!d) throw new NotFoundException('Dispensation introuvable.');
+    if (d.statut === 'PAYEE') throw new ConflictException('Cette facture est déjà réglée : elle ne peut plus être supprimée.');
+    if (d.statut === 'ANNULEE') throw new ConflictException('Cette facture est déjà supprimée.');
+    const { count } = await this.prisma.dispensationPharmacie.updateMany({
+      where: { id: d.id, statut: { in: ['EN_PREPARATION', 'EN_ATTENTE_VALIDATION_PATIENT', 'VALIDEE'] } },
+      data: { statut: 'ANNULEE' },
+    });
+    if (count === 0) throw new ConflictException('Le statut de cette facture a changé : actualisez la page.');
+    await this.audit(this.prisma, ctx.userId, 'ANNULATION_DISPENSATION', 'dispensations_pharmacie', d.id, {
+      statutPrecedent: d.statut,
+      montantTotal: d.montantTotal.toString(),
+    });
+    return { id: d.id, statut: 'ANNULEE' as const };
   }
 
   /** Validation du code par l'ADHÉRENT — passe à VALIDEE, PAS encore PAYEE. */

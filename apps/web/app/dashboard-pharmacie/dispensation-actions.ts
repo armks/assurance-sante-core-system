@@ -37,6 +37,14 @@ export async function obtenirStock(): Promise<LigneStock[]> {
   return res.ok ? ((await res.json()) as LigneStock[]) : [];
 }
 
+/** Supprime (annule) une facture d'ordonnance non réglée de la pharmacie. */
+export async function annulerDispensation(dispensationId: string, cible: string): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/pharmacy/dispensations/${dispensationId}/annuler`, { method: 'POST' });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(cible);
+  return { ok: true, message: 'Facture supprimée.' };
+}
+
 /** Réservée au pharmacien côté API (403 sinon) — voir `PharmacyService.definirPrixStock`. */
 export async function definirPrixStock(
   input: { medicamentId?: string; denominationMedicament?: string; disponible?: boolean },
@@ -78,8 +86,10 @@ export async function preparerDispensation(
   ordonnanceId: string,
   lignes: { ligneOrdonnanceId: string; prixUnitaire: number }[],
   cible: string,
+  canal?: 'EMAIL' | 'SMS',
 ): Promise<
   ResultatSoumission & {
+    pharmacieCouverte?: boolean;
     alertes?: { medicament: string; prixUnitaire: string; prixReference: string; majorationPourcent: string }[];
     dispensationId?: string;
     montantTotal?: string;
@@ -89,7 +99,7 @@ export async function preparerDispensation(
 > {
   const res = await apiFetch('/api/v1/pharmacy/dispensations', {
     method: 'POST',
-    body: JSON.stringify({ ordonnanceId, lignes }),
+    body: JSON.stringify({ ordonnanceId, lignes, canal }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   const body = (await res.json()) as {
@@ -98,6 +108,7 @@ export async function preparerDispensation(
     montantAssurance: string;
     montantPatient: string;
     alertes: { medicament: string; prixUnitaire: string; prixReference: string; majorationPourcent: string }[];
+    pharmacieCouverte: boolean;
     message: string;
   };
   revalidatePath(cible);
@@ -105,6 +116,7 @@ export async function preparerDispensation(
     ok: true,
     message: body.message,
     dispensationId: body.dispensationId,
+    pharmacieCouverte: body.pharmacieCouverte,
     montantTotal: body.montantTotal,
     montantAssurance: body.montantAssurance,
     montantPatient: body.montantPatient,

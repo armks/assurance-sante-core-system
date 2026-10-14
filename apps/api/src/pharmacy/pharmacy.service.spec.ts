@@ -10,6 +10,8 @@ import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { ClaimsService } from '../claims/claims.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationCodeService } from '../notifications/notification-code.service';
+import { AdherentService } from '../member/adherent.service';
 import { PharmacyService } from './pharmacy.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { categoriesActeServiceDeTest } from '../reference/categories-acte.testing';
@@ -135,6 +137,8 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
         { provide: AdjudicationClientService, useValue: adjudication },
         { provide: CategoriesActeService, useValue: categoriesActeServiceDeTest() },
         PharmacyService,
+        { provide: NotificationCodeService, useValue: { canauxDisponibles: jest.fn().mockReturnValue({ EMAIL: { actif: true }, SMS: { actif: false } }), smsActif: jest.fn().mockReturnValue(false), envoyer: jest.fn() } },
+        { provide: AdherentService, useValue: { urlPhotoSignee: jest.fn().mockResolvedValue(null) } },
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
         { provide: ClaimsService, useValue: claims },

@@ -107,6 +107,8 @@ export interface FicheCarte {
   prenom: string;
   numeroCarte: string;
   dateNaissance: string;
+  sexe: string | null;
+  lien: string;
   photoUrl: string | null;
   societe: string;
   souscripteur: { nom: string; type: string };

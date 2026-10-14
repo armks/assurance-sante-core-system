@@ -8,6 +8,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { CHAMPS_RECHERCHE_PATIENT, colonnesPatient, type DossierResume } from './dossiers-ecran';
 import {
   FILTRE_STATUT_DOSSIER,
   LIBELLE_STATUT_DOSSIER,
@@ -18,6 +19,8 @@ export interface DossierClot {
   numeroTraitement: string;
   statut: string;
   dateCloture: string | null;
+  beneficiaireId?: string | null;
+  patient?: DossierResume['patient'];
 }
 
 const dateFr = (d: string | null) =>
@@ -25,7 +28,8 @@ const dateFr = (d: string | null) =>
 
 export function FacturationEcran({ dossiers }: { dossiers: DossierClot[] }) {
   const colonnes: ColonneTable<DossierClot>[] = [
-    { cle: 'numeroTraitement', entete: 'N° traitement', triable: true },
+    { cle: 'numeroTraitement', entete: 'N° traitement', triable: true, className: 'font-mono text-xs' },
+    ...colonnesPatient<DossierClot>(),
     {
       cle: 'statut',
       entete: 'Dossier',
@@ -42,12 +46,13 @@ export function FacturationEcran({ dossiers }: { dossiers: DossierClot[] }) {
 
   return (
     <DataTable
+      compact
       donnees={dossiers}
       cleLigne={(d) => d.id}
       parPage={10}
       recherche={{
-        placeholder: 'N° de traitement…',
-        champs: ['numeroTraitement'],
+        placeholder: 'Patient, carte, société…',
+        champs: ['numeroTraitement', ...CHAMPS_RECHERCHE_PATIENT],
       }}
       colonnes={colonnes}
       filtres={[FILTRE_STATUT_DOSSIER]}

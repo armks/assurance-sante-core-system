@@ -28,20 +28,21 @@ function age(dateNaissance: string): number {
  * Identité du patient, à l'extrême gauche de la carte « Informations » : photo agrandie (un clic l'ouvre en grand), nom,
  * date de naissance, lien et sexe, n° de carte, formule.
  */
-export function FichePatient({ patient }: { patient: PatientDossier }) {
+export function FichePatient({ patient, compact = false }: { patient: PatientDossier; compact?: boolean }) {
+  const taillePhoto = compact ? 'size-28' : 'size-40';
   const nomComplet = `${patient.prenom} ${patient.nom}`;
   const initiales = `${patient.prenom.charAt(0)}${patient.nom.charAt(0)}`.toUpperCase();
   const lien = LIBELLE_LIEN[patient.lien] ?? patient.lien;
   const sexe = patient.sexe ? (LIBELLE_SEXE[patient.sexe] ?? patient.sexe) : null;
 
   return (
-    <div className="flex shrink-0 items-center gap-4 border-b pb-3 sm:w-96 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-5">
+    <div className={`flex shrink-0 items-center border-b sm:border-b-0 sm:border-r sm:pb-0 ${compact ? 'gap-3 pb-2 sm:w-[26rem] sm:pr-4' : 'gap-4 pb-3 sm:w-[30rem] sm:pr-5'}`}>
       {patient.photoUrl ? (
         <Dialog>
           <DialogTrigger asChild>
             <button
               type="button"
-              className="group relative size-28 shrink-0 overflow-hidden rounded-xl ring-1 ring-border focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className={`group relative ${taillePhoto} shrink-0 overflow-hidden rounded-xl ring-1 ring-border focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50`}
               aria-label={`Agrandir la photo de ${nomComplet}`}
               title="Cliquer pour agrandir"
             >
@@ -63,37 +64,37 @@ export function FichePatient({ patient }: { patient: PatientDossier }) {
       ) : (
         <span
           aria-hidden
-          className="flex size-28 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-3xl font-semibold text-primary ring-1 ring-border"
+          className={`flex ${taillePhoto} shrink-0 items-center justify-center rounded-xl bg-primary/10 ${compact ? 'text-2xl' : 'text-3xl'} font-semibold text-primary ring-1 ring-border`}
         >
           {initiales}
         </span>
       )}
 
-      <div className="min-w-0 space-y-1">
-        <p className="truncate text-base font-semibold leading-tight">
+      <div className={`min-w-0 ${compact ? 'space-y-0.5' : 'space-y-1'}`}>
+        <p className="truncate text-lg font-semibold leading-tight">
           {patient.prenom} <span className="uppercase">{patient.nom}</span>
         </p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Né(e) le {new Date(patient.dateNaissance).toLocaleDateString('fr-FR')} · {age(patient.dateNaissance)} ans
         </p>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           {lien} · {sexe ?? 'sexe non renseigné'}
         </p>
         {patient.societe && (
-          <p className="flex items-center gap-1 text-xs text-muted-foreground" title="Société de l’adhérent">
-            <Building2 aria-hidden="true" className="size-3 shrink-0" />
+          <p className="flex items-center gap-1 text-sm text-muted-foreground" title="Société de l’adhérent">
+            <Building2 aria-hidden="true" className="size-3.5 shrink-0" />
             <span className="truncate text-foreground">{patient.societe}</span>
           </p>
         )}
         {patient.numeroCarte && (
-          <p className="flex items-center gap-1 text-xs text-muted-foreground">
-            <CreditCard aria-hidden="true" className="size-3 shrink-0" />
+          <p className="flex items-center gap-1 text-sm text-muted-foreground">
+            <CreditCard aria-hidden="true" className="size-3.5 shrink-0" />
             Carte <span className="font-mono text-foreground">{patient.numeroCarte}</span>
           </p>
         )}
         {patient.formule && (
-          <p className="inline-flex max-w-full items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-            <ShieldCheck aria-hidden="true" className="size-3 shrink-0" />
+          <p className="inline-flex max-w-full items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-sm font-medium text-primary">
+            <ShieldCheck aria-hidden="true" className="size-3.5 shrink-0" />
             <span className="truncate" title={`Formule d’assurance : ${patient.formule}`}>
               {/^formule\b/i.test(patient.formule) ? patient.formule : `Formule ${patient.formule}`}
             </span>

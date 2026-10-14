@@ -17,6 +17,8 @@ import { Alerte, ChampSelect, ChampTexte } from '@/components/dashboard/patterns
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
+import { FichePatient } from './fiche-patient';
+
 type Resultat =
   | { ok: true; dossierId: string; numeroTraitement: string }
   | { ok: false; error: string; blocages: string[] };
@@ -35,41 +37,6 @@ const TON_MENTION: Record<MentionCarte, string> = {
 };
 
 const LIBELLE_CANAL = { EMAIL: 'E-mail', SMS: 'Téléphone (SMS)' } as const;
-
-function formaterDate(iso: string): string {
-  const [a, m, j] = iso.split('-');
-  return `${j}/${m}/${a}`;
-}
-
-/** Carte virtuelle : identité, société, police et mention de validité. */
-function CarteVirtuelle({ fiche }: { fiche: FicheCarte }) {
-  return (
-    <div className="flex flex-wrap gap-4 rounded-xl border bg-gradient-to-br from-slate-50 to-slate-100 p-4 dark:from-slate-900 dark:to-slate-800" data-testid="carte-virtuelle">
-      {fiche.photoUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- URL signée éphémère du stockage privé
-        <img src={fiche.photoUrl} alt={`Photo de ${fiche.prenom} ${fiche.nom}`} width={96} height={112} className="h-28 w-24 rounded-md border object-cover" data-testid="fiche-photo" />
-      ) : (
-        <div className="flex h-28 w-24 items-center justify-center rounded-md border bg-muted text-xs text-muted-foreground" data-testid="fiche-photo-absente">
-          Pas de photo
-        </div>
-      )}
-      <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-lg font-semibold" data-testid="fiche-nom">
-          {fiche.prenom} {fiche.nom}
-        </p>
-        <p className="font-mono text-sm" data-testid="fiche-numero-carte">{fiche.numeroCarte}</p>
-        <p className="text-sm text-muted-foreground">{fiche.type === 'ADHERENT_TITULAIRE' ? 'Adhérent titulaire' : 'Bénéficiaire'}</p>
-      </div>
-      <span
-        className={`self-start rounded-md px-3 py-1 text-sm font-bold tracking-wide ${TON_MENTION[fiche.carte.mention]}`}
-        data-testid="carte-mention"
-        role="status"
-      >
-        {fiche.carte.mention}
-      </span>
-    </div>
-  );
-}
 
 function RechercheCarte() {
   const [enCours, demarrer] = useTransition();
@@ -116,9 +83,8 @@ function RechercheCarte() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Recherchez la carte du patient : la fiche s’affiche (consultation journalisée). Si la carte est ACTIVE, choisissez le canal puis le type d’acte :
-          le code de confirmation est alors envoyé au patient.
+        <p className="overflow-x-auto whitespace-nowrap text-sm text-muted-foreground">
+          Recherchez la carte (consultation journalisée). Si elle est ACTIVE, choisissez canal et type d’acte : le code est envoyé au patient.
         </p>
         <form action={soumettre} className="flex flex-wrap items-end gap-4">
           <ChampTexte name="numeroCarte" label="Numéro de carte" required autoComplete="off" placeholder="CM-0000000042" className="max-w-xs" />
@@ -128,15 +94,51 @@ function RechercheCarte() {
         </form>
 
         {fiche && (
-          <div className="space-y-4" data-testid="fiche-carte">
-            <CarteVirtuelle fiche={fiche} />
-            <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-              <div><dt className="text-muted-foreground">Société</dt><dd data-testid="fiche-societe">{fiche.societe}</dd></div>
-              <div><dt className="text-muted-foreground">Date de naissance</dt><dd data-testid="fiche-naissance">{formaterDate(fiche.dateNaissance)}</dd></div>
-              <div><dt className="text-muted-foreground">Police</dt><dd data-testid="fiche-police">{fiche.police?.numero ?? '—'}</dd></div>
-              <div><dt className="text-muted-foreground">Souscripteur</dt><dd data-testid="fiche-souscripteur">{fiche.souscripteur.nom}</dd></div>
-              <div><dt className="text-muted-foreground">Produit</dt><dd data-testid="fiche-produit">{fiche.produit ?? '—'}</dd></div>
-            </dl>
+          <div className="space-y-3" data-testid="fiche-carte">
+            <div className="flex flex-col gap-2 rounded-lg border p-2.5 sm:flex-row sm:items-stretch sm:gap-4" data-testid="carte-virtuelle">
+              <FichePatient
+                compact
+                patient={{
+                  nom: fiche.nom,
+                  prenom: fiche.prenom,
+                  dateNaissance: fiche.dateNaissance,
+                  sexe: fiche.sexe,
+                  numeroCarte: fiche.numeroCarte,
+                  societe: fiche.societe,
+                  photoUrl: fiche.photoUrl,
+                  lien: fiche.lien,
+                  formule: fiche.produit,
+                }}
+              />
+              <div className="grid flex-1 content-between gap-y-1.5 text-sm">
+                <dl>
+                  <dt className="text-sm text-muted-foreground">Validité de la carte</dt>
+                  <dd>
+                    <span className={`inline-block rounded px-2 py-0.5 text-sm font-bold tracking-wide ${TON_MENTION[fiche.carte.mention]}`} data-testid="carte-mention" role="status">
+                      {fiche.carte.mention}
+                    </span>
+                  </dd>
+                </dl>
+                <dl className="grid grid-cols-2 gap-x-4">
+                  <div><dt className="text-sm text-muted-foreground">Police</dt><dd data-testid="fiche-police">{fiche.police?.numero ?? '—'}</dd></div>
+                  <div><dt className="text-sm text-muted-foreground">Souscripteur</dt><dd data-testid="fiche-souscripteur">{fiche.souscripteur.nom}</dd></div>
+                </dl>
+                {fiche.carte.active && contacts.length > 0 && (
+                    <fieldset className="space-y-0.5 border-t pt-1.5" disabled={enCours || envoye}>
+                      <legend className="text-sm font-medium">
+                        Canal d’envoi du code {fiche.contacts.source === 'TITULAIRE' && <span className="font-normal text-muted-foreground">(contacts du titulaire)</span>}
+                      </legend>
+                      {contacts.map((c) => (
+                        <label key={c.canal} className={`flex items-center gap-1.5 text-sm ${c.actif ? '' : 'opacity-60'}`}>
+                          <input type="radio" name="canal" value={c.canal} checked={canal === c.canal} disabled={!c.actif} onChange={() => setCanal(c.canal)} data-testid={`canal-${c.canal}`} />
+                          <span>{LIBELLE_CANAL[c.canal]} — <span className="font-mono">{c.masque}</span></span>
+                          {c.avertissement && <span className="text-[11px] text-muted-foreground">({c.avertissement})</span>}
+                        </label>
+                      ))}
+                    </fieldset>
+                )}
+              </div>
+            </div>
 
             {!fiche.carte.active && (
               <Alerte ton="erreur" titre={`Carte ${fiche.carte.mention} — aucune consultation ne peut être ouverte`}>
@@ -156,18 +158,6 @@ function RechercheCarte() {
 
             {fiche.carte.active && contacts.length > 0 && (
               <div className="space-y-4">
-                <fieldset className="space-y-2" disabled={enCours || envoye}>
-                  <legend className="text-sm font-medium">
-                    Canal d’envoi du code {fiche.contacts.source === 'TITULAIRE' && <span className="font-normal text-muted-foreground">(contacts du titulaire)</span>}
-                  </legend>
-                  {contacts.map((c) => (
-                    <label key={c.canal} className={`flex items-center gap-2 text-sm ${c.actif ? '' : 'opacity-60'}`}>
-                      <input type="radio" name="canal" value={c.canal} checked={canal === c.canal} disabled={!c.actif} onChange={() => setCanal(c.canal)} data-testid={`canal-${c.canal}`} />
-                      <span>{LIBELLE_CANAL[c.canal]} — <span className="font-mono">{c.masque}</span></span>
-                      {c.avertissement && <span className="text-xs text-muted-foreground">({c.avertissement})</span>}
-                    </label>
-                  ))}
-                </fieldset>
                 <ChampSelect
                   name="typeActe"
                   label="Type d’acte"

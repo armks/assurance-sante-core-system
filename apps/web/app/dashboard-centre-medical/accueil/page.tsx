@@ -21,6 +21,7 @@ export default async function AccueilPage() {
     <div className="space-y-8">
       <PageTitre
         titre="Accueil — code de consultation"
+        uneLigne
         description="Saisissez le code que le patient vous communique. La validation ouvre son dossier de soins pour cet établissement."
       />
       <AccueilEcran

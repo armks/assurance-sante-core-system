@@ -8756,3 +8756,29 @@ Terminé.
 
 ## 2026-10-14 — Liste des dossiers de soins : patient, n° de carte et société
 - `GET /care-episode/dossiers` ajoute à chaque dossier `patient` (nom, prénom, n° de carte, lien, société = souscripteur de l'adhérent titulaire) en deux requêtes groupées (pas une par ligne). Écran `DossiersEcran` : colonnes **Patient** (prénom NOM, + lien pour un bénéficiaire), **N° de carte**, **Société**, tableau resserré ; la recherche couvre nom, prénom, n° de carte, société, n° de traitement et motif. Vérifié par capture réelle et recherches (société, n° de carte) ; tsc propre, 44 tests care-episode verts.
+
+## 2026-10-14 — Accueil : en-tête patient identique au dossier de soins
+- La recherche par numéro de carte (page Accueil / code de consultation) affiche désormais le même bloc patient que le dossier de soins (`FichePatient` : photo zoomable, nom, naissance/âge, lien et sexe, société, carte, formule), avec la mention de validité de la carte, la police et le souscripteur.
+- API `GET /accueil/carte` : ajout de `sexe` et `lien` (TITULAIRE ou lien de parenté) ; type `FicheCarte` mis à jour.
+- Statut : terminé (tsc web + api OK).
+
+## 2026-10-14 — Accueil : canal d'envoi du code dans le tableau de droite
+- Le choix du canal d'envoi (e-mail / SMS masqués, avertissements « envoi désactivé » / « fournisseur non configuré ») est déplacé dans le bloc de droite de l'en-tête patient, sous la validité de carte, la police et le souscripteur ; le type d'acte reste en dessous. Comportement inchangé. tsc OK.
+
+## 2026-10-14 — Accueil : en-tête patient resserré
+- `FichePatient` gagne une option `compact` (photo 80 px, espaces réduits) utilisée par l'accueil ; bloc de droite en police réduite, marges et badge de validité resserrés. Dossier de soins inchangé. tsc OK.
+
+## 2026-10-14 — Pharmacie : fiche patient identique à l'accueil du centre médical
+- Backend : `PharmacyService.rechercherPrescriptionsParCarte` renvoie désormais naissance, sexe, lien, photo signée, société, police et formule (nouvelle dépendance `AdherentService`, `MemberModule` importé).
+- Web : `dispensation-flow-ecran.tsx` affiche `FichePatient` (photo zoomable, identité, carte, société, formule) + statut, police, souscripteur.
+- Ajustements UI accueil : textes d'aide sur une ligne (`PageTitre uneLigne`), photo et caractères agrandis, cadre de la fiche élargi.
+- Statut : tsc OK (api + web), tests pharmacy 117/117.
+
+## 2026-10-14 — Pharmacie : canal d'envoi du code + diagnostic part assurance à 0
+- Cause du « part assurance = 0 » : la formule « Essentielle 79088 » du patient n'a AUCUNE garantie PHARMACIE (seulement CONSULTATION 80-85 %/ticket 20 % et HOSPITALISATION). Règle ADR « non couvert » : part assurance 0 sans appel à l'adjudication. Le calcul (taux, ticket modérateur) est correct dès qu'une garantie PHARMACIE existe sur le produit. À corriger côté produit (écran des formules).
+- La réponse de préparation expose `pharmacieCouverte` ; l'écran affiche un avertissement explicite si la formule ne couvre pas la pharmacie.
+- Canal d'envoi du code (e-mail / SMS masqués, avertissements) ajouté à la fiche patient de la pharmacie ; `PreparerDispensationDto.canal` ; envoi via `NotificationCodeService` au contact enregistré du titulaire. Le bouton d'envoi exige le choix d'un canal. tsc OK, tests pharmacy 117/117.
+
+## 2026-10-14 — Pharmacie : suppression d'une facture d'ordonnance non réglée
+- `POST /pharmacy/dispensations/:id/annuler` (`annulerDispensation`) : pour EN_PREPARATION / EN_ATTENTE_VALIDATION_PATIENT / VALIDEE de SA pharmacie → statut ANNULEE (code inutilisable, ligne conservée pour la traçabilité, audit `ANNULATION_DISPENSATION`). Refus 409 si PAYEE ou déjà annulée.
+- Web : bouton « Supprimer la facture » (confirmation) dans la dispensation en cours + lien « Supprimer » dans l'historique pour les factures non réglées. tsc OK, tests pharmacy 117/117.

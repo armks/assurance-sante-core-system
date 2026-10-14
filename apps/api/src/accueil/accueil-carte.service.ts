@@ -90,7 +90,7 @@ export class AccueilCarteService {
     const adherent = await this.prisma.adherent.findFirst({
       where: { numeroCarte, organisationId: ctx.organisationId, deletedAt: null },
       select: {
-        id: true, nom: true, prenom: true, dateNaissance: true, photoUrl: true, numeroCarte: true, statut: true,
+        id: true, nom: true, prenom: true, dateNaissance: true, sexe: true, photoUrl: true, numeroCarte: true, statut: true,
         email: true, telephone: true, policeId: true, souscripteur, police,
       },
     });
@@ -98,7 +98,7 @@ export class AccueilCarteService {
     const beneficiaire = await this.prisma.beneficiaire.findFirst({
       where: { numeroCarte, deletedAt: null, adherent: { organisationId: ctx.organisationId, deletedAt: null } },
       select: {
-        id: true, nom: true, prenom: true, dateNaissance: true, photoUrl: true, numeroCarte: true, statut: true,
+        id: true, nom: true, prenom: true, dateNaissance: true, sexe: true, lienParente: true, photoUrl: true, numeroCarte: true, statut: true,
         adherent: { select: { id: true, statut: true, email: true, telephone: true, policeId: true, souscripteur, police } },
       },
     });
@@ -163,6 +163,8 @@ export class AccueilCarteService {
       prenom: membre.prenom,
       numeroCarte: membre.numeroCarte,
       dateNaissance: membre.dateNaissance.toISOString().slice(0, 10),
+      sexe: membre.sexe ?? null,
+      lien: trouve.beneficiaire ? trouve.beneficiaire.lienParente : 'TITULAIRE',
       photoUrl: await this.adherents.urlPhotoSignee(membre.photoUrl),
       societe: t.souscripteur.nom,
       souscripteur: { nom: t.souscripteur.nom, type: t.souscripteur.type },

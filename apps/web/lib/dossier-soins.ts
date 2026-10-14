@@ -57,3 +57,21 @@ export const TON_STATUT_FACTURE_DOSSIER: Record<
   REGLEE: 'succes',
   CONTESTEE: 'danger',
 };
+
+/**
+ * Acte du référentiel qui sert à FACTURER la consultation selon le type de visite du dossier : son tarif est celui de la convention
+ * de l'établissement (calculé par le microservice d'adjudication via `GET /preauthorization/actes/tarif-reference`).
+ * Un type de visite absent de cette table n'a pas de coût de consultation affiché.
+ */
+export const ACTE_CONSULTATION_PAR_TYPE_VISITE: Record<string, { codeActe: string; categorieActe: string }> = {
+  CONSULTATION_GENERALISTE: { codeActe: 'MAGC001', categorieActe: 'CONSULTATION' },
+  CONSULTATION_SPECIALISTE: { codeActe: 'MAGC002', categorieActe: 'CONSULTATION' },
+};
+
+export const LIBELLE_STATUT_ORDONNANCE: Record<string, string> = {
+  ACTIVE: 'Active',
+  PARTIELLEMENT_DELIVREE: 'Partiellement délivrée',
+  COMPLETEMENT_DELIVREE: 'Délivrée',
+  EXPIREE: 'Expirée',
+  ANNULEE: 'Annulée',
+};

@@ -17,11 +17,11 @@ import type {
   RecherchePrescriptionsResultat,
 } from '@/app/dashboard-pharmacie/dispensation-types';
 import {
-  ChampTexte,
   ChampZone,
   FormulaireModal,
   StatutBadge,
 } from '@/components/dashboard/patterns';
+import { ChampMedicamentBase } from './champ-medicament-base';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -535,19 +535,14 @@ function BoutonSubstitution({
       description={`Remplace « ${ligne.denominationMedicament} » sur cette dispensation. Motif obligatoire (audité).`}
       declencheurLabel="Demander une substitution"
       libelleSoumettre="Substituer"
-      onSoumettre={async (fd) =>
-        substituerMedicament(
-          ligne.id,
-          {
-            nouveauMedicament: String(fd.get('nouveauMedicament') ?? ''),
-            motif: String(fd.get('motif') ?? ''),
-          },
-          cible,
-        )
-      }
+      onSoumettre={async (fd) => {
+        const nouveauMedicamentId = String(fd.get('nouveauMedicamentId') ?? '');
+        if (!nouveauMedicamentId) return { ok: false, error: 'Choisissez le nouveau médicament dans la liste de la base.' };
+        return substituerMedicament(ligne.id, { nouveauMedicamentId, motif: String(fd.get('motif') ?? '') }, cible);
+      }}
       onSucces={onSucces}
     >
-      <ChampTexte name="nouveauMedicament" label="Nouveau médicament" required maxLength={200} />
+      <ChampMedicamentBase name="nouveauMedicamentId" label="Nouveau médicament" />
       <ChampZone name="motif" label="Motif de la substitution" required maxLength={500} />
     </FormulaireModal>
   );

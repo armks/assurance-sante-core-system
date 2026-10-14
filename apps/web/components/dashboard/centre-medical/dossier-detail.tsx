@@ -49,6 +49,7 @@ import { ChampsMedicamentsOrdonnance, lireLignesOrdonnance } from './champs-medi
 import {
   LIBELLE_STATUT_CONSULTATION,
   LIBELLE_STATUT_DOSSIER,
+  LIBELLE_STATUT_ORDONNANCE,
   LIBELLE_STATUT_TICKET,
 } from '@/lib/dossier-soins';
 import { useCategoriesActe } from '@/components/categories-acte';
@@ -80,6 +81,24 @@ interface Acte {
   realisationDeclareePar?: string | null;
   origineMontant?: 'SAISI' | 'TARIF_CONVENTION' | null;
 }
+interface LigneOrdonnanceDossier {
+  id: string;
+  denominationMedicament: string;
+  dosage: string | null;
+  posologie: string;
+  duree: string | null;
+  quantitePrescrite: number;
+  statut: string;
+}
+interface OrdonnanceDossier {
+  id: string;
+  consultationId: string;
+  medecinId: string;
+  statut: string;
+  datePrescription: string;
+  dateValidite: string;
+  lignesOrdonnance: LigneOrdonnanceDossier[];
+}
 interface NoteDossier {
   id: string;
   contenu: string;
@@ -100,6 +119,7 @@ export interface DossierComplet {
   typeVisite: string | null;
   consultations: Consultation[];
   actes: Acte[];
+  ordonnances?: OrdonnanceDossier[];
   ticket: { id: string; statut: string } | null;
   notes: NoteDossier[];
 }
@@ -128,6 +148,7 @@ export function DossierDetail({
   role,
   roleChain,
   medecins = [],
+  tarifConsultation = null,
 }: {
   dossier: DossierComplet;
   moiId: string;
@@ -136,6 +157,8 @@ export function DossierDetail({
   roleChain: string[];
   /** Médecins de l'établissement (désignés par l'accueil pour une consultation ou un acte effectué). */
   medecins?: MedecinCentre[];
+  /** Tarif d'une consultation selon la convention de l'établissement (F), `null` si indisponible. */
+  tarifConsultation?: number | null;
 }) {
   const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
@@ -196,11 +219,33 @@ export function DossierDetail({
       rendu: (c) => dateFr(c.dateConsultation),
     },
     {
+      cle: 'cout',
+      entete: 'Coût (convention)',
+      aligneDroite: true,
+      valeur: () => tarifConsultation ?? 0,
+      rendu: (c) =>
+        c.statut !== 'ANNULEE' && tarifConsultation !== null ? (
+          <span title="Tarif de la consultation selon la convention de l’établissement">{montant(String(tarifConsultation))}</span>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      cle: 'ordonnances',
+      entete: 'Ordonnances',
+      aligneDroite: true,
+      valeur: (c) => (dossier.ordonnances ?? []).filter((o) => o.consultationId === c.id).length,
+      rendu: (c) => (dossier.ordonnances ?? []).filter((o) => o.consultationId === c.id).length || '—',
+    },
+    {
       cle: 'statut',
       entete: 'Statut',
       rendu: (c) => <StatutBadge statut={c.statut} libelles={LIBELLE_STATUT_CONSULTATION} />,
     },
   ];
+
+  const ordonnances = dossier.ordonnances ?? [];
+  const consultationsFacturables = dossier.consultations.filter((c) => c.statut !== 'ANNULEE').length;
 
   const colActes: ColonneTable<Acte>[] = [
     { cle: 'libelle', entete: 'Libellé', triable: true },
@@ -493,6 +538,57 @@ export function DossierDetail({
             )}
             vide="Aucune consultation."
           />
+        </CardContent>
+      </Card>
+
+      {/* --- Ordonnances émises --- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Ordonnances ({ordonnances.length})</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {tarifConsultation !== null && consultationsFacturables > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Consultations selon la convention : {consultationsFacturables} × {montant(String(tarifConsultation))} ={' '}
+              <strong className="text-foreground">{montant(String(tarifConsultation * consultationsFacturables))}</strong>
+            </p>
+          )}
+          {ordonnances.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune ordonnance émise dans ce dossier.</p>
+          ) : (
+            ordonnances.map((o) => {
+              const consultation = dossier.consultations.find((c) => c.id === o.consultationId);
+              return (
+                <div key={o.id} className="rounded-md border p-3 text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">
+                      Ordonnance du {dateHeureFr(o.datePrescription)}
+                      {consultation && <span className="text-muted-foreground"> — consultation {consultation.numeroConsultation}</span>}
+                    </span>
+                    <StatutBadge statut={o.statut} libelles={LIBELLE_STATUT_ORDONNANCE} />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Prescrite par {nomMedecin(o.medecinId)} · valable jusqu’au {dateFr(o.dateValidite)}
+                  </p>
+                  <ul className="mt-2 divide-y">
+                    {o.lignesOrdonnance.map((l) => (
+                      <li key={l.id} className="flex flex-wrap justify-between gap-2 py-1.5">
+                        <span>
+                          <span className="font-medium">{l.denominationMedicament}</span>
+                          {l.dosage && <span className="text-muted-foreground"> · {l.dosage}</span>}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {l.posologie}
+                          {l.duree ? ` · ${l.duree}` : ''} · qté {l.quantitePrescrite}
+                          {l.statut === 'SERVIE' && ' · servi'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })
+          )}
         </CardContent>
       </Card>
 

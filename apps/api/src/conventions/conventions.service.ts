@@ -217,12 +217,17 @@ export class ConventionsService {
     };
   }
 
+  /** Saisir ou modifier une convention interdit de la valider, sauf pour l'assurance informatique (qui saisit et peut valider). */
+  private autoValidationInterdite(ctx: Ctx, c: { saisiPar: string | null; modifiePar: string | null }): boolean {
+    return (c.saisiPar === ctx.userId || c.modifiePar === ctx.userId) && !this.aRole(ctx, ROLES_SAISIE_CONVENTION);
+  }
+
   /** Raisons pour lesquelles l'appelant ne peut PAS valider maintenant (vide = il peut). */
   private async blocagesValidation(ctx: Ctx, c: Awaited<ReturnType<ConventionsService['charger']>>): Promise<string[]> {
     const raisons: string[] = [];
     if (!this.aRole(ctx, ROLES_VALIDATION_CONVENTION)) raisons.push('Votre rôle ne permet pas de valider une convention.');
     if (c.statut !== 'PROPOSEE') raisons.push(`La convention est ${c.statut.toLowerCase()} : seule une convention proposée se valide.`);
-    if (c.saisiPar === ctx.userId || c.modifiePar === ctx.userId) raisons.push('Vous avez saisi ou modifié cette convention : la validation revient à une autre personne.');
+    if (this.autoValidationInterdite(ctx, c)) raisons.push('Vous avez saisi ou modifié cette convention : la validation revient à une autre personne.');
     if (!c.documentChemin) raisons.push('Le document signé n’est pas joint.');
     if (c.valeurs.length === 0 && c.actes.length === 0) raisons.push('Aucune valeur de lettre-clé ni exception par acte n’est saisie.');
     return raisons;
@@ -517,12 +522,12 @@ export class ConventionsService {
     this.assertLecture(ctx);
     const conv = await this.charger(ctx, id);
     if (!this.aRole(ctx, ROLES_VALIDATION_CONVENTION)) {
-      return this.refuser(user, id, 'validation', 'La validation d’une convention revient au médecin conseil ou à la direction.', true);
+      return this.refuser(user, id, 'validation', 'La validation d’une convention revient au médecin conseil, à la direction ou à l’assurance informatique.', true);
     }
     if (conv.statut !== 'PROPOSEE') {
       return this.refuser(user, id, 'validation', `Validation impossible : la convention est ${conv.statut.toLowerCase()} (seule une convention proposée se valide).`);
     }
-    if (conv.saisiPar === ctx.userId || conv.modifiePar === ctx.userId) {
+    if (this.autoValidationInterdite(ctx, conv)) {
       return this.refuser(user, id, 'validation', 'Auto-validation interdite : vous avez saisi ou modifié cette convention ; la validation revient à une autre personne.', true);
     }
     if (!conv.documentChemin) {
@@ -592,12 +597,12 @@ export class ConventionsService {
     this.assertLecture(ctx);
     const conv = await this.charger(ctx, id);
     if (!this.aRole(ctx, ROLES_VALIDATION_CONVENTION)) {
-      return this.refuser(user, id, 'refus', 'Le refus d’une convention revient au médecin conseil ou à la direction.', true);
+      return this.refuser(user, id, 'refus', 'Le refus d’une convention revient au médecin conseil, à la direction ou à l’assurance informatique.', true);
     }
     if (conv.statut !== 'PROPOSEE') {
       return this.refuser(user, id, 'refus', `Refus impossible : la convention est ${conv.statut.toLowerCase()}.`);
     }
-    if (conv.saisiPar === ctx.userId || conv.modifiePar === ctx.userId) {
+    if (this.autoValidationInterdite(ctx, conv)) {
       return this.refuser(user, id, 'refus', 'Vous avez saisi ou modifié cette convention : le refus revient à une autre personne (vous pouvez la supprimer).', true);
     }
     const texte = (motif ?? '').trim();

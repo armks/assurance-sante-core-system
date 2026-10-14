@@ -39,7 +39,7 @@ export async function obtenirStock(): Promise<LigneStock[]> {
 
 /** Réservée au pharmacien côté API (403 sinon) — voir `PharmacyService.definirPrixStock`. */
 export async function definirPrixStock(
-  input: { denominationMedicament: string; disponible?: boolean },
+  input: { medicamentId?: string; denominationMedicament?: string; disponible?: boolean },
   cible: string,
 ): Promise<ResultatSoumission> {
   const res = await apiFetch('/api/v1/pharmacy/stock', {
@@ -140,7 +140,7 @@ export async function confirmerPaiementDispensation(
 /** Réservée au pharmacien côté API (403 sinon) — voir `PharmacyService.substituerMedicament`. */
 export async function substituerMedicament(
   ligneDispensationId: string,
-  input: { nouveauMedicament: string; motif: string },
+  input: { nouveauMedicamentId: string; motif: string },
   cible: string,
 ): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/pharmacy/dispensations/lignes/${ligneDispensationId}/substituer`, {
@@ -150,4 +150,20 @@ export async function substituerMedicament(
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(cible);
   return { ok: true, message: 'Substitution enregistrée.' };
+}
+
+export interface MedicamentBase {
+  id: string;
+  denominationCommune: string;
+  nomCommercial: string | null;
+  dosage: string | null;
+  forme: string | null;
+}
+
+/** Recherche d'un médicament dans la base (catalogue activé par l'assureur) — le pharmacien le CHOISIT, il ne le saisit pas. */
+export async function rechercherMedicamentsBase(q: string): Promise<MedicamentBase[]> {
+  const terme = q.trim();
+  if (terme.length < 2) return [];
+  const res = await apiFetch(`/api/v1/pharmacy/medicaments/recherche?q=${encodeURIComponent(terme)}`);
+  return res.ok ? ((await res.json()) as MedicamentBase[]) : [];
 }

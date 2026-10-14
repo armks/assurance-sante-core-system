@@ -243,12 +243,15 @@ describe('ConventionsService (données fictives)', () => {
       await expect(service.valider(USER, 'c-1')).rejects.toThrow(/Auto-validation interdite/);
     });
 
-    it('l’assurance informatique ne valide pas (403) ; les rôles sans lien non plus', async () => {
-      informatique('u-autre');
-      await expect(service.valider(USER, 'c-1')).rejects.toThrow(/médecin conseil ou à la direction/);
+    it('l’assurance informatique PEUT valider (même sa propre saisie) ; les rôles sans lien non (403)', async () => {
+      prisma.convention.findFirst.mockResolvedValueOnce(convention({ saisiPar: 'u-info' })).mockResolvedValueOnce(null);
+      prisma.convention.update.mockResolvedValue({ id: 'c-1', statut: 'VALIDEE', organisationId: ORG, etablissementId: ETAB, dateDebut: new Date('2026-01-01'), dateFin: null });
+      informatique('u-info');
+      expect((await service.valider(USER, 'c-1')).statut).toBe('VALIDEE');
       identity.getMe.mockResolvedValue(identite('u-c', ['ASSUREUR_COMPTABLE']));
       await expect(service.valider(USER, 'c-1')).rejects.toBeInstanceOf(ForbiddenException);
     });
+
 
     it('conditions : document signé obligatoire ; au moins une valeur ou exception ; statut proposée', async () => {
       medecinConseil();

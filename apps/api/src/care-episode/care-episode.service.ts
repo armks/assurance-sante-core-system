@@ -876,6 +876,32 @@ export class CareEpisodeService {
             },
           },
         },
+        // Ordonnances émises dans le dossier, avec leurs médicaments. Les CODES de retrait (anti-fraude, envoyés à l'adhérent)
+        // ne sont jamais renvoyés ici : `select` explicite, sans la relation `codes`.
+        ordonnances: {
+          where: { deletedAt: null },
+          orderBy: { datePrescription: 'asc' },
+          select: {
+            id: true,
+            consultationId: true,
+            medecinId: true,
+            statut: true,
+            datePrescription: true,
+            dateValidite: true,
+            lignesOrdonnance: {
+              orderBy: { createdAt: 'asc' },
+              select: {
+                id: true,
+                denominationMedicament: true,
+                dosage: true,
+                posologie: true,
+                duree: true,
+                quantitePrescrite: true,
+                statut: true,
+              },
+            },
+          },
+        },
         actes: {
           where: { deletedAt: null },
           orderBy: { datePrescription: 'asc' },

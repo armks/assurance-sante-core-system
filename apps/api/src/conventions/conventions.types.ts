@@ -1,8 +1,11 @@
 /** Saisie d'une convention : assurance informatique (et son adjoint, par héritage de rôle). */
 export const ROLES_SAISIE_CONVENTION = ['ASSUREUR_INFORMATIQUE'] as const;
 
-/** Validation / refus : médecin conseil ou direction — JAMAIS la personne qui a saisi ou modifié la convention. */
-export const ROLES_VALIDATION_CONVENTION = ['ASSUREUR_MEDECIN_CONSEIL', 'ASSUREUR_DIRECTION'] as const;
+/**
+ * Validation / refus : médecin conseil, direction ou assurance informatique. La séparation saisie / validation reste imposée aux
+ * médecin conseil et direction ; l'assurance informatique, qui saisit les conventions, peut aussi valider les siennes.
+ */
+export const ROLES_VALIDATION_CONVENTION = ['ASSUREUR_MEDECIN_CONSEIL', 'ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE'] as const;
 
 /** Lecture : les trois rôles ci-dessus (même organisation uniquement). */
 export const ROLES_LECTURE_CONVENTION = [

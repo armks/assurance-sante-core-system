@@ -24,7 +24,7 @@ import {
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CareEpisodeService } from '../care-episode/care-episode.service';
 import { premierJourDuMois, premierJourDuMoisSuivant } from '../common/dates.util';
-import { bornesPage, filtrePeriode, versPage } from '../common/pagination';
+import { bornesPage, conditionRecherche, filtrePeriode, versPage } from '../common/pagination';
 import { STATUTS_CONTESTATION_EN_LITIGE } from '../contestation/contestation.types';
 import { IdentityService } from '../identity/identity.service';
 import { TarifsProposesService, colonnesTrace } from '../tarifs-proposes/tarifs-proposes.service';
@@ -1281,20 +1281,24 @@ export class PreauthorizationService {
     }
     const terme = q.trim();
     if (terme.length < 2) return [];
-    // Le contenu vient du CATALOGUE NATIONAL (ADR-009) : seuls les médicaments homologués au niveau national ET activés par l'organisation.
-    // Seuls les champs d'identification sont lus : aucun prix, aucun taux de remboursement.
-    const motif = `%${terme.replace(/[\\%_]/g, '\\$&')}%`;
+    // Le contenu vient du CATALOGUE NATIONAL des médicaments homologués (même base que l'écran « catalogue »). Prescrire n'est pas
+    // rembourser : l'activation par l'assureur est contrôlée à la dispensation et au remboursement, pas à la recherche.
+    // Casse et accents ignorés (« paracétamol » trouve « Paracetamol »), chaque mot doit figurer dans la dénomination, le nom
+    // commercial ou le code EAN. Seuls les champs d'identification sont lus : aucun prix, aucun taux de remboursement.
+    const recherche = conditionRecherche(terme, [
+      Prisma.sql`n.denomination_commune`,
+      Prisma.sql`n.nom_commercial`,
+      Prisma.sql`n.dosage`,
+      Prisma.sql`n.code_ean`,
+    ]);
     const medicaments = await this.prisma.$queryRaw<
       { id: string; denomination_commune: string; nom_commercial: string | null; dosage: string | null; forme: string | null; conditionnement: string | null }[]
     >(Prisma.sql`
       SELECT n.id, n.denomination_commune, n.nom_commercial, n.dosage, n.forme, n.conditionnement
         FROM referentiel_national_medicaments n
        WHERE n.deleted_at IS NULL AND n.statut_homologation = 'HOMOLOGUE'
-         AND EXISTS (SELECT 1 FROM medicaments m
-                      WHERE m.organisation_id = ${ctx.organisationId}::uuid AND m.deleted_at IS NULL AND m.statut_homologation = 'HOMOLOGUE'
-                        AND m.catalogue_national_id = n.id)
-         AND (n.denomination_commune ILIKE ${motif} OR n.nom_commercial ILIKE ${motif} OR n.code_ean ILIKE ${motif})
-       ORDER BY n.denomination_commune
+         AND ${recherche}
+       ORDER BY n.denomination_commune, n.nom_commercial
        LIMIT 20`);
     return medicaments.map((m) => ({
       id: m.id,

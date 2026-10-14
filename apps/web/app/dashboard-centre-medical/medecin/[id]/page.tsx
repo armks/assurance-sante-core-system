@@ -12,7 +12,7 @@ import { StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
-import { LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
+import { ACTE_CONSULTATION_PAR_TYPE_VISITE, LIBELLE_STATUT_DOSSIER } from '@/lib/dossier-soins';
 
 export const metadata: Metadata = { title: 'Dossier de soins — Parcours de soins' };
 
@@ -33,6 +33,17 @@ export default async function DossierPage({
   if (res.status === 404) notFound();
   const dossier = (await res.json()) as DossierComplet;
   const medecins: { id: string; libelle: string }[] = resMedecins.ok ? await resMedecins.json() : [];
+
+  // Coût d'une consultation selon la convention de l'établissement (tarif de l'acte de consultation du type de visite) ;
+  // indisponible (type de visite non défini, pas de convention, rôle sans droit) → pas de montant affiché.
+  const acteConsultation = dossier.typeVisite ? ACTE_CONSULTATION_PAR_TYPE_VISITE[dossier.typeVisite] : undefined;
+  let tarifConsultation: number | null = null;
+  if (acteConsultation) {
+    const resTarif = await apiFetch(
+      `/api/v1/preauthorization/actes/tarif-reference?dossierId=${id}&codeActe=${acteConsultation.codeActe}&categorieActe=${acteConsultation.categorieActe}`,
+    );
+    if (resTarif.ok) tarifConsultation = ((await resTarif.json()) as { tarifUnitaire: number | null }).tarifUnitaire;
+  }
 
   const { profil, permissions } = etat.identity;
 
@@ -61,6 +72,7 @@ export default async function DossierPage({
         role={profil.role ?? ''}
         roleChain={permissions.roleChain}
         medecins={medecins}
+        tarifConsultation={tarifConsultation}
       />
     </div>
   );

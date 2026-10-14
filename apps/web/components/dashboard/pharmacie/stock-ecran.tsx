@@ -6,12 +6,12 @@ import { definirPrixStock } from '@/app/dashboard-pharmacie/dispensation-actions
 import type { LigneStock } from '@/app/dashboard-pharmacie/dispensation-types';
 import {
   ChampCheckbox,
-  ChampTexte,
   DataTable,
   FormulaireModal,
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
+import { ChampMedicamentBase } from './champ-medicament-base';
 
 /**
  * Gestion du stock (`stock_medicaments_pharmacie`) — réservée au pharmacien
@@ -51,18 +51,14 @@ export function StockEcran({ stock, cible }: { stock: LigneStock[]; cible: strin
           declencheurLabel="Ajouter / mettre à jour"
           libelleSoumettre="Enregistrer"
           onSoumettre={async (fd) => {
-            const denomination = String(fd.get('denominationMedicament') ?? '');
+            const medicamentId = String(fd.get('medicamentId') ?? '');
+            if (!medicamentId) return { ok: false, error: 'Choisissez le médicament dans la liste de la base.' };
             const disponible = fd.get('disponible') === 'on';
-            return definirPrixStock({ denominationMedicament: denomination, disponible }, cible);
+            return definirPrixStock({ medicamentId, disponible }, cible);
           }}
           onSucces={() => router.refresh()}
         >
-          <ChampTexte
-            name="denominationMedicament"
-            label="Médicament (dénomination exacte)"
-            required
-            placeholder="Ex. Paracetamol 500mg"
-          />
+          <ChampMedicamentBase />
           <ChampCheckbox name="disponible" label="Disponible en stock" defaultChecked />
         </FormulaireModal>
       }

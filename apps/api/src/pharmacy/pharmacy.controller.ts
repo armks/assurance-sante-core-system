@@ -80,6 +80,12 @@ export class PharmacyController {
     return this.pharmacy.retirerMedicamentDeMaListe(user, id);
   }
 
+  /** Recherche d'un médicament dans la base (pharmacien ou pharmacien conseil) — le médicament se CHOISIT, il ne se saisit pas. */
+  @Get('medicaments/recherche')
+  rechercherMedicaments(@CurrentUser() user: AuthenticatedUser, @Query('q') q?: string) {
+    return this.pharmacy.rechercherMedicaments(user, q ?? '');
+  }
+
   /** Côté PHARMACIE_PHARMACIEN exclusivement : son stock (prix/disponibilité). */
   @Get('stock')
   listerStock(@CurrentUser() user: AuthenticatedUser) {

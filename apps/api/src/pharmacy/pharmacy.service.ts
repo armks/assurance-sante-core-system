@@ -196,23 +196,76 @@ export class PharmacyService {
     const ctx = await this.contexteAppelant(user);
     this.assertPharmacien(ctx);
 
-    return this.prisma.stockMedicamentPharmacie.upsert({
-      where: {
-        pharmacieId_denominationMedicament: {
+    // Le médicament est CHOISI dans la base : sa dénomination vient du catalogue, jamais d'une saisie libre.
+    if (dto.medicamentId) {
+      const m = await this.medicamentRemboursable(ctx.organisationId, dto.medicamentId);
+      const denominationMedicament = this.libelleMedicament(m);
+      return this.prisma.stockMedicamentPharmacie.upsert({
+        where: { pharmacieId_denominationMedicament: { pharmacieId: ctx.pharmacieId!, denominationMedicament } },
+        create: {
           pharmacieId: ctx.pharmacieId!,
-          denominationMedicament: dto.denominationMedicament,
+          denominationMedicament,
+          catalogueNationalId: m.id,
+          disponible: dto.disponible ?? true,
         },
-      },
-      create: {
-        pharmacieId: ctx.pharmacieId!,
-        denominationMedicament: dto.denominationMedicament,
-        disponible: dto.disponible ?? true,
-      },
-      update: {
-        ...(dto.disponible !== undefined ? { disponible: dto.disponible } : {}),
-        dateMaj: new Date(),
-      },
+        update: {
+          catalogueNationalId: m.id,
+          ...(dto.disponible !== undefined ? { disponible: dto.disponible } : {}),
+          dateMaj: new Date(),
+        },
+      });
+    }
+
+    // Ligne déjà présente (ancienne saisie) : mise à jour de sa disponibilité seulement, aucune création.
+    const existante = dto.denominationMedicament
+      ? await this.prisma.stockMedicamentPharmacie.findFirst({
+          where: { pharmacieId: ctx.pharmacieId!, denominationMedicament: dto.denominationMedicament },
+          select: { id: true },
+        })
+      : null;
+    if (!existante) {
+      throw new BadRequestException('Choisissez le médicament dans la liste de la base : la saisie libre n’est pas acceptée.');
+    }
+    return this.prisma.stockMedicamentPharmacie.update({
+      where: { id: existante.id },
+      data: { ...(dto.disponible !== undefined ? { disponible: dto.disponible } : {}), dateMaj: new Date() },
     });
+  }
+
+  /**
+   * Recherche d'un médicament dans la base (catalogue national homologué ET activé par l'assureur de la pharmacie) — alimente les
+   * champs « médicament » du pharmacien (disponibilité, substitution). Aucun prix. 20 résultats au plus.
+   */
+  async rechercherMedicaments(user: AuthenticatedUser, q: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPeutSubstituer(ctx);
+    const terme = q.trim();
+    if (terme.length < 2) return [];
+    const recherche = conditionRecherche(terme, [
+      Prisma.sql`n.denomination_commune`,
+      Prisma.sql`n.nom_commercial`,
+      Prisma.sql`n.dosage`,
+      Prisma.sql`n.code_ean`,
+    ]);
+    const lignes = await this.prisma.$queryRaw<
+      { id: string; denomination_commune: string; nom_commercial: string | null; dosage: string | null; forme: string | null }[]
+    >(Prisma.sql`
+      SELECT n.id, n.denomination_commune, n.nom_commercial, n.dosage, n.forme
+        FROM referentiel_national_medicaments n
+       WHERE n.deleted_at IS NULL AND n.statut_homologation = 'HOMOLOGUE'
+         AND EXISTS (SELECT 1 FROM medicaments m
+                      WHERE m.organisation_id = ${ctx.organisationId}::uuid AND m.deleted_at IS NULL
+                        AND m.statut_homologation = 'HOMOLOGUE' AND m.catalogue_national_id = n.id)
+         AND ${recherche}
+       ORDER BY n.denomination_commune, n.nom_commercial
+       LIMIT 20`);
+    return lignes.map((m) => ({
+      id: m.id,
+      denominationCommune: m.denomination_commune,
+      nomCommercial: m.nom_commercial,
+      dosage: m.dosage,
+      forme: m.forme,
+    }));
   }
 
   // --- Liste des médicaments remboursables de la pharmacie (ADR-009) -------
@@ -1177,12 +1230,16 @@ export class PharmacyService {
       );
     }
 
+    // le médicament de remplacement est CHOISI dans la base (catalogue activé par l'assureur) : pas de saisie libre
+    const remplacement = await this.medicamentRemboursable(ctx.organisationId, dto.nouveauMedicamentId);
+    const nouveauMedicament = this.libelleMedicament(remplacement);
+
     const action = acteur === 'PHARMACIEN_CONSEIL' ? 'SUBSTITUTION_PHARMACIEN_CONSEIL' : 'SUBSTITUTION_PHARMACIEN';
     const maj = await this.prisma.$transaction(async (tx) => {
       const l = await tx.ligneDispensation.update({
         where: { id: ligneDispensationId },
         data: {
-          medicamentSubstitue: dto.nouveauMedicament,
+          medicamentSubstitue: nouveauMedicament,
           motifSubstitution: dto.motif,
           substitueParId: ctx.userId,
           dateSubstitution: new Date(),
@@ -1191,7 +1248,8 @@ export class PharmacyService {
       await this.audit(tx, ctx.userId, action, 'lignes_dispensation', l.id, {
         dispensationId: ligne.dispensationId,
         medicamentOriginal: ligne.ligneOrdonnance.denominationMedicament,
-        nouveauMedicament: dto.nouveauMedicament,
+        nouveauMedicament,
+        nouveauMedicamentId: dto.nouveauMedicamentId,
         motif: dto.motif,
       });
       return l;

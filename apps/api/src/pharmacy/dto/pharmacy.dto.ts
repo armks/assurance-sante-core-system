@@ -58,10 +58,19 @@ export class ValiderCodeDispensationDto {
   code!: string;
 }
 
+/**
+ * Disponibilité d'un médicament : le médicament est CHOISI dans la base (`medicamentId` = catalogue national activé par l'assureur).
+ * `denominationMedicament` ne sert qu'à mettre à jour une ligne de stock déjà existante (ancienne saisie libre) ; jamais à en créer.
+ */
 export class DefinirPrixStockDto {
+  @IsOptional()
+  @IsUUID()
+  medicamentId?: string;
+
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  denominationMedicament!: string;
+  denominationMedicament?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -120,10 +129,9 @@ export class ModifierMedicamentListeDto {
 }
 
 export class SubstituerMedicamentDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
-  nouveauMedicament!: string;
+  /** Médicament de remplacement CHOISI dans la base (catalogue national homologué et activé par l'assureur). */
+  @IsUUID()
+  nouveauMedicamentId!: string;
 
   @IsString()
   @IsNotEmpty()

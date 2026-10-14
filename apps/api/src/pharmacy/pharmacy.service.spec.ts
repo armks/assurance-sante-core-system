@@ -72,6 +72,8 @@ const dec = (n: number) => ({ toFixed: (d = 2) => n.toFixed(d), toString: () => 
 
 /** Microservice d'adjudication factice (simulation : 80 % par défaut). */
 let adjudication: ReturnType<typeof adjudicationClientDeTest>;
+const MED_ID = '11111111-1111-4111-8111-111111111111';
+
 beforeEach(() => {
   adjudication = adjudicationClientDeTest();
 });
@@ -96,6 +98,8 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       stockMedicamentPharmacie: {
         findMany: jest.fn().mockResolvedValue([]),
         upsert: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn(),
       },
       dispensationPharmacie: {
         count: jest.fn().mockResolvedValue(0),
@@ -137,6 +141,10 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       ],
     }).compile();
     service = moduleRef.get(PharmacyService);
+    // le médicament est choisi dans la base : le catalogue est simulé
+    jest
+      .spyOn(service as unknown as { medicamentRemboursable: () => Promise<unknown> }, 'medicamentRemboursable')
+      .mockResolvedValue({ id: MED_ID, denominationCommune: 'Ibuprofène 400mg', nomCommercial: null });
   });
 
   // --- preparerDispensation ------------------------------------------
@@ -797,21 +805,48 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
   it('la caissière NE PEUT PAS écrire le stock (réservé au pharmacien)', async () => {
     identity.getMe.mockResolvedValue(caissiere('pharm-1'));
     await expect(
-      service.definirPrixStock(USER, { denominationMedicament: 'Paracetamol', disponible: false }),
+      service.definirPrixStock(USER, { medicamentId: MED_ID, disponible: false }),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.stockMedicamentPharmacie.upsert).not.toHaveBeenCalled();
   });
 
-  it('le pharmacien peut marquer un médicament indisponible (le stock ne porte plus de prix)', async () => {
+  it('le pharmacien marque indisponible un médicament CHOISI dans la base (dénomination issue du catalogue)', async () => {
     identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
     prisma.stockMedicamentPharmacie.upsert.mockResolvedValue({ id: 's1' });
-    await service.definirPrixStock(USER, { denominationMedicament: 'Paracetamol', disponible: false });
+    await service.definirPrixStock(USER, { medicamentId: MED_ID, disponible: false });
     expect(prisma.stockMedicamentPharmacie.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { pharmacieId_denominationMedicament: { pharmacieId: 'pharm-1', denominationMedicament: 'Paracetamol' } },
+        where: { pharmacieId_denominationMedicament: { pharmacieId: 'pharm-1', denominationMedicament: 'Ibuprofène 400mg' } },
+        create: expect.objectContaining({ catalogueNationalId: MED_ID }),
       }),
     );
   });
+
+  it('le stock REFUSE la saisie libre : un nom inconnu ne crée aucune ligne (400)', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    await expect(
+      service.definirPrixStock(USER, { denominationMedicament: 'Parcetamol faute', disponible: false }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.stockMedicamentPharmacie.upsert).not.toHaveBeenCalled();
+    expect(prisma.stockMedicamentPharmacie.update).not.toHaveBeenCalled();
+  });
+
+  it('une ligne de stock déjà existante peut voir sa disponibilité mise à jour', async () => {
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    prisma.stockMedicamentPharmacie.findFirst.mockResolvedValue({ id: 's1' });
+    await service.definirPrixStock(USER, { denominationMedicament: 'Paracetamol', disponible: false });
+    expect(prisma.stockMedicamentPharmacie.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 's1' }, data: expect.objectContaining({ disponible: false }) }),
+    );
+  });
+
+  it('la recherche de médicaments est réservée au pharmacien / pharmacien conseil', async () => {
+    identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+    await expect(service.rechercherMedicaments(USER, 'para')).rejects.toBeInstanceOf(ForbiddenException);
+    identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+    await expect(service.rechercherMedicaments(USER, 'p')).resolves.toEqual([]);
+  });
+
 
   // --- rechercherPrescriptionsParCarte -----------------------------------
 
@@ -835,7 +870,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     identity.getMe.mockResolvedValue(caissiere('pharm-1'));
     await expect(
       service.substituerMedicament(USER, 'ligne-disp-1', {
-        nouveauMedicament: 'Ibuprofène 400mg',
+        nouveauMedicamentId: MED_ID,
         motif: 'Rupture de stock du princeps',
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);
@@ -852,7 +887,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     });
     await expect(
       service.substituerMedicament(USER, 'ligne-disp-1', {
-        nouveauMedicament: 'Ibuprofène 400mg',
+        nouveauMedicamentId: MED_ID,
         motif: 'Rupture de stock du princeps',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -869,7 +904,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     });
     await expect(
       service.substituerMedicament(USER, 'ligne-disp-1', {
-        nouveauMedicament: 'Ibuprofène 400mg',
+        nouveauMedicamentId: MED_ID,
         motif: 'Rupture de stock du princeps',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -880,7 +915,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     prisma.ligneDispensation.findFirst.mockResolvedValue(null); // scopé pharmacieId dans le where -> introuvable
     await expect(
       service.substituerMedicament(USER, 'ligne-disp-1', {
-        nouveauMedicament: 'Ibuprofène 400mg',
+        nouveauMedicamentId: MED_ID,
         motif: 'Rupture de stock du princeps',
       }),
     ).rejects.toBeInstanceOf(NotFoundException);
@@ -907,7 +942,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     });
 
     const res = await service.substituerMedicament(USER, 'ligne-disp-1', {
-      nouveauMedicament: 'Ibuprofène 400mg',
+      nouveauMedicamentId: MED_ID,
       motif: 'Rupture de stock du princeps',
     });
 
@@ -936,7 +971,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     });
     prisma.ligneDispensation.update.mockResolvedValue({ id: 'ligne-disp-1' });
     await service.substituerMedicament(USER, 'ligne-disp-1', {
-      nouveauMedicament: 'Ibuprofène 400mg',
+      nouveauMedicamentId: MED_ID,
       motif: 'Rupture de stock du princeps',
     });
     expect((prisma.$executeRaw as jest.Mock).mock.calls[0]).toContain('SUBSTITUTION_PHARMACIEN');
@@ -958,7 +993,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     });
 
     const res = await service.substituerMedicament(USER, 'ligne-disp-1', {
-      nouveauMedicament: 'Ibuprofène 400mg',
+      nouveauMedicamentId: MED_ID,
       motif: 'Revu lors d’une contestation',
     });
 
@@ -983,7 +1018,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     prisma.ligneDispensation.update.mockResolvedValue({ id: 'ligne-disp-1' });
 
     await service.substituerMedicament(USER, 'ligne-disp-1', {
-      nouveauMedicament: 'Ibuprofène 400mg',
+      nouveauMedicamentId: MED_ID,
       motif: 'Revu lors d’une contestation',
     });
 
@@ -996,7 +1031,7 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
     identity.getMe.mockResolvedValue(caissiere('pharm-1'));
     await expect(
       service.substituerMedicament(USER, 'ligne-disp-1', {
-        nouveauMedicament: 'Ibuprofène 400mg',
+        nouveauMedicamentId: MED_ID,
         motif: 'Rupture de stock du princeps',
       }),
     ).rejects.toBeInstanceOf(ForbiddenException);

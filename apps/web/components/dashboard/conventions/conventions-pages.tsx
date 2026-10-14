@@ -16,7 +16,7 @@ import type {
 import { exigerIdentite } from '@/lib/identity';
 
 const SAISIE = ['ASSUREUR_INFORMATIQUE'];
-const VALIDATION = ['ASSUREUR_MEDECIN_CONSEIL', 'ASSUREUR_DIRECTION'];
+const VALIDATION = ['ASSUREUR_MEDECIN_CONSEIL', 'ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE'];
 
 async function droits(base: string) {
   const etat = await exigerIdentite(`${base}/conventions`);

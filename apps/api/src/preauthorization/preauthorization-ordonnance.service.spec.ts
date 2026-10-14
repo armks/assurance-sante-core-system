@@ -148,7 +148,7 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
       expect(prisma.ordonnance.create).not.toHaveBeenCalled();
     });
 
-    it('recherche de médicaments : catalogue NATIONAL activé par l’organisation, 2 caractères minimum, AUCUN prix dans la réponse', async () => {
+    it('recherche de médicaments : catalogue NATIONAL homologué (sans condition d’activation), sans accent, 2 caractères minimum, AUCUN prix dans la réponse', async () => {
       identity.getMe.mockResolvedValue(personnel('CENTRE_MEDICAL_ACCUEIL'));
       prisma.$queryRaw = jest.fn().mockResolvedValue([
         { id: 'nat-1', denomination_commune: 'Paracétamol', nom_commercial: 'Doliprane', dosage: '500 mg', forme: 'Comprimé', conditionnement: 'Boîte de 16' },
@@ -160,8 +160,11 @@ describe('PreauthorizationService — Code Référence d’Ordonnance', () => {
       const { sql, values } = prisma.$queryRaw.mock.calls[0][0] as { sql: string; values: unknown[] };
       expect(sql).toMatch(/FROM referentiel_national_medicaments n/);
       expect(sql).toMatch(/n\.statut_homologation = 'HOMOLOGUE'/);
-      expect(sql).toMatch(/FROM medicaments m[\s\S]*m\.statut_homologation = 'HOMOLOGUE'[\s\S]*m\.catalogue_national_id = n\.id/);
-      expect(values).toEqual(expect.arrayContaining(['org-1', '%parac%']));
+      // prescrire n'est pas rembourser : aucune condition d'activation par l'organisation
+      expect(sql).not.toMatch(/FROM medicaments m/);
+      // casse et accents ignorés : « paracétamol » doit trouver « Paracetamol »
+      expect(sql).toMatch(/public\.sans_accent/);
+      expect(values).toEqual(expect.arrayContaining(['parac']));
       // seuls les champs d'identification sont lus : aucun prix, aucun taux
       const colonnes = sql.slice(sql.indexOf('SELECT'), sql.indexOf('FROM'));
       expect(colonnes).not.toMatch(/prix|taux|rembours/i);

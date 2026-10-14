@@ -70,6 +70,9 @@ type Db = PrismaService | Prisma.TransactionClient;
  * porte désormais sur le PAIEMENT (code de confirmation envoyé au patient),
  * pas sur la lecture du contenu.
  */
+/** Factures ouvertes mais non réglées : la prescription ne peut pas être refacturée tant qu'elles existent. */
+const STATUTS_DISPENSATION_EN_COURS = ['EN_PREPARATION', 'EN_ATTENTE_VALIDATION_PATIENT', 'VALIDEE'];
+
 @Injectable()
 export class PharmacyService {
   private readonly logger = new Logger(PharmacyService.name);
@@ -202,6 +205,15 @@ export class PharmacyService {
       orderBy: { datePrescription: 'desc' },
     });
 
+    const enCours = await this.prisma.dispensationPharmacie.findMany({
+      where: {
+        pharmacieId: ctx.pharmacieId!,
+        ordonnanceId: { in: ordonnances.map((o) => o.id) },
+        statut: { in: STATUTS_DISPENSATION_EN_COURS },
+      },
+      select: { id: true, ordonnanceId: true, statut: true },
+      orderBy: { createdAt: 'desc' },
+    });
     const refs = await this.prixReferenceParDenomination(
       ctx.organisationId,
       ordonnances.flatMap((o) => o.lignesOrdonnance.map((l) => l.denominationMedicament)),
@@ -217,6 +229,8 @@ export class PharmacyService {
         statut: o.statut,
         datePrescription: o.datePrescription,
         dateValidite: o.dateValidite,
+        // facture déjà ouverte (code envoyé, paiement non confirmé) : on la reprend, on n'en ouvre pas une seconde
+        dispensationEnCours: enCours.find((e) => e.ordonnanceId === o.id) ?? null,
         lignes: o.lignesOrdonnance.map((l) => ({
           id: l.id,
           denominationMedicament: l.denominationMedicament,
@@ -631,6 +645,17 @@ export class PharmacyService {
     }
     if (['EXPIREE', 'ANNULEE'].includes(ordonnance.statut)) {
       throw new ConflictException(`Ordonnance ${ordonnance.statut.toLowerCase()} — dispensation impossible.`);
+    }
+
+    // Une facture non réglée existe déjà pour cette ordonnance dans SA pharmacie : on ne refait pas la facturation.
+    const dejaOuverte = await this.prisma.dispensationPharmacie.findFirst({
+      where: { ordonnanceId, pharmacieId, statut: { in: STATUTS_DISPENSATION_EN_COURS } },
+      select: { id: true },
+    });
+    if (dejaOuverte) {
+      throw new ConflictException(
+        'Une facture est déjà en cours pour cette prescription (code envoyé, paiement non confirmé) : reprenez-la ou supprimez-la avant d’en refaire une.',
+      );
     }
 
     // Canal d'envoi du code : le contact vient de la fiche du titulaire, jamais du client.
@@ -1153,6 +1178,34 @@ export class PharmacyService {
     });
 
     return { dispensationId: maj.id, statut: maj.statut };
+  }
+
+  /**
+   * Suppression DÉFINITIVE d'une facture déjà annulée de SA pharmacie, pour désencombrer l'historique. Refusée si la
+   * dispensation n'est pas annulée, ou si elle a été facturée et servie (payée / réclamation rattachée).
+   */
+  async supprimerDispensationAnnulee(user: AuthenticatedUser, dispensationId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+    const d = await this.prisma.dispensationPharmacie.findFirst({
+      where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
+      select: { id: true, statut: true, montantTotal: true, datePaiement: true, _count: { select: { reclamations: true } } },
+    });
+    if (!d) throw new NotFoundException('Dispensation introuvable.');
+    if (d.statut === 'PAYEE' || d.datePaiement || d._count.reclamations > 0) {
+      throw new ConflictException('Cette prescription est déjà facturée et servie : elle ne peut pas être supprimée.');
+    }
+    if (d.statut !== 'ANNULEE') {
+      throw new ConflictException('Seule une facture annulée peut être supprimée définitivement : annulez-la d’abord.');
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await this.audit(tx, ctx.userId, 'SUPPRESSION_DISPENSATION_ANNULEE', 'dispensations_pharmacie', d.id, {
+        montantTotal: d.montantTotal.toString(),
+      });
+      const { count } = await tx.dispensationPharmacie.deleteMany({ where: { id: d.id, statut: 'ANNULEE', datePaiement: null } });
+      if (count === 0) throw new ConflictException('Le statut de cette facture a changé : actualisez la page.');
+    });
+    return { id: d.id, supprimee: true as const };
   }
 
   /**

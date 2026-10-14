@@ -155,6 +155,15 @@ export class PharmacyController {
     return this.pharmacy.validerCodeParPharmacie(user, id, dto.code);
   }
 
+  /** Côté PHARMACIE : supprime définitivement une facture annulée (jamais une facturée et servie). */
+  @Delete('dispensations/:id')
+  supprimerAnnulee(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.supprimerDispensationAnnulee(user, id);
+  }
+
   /** Côté PHARMACIE : supprime (annule) une facture d'ordonnance non réglée de SA pharmacie. */
   @Post('dispensations/:id/annuler')
   annuler(

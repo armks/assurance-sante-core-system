@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
-import { annulerDispensation } from '@/app/dashboard-pharmacie/dispensation-actions';
+import { annulerDispensation, supprimerDispensationAnnulee } from '@/app/dashboard-pharmacie/dispensation-actions';
 import type { DispensationResume } from '@/app/dashboard-pharmacie/dispensation-types';
 import {
   DataTable,
@@ -24,7 +24,7 @@ const LIBELLE_STATUT: Record<string, string> = {
 
 const NON_REGLEES = ['EN_PREPARATION', 'EN_ATTENTE_VALIDATION_PATIENT', 'VALIDEE'];
 
-function BoutonSupprimer({ id }: { id: string }) {
+function BoutonSupprimer({ id, definitif = false }: { id: string; definitif?: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
@@ -35,16 +35,19 @@ function BoutonSupprimer({ id }: { id: string }) {
         disabled={pending}
         className="text-xs font-medium text-destructive hover:underline disabled:opacity-50"
         onClick={() => {
-          if (!window.confirm('Supprimer cette facture non réglée ? Le code envoyé au patient ne sera plus valable.')) return;
+          const message = definitif
+            ? 'Supprimer définitivement cette facture annulée ? Cette action est irréversible.'
+            : 'Supprimer cette facture non réglée ? Le code envoyé au patient ne sera plus valable.';
+          if (!window.confirm(message)) return;
           setErreur(null);
           start(async () => {
-            const res = await annulerDispensation(id, window.location.pathname);
+            const res = await (definitif ? supprimerDispensationAnnulee : annulerDispensation)(id, window.location.pathname);
             if (!res.ok) setErreur(res.error);
             else router.refresh();
           });
         }}
       >
-        Supprimer
+        {definitif ? 'Vider' : 'Supprimer'}
       </button>
       {erreur && <p className="text-xs text-destructive">{erreur}</p>}
     </div>
@@ -119,7 +122,8 @@ export function DispensationsListeEcran({
           {
             cle: 'actions',
             entete: '',
-            rendu: (d: DispensationResume) => (NON_REGLEES.includes(d.statut) ? <BoutonSupprimer id={d.id} /> : null),
+            rendu: (d: DispensationResume) =>
+              NON_REGLEES.includes(d.statut) ? <BoutonSupprimer id={d.id} /> : d.statut === 'ANNULEE' ? <BoutonSupprimer id={d.id} definitif /> : null,
           },
         ]
       : []),

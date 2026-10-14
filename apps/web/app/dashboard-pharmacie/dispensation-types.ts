@@ -30,6 +30,8 @@ export interface PrescriptionActive {
   statut: string;
   datePrescription: string;
   dateValidite: string;
+  /** Facture non réglée déjà ouverte pour cette prescription (à reprendre, pas à refaire). */
+  dispensationEnCours?: { id: string; statut: string } | null;
   lignes: LignePrescriptionActive[];
 }
 

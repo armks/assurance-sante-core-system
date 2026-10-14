@@ -8793,3 +8793,12 @@ Terminé.
 ## 2026-10-14 — Pharmacie : champ de saisie du code de validation du patient
 - `POST /pharmacy/dispensations/:id/valider-code-pharmacie` (`validerCodeParPharmacie`) : la pharmacie saisit le code communiqué par le patient ; comparé au code de SA dispensation en attente → VALIDEE (audit `VALIDATION_CODE_DISPENSATION_PAR_PHARMACIE`, tentative erronée journalisée `CODE_DISPENSATION_INCORRECT`). La validation dans l'application du patient reste possible.
 - Web : encadré « Code de validation communiqué par le patient » (champ + « Valider le code ») dans la dispensation en attente, au-dessus du bouton de paiement. tsc OK, tests pharmacy 117/117.
+
+## 2026-10-14 — Pharmacie : suppression définitive des factures annulées
+- `DELETE /pharmacy/dispensations/:id` (`supprimerDispensationAnnulee`) : réservé aux dispensations ANNULEE de SA pharmacie ; refus 409 si payée / servie / réclamation rattachée, ou si non annulée (il faut d'abord l'annuler). Lignes supprimées en cascade ; audit `SUPPRESSION_DISPENSATION_ANNULEE` écrit avant la suppression.
+- Web : lien « Supprimer définitivement » (confirmation) sur les lignes « Annulée » de l'historique du pharmacien. tsc OK, tests pharmacy 117/117 (suppression non testée en réel).
+
+## 2026-10-14 — Pharmacie : une prescription déjà facturée (code en attente) ne se refacture plus
+- Constat : une prescription dont le code était déjà envoyé pouvait être re-sélectionnée et refacturée.
+- API : la recherche par carte renvoie `dispensationEnCours` (facture non réglée de SA pharmacie) par prescription ; `preparerDispensation` refuse (409) s'il existe déjà une facture EN_PREPARATION / EN_ATTENTE_VALIDATION_PATIENT / VALIDEE pour la prescription.
+- Web : « Voir la facture » + pastille « En attente de validation » / « Code validé — paiement à confirmer » ; sélectionner une telle prescription affiche directement la facture (coût, part assurance, part patient, champ du code, boutons) sans formulaire de lignes. tsc OK, tests pharmacy 117/117.

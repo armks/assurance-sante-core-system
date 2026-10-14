@@ -417,7 +417,7 @@ export function DossierDetail({
                       name="medecinId"
                       label="Médecin de la consultation"
                       required
-                      placeholder={medecins.length > 0 ? 'Choisir le médecin…' : 'Aucun médecin dans cet établissement'}
+                      placeholder={medecins.length > 0 ? 'Choisir le médecin…' : 'Aucun médecin n’a renseigné son nom (Mon profil)'}
                       options={medecins.map((m) => ({ valeur: m.id, libelle: m.libelle }))}
                     />
                   )}

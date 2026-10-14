@@ -54,7 +54,7 @@ export function ChampMedecinRealisateur({ medecins }: { medecins: MedecinCentre[
       name="medecinId"
       label="Médecin ayant effectué l’acte"
       required
-      placeholder={medecins.length > 0 ? 'Choisir le médecin…' : 'Aucun médecin dans cet établissement'}
+      placeholder={medecins.length > 0 ? 'Choisir le médecin…' : 'Aucun médecin n’a renseigné son nom (Mon profil)'}
       options={medecins.map((m) => ({ valeur: m.id, libelle: m.libelle }))}
       aide="Le médecin vous a informé de l’acte : son nom et votre déclaration sont tracés dans l’audit."
     />

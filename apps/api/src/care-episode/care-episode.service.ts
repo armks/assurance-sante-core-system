@@ -8,7 +8,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { createClient } from '@supabase/supabase-js';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
@@ -410,8 +409,8 @@ export class CareEpisodeService {
   // --- Médecins de l'établissement -------------------------------
 
   /**
-   * Médecins (CENTRE_MEDICAL_MEDECIN) de l'établissement de l'appelant, avec un libellé lisible (e-mail du compte, à défaut le
-   * n° d'ordre). Réservé au personnel du centre : un compte sans établissement ou hors centre médical n'a rien à désigner (403).
+   * Médecins (CENTRE_MEDICAL_MEDECIN) de l'établissement de l'appelant, dont le NOM est renseigné (pseudo du profil ;
+   * le médecin doit donc créer son profil pour apparaître). Réservé au personnel du centre : un compte sans établissement ou hors centre médical n'a rien à désigner (403).
    */
   async listerMedecinsEtablissement(user: AuthenticatedUser) {
     const ctx = await this.contexteAppelant(user);
@@ -421,6 +420,7 @@ export class CareEpisodeService {
     if (!estCentreMedical || !ctx.etablissementId) {
       throw new ForbiddenException("La liste des médecins est réservée au personnel d'un centre médical.");
     }
+    // Seuls les médecins qui ont renseigné leur nom (pseudo de « Mon profil ») sont proposés : jamais d'e-mail dans la liste.
     const profils = await this.prisma.profil.findMany({
       where: {
         organisationId: ctx.organisationId,
@@ -428,26 +428,14 @@ export class CareEpisodeService {
         role: ROLE_MEDECIN_TRAITANT,
         deletedAt: null,
         statut: 'ACTIF',
+        pseudo: { not: null },
       },
-      select: { id: true, numeroOrdreMedecin: true },
+      select: { id: true, pseudo: true },
     });
-    const admin =
-      process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-        ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
-        : null;
-    const medecins: { id: string; libelle: string }[] = [];
-    for (const p of profils) {
-      let email: string | null = null;
-      if (admin) {
-        const { data } = await admin.auth.admin.getUserById(p.id).catch(() => ({ data: null }));
-        email = data?.user?.email ?? null;
-      }
-      medecins.push({
-        id: p.id,
-        libelle: email ?? (p.numeroOrdreMedecin ? `Médecin n° ${p.numeroOrdreMedecin}` : `Médecin ${p.id.slice(0, 8)}`),
-      });
-    }
-    return medecins.sort((a, b) => a.libelle.localeCompare(b.libelle, 'fr'));
+    return profils
+      .map((p) => ({ id: p.id, libelle: (p.pseudo ?? '').trim() }))
+      .filter((m) => m.libelle)
+      .sort((a, b) => a.libelle.localeCompare(b.libelle, 'fr'));
   }
 
   // --- Consultations -------------------------------------------

@@ -1,3 +1,4 @@
+import { Cim10Module } from './cim10/cim10.module';
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ActeurInterceptor } from './common/acteur.interceptor';
@@ -62,6 +63,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     SanteModule,
     DependancesModule,
     JournalModule,
+    Cim10Module,
   ],
   // Identité de l'utilisateur propagée à toute écriture de la requête (journal des actions)
   providers: [{ provide: APP_INTERCEPTOR, useClass: ActeurInterceptor }],

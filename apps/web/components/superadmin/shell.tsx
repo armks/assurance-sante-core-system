@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Type,
+  Stethoscope,
 } from 'lucide-react';
 
 import { Brand } from '@/components/brand';
@@ -43,6 +44,8 @@ const NAV: (EntreeNav & { largeur?: LargeurPage })[] = [
     icon: Library,
   },
   { label: 'Lettres-clés', href: '/superadmin/lettres-cles', icon: Type },
+  // Maladies codées CIM-10 : choisies par les médecins pour le diagnostic des consultations
+  { label: 'Maladies (CIM-10)', href: '/superadmin/cim10', icon: Stethoscope },
   // Traçabilité : qui a fait quoi, dans toutes les organisations
   { label: 'Journal des actions', href: '/superadmin/journal-actions', icon: History },
 ];

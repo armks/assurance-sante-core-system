@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { Cim10Module } from '../cim10/cim10.module';
 import { CareEpisodeController } from './care-episode.controller';
 import { CareEpisodeService } from './care-episode.service';
 
@@ -8,7 +9,7 @@ import { CareEpisodeService } from './care-episode.service';
  * et Numéro de Traitement, MoteurOuvertureDossier (v1 §15, PROMPT 17).
  */
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, Cim10Module],
   controllers: [CareEpisodeController],
   providers: [CareEpisodeService],
   exports: [CareEpisodeService],

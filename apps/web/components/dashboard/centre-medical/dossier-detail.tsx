@@ -35,6 +35,7 @@ import {
   TYPES_VISITE,
   aUnRole,
 } from '@/lib/centre-medical';
+import { ChampCim10 } from './champ-cim10';
 import { StatutActe } from './statut-acte';
 import {
   ChampDateRealisation,
@@ -432,12 +433,7 @@ export function DossierDetail({
                     label="Diagnostic"
                     maxLength={500}
                   />
-                  <ChampTexte
-                    name="codeCim10"
-                    label="Code CIM-10"
-                    maxLength={20}
-                    aide="Optionnel."
-                  />
+                  <ChampCim10 />
                 </FormulaireModal>
               ) : undefined
             }

@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
+import { Cim10Service } from '../cim10/cim10.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AjouterConsultationDto,
@@ -58,6 +59,7 @@ export class CareEpisodeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
+    private readonly cim10: Cim10Service,
   ) {}
 
   // --- Ouverture -------------------------------------------------
@@ -472,6 +474,9 @@ export class CareEpisodeService {
       );
     }
 
+    // le code CIM-10 choisi doit exister dans le référentiel du superadmin (seul le code est conservé)
+    const codeCim10 = dto.codeCim10?.trim() ? await this.cim10.verifierCode(dto.codeCim10) : null;
+
     const id = await this.prisma.$transaction(async (tx) => {
       const consultation = await tx.consultationDossier.create({
         data: {
@@ -480,7 +485,7 @@ export class CareEpisodeService {
           motif: dto.motif,
           observations: dto.observations ?? null,
           diagnostic: dto.diagnostic ?? null,
-          codeCim10: dto.codeCim10 ?? null,
+          codeCim10,
           statut: 'EN_COURS',
         },
       });

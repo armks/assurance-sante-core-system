@@ -548,6 +548,18 @@ model LettreCle {
   @@map("lettres_cles")
 }
 
+/// Référentiel CIM-10 (prisma/sql/095) : maladies codées, alimenté par le superadmin, consulté par les médecins.
+model MaladieCim10 {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique
+  libelle   String
+  actif     Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("maladies_cim10")
+}
+
 model CategorieActe {
   code            String     @id
   libelle         String

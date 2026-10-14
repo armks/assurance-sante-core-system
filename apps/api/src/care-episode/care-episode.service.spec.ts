@@ -1,10 +1,12 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { Cim10Service } from '../cim10/cim10.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CareEpisodeService } from './care-episode.service';
@@ -43,6 +45,7 @@ const ETAB_ACTIF = { id: 'etab-1', organisationId: 'org-1', statut: 'ACTIF', del
 describe('CareEpisodeService', () => {
   let service: CareEpisodeService;
   let prisma: any;
+  let cim10: { verifierCode: jest.Mock };
   let identity: { getMe: jest.Mock };
 
   beforeEach(async () => {
@@ -80,12 +83,14 @@ describe('CareEpisodeService', () => {
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
     identity = { getMe: jest.fn() };
+    cim10 = { verifierCode: jest.fn((c: string) => Promise.resolve(c.trim().toUpperCase())) };
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         CareEpisodeService,
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
+        { provide: Cim10Service, useValue: cim10 },
       ],
     }).compile();
 
@@ -319,6 +324,41 @@ describe('CareEpisodeService', () => {
     });
     expect(prisma.consultationDossier.create).toHaveBeenCalled();
     expect(res).toMatchObject({ id: 'cons-1' });
+  });
+
+  it('refuse une consultation dont le code CIM-10 est absent du référentiel', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+    prisma.dossierSoins.findFirst.mockResolvedValue({
+      id: 'dos-1',
+      organisationId: 'org-1',
+      statut: 'OUVERT',
+      etablissementId: 'etab-1',
+    });
+    prisma.profil.findFirst.mockResolvedValue({ id: 'med-1', role: 'CENTRE_MEDICAL_MEDECIN', etablissementId: 'etab-1' });
+    cim10.verifierCode.mockRejectedValue(new BadRequestException('Code CIM-10 inconnu'));
+
+    await expect(
+      service.ajouterConsultation(USER, 'dos-1', { medecinId: 'med-1', motif: 'Suivi', codeCim10: 'Q00' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.consultationDossier.create).not.toHaveBeenCalled();
+  });
+
+  it('enregistre le code CIM-10 normalisé de la consultation', async () => {
+    identity.getMe.mockResolvedValue(identite(['CENTRE_MEDICAL_MEDECIN'], 'org-1', 'etab-1'));
+    prisma.dossierSoins.findFirst.mockResolvedValue({
+      id: 'dos-1',
+      organisationId: 'org-1',
+      statut: 'OUVERT',
+      etablissementId: 'etab-1',
+    });
+    prisma.profil.findFirst.mockResolvedValue({ id: 'med-1', role: 'CENTRE_MEDICAL_MEDECIN', etablissementId: 'etab-1' });
+    prisma.consultationDossier.create.mockResolvedValue({ id: 'cons-1', numeroConsultation: 'CST-1' });
+    prisma.consultationDossier.findUnique.mockResolvedValue({ id: 'cons-1' });
+
+    await service.ajouterConsultation(USER, 'dos-1', { medecinId: 'med-1', motif: 'Suivi', codeCim10: ' b50.9 ' });
+    expect(prisma.consultationDossier.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ codeCim10: 'B50.9' }) }),
+    );
   });
 
   it('la clôture forcée est refusée à un rôle non ASSUREUR_EXPLOITATION', async () => {

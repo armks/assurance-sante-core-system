@@ -24,8 +24,6 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
-  // Champs éditables seulement après un premier clic / Tab : aucune proposition d'historique ni remplissage automatique à l'affichage
-  const [champsPrets, setChampsPrets] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
 
@@ -67,11 +65,9 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
                   id="email"
                   name="email"
                   type="email"
-                  // Aucun curseur d'office dans ce champ et aucune proposition d'historique : pas de remplissage automatique d'e-mail / mot de passe.
-                  // Champ en lecture seule jusqu'au premier clic (les navigateurs ne proposent rien sur un champ non éditable), `autoComplete` désactivé.
-                  autoComplete="off"
-                  readOnly={!champsPrets}
-                  onFocus={() => setChampsPrets(true)}
+                  // Pas de curseur d'office dans ce champ (aucun autoFocus : l'historique ne s'affiche pas à l'ouverture de la page), mais l'historique des
+                  // e-mails enregistrés est proposé dès qu'on CLIQUE dedans : champ éditable, `autoComplete="username"`.
+                  autoComplete="username"
                   spellCheck={false}
                   placeholder="nom@exemple.com"
                   required
@@ -93,9 +89,7 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
                   id="password"
                   name="password"
                   type="password"
-                  autoComplete="new-password"
-                  readOnly={!champsPrets}
-                  onFocus={() => setChampsPrets(true)}
+                  autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

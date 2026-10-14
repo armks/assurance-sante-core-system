@@ -12,6 +12,7 @@ import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
 import { Cim10Service } from '../cim10/cim10.service';
+import { AdherentService } from '../member/adherent.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AjouterConsultationDto,
@@ -60,6 +61,7 @@ export class CareEpisodeService {
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,
     private readonly cim10: Cim10Service,
+    private readonly adherents: AdherentService,
   ) {}
 
   // --- Ouverture -------------------------------------------------
@@ -703,7 +705,7 @@ export class CareEpisodeService {
   ) {
     const ctx = await this.contexteAppelant(user);
     const mode = this.modeLectureDossiers(ctx);
-    return this.prisma.dossierSoins.findMany({
+    const dossiers = await this.prisma.dossierSoins.findMany({
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
@@ -720,6 +722,52 @@ export class CareEpisodeService {
       include: { etablissement: { select: { nom: true } } },
       orderBy: { dateOuverture: 'desc' },
     });
+    return this.avecIdentitePatient(dossiers);
+  }
+
+  /**
+   * Ajoute à chaque dossier de la liste le patient (nom, prénom, n° de carte, lien) et sa société (souscripteur de l'adhérent
+   * titulaire) — en deux requêtes groupées, jamais une par ligne.
+   */
+  private async avecIdentitePatient<T extends { adherentId: string | null; beneficiaireId: string | null }>(dossiers: T[]) {
+    const beneficiaireIds = [...new Set(dossiers.map((d) => d.beneficiaireId).filter((x): x is string => !!x))];
+    const beneficiaires = beneficiaireIds.length
+      ? await this.prisma.beneficiaire.findMany({
+          where: { id: { in: beneficiaireIds } },
+          select: { id: true, nom: true, prenom: true, numeroCarte: true, lienParente: true, adherentId: true },
+        })
+      : [];
+    const parBeneficiaire = new Map(beneficiaires.map((b) => [b.id, b]));
+    const adherentIds = [
+      ...new Set([
+        ...dossiers.map((d) => d.adherentId),
+        ...beneficiaires.map((b) => b.adherentId),
+      ].filter((x): x is string => !!x)),
+    ];
+    const adherents = adherentIds.length
+      ? await this.prisma.adherent.findMany({
+          where: { id: { in: adherentIds } },
+          select: { id: true, nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } },
+        })
+      : [];
+    const parAdherent = new Map(adherents.map((a) => [a.id, a]));
+    return dossiers.map((d) => {
+      const benef = d.beneficiaireId ? parBeneficiaire.get(d.beneficiaireId) : undefined;
+      const titulaire = parAdherent.get(d.adherentId ?? benef?.adherentId ?? '');
+      const membre = benef ?? (d.adherentId ? parAdherent.get(d.adherentId) : undefined);
+      return {
+        ...d,
+        patient: membre
+          ? {
+              nom: membre.nom,
+              prenom: membre.prenom,
+              numeroCarte: membre.numeroCarte,
+              lien: benef ? benef.lienParente : 'TITULAIRE',
+              societe: titulaire?.souscripteur?.nom ?? null,
+            }
+          : null,
+      };
+    });
   }
 
   async obtenirDossier(user: AuthenticatedUser, id: string) {
@@ -731,7 +779,41 @@ export class CareEpisodeService {
       mode === 'CENTRE_MEDICAL' ? ctx.etablissementId : null,
     );
     const soldeRestantDu = await this.calculerSoldeRestantDu(id);
-    return { ...dossier, soldeRestantDu: soldeRestantDu.toFixed(2) };
+    const patient = await this.identitePatient(dossier);
+    return { ...dossier, patient, soldeRestantDu: soldeRestantDu.toFixed(2) };
+  }
+
+  /**
+   * Fiche d'identité du patient du dossier (adhérent ou bénéficiaire) : nom, prénom, sexe, date de naissance, n° de carte, société, photo (URL signée,
+   * éphémère), lien avec l'adhérent et FORMULE d'assurance (produit de la police). Lecture seule, mêmes droits que le dossier.
+   */
+  private async identitePatient(dossier: { adherentId: string | null; beneficiaireId: string | null; policeId: string }) {
+    const select = { nom: true, prenom: true, dateNaissance: true, photoUrl: true, sexe: true, numeroCarte: true } as const;
+    const [police, beneficiaire, adherent] = await Promise.all([
+      this.prisma.police.findUnique({ where: { id: dossier.policeId }, select: { produit: { select: { nom: true } } } }),
+      dossier.beneficiaireId
+        ? this.prisma.beneficiaire.findUnique({ where: { id: dossier.beneficiaireId }, select: { ...select, lienParente: true, adherentId: true } })
+        : null,
+      dossier.adherentId ? this.prisma.adherent.findUnique({ where: { id: dossier.adherentId }, select }) : null,
+    ]);
+    const membre = beneficiaire ?? adherent;
+    if (!membre) return null;
+    // société = souscripteur de l'adhérent titulaire (celui du dossier, ou celui dont dépend le bénéficiaire)
+    const titulaireId = dossier.adherentId ?? beneficiaire?.adherentId ?? null;
+    const titulaire = titulaireId
+      ? await this.prisma.adherent.findUnique({ where: { id: titulaireId }, select: { souscripteur: { select: { nom: true } } } })
+      : null;
+    return {
+      nom: membre.nom,
+      prenom: membre.prenom,
+      dateNaissance: membre.dateNaissance,
+      photoUrl: await this.adherents.urlPhotoSignee(membre.photoUrl),
+      sexe: membre.sexe,
+      numeroCarte: membre.numeroCarte,
+      lien: beneficiaire ? beneficiaire.lienParente : 'TITULAIRE',
+      formule: police?.produit?.nom ?? null,
+      societe: titulaire?.souscripteur?.nom ?? null,
+    };
   }
 
   /**

@@ -7,6 +7,7 @@ import {
 import { Test } from '@nestjs/testing';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { Cim10Service } from '../cim10/cim10.service';
+import { AdherentService } from '../member/adherent.service';
 import { IdentityService } from '../identity/identity.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CareEpisodeService } from './care-episode.service';
@@ -91,6 +92,7 @@ describe('CareEpisodeService', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: IdentityService, useValue: identity },
         { provide: Cim10Service, useValue: cim10 },
+        { provide: AdherentService, useValue: { urlPhotoSignee: jest.fn().mockResolvedValue(null) } },
       ],
     }).compile();
 

@@ -36,6 +36,8 @@ import {
   aUnRole,
 } from '@/lib/centre-medical';
 import { ChampCim10 } from './champ-cim10';
+import { FichePatient } from './fiche-patient';
+import { OrdonnancesDossier, type OrdonnanceDossier } from './ordonnances-dossier';
 import { StatutActe } from './statut-acte';
 import {
   ChampDateRealisation,
@@ -49,7 +51,6 @@ import { ChampsMedicamentsOrdonnance, lireLignesOrdonnance } from './champs-medi
 import {
   LIBELLE_STATUT_CONSULTATION,
   LIBELLE_STATUT_DOSSIER,
-  LIBELLE_STATUT_ORDONNANCE,
   LIBELLE_STATUT_TICKET,
 } from '@/lib/dossier-soins';
 import { useCategoriesActe } from '@/components/categories-acte';
@@ -81,30 +82,27 @@ interface Acte {
   realisationDeclareePar?: string | null;
   origineMontant?: 'SAISI' | 'TARIF_CONVENTION' | null;
 }
-interface LigneOrdonnanceDossier {
-  id: string;
-  denominationMedicament: string;
-  dosage: string | null;
-  posologie: string;
-  duree: string | null;
-  quantitePrescrite: number;
-  statut: string;
-}
-interface OrdonnanceDossier {
-  id: string;
-  consultationId: string;
-  medecinId: string;
-  statut: string;
-  datePrescription: string;
-  dateValidite: string;
-  lignesOrdonnance: LigneOrdonnanceDossier[];
-}
 interface NoteDossier {
   id: string;
   contenu: string;
   createdAt: string;
   acteDossierId: string | null;
   auteur: { role: string | null } | null;
+}
+export interface PatientDossier {
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  sexe: string | null;
+  numeroCarte: string | null;
+  /** Société de l'adhérent (souscripteur). */
+  societe: string | null;
+  /** URL signée (éphémère) de la photo ; `null` si aucune. */
+  photoUrl: string | null;
+  /** `TITULAIRE` ou lien de parenté du bénéficiaire (CONJOINT, ENFANT…). */
+  lien: string;
+  /** Formule d'assurance (produit de la police). */
+  formule: string | null;
 }
 export interface DossierComplet {
   id: string;
@@ -120,6 +118,7 @@ export interface DossierComplet {
   consultations: Consultation[];
   actes: Acte[];
   ordonnances?: OrdonnanceDossier[];
+  patient?: PatientDossier | null;
   ticket: { id: string; statut: string } | null;
   notes: NoteDossier[];
 }
@@ -133,11 +132,12 @@ const montant = (v: string | null) =>
 /** Pré-autorisation en cours ou refusée : l'acte n'est pas encore à effectuer / à déclarer réalisé (miroir de l'API). */
 const PREAUTORISATION_BLOQUANTE = ['EN_ATTENTE_EXPLOITATION', 'EN_ATTENTE_MEDECIN_CONSEIL', 'REFUSEE'];
 
-function Ligne({ label, children }: { label: string; children: React.ReactNode }) {
+/** Libellé au-dessus, valeur dessous — cellule d'une grille d'informations compacte. */
+function Info({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex justify-between gap-4 py-1.5 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium">{children}</span>
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="truncate text-sm font-medium">{children}</dd>
     </div>
   );
 }
@@ -247,33 +247,44 @@ export function DossierDetail({
   const ordonnances = dossier.ordonnances ?? [];
   const consultationsFacturables = dossier.consultations.filter((c) => c.statut !== 'ANNULEE').length;
 
+  /** La colonne « Pré-autorisation » n'apparaît que si au moins un acte en relève (sinon elle ne contient que des tirets). */
+  const aPreautorisation = dossier.actes.some((a) => a.statutPreautorisation !== 'NON_REQUISE');
+
   const colActes: ColonneTable<Acte>[] = [
-    { cle: 'libelle', entete: 'Libellé', triable: true },
     {
-      cle: 'categorieActe',
-      entete: 'Catégorie',
-      valeur: (a) => libelleCategorieActe(a.categorieActe),
-      rendu: (a) => libelleCategorieActe(a.categorieActe),
-    },
-    { cle: 'quantite', entete: 'Qté', aligneDroite: true },
-    {
-      cle: 'montantPrescrit',
-      entete: 'Montant unitaire',
-      aligneDroite: true,
-      valeur: (a) => Number(a.montantPrescrit ?? 0),
+      cle: 'libelle',
+      entete: 'Acte',
+      triable: true,
       rendu: (a) => (
-        <span title={a.origineMontant === 'TARIF_CONVENTION' ? 'Tarif repris de la convention de l’établissement' : undefined}>
-          {montant(a.montantPrescrit)}
-          {a.origineMontant === 'TARIF_CONVENTION' && <span className="ml-1 text-xs text-muted-foreground">(convention)</span>}
+        <span className="inline-flex items-center gap-2" title={`${libelleCategorieActe(a.categorieActe)}${a.codeActe ? ` · ${a.codeActe}` : ''}`}>
+          <span className="font-medium">{a.libelle}</span>
+          {a.codeActe && <span className="font-mono text-xs text-muted-foreground">{a.codeActe}</span>}
         </span>
       ),
     },
+    { cle: 'quantite', entete: 'Qté', aligneDroite: true, className: 'tabular-nums' },
     {
       cle: 'montantTotal',
       entete: 'Montant',
       aligneDroite: true,
       valeur: (a) => Number(a.montantPrescrit ?? 0) * a.quantite,
-      rendu: (a) => (a.montantPrescrit === null || a.montantPrescrit === '' ? '—' : montant(String(Number(a.montantPrescrit) * a.quantite))),
+      rendu: (a) =>
+        a.montantPrescrit === null || a.montantPrescrit === '' ? (
+          '—'
+        ) : (
+          <span className="inline-flex items-center justify-end gap-2">
+            {a.origineMontant === 'TARIF_CONVENTION' && (
+              <span
+                className="rounded-full bg-emerald-50 px-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                title="Tarif repris de la convention de l’établissement"
+              >
+                convention
+              </span>
+            )}
+            {a.quantite > 1 && <span className="text-xs text-muted-foreground">{montant(a.montantPrescrit)} × {a.quantite}</span>}
+            <span className="font-semibold">{montant(String(Number(a.montantPrescrit) * a.quantite))}</span>
+          </span>
+        ),
     },
     {
       cle: 'medecinRealisateurId',
@@ -282,49 +293,42 @@ export function DossierDetail({
       rendu: (a) => (
         <span>
           {nomMedecin(a.medecinRealisateurId)}
-          {a.realisationDeclareePar && <span className="block text-xs text-muted-foreground">déclaré par l’accueil</span>}
+          {a.realisationDeclareePar && <span className="text-xs text-muted-foreground"> · accueil</span>}
         </span>
       ),
     },
     {
-      cle: 'ticketModerateurSimule',
-      entete: 'Ticket modérateur (estimation)',
-      aligneDroite: true,
-      valeur: (a) => Number(a.ticketModerateurSimule ?? 0),
-      rendu: (a) => montant(a.ticketModerateurSimule),
-    },
-    {
       cle: 'montantSimulePatient',
-      entete: 'Part assuré (estimation)',
+      entete: 'Part assuré',
       aligneDroite: true,
       valeur: (a) => Number(a.montantSimulePatient ?? 0),
-      rendu: (a) => montant(a.montantSimulePatient),
+      rendu: (a) => <span title={a.ticketModerateurSimule ? `dont ticket modérateur ${montant(a.ticketModerateurSimule)}` : undefined}>{montant(a.montantSimulePatient)}</span>,
     },
     {
       cle: 'montantSimuleAssurance',
-      entete: 'Part assurance (estimation)',
+      entete: 'Part assurance',
       aligneDroite: true,
       valeur: (a) => Number(a.montantSimuleAssurance ?? 0),
-      rendu: (a) => montant(a.montantSimuleAssurance),
+      rendu: (a) => <span className="font-medium text-emerald-700 dark:text-emerald-300">{montant(a.montantSimuleAssurance)}</span>,
     },
-    {
-      cle: 'statutPreautorisation',
-      entete: 'Pré-autorisation',
-      rendu: (a) =>
-        a.statutPreautorisation === 'NON_REQUISE' ? (
-          '—'
-        ) : (
-          <StatutBadge
-            statut={a.statutPreautorisation}
-            map={TON_PREAUTORISATION}
-            libelles={LIBELLE_PREAUTORISATION}
-          />
-        ),
-    },
+    ...(aPreautorisation
+      ? [
+          {
+            cle: 'statutPreautorisation',
+            entete: 'Pré-autorisation',
+            rendu: (a: Acte) =>
+              a.statutPreautorisation === 'NON_REQUISE' ? (
+                '—'
+              ) : (
+                <StatutBadge statut={a.statutPreautorisation} map={TON_PREAUTORISATION} libelles={LIBELLE_PREAUTORISATION} />
+              ),
+          } satisfies ColonneTable<Acte>,
+        ]
+      : []),
     {
       cle: 'statut',
       entete: 'Statut',
-      rendu: (a) => <StatutActe statut={a.statut} dateRealisation={a.dateRealisation} />,
+      rendu: (a) => <StatutActe statut={a.statut} dateRealisation={a.dateRealisation} surUneLigne />,
     },
   ];
 
@@ -341,7 +345,7 @@ export function DossierDetail({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {avisActe && (
         <Alerte
           ton={avisActe.includes('NON COUVERTE') ? 'avertissement' : 'succes'}
@@ -350,73 +354,63 @@ export function DossierDetail({
           {avisActe}
         </Alerte>
       )}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Informations</CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y">
-          <Ligne label="N° de traitement">{dossier.numeroTraitement}</Ligne>
-          <Ligne label="Statut">
-            <StatutBadge statut={dossier.statut} libelles={LIBELLE_STATUT_DOSSIER} />
-          </Ligne>
-          <Ligne label="Patient">
-            {dossier.beneficiaireId ? 'Bénéficiaire' : 'Adhérent titulaire'}
-          </Ligne>
-          <Ligne label="Motif d’entrée">
-            {dossier.motifConsultation ?? '—'}
-          </Ligne>
-          <Ligne label="Type de visite">
-            {dossier.typeVisite ? (
-              TYPES_VISITE.find((t) => t.valeur === dossier.typeVisite)?.libelle ??
-              dossier.typeVisite
-            ) : ouvert && peutGerer ? (
-              <FormulaireModal
-                titre="Choisir le type de visite"
-                mode="center"
-                description="Choix définitif — un seul choix possible par dossier."
-                declencheur={
-                  <Button type="button" size="xs" variant="outline">
-                    Définir
-                  </Button>
-                }
-                libelleSoumettre="Enregistrer"
-                onSoumettre={async (fd) =>
-                  definirTypeVisite(dossier.id, String(fd.get('typeVisite') ?? ''))
-                }
-                onSucces={() => router.refresh()}
-              >
-                <ChampSelect
-                  name="typeVisite"
-                  label="Type de visite"
-                  required
-                  placeholder="Choisir…"
-                  options={TYPES_VISITE.map((t) => ({ valeur: t.valeur, libelle: t.libelle }))}
-                />
-              </FormulaireModal>
-            ) : (
-              '—'
-            )}
-          </Ligne>
-          <Ligne label="Ouvert le">{dateFr(dossier.dateOuverture)}</Ligne>
-          {dossier.dateCloture && (
-            <Ligne label="Clôturé le">{dateFr(dossier.dateCloture)}</Ligne>
-          )}
-          <Ligne label="Ticket de soins">
-            {dossier.ticket ? (
-              <StatutBadge
-                statut={dossier.ticket.statut}
-                libelles={LIBELLE_STATUT_TICKET}
-              />
-            ) : (
-              '—'
-            )}
-          </Ligne>
+      <Card className="gap-0 py-3">
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-5">
+          {dossier.patient && <FichePatient patient={dossier.patient} />}
+          {/* 3 lignes : identification du dossier / visite et dates / motif */}
+          <dl className="grid flex-1 content-between gap-y-2.5">
+            <div className="grid grid-cols-2 gap-x-4 sm:grid-cols-3">
+              <Info label="N° de traitement">{dossier.numeroTraitement}</Info>
+              <Info label="Statut">
+                <StatutBadge statut={dossier.statut} libelles={LIBELLE_STATUT_DOSSIER} />
+              </Info>
+              <Info label="Ticket de soins">
+                {dossier.ticket ? <StatutBadge statut={dossier.ticket.statut} libelles={LIBELLE_STATUT_TICKET} /> : '—'}
+              </Info>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 sm:grid-cols-3">
+              <Info label="Type de visite">
+                {dossier.typeVisite ? (
+                  TYPES_VISITE.find((t) => t.valeur === dossier.typeVisite)?.libelle ?? dossier.typeVisite
+                ) : ouvert && peutGerer ? (
+                  <FormulaireModal
+                    titre="Choisir le type de visite"
+                    mode="center"
+                    description="Choix définitif — un seul choix possible par dossier."
+                    declencheur={
+                      <Button type="button" size="xs" variant="outline">
+                        Définir
+                      </Button>
+                    }
+                    libelleSoumettre="Enregistrer"
+                    onSoumettre={async (fd) => definirTypeVisite(dossier.id, String(fd.get('typeVisite') ?? ''))}
+                    onSucces={() => router.refresh()}
+                  >
+                    <ChampSelect
+                      name="typeVisite"
+                      label="Type de visite"
+                      required
+                      placeholder="Choisir…"
+                      options={TYPES_VISITE.map((t) => ({ valeur: t.valeur, libelle: t.libelle }))}
+                    />
+                  </FormulaireModal>
+                ) : (
+                  '—'
+                )}
+              </Info>
+              <Info label="Ouvert le">{dateFr(dossier.dateOuverture)}</Info>
+              {dossier.dateCloture && <Info label="Clôturé le">{dateFr(dossier.dateCloture)}</Info>}
+            </div>
+            <div className="grid">
+              <Info label="Motif d’entrée">{dossier.motifConsultation ?? '—'}</Info>
+            </div>
+          </dl>
         </CardContent>
       </Card>
 
       {/* --- Consultations --- */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+      <Card className="gap-2 py-3">
+        <CardHeader className="flex flex-row items-center justify-between gap-1">
           <CardTitle className="text-base">Consultations</CardTitle>
         </CardHeader>
         <CardContent>
@@ -432,6 +426,7 @@ export function DossierDetail({
             </p>
           )}
           <DataTable
+            compact
             donnees={dossier.consultations}
             cleLigne={(c) => c.id}
             parPage={0}
@@ -542,7 +537,7 @@ export function DossierDetail({
       </Card>
 
       {/* --- Ordonnances émises --- */}
-      <Card>
+      <Card className="gap-2 py-3">
         <CardHeader>
           <CardTitle className="text-base">Ordonnances ({ordonnances.length})</CardTitle>
         </CardHeader>
@@ -553,47 +548,16 @@ export function DossierDetail({
               <strong className="text-foreground">{montant(String(tarifConsultation * consultationsFacturables))}</strong>
             </p>
           )}
-          {ordonnances.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucune ordonnance émise dans ce dossier.</p>
-          ) : (
-            ordonnances.map((o) => {
-              const consultation = dossier.consultations.find((c) => c.id === o.consultationId);
-              return (
-                <div key={o.id} className="rounded-md border p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-medium">
-                      Ordonnance du {dateHeureFr(o.datePrescription)}
-                      {consultation && <span className="text-muted-foreground"> — consultation {consultation.numeroConsultation}</span>}
-                    </span>
-                    <StatutBadge statut={o.statut} libelles={LIBELLE_STATUT_ORDONNANCE} />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Prescrite par {nomMedecin(o.medecinId)} · valable jusqu’au {dateFr(o.dateValidite)}
-                  </p>
-                  <ul className="mt-2 divide-y">
-                    {o.lignesOrdonnance.map((l) => (
-                      <li key={l.id} className="flex flex-wrap justify-between gap-2 py-1.5">
-                        <span>
-                          <span className="font-medium">{l.denominationMedicament}</span>
-                          {l.dosage && <span className="text-muted-foreground"> · {l.dosage}</span>}
-                        </span>
-                        <span className="text-muted-foreground">
-                          {l.posologie}
-                          {l.duree ? ` · ${l.duree}` : ''} · qté {l.quantitePrescrite}
-                          {l.statut === 'SERVIE' && ' · servi'}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })
-          )}
+          <OrdonnancesDossier
+            ordonnances={ordonnances}
+            numeroConsultation={(id) => dossier.consultations.find((c) => c.id === id)?.numeroConsultation ?? null}
+            nomMedecin={nomMedecin}
+          />
         </CardContent>
       </Card>
 
       {/* --- Actes --- */}
-      <Card>
+      <Card className="gap-2 py-3">
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-base">Actes du ticket de soins</CardTitle>
           {peutAjouterActe && (
@@ -639,6 +603,7 @@ export function DossierDetail({
             d’adjudication à la facturation, à la date des soins.
           </p>
           <DataTable
+            compact
             donnees={dossier.actes}
             cleLigne={(a) => a.id}
             parPage={0}
@@ -680,7 +645,7 @@ export function DossierDetail({
       )}
 
       {/* --- Clôture --- */}
-      <Card>
+      <Card className="gap-2 py-3">
         <CardHeader>
           <CardTitle className="text-base">Clôture du dossier</CardTitle>
         </CardHeader>
@@ -721,7 +686,7 @@ export function DossierDetail({
       </Card>
 
       {/* --- Notes (lecture seule — écriture réservée à l'assureur) --- */}
-      <Card>
+      <Card className="gap-2 py-3">
         <CardHeader>
           <CardTitle className="text-base">Notes</CardTitle>
         </CardHeader>

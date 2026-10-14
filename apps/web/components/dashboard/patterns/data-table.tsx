@@ -78,6 +78,7 @@ export function DataTable<T extends object>({
   tailleTexte = 'text-sm',
   piedMasque = false,
   selection,
+  compact = false,
 }: {
   colonnes: ColonneTable<T>[];
   donnees: T[];
@@ -98,6 +99,8 @@ export function DataTable<T extends object>({
    * SERVEUR, où `PaginationServeur` affiche le vrai total filtré.
    */
   piedMasque?: boolean;
+  /** Lignes resserrées : cellules plus étroites, texte sur UNE seule ligne (le contenu long est tronqué par la colonne). */
+  compact?: boolean;
   /** Cases à cocher par ligne + « tout sélectionner (page affichée) » + compteur. */
   selection?: SelectionTable<T>;
 }) {
@@ -292,7 +295,7 @@ export function DataTable<T extends object>({
                         : 'none'
                   }
                   className={cn(
-                    'px-3 py-2 font-medium',
+                    compact ? 'whitespace-nowrap px-3 py-1.5 font-medium' : 'px-3 py-2 font-medium',
                     c.aligneDroite && 'text-right',
                     c.className,
                   )}
@@ -354,7 +357,7 @@ export function DataTable<T extends object>({
                       <td
                         key={c.cle}
                         className={cn(
-                          'px-3 py-2',
+                          compact ? 'whitespace-nowrap px-3 py-1' : 'px-3 py-2',
                           c.aligneDroite && 'text-right tabular-nums',
                           c.className,
                         )}
@@ -365,7 +368,7 @@ export function DataTable<T extends object>({
                       </td>
                     ))}
                     {actionLigne && (
-                      <td className="px-3 py-2 text-right">
+                      <td className={cn(compact ? 'whitespace-nowrap px-3 py-1' : 'px-3 py-2', 'text-right')}>
                         <span className="flex justify-end gap-2">
                           {actionLigne(row)}
                         </span>

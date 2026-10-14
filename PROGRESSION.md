@@ -8723,3 +8723,36 @@ Terminé.
 ## 2026-10-14 — Correctif : « Internal server error » à la validation d'une convention par l'assurance informatique
 - **Cause** : le bouton « Valider la convention » s'affichait bien pour l'assurance informatique, mais la contrainte de base `conventions_validation_tracee` (migration 081) interdisait que le validateur soit la personne qui a saisi ou modifié la convention (erreur 23514 → 500).
 - **Migration 096** (appliquée, idempotente) : la contrainte garde la traçabilité (validateur ET date) mais n'impose plus la séparation ; celle-ci reste contrôlée par le service pour médecin conseil et direction. Vérifié : la base accepte désormais la validation par l'auteur de la saisie (transaction annulée volontairement, la convention est toujours « Proposée »).
+
+## 2026-10-14 — Coût des consultations non affiché : microservice d'adjudication arrêté
+- **Cause** : la convention était bien validée, mais le microservice Java d'adjudication (port 8899), qui calcule le tarif conventionné, n'était pas démarré (journal API : « Microservice d'adjudication injoignable »), donc aucun tarif n'était renvoyé.
+- **Action** : jar reconstruit (`mvn -o package -DskipTests`, les sources étaient plus récentes que le jar) et service relancé avec `adjudication-service/.env`. Vérifié : `GET /preauthorization/actes/tarif-reference` renvoie 8 000 F (MAGC001, généraliste) et 12 000 F (MAGC002, spécialiste). Aucun changement de code.
+
+## 2026-10-14 — Tableau « Actes du ticket de soins » : affichage amélioré
+- 10 colonnes ramenées à 7 plus lisibles (`dossier-detail.tsx`) : **Acte** (libellé en gras, catégorie en pastille et code en police mono dessous), **Qté**, **Montant** (total en gras, « l'unité » si quantité > 1, pastille verte « convention » quand le tarif vient de la convention), **Médecin** (« déclaré par l'accueil » en sous-ligne), **Part assuré** (avec « dont ticket modérateur » seulement s'il diffère), **Part assurance** (en vert), **Statut** ; la colonne « Pré-autorisation » n'apparaît que si un acte en relève. Montants alignés à droite en chiffres tabulaires, sans retour à la ligne.
+- Vérifié par capture d'écran réelle du dossier (compte médecin de test, supprimé) : consultation à 8 000 F (convention), ordonnance et ses médicaments, tableau des actes. tsc propre.
+
+## 2026-10-14 — Ordonnances du dossier : liste des prescriptions + détail organisé
+- Nouveau composant `ordonnances-dossier.tsx` (carte « Ordonnances » du dossier de soins) : à gauche la **liste des prescriptions** (date, heure, nombre de médicaments, n° de consultation, statut ; la plus récente d'abord, sélection mise en évidence) ; en choisir une affiche à droite la **prescription** : en-tête (prescripteur, date d'émission, validité avec jours restants) puis **tableau des médicaments** (n°, dénomination + nom commercial / dosage en sous-ligne, posologie, durée, quantité, délivrance « À délivrer » / « Servi »). Empilé sur mobile. Vérifié par capture d'écran réelle ; tsc propre.
+
+## 2026-10-14 — Ordonnances du dossier : liste en tableau en haut, prescription dessous
+- `ordonnances-dossier.tsx` : la liste des ordonnances devient un **tableau en haut** (ordonnance = date + heure, consultation, prescrite par, nombre de médicaments, validité, statut ; ligne cliquable, sélection surlignée) ; la **prescription** de la ligne choisie s'affiche **en dessous** (en-tête + tableau des médicaments). Vérifié par capture et clic réels avec 2 ordonnances (la plus récente sélectionnée par défaut, le clic sur l'autre change la prescription) ; ordonnance de test supprimée. tsc propre.
+
+## 2026-10-14 — Dossier de soins : tableaux resserrés, une ligne de texte par ligne
+- `DataTable` : nouvelle option `compact` (cellules `py-1`, texte sur une seule ligne) utilisée par les tableaux Consultations et Actes ; cartes du dossier plus serrées (`gap-2 py-3`, espacement entre cartes 12 px, lignes « Informations » resserrées).
+- Tableau des actes : libellé + code sur une ligne (catégorie en infobulle), montant avec pastille « convention », médecin + « · accueil », badge de statut seul (date de réalisation en infobulle, composant `StatutActe` option `surUneLigne`), en-têtes raccourcis. Ordonnances : tableau de la liste et tableau des médicaments sur une ligne par ligne (médicament · nom commercial · dosage), en-tête de prescription compact. Vérifié par captures réelles ; tsc propre.
+- Constat : l'API NestJS de développement s'était arrêtée (écran « Impossible de charger votre profil ») ; relancée avec `npm run api:dev`.
+
+## 2026-10-14 — Dossier de soins : carte « Informations » réorganisée sur 3 lignes avec la fiche du patient
+- **API** : `GET /care-episode/dossiers/:id` renvoie `patient` (nom, prénom, date de naissance, photo en URL signée éphémère, lien : titulaire / parenté, formule = produit de la police) ; `CareEpisodeModule` importe `MemberModule` (`AdherentService.urlPhotoSignee`).
+- **Écran** : nouvelle `FichePatient` à l'extrême gauche (photo ou initiales, prénom NOM, né(e) le + âge, lien, pastille de formule) ; à droite, 3 lignes compactes libellé / valeur : (n° de traitement, statut, ticket) · (type de visite, ouvert le, clôturé le) · (motif d'entrée). Vérifié par capture réelle ; tsc propre ; 44 tests care-episode verts.
+
+## 2026-10-14 — Fiche patient : sexe, n° de carte, photo agrandie avec zoom
+- `GET /care-episode/dossiers/:id` → `patient` gagne `sexe` et `numeroCarte`. `FichePatient` : lien + sexe (« Adhérent titulaire · Masculin »), n° de carte (police mono), photo portée de 64 à **112 px** ; **un clic sur la photo l'ouvre en grand** dans une fenêtre (échap / croix / clic dehors pour fermer). Sans photo : initiales sur le même gabarit. Vérifié par captures réelles avec une photo de test (retirée du stockage, photo d'origine restaurée) ; tsc propre.
+- Constat : le sexe n'est pas renseigné pour l'adhérent du dossier (champ facultatif) donc non affiché ; il apparaît dès qu'il est saisi sur la fiche de l'adhérent.
+
+## 2026-10-14 — Fiche patient : société de l'adhérent et sexe toujours visible
+- `patient.societe` (souscripteur de l'adhérent titulaire, y compris pour un bénéficiaire) ajouté à `GET /care-episode/dossiers/:id` ; `FichePatient` l'affiche avec une icône (« ACME BTP Abidjan ») et indique « sexe non renseigné » quand le champ facultatif est vide. Vérifié par capture réelle ; tsc propre, 44 tests care-episode verts.
+
+## 2026-10-14 — Liste des dossiers de soins : patient, n° de carte et société
+- `GET /care-episode/dossiers` ajoute à chaque dossier `patient` (nom, prénom, n° de carte, lien, société = souscripteur de l'adhérent titulaire) en deux requêtes groupées (pas une par ligne). Écran `DossiersEcran` : colonnes **Patient** (prénom NOM, + lien pour un bénéficiaire), **N° de carte**, **Société**, tableau resserré ; la recherche couvre nom, prénom, n° de carte, société, n° de traitement et motif. Vérifié par capture réelle et recherches (société, n° de carte) ; tsc propre, 44 tests care-episode verts.

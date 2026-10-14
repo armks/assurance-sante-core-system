@@ -37,6 +37,17 @@ export async function obtenirStock(): Promise<LigneStock[]> {
   return res.ok ? ((await res.json()) as LigneStock[]) : [];
 }
 
+/** Saisie, par la pharmacie, du code communiqué par le patient (équivaut à sa validation dans son application). */
+export async function validerCodeParPharmacie(dispensationId: string, code: string, cible: string): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/pharmacy/dispensations/${dispensationId}/valider-code-pharmacie`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(cible);
+  return { ok: true, message: 'Code validé : le paiement peut être confirmé.' };
+}
+
 /** Supprime (annule) une facture d'ordonnance non réglée de la pharmacie. */
 export async function annulerDispensation(dispensationId: string, cible: string): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/pharmacy/dispensations/${dispensationId}/annuler`, { method: 'POST' });

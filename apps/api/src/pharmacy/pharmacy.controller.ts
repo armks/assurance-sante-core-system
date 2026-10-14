@@ -145,6 +145,16 @@ export class PharmacyController {
     return this.pharmacy.validerCodeDispensation(user, dto);
   }
 
+  /** Côté PHARMACIE : saisit le code communiqué par le patient — passe à VALIDEE. */
+  @Post('dispensations/:id/valider-code-pharmacie')
+  validerCodeParPharmacie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ValiderCodeDispensationDto,
+  ) {
+    return this.pharmacy.validerCodeParPharmacie(user, id, dto.code);
+  }
+
   /** Côté PHARMACIE : supprime (annule) une facture d'ordonnance non réglée de SA pharmacie. */
   @Post('dispensations/:id/annuler')
   annuler(

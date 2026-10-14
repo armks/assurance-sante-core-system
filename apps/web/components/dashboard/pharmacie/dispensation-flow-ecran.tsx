@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
   annulerDispensation,
   confirmerPaiementDispensation,
+  validerCodeParPharmacie,
   obtenirDispensation,
   obtenirStock,
   preparerDispensation,
@@ -152,6 +153,22 @@ export function DispensationFlowEcran({
       setNonCouvert(res.pharmacieCouverte === false);
       const detail = await obtenirDispensation(res.dispensationId!);
       setDispensation(detail);
+    });
+  }
+
+  const [codeSaisi, setCodeSaisi] = useState('');
+
+  function validerCodePatient() {
+    if (!dispensation) return;
+    setPaiementErreur(null);
+    startTransition(async () => {
+      const res = await validerCodeParPharmacie(dispensation.id, codeSaisi.trim(), cible);
+      if (!res.ok) {
+        setPaiementErreur(res.error);
+        return;
+      }
+      setCodeSaisi('');
+      await rafraichirDispensation();
     });
   }
 
@@ -516,6 +533,26 @@ export function DispensationFlowEcran({
                 <span className="text-base">{montantFr(dispensation.montantPatient)}</span>
               </div>
             </div>
+
+            {dispensation.statut === 'EN_ATTENTE_VALIDATION_PATIENT' && (
+              <div className="space-y-1 rounded-md border border-primary/40 bg-primary/5 p-3" data-testid="validation-code-patient">
+                <label htmlFor="code-patient" className="block text-sm font-medium">Code de validation communiqué par le patient</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    id="code-patient"
+                    value={codeSaisi}
+                    onChange={(e) => setCodeSaisi(e.target.value.toUpperCase())}
+                    maxLength={8}
+                    autoComplete="off"
+                    placeholder="Ex. K7M2QX"
+                    className="h-9 w-40 font-mono tracking-widest"
+                    onKeyDown={(e) => { if (e.key === 'Enter' && codeSaisi.trim().length >= 6) validerCodePatient(); }}
+                  />
+                  <Button onClick={validerCodePatient} disabled={pending || codeSaisi.trim().length < 6}>Valider le code</Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Le patient lit ce code dans son application (ou le reçoit par le canal choisi) : saisissez-le pour débloquer le paiement.</p>
+              </div>
+            )}
 
             {paiementErreur && <p className="text-sm text-destructive">{paiementErreur}</p>}
 

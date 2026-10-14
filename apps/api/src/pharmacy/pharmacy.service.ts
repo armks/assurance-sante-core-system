@@ -1156,6 +1156,38 @@ export class PharmacyService {
   }
 
   /**
+   * Validation du code PAR LA PHARMACIE : le patient lui communique le code reçu ; il doit correspondre à celui de
+   * la dispensation (de SA pharmacie, en attente de validation). Même effet que la validation dans l'application
+   * du patient : statut VALIDEE, paiement ensuite possible.
+   */
+  async validerCodeParPharmacie(user: AuthenticatedUser, dispensationId: string, code: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+    const d = await this.prisma.dispensationPharmacie.findFirst({
+      where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
+      select: { id: true, statut: true, codeConfirmation: true },
+    });
+    if (!d) throw new NotFoundException('Dispensation introuvable.');
+    if (d.statut !== 'EN_ATTENTE_VALIDATION_PATIENT') {
+      throw new ConflictException(`Ce code ne peut plus être validé (statut actuel : ${d.statut}).`);
+    }
+    if (!d.codeConfirmation || d.codeConfirmation !== code.trim().toUpperCase()) {
+      await this.audit(this.prisma, ctx.userId, 'CODE_DISPENSATION_INCORRECT', 'dispensations_pharmacie', d.id, null);
+      throw new ForbiddenException('Code incorrect : demandez au patient de vérifier le code qu’il a reçu.');
+    }
+    const maj = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.dispensationPharmacie.updateMany({
+        where: { id: d.id, statut: 'EN_ATTENTE_VALIDATION_PATIENT' },
+        data: { statut: 'VALIDEE', dateValidationPatient: new Date() },
+      });
+      if (count === 0) throw new ConflictException('Le statut de cette dispensation a changé : actualisez la page.');
+      await this.audit(tx, ctx.userId, 'VALIDATION_CODE_DISPENSATION_PAR_PHARMACIE', 'dispensations_pharmacie', d.id, null);
+      return { dispensationId: d.id, statut: 'VALIDEE' as const };
+    });
+    return maj;
+  }
+
+  /**
    * Confirmation du paiement — réservée à la pharmacie propriétaire de la
    * dispensation.
    *

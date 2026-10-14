@@ -8782,3 +8782,14 @@ Terminé.
 ## 2026-10-14 — Pharmacie : suppression d'une facture d'ordonnance non réglée
 - `POST /pharmacy/dispensations/:id/annuler` (`annulerDispensation`) : pour EN_PREPARATION / EN_ATTENTE_VALIDATION_PATIENT / VALIDEE de SA pharmacie → statut ANNULEE (code inutilisable, ligne conservée pour la traçabilité, audit `ANNULATION_DISPENSATION`). Refus 409 si PAYEE ou déjà annulée.
 - Web : bouton « Supprimer la facture » (confirmation) dans la dispensation en cours + lien « Supprimer » dans l'historique pour les factures non réglées. tsc OK, tests pharmacy 117/117.
+
+## 2026-10-14 — Correction : part assurance pharmacie (rattachement des polices à la version publiée)
+- Cause réelle : les 4 polices (POL-2026-000001/4/5/6) pointaient sur la version ARCHIVÉE de « Formule Essentielle 79088 » (sans garantie PHARMACIE), la garantie PHARMACIE (80 %, ticket 20 %) ayant été ajoutée à la version PUBLIÉE (aucune police).
+- Données : `polices.produit_id` basculé vers la version publiée (55ff9230…) sur décision de l'utilisateur. Effet de bord accepté : hospitalisation 100 % → 80 % (ticket 20 %) sur ces polices. Aucun changement de code.
+
+## 2026-10-14 — Dispensation : « calcul de la prise en charge indisponible » : microservice d'adjudication de nouveau arrêté
+- Cause : le microservice Java (port 8899) n'était pas démarré (aucun changement de code). Relancé avec `adjudication-service/.env` (`java -jar target/adjudication-service-0.1.0.jar`) ; `/readyz` = 200, connecté au Postgres. Il doit rester lancé pour toute dispensation, consultation conventionnée et réclamation.
+
+## 2026-10-14 — Pharmacie : champ de saisie du code de validation du patient
+- `POST /pharmacy/dispensations/:id/valider-code-pharmacie` (`validerCodeParPharmacie`) : la pharmacie saisit le code communiqué par le patient ; comparé au code de SA dispensation en attente → VALIDEE (audit `VALIDATION_CODE_DISPENSATION_PAR_PHARMACIE`, tentative erronée journalisée `CODE_DISPENSATION_INCORRECT`). La validation dans l'application du patient reste possible.
+- Web : encadré « Code de validation communiqué par le patient » (champ + « Valider le code ») dans la dispensation en attente, au-dessus du bouton de paiement. tsc OK, tests pharmacy 117/117.

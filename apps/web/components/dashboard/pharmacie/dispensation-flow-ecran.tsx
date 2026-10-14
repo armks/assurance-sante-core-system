@@ -534,28 +534,6 @@ export function DispensationFlowEcran({
               </div>
             </div>
 
-            {dispensation.statut === 'EN_ATTENTE_VALIDATION_PATIENT' && (
-              <div className="space-y-1 rounded-md border border-primary/40 bg-primary/5 p-3" data-testid="validation-code-patient">
-                <label htmlFor="code-patient" className="block text-sm font-medium">Code de validation communiqué par le patient</label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    id="code-patient"
-                    value={codeSaisi}
-                    onChange={(e) => setCodeSaisi(e.target.value.toUpperCase())}
-                    maxLength={8}
-                    autoComplete="off"
-                    placeholder="Ex. K7M2QX"
-                    className="h-9 w-40 font-mono tracking-widest"
-                    onKeyDown={(e) => { if (e.key === 'Enter' && codeSaisi.trim().length >= 6) validerCodePatient(); }}
-                  />
-                  <Button onClick={validerCodePatient} disabled={pending || codeSaisi.trim().length < 6}>Valider le code</Button>
-                </div>
-                <p className="text-xs text-muted-foreground">Le patient lit ce code dans son application (ou le reçoit par le canal choisi) : saisissez-le pour débloquer le paiement.</p>
-              </div>
-            )}
-
-            {paiementErreur && <p className="text-sm text-destructive">{paiementErreur}</p>}
-
             {dispensation.statut === 'PAYEE' ? (
               <div className="space-y-3">
                 <p className="text-sm font-medium text-emerald-600">
@@ -573,24 +551,46 @@ export function DispensationFlowEcran({
                 <Button onClick={reinitialiser}>Nouvelle dispensation</Button>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={supprimerFacture} disabled={pending}>
-                  Supprimer la facture
-                </Button>
-                <Button variant="ghost" onClick={() => void rafraichirDispensation()} disabled={pending}>
-                  Rafraîchir le statut
-                </Button>
-                <Button
-                  onClick={confirmerPaiement}
-                  disabled={pending || dispensation.statut !== 'VALIDEE'}
-                  title={
-                    dispensation.statut !== 'VALIDEE'
-                      ? "En attente de validation du code par le patient"
-                      : undefined
-                  }
-                >
-                  Confirmer le paiement ({montantFr(dispensation.montantPatient)})
-                </Button>
+              <div className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-3" data-testid="validation-code-patient">
+                {dispensation.statut === 'EN_ATTENTE_VALIDATION_PATIENT' && (
+                  <div className="space-y-1">
+                    <label htmlFor="code-patient" className="block text-sm font-medium">Code de validation communiqué par le patient</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        id="code-patient"
+                        value={codeSaisi}
+                        onChange={(e) => setCodeSaisi(e.target.value.toUpperCase())}
+                        maxLength={8}
+                        autoComplete="off"
+                        placeholder="Ex. K7M2QX"
+                        className="h-9 w-40 font-mono tracking-widest"
+                        onKeyDown={(e) => { if (e.key === 'Enter' && codeSaisi.trim().length >= 6) validerCodePatient(); }}
+                      />
+                      <Button onClick={validerCodePatient} disabled={pending || codeSaisi.trim().length < 6}>Valider le code</Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Le patient lit ce code dans son application (ou le reçoit par le canal choisi) : saisissez-le pour débloquer le paiement.</p>
+                  </div>
+                )}
+                {paiementErreur && <p className="text-sm text-destructive">{paiementErreur}</p>}
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-primary/20 pt-2">
+                  <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={supprimerFacture} disabled={pending}>
+                    Supprimer la facture
+                  </Button>
+                  <Button variant="ghost" onClick={() => void rafraichirDispensation()} disabled={pending}>
+                    Rafraîchir le statut
+                  </Button>
+                  <Button
+                    onClick={confirmerPaiement}
+                    disabled={pending || dispensation.statut !== 'VALIDEE'}
+                    title={
+                      dispensation.statut !== 'VALIDEE'
+                        ? "En attente de validation du code par le patient"
+                        : undefined
+                    }
+                  >
+                    Confirmer le paiement ({montantFr(dispensation.montantPatient)})
+                  </Button>
+                </div>
               </div>
             )}
           </CardContent>

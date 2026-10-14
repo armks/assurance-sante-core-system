@@ -22,6 +22,11 @@ export function ConnexionModale() {
         <DialogPrimitive.Overlay className="accueil-fondu fixed inset-0 z-50 bg-foreground/30 backdrop-blur-md" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
+          // pas de curseur d'office dans le champ e-mail à l'ouverture (Radix placerait le focus sur le premier champ) : le focus va à la fenêtre elle-même
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).focus();
+          }}
           className="accueil-fondu fixed left-1/2 top-1/2 z-50 max-h-[calc(100svh-2rem)] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl outline-none"
         >
           <DialogPrimitive.Title className="sr-only">Connexion</DialogPrimitive.Title>

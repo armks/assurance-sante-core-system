@@ -19,6 +19,8 @@ export interface LieuAnnuaire {
   longitude: number | null;
   /** Adresse lisible (espace connecté uniquement : absente des vues publiques). */
   adresse: string | null;
+  /** Catégorie hiérarchisée d'un établissement (espace connecté uniquement). */
+  categorieEtablissement?: string | null;
 }
 
 export const LIBELLE_TYPE_LIEU: Record<string, string> = {
@@ -42,6 +44,7 @@ export function depuisApi(l: Record<string, unknown>, categorie: LieuAnnuaire['c
     latitude: nombre(l.latitude),
     longitude: nombre(l.longitude),
     adresse: [texte(l.adresseComplete), texte(l.quartier)].filter(Boolean).join(', ') || null,
+    categorieEtablissement: categorie === 'PHARMACIE' ? null : texte(l.categorieEtablissement),
   };
 }
 

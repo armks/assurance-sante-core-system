@@ -166,7 +166,7 @@ export class BillingService {
       },
     });
     if (grilles.length === 0) {
-      throw new ConflictException('Aucune grille tarifaire à ajuster pour cette formule : créez d\'abord ses grilles.');
+      throw new ConflictException('Aucune grille tarifaire pour cette formule : créez-en d’abord dans Cotisations → Grilles tarifaires → Nouvelle grille (une par tranche d’âge).');
     }
     const coef = new Decimal(1).add(new Decimal(dto.pourcentage).div(100));
     const detail = grilles.map((g) => ({

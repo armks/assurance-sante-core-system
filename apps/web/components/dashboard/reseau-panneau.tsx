@@ -1,5 +1,6 @@
 'use client';
 
+import { Activity, MapPin, MoonStar, Stethoscope } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
@@ -21,6 +22,8 @@ import {
 import { verifierAction, type VerdictsListe } from '@/app/dependances-actions';
 import { ToutReactiver, type CompteDesactiveResume } from '@/components/dashboard/tout-reactiver';
 import {
+  CarteResume,
+  GrilleCartes,
   ChampCheckbox,
   ConfirmationAction,
   ChampNombre,
@@ -62,6 +65,9 @@ export interface LieuReseau {
   verificationStatut: string | null;
   dateDerniereVerification: string | null;
 }
+
+const CLASSE_FILTRE =
+  'h-9 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50';
 
 function Message({ res }: { res: ResultatReseau | null }) {
   if (!res) return null;
@@ -106,7 +112,25 @@ export function ReseauPanneau({
   const [voirArchives, setVoirArchives] = useState(false);
   const estArchive = (l: LieuReseau) => l.statut === 'RESILIE' || l.statut === 'RESILIEE';
   const nbArchives = tousLesLieux.filter(estArchive).length;
-  const lieux = voirArchives ? tousLesLieux : tousLesLieux.filter((l) => !estArchive(l));
+  const base = voirArchives ? tousLesLieux : tousLesLieux.filter((l) => !estArchive(l));
+  const [q, setQ] = useState('');
+  const [fStatut, setFStatut] = useState('');
+  const [fCategorie, setFCategorie] = useState('');
+  const [fVerif, setFVerif] = useState('');
+  const lieux = base.filter((l) => {
+    const mot = q.trim().toLowerCase();
+    if (mot && !`${l.nom} ${l.code} ${l.ville ?? ''} ${l.commune ?? ''} ${l.quartier ?? ''}`.toLowerCase().includes(mot)) return false;
+    if (fStatut && l.statut !== fStatut) return false;
+    if (fCategorie && l.categorieEtablissement !== fCategorie) return false;
+    if (fVerif === 'A_REVERIFIER' && l.verificationStatut !== 'A_REVERIFIER') return false;
+    if (fVerif === 'JAMAIS' && l.verificationStatut) return false;
+    return true;
+  });
+  const filtresActifs = Boolean(q || fStatut || fCategorie || fVerif);
+  const nbActifs = lieux.filter((l) => l.statut === 'ACTIF' || l.statut === 'ACTIVE').length;
+  const nbGarde = lieux.filter((l) => l.gardeWeekend).length;
+  const nbSansPosition = lieux.filter((l) => l.latitude == null || l.longitude == null).length;
+  const statutsPresents = [...new Set(tousLesLieux.map((l) => l.statut))];
   const [pending, start] = useTransition();
   const [res, setRes] = useState<ResultatReseau | null>(null);
   const [resVerif, setResVerif] = useState<ResultatReseau | null>(null);
@@ -260,140 +284,140 @@ export function ReseauPanneau({
         <Message res={resVerif} />
       </section>
 
+
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">
-          {estEtab ? 'Nouvel établissement' : 'Nouvelle pharmacie'}
-        </h2>
-        <form
-          className="grid gap-3 sm:grid-cols-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const f = new FormData(e.currentTarget);
-            const form = e.currentTarget;
-            const base = {
-              nom: String(f.get('nom') ?? ''),
-              code: String(f.get('code') ?? ''),
-              ville: String(f.get('ville') ?? '') || undefined,
-              commune: String(f.get('commune') ?? '') || undefined,
-              adresseComplete:
-                String(f.get('adresseComplete') ?? '') || undefined,
-              telephone: String(f.get('telephone') ?? '') || undefined,
-              latitude: num(f.get('latitude')),
-              longitude: num(f.get('longitude')),
-              gardeWeekend: f.get('gardeWeekend') === 'on',
-            };
-            start(async () => {
+        <GrilleCartes>
+          <CarteResume libelle={estEtab ? 'Établissements' : 'Pharmacies'} valeur={lieux.length} icon={estEtab ? Stethoscope : Activity} indice={`${nbActifs} actif(s)`} />
+          <CarteResume libelle="À revérifier" valeur={lieux.filter((l) => l.verificationStatut === 'A_REVERIFIER').length} icon={Activity} indice="plus de 12 mois sans vérification" />
+          <CarteResume libelle="Garde le week-end" valeur={nbGarde} icon={MoonStar} />
+          <CarteResume libelle="Sans position GPS" valeur={nbSansPosition} icon={MapPin} indice="absents de la carte" />
+        </GrilleCartes>
+
+        <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Rechercher : nom, code, ville…"
+            aria-label="Rechercher"
+            className="h-9 min-w-0 flex-1"
+          />
+          <select value={fStatut} onChange={(e) => setFStatut(e.target.value)} aria-label="Statut" className={`${CLASSE_FILTRE} shrink-0`}>
+            <option value="">Tous les statuts</option>
+            {statutsPresents.map((st) => (
+              <option key={st} value={st}>
+                {LIBELLE_STATUT_LIEU[st] ?? st}
+              </option>
+            ))}
+          </select>
+          {estEtab && (
+            <select value={fCategorie} onChange={(e) => setFCategorie(e.target.value)} aria-label="Catégorie" className={`${CLASSE_FILTRE} shrink-0`}>
+              <option value="">Toutes les catégories</option>
+              {OPTIONS_CATEGORIE_ETABLISSEMENT.map((c) => (
+                <option key={c.valeur} value={c.valeur}>
+                  {c.libelle}
+                </option>
+              ))}
+            </select>
+          )}
+          <select value={fVerif} onChange={(e) => setFVerif(e.target.value)} aria-label="Vérification" className={`${CLASSE_FILTRE} shrink-0`}>
+            <option value="">Toutes les vérifications</option>
+            <option value="A_REVERIFIER">À revérifier</option>
+            <option value="JAMAIS">Jamais vérifié</option>
+          </select>
+          {filtresActifs && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="shrink-0"
+              onClick={() => {
+                setQ('');
+                setFStatut('');
+                setFCategorie('');
+                setFVerif('');
+              }}
+            >
+              Réinitialiser
+            </Button>
+          )}
+          {nbArchives > 0 && (
+            <label className="flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground">
+              <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
+              Archivés ({nbArchives})
+            </label>
+          )}
+          <FormulaireModal
+            titre={estEtab ? 'Nouvel établissement' : 'Nouvelle pharmacie'}
+            description="Les champs marqués d’un astérisque sont obligatoires. Sans latitude / longitude, la position est calculée automatiquement à partir de l’adresse."
+            declencheurLabel={estEtab ? 'Nouvel établissement' : 'Nouvelle pharmacie'}
+            libelleSoumettre="Créer"
+            onSoumettre={async (fd) => {
+              const base = {
+                nom: String(fd.get('nom') ?? ''),
+                code: String(fd.get('code') ?? ''),
+                ville: String(fd.get('ville') ?? '') || undefined,
+                commune: String(fd.get('commune') ?? '') || undefined,
+                adresseComplete: String(fd.get('adresseComplete') ?? '') || undefined,
+                telephone: String(fd.get('telephone') ?? '') || undefined,
+                latitude: num(fd.get('latitude')),
+                longitude: num(fd.get('longitude')),
+                gardeWeekend: fd.get('gardeWeekend') === 'on',
+              };
               const r = estEtab
                 ? await creerEtablissement({
                     ...base,
-                    typeEtablissement: String(f.get('typeEtablissement') ?? ''),
-                    categorieEtablissement: String(f.get('categorieEtablissement') ?? '') || undefined,
+                    typeEtablissement: String(fd.get('typeEtablissement') ?? ''),
+                    categorieEtablissement: String(fd.get('categorieEtablissement') ?? '') || undefined,
                   })
                 : await creerPharmacie(base);
-              setRes(r);
-              if (r.ok) form.reset();
-            });
-          }}
-        >
-          <div className="grid gap-2">
-            <Label htmlFor="nom">Nom</Label>
-            <Input id="nom" name="nom" required />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="code">Code</Label>
-            <Input id="code" name="code" required placeholder="Unique" />
-          </div>
-          {estEtab && (
-            <div className="grid gap-2">
-              <Label htmlFor="categorieEtablissement">Catégorie</Label>
-              <select
-                id="categorieEtablissement"
-                name="categorieEtablissement"
-                defaultValue="CENTRE_MEDICAL"
-                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                title="Niveau hiérarchique : une formule couvre sa catégorie et les catégories inférieures"
-              >
-                {OPTIONS_CATEGORIE_ETABLISSEMENT.map((c) => (
-                  <option key={c.valeur} value={c.valeur}>
-                    {c.libelle}
-                  </option>
-                ))}
-              </select>
+              return r.ok ? { ok: true as const, message: r.message } : { ok: false as const, error: r.error };
+            }}
+            onSucces={() => router.refresh()}
+          >
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">Identité</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ChampTexte name="nom" label="Nom" required />
+                <ChampTexte name="code" label="Code" required placeholder="Unique" />
+              </div>
+              {estEtab && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ChampSelect
+                    name="typeEtablissement"
+                    label="Type"
+                    required
+                    placeholder="Choisir…"
+                    options={TYPES_ETABLISSEMENT.map((t) => ({ valeur: t, libelle: LIBELLE_TYPE_ETABLISSEMENT[t] }))}
+                  />
+                  <ChampSelect
+                    name="categorieEtablissement"
+                    label="Catégorie"
+                    aide="Niveau hiérarchique : une formule couvre sa catégorie et les catégories inférieures."
+                    defaultValue="CENTRE_MEDICAL"
+                    options={OPTIONS_CATEGORIE_ETABLISSEMENT}
+                  />
+                </div>
+              )}
             </div>
-          )}
-          {estEtab && (
-            <div className="grid gap-2">
-              <Label htmlFor="typeEtablissement">Type</Label>
-              <select
-                id="typeEtablissement"
-                name="typeEtablissement"
-                required
-                defaultValue=""
-                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="" disabled>
-                  Choisir…
-                </option>
-                {TYPES_ETABLISSEMENT.map((t) => (
-                  <option key={t} value={t}>
-                    {LIBELLE_TYPE_ETABLISSEMENT[t]}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">Adresse</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ChampTexte name="ville" label="Ville" defaultValue="Abidjan" />
+                <ChampTexte name="commune" label="Commune" />
+              </div>
+              <ChampTexte name="adresseComplete" label="Adresse complète" placeholder="Rue / boulevard, repère…" />
             </div>
-          )}
-          <div className="grid gap-2">
-            <Label htmlFor="ville">Ville</Label>
-            <Input id="ville" name="ville" defaultValue="Abidjan" />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="commune">Commune</Label>
-            <Input id="commune" name="commune" />
-          </div>
-          <div className="grid gap-2 sm:col-span-3">
-            <Label htmlFor="adresseComplete">Adresse complète</Label>
-            <Input
-              id="adresseComplete"
-              name="adresseComplete"
-              placeholder="Rue / boulevard, repère… (géocodage automatique si latitude/longitude non fournies)"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="telephone">Téléphone</Label>
-            <Input id="telephone" name="telephone" />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="latitude">Latitude</Label>
-            <Input id="latitude" name="latitude" inputMode="decimal" placeholder="auto si vide" />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="longitude">Longitude</Label>
-            <Input id="longitude" name="longitude" inputMode="decimal" placeholder="-4.01" />
-          </div>
-          <label className="flex items-center gap-2 self-end pb-2 text-sm">
-            <input type="checkbox" name="gardeWeekend" className="size-4" />
-            Garde le week-end
-          </label>
-          <div className="sm:col-span-3 flex items-center gap-3">
-            <Button type="submit" disabled={pending}>
-              {pending ? 'Enregistrement…' : 'Créer'}
-            </Button>
-            <Message res={res} />
-          </div>
-        </form>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-muted-foreground">
-          {lieux.length} {estEtab ? 'établissement' : 'pharmacie'}
-          {lieux.length > 1 ? 's' : ''}
-        </h2>
-        {nbArchives > 0 && (
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
-            Archivés ({nbArchives})
-          </label>
-        )}
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">Contact et localisation</p>
+              <ChampTexte name="telephone" label="Téléphone" />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ChampTexte name="latitude" label="Latitude" inputMode="decimal" placeholder="auto si vide" />
+                <ChampTexte name="longitude" label="Longitude" inputMode="decimal" placeholder="auto si vide" />
+              </div>
+              <ChampCheckbox name="gardeWeekend" label="Garde le week-end" />
+            </div>
+          </FormulaireModal>
+        </div>
         {erreur ? (
           <p className="text-sm text-destructive">{erreur}</p>
         ) : (

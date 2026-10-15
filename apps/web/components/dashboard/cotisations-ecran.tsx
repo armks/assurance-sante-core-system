@@ -7,9 +7,6 @@ import { useState, useTransition } from 'react';
 
 import {
   calculerCotisation,
-  creerGrille,
-  modifierGrille,
-  supprimerGrille,
   enregistrerPaiement,
   genererCotisation,
   marquerCotisationsEnRetard,
@@ -28,6 +25,7 @@ import {
   type ColonneTable,
   type ResultatSoumission,
 } from '@/components/dashboard/patterns';
+import { GrillesTarifairesSection } from '@/components/dashboard/grilles-tarifaires-section';
 import { annulerCotisation } from '@/app/dashboard-assureur/informatique/cotisations/actions';
 import { verifierAction } from '@/app/dependances-actions';
 import { Button } from '@/components/ui/button';
@@ -348,127 +346,11 @@ export function CotisationsEcran({
           <CardTitle className="text-base">Grilles tarifaires</CardTitle>
         </CardHeader>
         <CardContent>
-          <DataTable
-            donnees={grilles}
-            cleLigne={(g) => g.id}
-            parPage={0}
-            colonnes={colGrille}
-            filtres={[
-              {
-                cle: 'type',
-                libelle: 'Type',
-                valeur: (row) =>
-                  (row as Grille).souscripteurId ? 'NEGOCIE' : 'STANDARD',
-                options: [
-                  { valeur: 'STANDARD', libelle: 'Standard' },
-                  { valeur: 'NEGOCIE', libelle: 'Négocié' },
-                ],
-              },
-            ]}
-            actions={
-              <FormulaireModal
-                titre="Nouvelle grille négociée"
-                description="Tarif propre à un souscripteur : il prime sur le tarif standard du produit pour la tranche d’âge."
-                declencheurLabel="Nouvelle grille négociée"
-                libelleSoumettre="Créer la grille"
-                onSoumettre={async (fd) =>
-                  creerGrille({
-                    produitId: String(fd.get('produitId') ?? ''),
-                    souscripteurId: String(fd.get('souscripteurId') ?? ''),
-                    trancheAgeMin: Number(fd.get('trancheAgeMin') ?? 0),
-                    trancheAgeMax: Number(fd.get('trancheAgeMax') ?? 0),
-                    montantMensuel: Number(fd.get('montantMensuel') ?? 0),
-                  })
-                }
-                onSucces={() => router.refresh()}
-              >
-                <ChampSelect
-                  name="produitId"
-                  label="Produit"
-                  required
-                  placeholder="Choisir un produit…"
-                  options={produits.map((p) => ({
-                    valeur: p.id,
-                    libelle: `${p.nom}${p.version ? ` · v${p.version}` : ''}`,
-                  }))}
-                />
-                <ChampSelect
-                  name="souscripteurId"
-                  label="Souscripteur"
-                  required
-                  placeholder="Choisir un souscripteur…"
-                  options={souscripteurs.map((s) => ({
-                    valeur: s.id,
-                    libelle: s.nom,
-                  }))}
-                />
-                <div className="grid grid-cols-2 gap-3">
-                  <ChampNombre
-                    name="trancheAgeMin"
-                    label="Âge min."
-                    required
-                    min={0}
-                    max={150}
-                    step={1}
-                    defaultValue="18"
-                  />
-                  <ChampNombre
-                    name="trancheAgeMax"
-                    label="Âge max."
-                    required
-                    min={0}
-                    max={150}
-                    step={1}
-                    defaultValue="59"
-                  />
-                </div>
-                <ChampNombre
-                  name="montantMensuel"
-                  label="Montant mensuel (FCFA)"
-                  required
-                  min={0}
-                  step="0.01"
-                />
-              </FormulaireModal>
-            }
-            actionLigne={(g) => (
-              <span className="flex justify-end gap-2">
-                <FormulaireModal
-                  titre="Modifier la grille tarifaire"
-                  description="Les cotisations déjà calculées gardent leur montant ; la modification vaut pour les prochains calculs."
-                  declencheur={
-                    <Button type="button" size="xs" variant="ghost">
-                      Modifier
-                    </Button>
-                  }
-                  libelleSoumettre="Enregistrer"
-                  onSoumettre={async (fd) =>
-                    modifierGrille(g.id, {
-                      trancheAgeMin: Number(fd.get('trancheAgeMin') ?? 0),
-                      trancheAgeMax: Number(fd.get('trancheAgeMax') ?? 0),
-                      montantMensuel: Number(fd.get('montantMensuel') ?? 0),
-                    })
-                  }
-                  onSucces={() => router.refresh()}
-                >
-                  <div className="grid grid-cols-2 gap-3">
-                    <ChampNombre name="trancheAgeMin" label="Âge min." required min={0} max={150} step={1} defaultValue={g.trancheAgeMin} />
-                    <ChampNombre name="trancheAgeMax" label="Âge max." required min={0} max={150} step={1} defaultValue={g.trancheAgeMax} />
-                  </div>
-                  <ChampNombre name="montantMensuel" label="Montant mensuel (FCFA)" required min={0} step="0.01" defaultValue={Number(g.montantMensuel)} />
-                </FormulaireModal>
-                {peutSupprimerGrille && (
-                  <ConfirmationAction
-                    action="supprimer"
-                    element={`la grille « ${g.produit?.nom ?? 'produit'} ${g.trancheAgeMin}–${g.trancheAgeMax} ans »`}
-                    verifier={() => verifierAction('grilleTarifaire', g.id, 'supprimer')}
-                    onConfirmer={() => supprimerGrille(g.id)}
-                    onSucces={() => router.refresh()}
-                  />
-                )}
-              </span>
-            )}
-            vide="Aucune grille tarifaire."
+          <GrillesTarifairesSection
+            grilles={grilles}
+            produits={produits}
+            souscripteurs={souscripteurs}
+            peutSupprimerGrille={peutSupprimerGrille}
           />
         </CardContent>
       </Card>

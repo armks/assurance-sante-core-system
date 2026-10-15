@@ -8942,3 +8942,13 @@ Terminé.
 
 ## 2026-10-15 — Évolution des garanties : le système propose aussi d'ajuster le coût de la formule
 - Fiche d'une formule : après un ajout, une modification ou une suppression de garantie, ou un changement du niveau d'accès aux établissements, un bandeau « Les garanties ont évolué : pensez à ajuster aussi le coût » propose « Ajuster le coût » (même fenêtre : pourcentage + motif) ou « Plus tard ». Le bandeau disparaît après l'ajustement. tsc OK.
+
+## 2026-10-15 — Création des grilles tarifaires STANDARD depuis l'écran Cotisations
+- Constat : l'écran Cotisations → Grilles tarifaires ne savait créer que des grilles NÉGOCIÉES (société obligatoire) ; aucune voie pour créer le tarif standard d'une formule, d'où « Aucune grille tarifaire à ajuster ». Le bouton devient « Nouvelle grille » : société facultative (« Tarif standard (toutes les sociétés) » par défaut, ou « Négocié — société »). Le message d'erreur de l'ajustement indique le chemin (Cotisations → Grilles tarifaires → Nouvelle grille). tsc OK.
+
+## 2026-10-15 — Grilles tarifaires et réseau (pharmacies / établissements) : cumul, filtres sur une ligne, formulaires structurés
+- Cotisations → Grilles tarifaires : nouveau composant `grilles-tarifaires-section.tsx` — filtres sur une ligne (recherche, formule, standard / négocié, âge), cumul en tête (grilles dont standard / négociées, formules couvertes, montant mensuel moyen, fourchette), tableau triable ; formulaire « Nouvelle grille » en 2 étapes (à quoi s'applique le tarif / tranche et montant) qui affiche les tranches déjà définies pour la formule et propose la suite (âge min = dernier âge max + 1).
+- Pages Pharmacies et Établissements (`reseau-panneau.tsx`) : cumul en tête (total, à revérifier, garde week-end, sans position GPS), filtres sur une ligne (recherche, statut, catégorie pour les établissements, vérification, archivés, réinitialiser) et création dans une fenêtre en 3 blocs (identité, adresse, contact et localisation) à la place du long formulaire en page. tsc OK.
+
+## 2026-10-15 — Pages « Réseau de soins » (adhérent et publique) : cumul et filtres sur une ligne
+- `ReseauSoinsRecherche` (espace adhérent `/dashboard-adherent/reseau-de-soins` et page publique `/reseau-de-soins`) : filtres sur une ligne (recherche, ville, commune — liste dépendant de la ville —, type, garde, réinitialiser), cumul en tête qui suit les filtres (lieux trouvés sur total, établissements, pharmacies, de garde le week-end), tableau triable avec colonne « Catégorie » dans l'espace connecté. Avec les pages assureur Pharmacies / Établissements, toutes les pages du réseau de soins suivent maintenant le même schéma. tsc OK.

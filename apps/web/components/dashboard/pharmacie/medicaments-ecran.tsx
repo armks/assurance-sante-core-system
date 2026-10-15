@@ -20,6 +20,7 @@ import {
   type ColonneTable,
 } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
+import { LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
 
 /** Médicament du catalogue national activé par l'assureur, avec l'état dans la liste de la pharmacie. */
 export interface MedicamentReference {
@@ -33,6 +34,10 @@ export interface MedicamentReference {
   tauxRemboursementStd: string | number | null;
   prixReferenceXof: string | number | null;
   medicamentEssentiel: boolean;
+  /** Statut dans le catalogue national (HOMOLOGUE, EN_ATTENTE…). */
+  statutHomologation: string;
+  /** Homologué ET activé par l'assureur de la pharmacie : seul un tel médicament peut être ajouté à la liste. */
+  activee: boolean;
   dansMaListe: boolean;
   disponible: boolean | null;
   note: string | null;
@@ -63,7 +68,13 @@ export function MedicamentsEcran({ medicaments, peutModifier }: { medicaments: M
         </div>
       ),
     },
-    { cle: 'dosage', entete: 'Dosage · forme', rendu: (m) => [m.dosage, m.forme].filter(Boolean).join(' · ') || '—' },
+    { cle: 'presentation', entete: 'Présentation', rendu: (m) => [m.forme, m.dosage].filter(Boolean).join(' · ') || '—' },
+    { cle: 'classeTherapeutique', entete: 'Classe', rendu: (m) => m.classeTherapeutique ?? '—' },
+    {
+      cle: 'statutHomologation',
+      entete: 'Statut',
+      rendu: (m) => <StatutBadge statut={m.statutHomologation} libelles={LIBELLE_STATUT_HOMOLOGATION} />,
+    },
     {
       cle: 'tauxRemboursementStd',
       entete: 'Taux standard',
@@ -101,10 +112,10 @@ export function MedicamentsEcran({ medicaments, peutModifier }: { medicaments: M
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">
-        Médicaments du catalogue national activés par votre assureur ({medicaments.length}). Le prix et le taux nationaux ne sont pas modifiables ici ; le prix pratiqué
-        se saisit au comptoir.{' '}
+        Catalogue national des médicaments, base unique de toutes les pharmacies ({medicaments.length}). Le prix et le taux nationaux ne sont pas modifiables ici ;
+        le prix pratiqué se saisit au comptoir.{' '}
         {peutModifier
-          ? 'Ajoutez à votre liste les médicaments que vous délivrez, et signalez leur disponibilité.'
+          ? 'Un médicament absent se crée avec « Nouveau médicament » ; ajoutez à votre liste ceux que vous délivrez (homologués et activés par votre assureur).'
           : 'La liste de la pharmacie est tenue par le pharmacien.'}
       </p>
       {erreur && <p className="text-sm text-destructive">{erreur}</p>}
@@ -112,8 +123,14 @@ export function MedicamentsEcran({ medicaments, peutModifier }: { medicaments: M
         donnees={medicaments}
         cleLigne={(m) => m.id}
         parPage={15}
-        recherche={{ placeholder: 'Dénomination, nom commercial…', champs: ['denominationCommune', 'nomCommercial'] }}
+        recherche={{ placeholder: 'DCI, nom commercial, classe…', champs: ['denominationCommune', 'nomCommercial', 'classeTherapeutique'] }}
         filtres={[
+          {
+            cle: 'statutHomologation',
+            libelle: 'Statut',
+            options: Object.entries(LIBELLE_STATUT_HOMOLOGATION).filter(([valeur]) => valeur !== 'RETIRE').map(([valeur, libelle]) => ({ valeur, libelle })),
+            valeur: (m) => (m as MedicamentReference).statutHomologation,
+          },
           {
             cle: 'dansMaListe',
             libelle: 'Ma liste',
@@ -181,6 +198,10 @@ export function MedicamentsEcran({ medicaments, peutModifier }: { medicaments: M
                       onSucces={rafraichir}
                     />
                   </span>
+                ) : !m.activee ? (
+                  <span className="text-xs text-muted-foreground" title="Ajoutable à votre liste une fois homologué et activé par votre assureur.">
+                    Non activé
+                  </span>
                 ) : (
                   <Button
                     size="xs"
@@ -200,7 +221,7 @@ export function MedicamentsEcran({ medicaments, peutModifier }: { medicaments: M
                 )
             : undefined
         }
-        vide="Aucun médicament du catalogue n’est activé par votre assureur pour l’instant."
+        vide="Aucun médicament dans le catalogue national pour l’instant."
       />
     </div>
   );

@@ -127,6 +127,15 @@ export class PharmacyController {
     return this.pharmacy.listerMesDispensations(user, dto);
   }
 
+  /** Côté PHARMACIE : cumul (nombre, coût, part assurance, part patient) du périmètre filtré. */
+  @Get('dispensations/recapitulatif')
+  recapitulatif(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListerDispensationsQueryDto,
+  ) {
+    return this.pharmacy.recapitulatifDispensations(user, query);
+  }
+
   /** Côté PHARMACIE : détail/statut d'une dispensation de SA pharmacie. */
   @Get('dispensations/:id')
   obtenirDispensation(
@@ -209,6 +218,11 @@ export class PharmacyController {
   }
 
   /** Côté PHARMACIE : historique de SES factures mensuelles. */
+  @Get('factures-mensuelles/apercu')
+  apercuFactureMensuelle(@CurrentUser() user: AuthenticatedUser, @Query('periode') periode: string) {
+    return this.pharmacy.previsualiserFactureMensuelle(user, periode ?? '');
+  }
+
   @Get('factures-mensuelles/mes-factures')
   mesFacturesMensuelles(@CurrentUser() user: AuthenticatedUser) {
     return this.pharmacy.listerMesFacturesMensuelles(user);

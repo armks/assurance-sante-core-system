@@ -8,6 +8,8 @@ import { DataTable, StatutBadge, type ColonneTable } from '@/components/dashboar
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
+import { FactureMensuelleApercu, type ApercuFactureMensuelle } from './facture-mensuelle-apercu';
+
 export interface FactureMensuelle {
   id: string;
   periode: string;
@@ -44,7 +46,18 @@ function periodePrecedente(): { iso: string; libelle: string } {
   return { iso: debut.toISOString().slice(0, 10), libelle: moisFr(debut.toISOString()) };
 }
 
-export function FacturesMensuellesEcran({ factures, cible }: { factures: FactureMensuelle[]; cible: string }) {
+export function FacturesMensuellesEcran({
+  factures,
+  cible,
+  apercu = null,
+  mois = 'precedent',
+}: {
+  factures: FactureMensuelle[];
+  cible: string;
+  /** Aperçu des prescriptions du mois, avant soumission. */
+  apercu?: ApercuFactureMensuelle | null;
+  mois?: 'precedent' | 'courant';
+}) {
   const router = useRouter();
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
   const [pending, start] = useTransition();
@@ -84,6 +97,8 @@ export function FacturesMensuellesEcran({ factures, cible }: { factures: Facture
 
   return (
     <div className="space-y-8">
+      {apercu && <FactureMensuelleApercu apercu={apercu} mois={mois} cible={cible} />}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Facture du mois</CardTitle>

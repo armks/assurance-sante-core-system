@@ -134,12 +134,10 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
   // Espace PHARMACIE — module `pharmacy/` (verrou par ligne). Pharmacien et
   // caissière partagent le même écran de dispensation (`DispensationFlowEcran`,
   // ROLES_PHARMACIE ne distingue pas ces 2 rôles sur la préparation, vérifié) ;
-  // seuls « Mon stock » (écriture réservée au pharmacien, `assertPharmacien`)
-  // et « Médicaments remboursables » (référentiel national, lecture seule)
-  // sont propres au pharmacien.
+  // seul « Médicaments remboursables » (catalogue national, liste de la pharmacie) est propre au pharmacien.
   [PHARMACIEN]: [
     { label: "Vue d'ensemble", href: PHARMACIEN, icon: LayoutDashboard },
-    { label: 'Mon stock', href: `${PHARMACIEN}/stock`, icon: Wallet },
+    { label: 'Factures des prescriptions', href: `${PHARMACIEN}/factures`, icon: ReceiptText },
     {
       label: 'Médicaments remboursables',
       href: `${PHARMACIEN}/medicaments`,
@@ -156,11 +154,19 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       icon: CreditCard,
     },
   ],
-  [CAISSIERE]: [{ label: "Vue d'ensemble", href: CAISSIERE, icon: LayoutDashboard }],
+  [CAISSIERE]: [
+    { label: "Vue d'ensemble", href: CAISSIERE, icon: LayoutDashboard },
+    { label: 'Factures des prescriptions', href: `${CAISSIERE}/factures`, icon: ReceiptText },
+  ],
   [PHARMACIE_COMPTABLE]: [
     {
       label: 'Suivi des dispensations',
       href: PHARMACIE_COMPTABLE,
+      icon: ReceiptText,
+    },
+    {
+      label: 'Factures des prescriptions',
+      href: `${PHARMACIE_COMPTABLE}/factures`,
       icon: ReceiptText,
     },
     {

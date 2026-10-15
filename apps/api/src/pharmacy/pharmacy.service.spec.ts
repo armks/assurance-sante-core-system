@@ -1413,6 +1413,57 @@ describe('PharmacyService — révision du flux pharmacie (verrou par ligne)', (
       });
     });
 
+    describe('previsualiserFactureMensuelle (aperçu avant soumission)', () => {
+      const ligne = (id: string, lo: string, dispId: string, ml: number, ma: number, mp: number) => ({
+        id, ligneOrdonnanceId: lo, quantite: 1, montantLigne: dec(ml), montantAssurance: dec(ma), montantPatient: dec(mp),
+        medicamentSubstitue: null,
+        ligneOrdonnance: { denominationMedicament: 'Paracétamol' },
+        dispensation: {
+          id: dispId, datePaiement: new Date('2026-08-10T10:00:00Z'),
+          ordonnance: { dossier: { numeroTraitement: 'TRT-1', adherent: { nom: 'GODE', prenom: 'Jean', numeroCarte: 'CM-1', souscripteur: { nom: 'ACME' } }, beneficiaire: null, police: { produit: { nom: 'Essentielle' } } } },
+        },
+      });
+
+      it('caissière → 403', async () => {
+        identity.getMe.mockResolvedValue(caissiere('pharm-1'));
+        await expect(service.previsualiserFactureMensuelle(USER, '2026-08-01')).rejects.toBeInstanceOf(ForbiddenException);
+      });
+
+      it('période qui n’est pas le 1er du mois → 400', async () => {
+        identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+        await expect(service.previsualiserFactureMensuelle(USER, '2026-08-15')).rejects.toBeInstanceOf(BadRequestException);
+      });
+
+      it('cumule part assuré / assurance / coût, et le total à régler exclut les lignes contestées', async () => {
+        identity.getMe.mockResolvedValue(pharmacien('pharm-1'));
+        prisma.factureMensuellePharmacie.findFirst.mockResolvedValue(null);
+        prisma.ligneDispensation.findMany.mockResolvedValue([
+          ligne('l1', 'lo-1', 'd1', 5000, 4000, 1000),
+          ligne('l2', 'lo-2', 'd1', 2000, 1500, 500), // contestée
+          ligne('l3', 'lo-3', 'd2', 3000, 2400, 600),
+        ]);
+        prisma.contestationPrescription.findMany.mockResolvedValue([{ ligneOrdonnanceId: 'lo-2' }]);
+
+        const res = await service.previsualiserFactureMensuelle(USER, '2026-08-01');
+
+        expect(res.totaux).toMatchObject({
+          nbDispensations: 2,
+          nbLignesContestees: 1,
+          montantTotal: '10000.00',
+          montantPatient: '2100.00',
+          montantAssurance: '7900.00',
+          montantContesteExclu: '1500.00',
+          montantARegler: '6400.00',
+        });
+        const d1 = res.dispensations.find((d) => d.id === 'd1')!;
+        expect(d1).toMatchObject({ contestee: true, montantARegler: '4000.00' });
+        expect(res.dispensations.find((d) => d.id === 'd2')).toMatchObject({ contestee: false, montantARegler: '2400.00' });
+        // lecture seule : rien n'est écrit
+        expect(prisma.ligneDispensation.updateMany).not.toHaveBeenCalled();
+        expect(prisma.factureMensuellePharmacie.create).not.toHaveBeenCalled();
+      });
+    });
+
     describe('validerFactureMensuelle', () => {
       it('rôle non autorisé (comptable) → 403', async () => {
         identity.getMe.mockResolvedValue(comptableAssureur());

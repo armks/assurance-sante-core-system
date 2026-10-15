@@ -91,6 +91,15 @@ export class ListerDispensationsQueryDto extends RecherchePeriodeQueryDto {
   @IsOptional()
   @IsIn(STATUTS_DISPENSATION)
   statut?: (typeof STATUTS_DISPENSATION)[number];
+
+  /** N° de carte du patient (contient, casse ignorée). */
+  @IsOptional() @IsString() @MaxLength(60) carte?: string;
+  /** Société (souscripteur) de l'adhérent (contient). */
+  @IsOptional() @IsString() @MaxLength(100) societe?: string;
+  /** Formule d'assurance (produit de la police, contient). */
+  @IsOptional() @IsString() @MaxLength(100) formule?: string;
+  /** `1` : exclut les factures annulées (suivi / récapitulatif). */
+  @IsOptional() @IsIn(['1']) horsAnnulees?: '1';
 }
 
 /** Dispensations de l'adhérent : pagination serveur (remplace `take: 50`), statut, période. */

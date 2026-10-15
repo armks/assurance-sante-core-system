@@ -8802,3 +8802,34 @@ Terminé.
 - Constat : une prescription dont le code était déjà envoyé pouvait être re-sélectionnée et refacturée.
 - API : la recherche par carte renvoie `dispensationEnCours` (facture non réglée de SA pharmacie) par prescription ; `preparerDispensation` refuse (409) s'il existe déjà une facture EN_PREPARATION / EN_ATTENTE_VALIDATION_PATIENT / VALIDEE pour la prescription.
 - Web : « Voir la facture » + pastille « En attente de validation » / « Code validé — paiement à confirmer » ; sélectionner une telle prescription affiche directement la facture (coût, part assurance, part patient, champ du code, boutons) sans formulaire de lignes. tsc OK, tests pharmacy 117/117.
+
+## 2026-10-15 — Pharmacie : montants dans tous les tableaux + page « Factures des prescriptions » avec récapitulatif
+- Tableaux de dispensations (historique du pharmacien et suivi du comptable) : colonnes « Coût », « Part assurance », « Part assuré » toujours affichées.
+- API : `GET /pharmacy/dispensations` accepte `carte`, `societe`, `formule` (contient, casse ignorée) et `horsAnnulees=1` ; les lignes renvoient `societe` et `formule` ; nouveau `GET /pharmacy/dispensations/recapitulatif` (nombre, coût total, part assurance, part assuré) cumulé sur TOUT le périmètre filtré, mêmes règles que la liste (lignes en litige exclues des parts). Filtre commun `filtreDispensations`.
+- Web : page `/dashboard-pharmacie/{pharmacien,caissiere,comptable}/factures` (composant partagé `factures-suivi-*`) : factures du jour par défaut, filtres n° de carte / société / formule / période (aujourd'hui, semaine, mois, libre) / statut (hors annulées par défaut), 4 cartes de récapitulatif et tableau paginé ; entrée « Factures des prescriptions » dans la navigation des 3 profils. tsc OK, tests pharmacy 117/117, requête de filtre vérifiée sur la base réelle.
+
+## 2026-10-15 — Pharmacie : l'historique de la page Dispensation se limite au patient recherché
+- `pharmacien/page.tsx` : l'historique n'est plus chargé pour toute la pharmacie ; il n'apparaît qu'après une recherche de carte (`?carte=<n°>` écrit dans l'URL par `DispensationFlowEcran`, retiré par « Nouvelle recherche ») et ne liste que les dispensations de ce patient. L'historique global reste dans « Factures des prescriptions ». tsc OK.
+
+## 2026-10-15 — Historique des dispensations : détail en popup + cumul en tête
+- `DataTable` : nouvelle prop `surClicLigne` (clic ou Entrée sur la ligne ; boutons/liens de la ligne inchangés).
+- `DispensationsListeEcran` : colonne « Médicaments » retirée ; un clic sur une ligne ouvre une popup (médicaments × quantité, montants, coût / part assurance / part assuré, statut) ; cartes de cumul (factures, coût total, part assurance, part assuré) en tête via la prop `recap`, alimentée par `recapitulatifDispensations` sur les pages pharmacien (historique du patient) et comptable (statut PAYEE). tsc OK.
+
+## 2026-10-15 — Pharmacie : la recherche n'affiche plus les prescriptions déjà servies
+- Cause : une prescription entièrement servie/payée reste au statut ACTIVE (le paiement ne change que les lignes en SERVIE) ; la recherche par carte la renvoyait donc encore avec « Sélectionner » (vérifié en base : TRT-2026-10-001076, lignes SERVIE, dispensations PAYEE).
+- `rechercherPrescriptionsParCarte` ne renvoie plus que les prescriptions avec au moins une ligne DISPONIBLE ou une facture ouverte (en préparation / attente de validation / validée). Message : « Aucune prescription à servir ni en attente de validation pour ce patient. » ; l'historique du patient reste affiché dessous. tsc OK, tests pharmacy 95/95 (service).
+
+## 2026-10-15 — Pharmacie : l'historique n'apparaît qu'après une recherche effectuée
+- L'historique du patient est désormais passé en `historique` au `DispensationFlowEcran` et rendu seulement quand une recherche a abouti (`resultat`) ; un `?carte=` résiduel dans l'adresse (rechargement, lien) est retiré au montage. Rien n'est affiché par défaut. tsc OK.
+
+## 2026-10-15 — Pharmacie : « Médicaments remboursables » = réplique du catalogue national des médicaments
+- La page liste désormais TOUT le catalogue national (base unique de toutes les pharmacies, hors retirés), avec les colonnes du catalogue (DCI, présentation, classe, statut d'homologation) + prix et taux nationaux (lecture seule) + « Ma liste ». Recherche DCI / nom commercial / classe, filtres statut et ma liste. « Nouveau médicament » (pharmacien) inchangé : ajoute au catalogue national.
+- API : `listerMedicamentsRemboursables` renvoie aussi `statutHomologation` et `activee` (homologué ET activé par l'assureur). L'ajout à « Ma liste » reste réservé aux médicaments activés (sinon « Non activé »). tsc OK, tests liste-médicaments 22/22, requête SQL vérifiée sur la base réelle.
+
+## 2026-10-15 — Pharmacie : page « Mon stock » supprimée
+- Page `pharmacien/stock`, composant `stock-ecran.tsx` et entrée de menu retirés (la disponibilité se gère désormais dans « Médicaments remboursables »). L'API `GET /pharmacy/stock` reste en place : l'écran de dispensation s'en sert pour la disponibilité des lignes.
+
+## 2026-10-15 — Facture mensuelle pharmacie : aperçu des prescriptions du mois avant soumission
+- Test annulé : la facture de septembre 2026 soumise en test (0 F, aucune ligne liée, aucun paiement) a été supprimée en base ; la période peut de nouveau être soumise.
+- API : `GET /pharmacy/factures-mensuelles/apercu?periode=YYYY-MM-01` (pharmacien / comptable, lecture seule) — mêmes lignes que la soumission (payées dans le mois + reportées), regroupées par prescription, avec cumul part assuré / part assurance / coût total, lignes contestées repérées, `montantContesteExclu` et `montantARegler` (part assurance hors lignes contestées = montant qui sera réellement facturé).
+- Web : sur « Factures mensuelles » (pharmacien et comptable), tableau des factures de prescription du mois (lignes contestées en orange, clic = détail des médicaments), 4 cartes de cumul dont « Total à régler par l'assurance », bascule « Mois à facturer » / « Mois en cours (aperçu) ». `DataTable` : prop `classeLigne`. tsc OK, 3 tests ajoutés (pharmacy.service.spec).

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { listerDispensationsPharmacie } from '@/app/dashboard-pharmacie/dispensation-actions';
+import { listerDispensationsPharmacie, recapitulatifDispensations } from '@/app/dashboard-pharmacie/dispensation-actions';
 import type { LigneStock } from '@/app/dashboard-pharmacie/dispensation-types';
 import { DispensationFlowEcran } from '@/components/dashboard/pharmacie/dispensation-flow-ecran';
 import { DispensationsListeEcran } from '@/components/dashboard/pharmacie/dispensations-liste-ecran';
@@ -31,12 +31,30 @@ export default async function PharmacienPage({
   const etat = await exigerIdentite(CIBLE);
   if (etat.kind !== 'ok') redirect('/dashboard');
 
-  const [resStock, dispensations] = await Promise.all([
+  const params = await searchParams;
+  // L'historique n'affiche que les dispensations du patient dont la carte vient d'être recherchée (`?carte=`).
+  const carte = (Array.isArray(params.carte) ? params.carte[0] : params.carte)?.trim() || null;
+  const filtresHistorique = requeteListe(params, ['q', 'du', 'au', 'statut', 'carte']);
+  const [resStock, dispensations, recap] = await Promise.all([
     apiFetch('/api/v1/pharmacy/stock'),
-    listerDispensationsPharmacie(requeteListe(await searchParams, ['q', 'du', 'au', 'statut'])),
+    carte ? listerDispensationsPharmacie(filtresHistorique) : Promise.resolve(null),
+    carte ? recapitulatifDispensations(filtresHistorique) : Promise.resolve(null),
   ]);
   const stock: LigneStock[] = resStock.ok ? await resStock.json() : [];
   const erreur = resStock.ok ? null : await messageErreur(resStock);
+
+  const historique = dispensations ? (
+    <div className="space-y-4">
+      <h2 className="text-sm font-semibold text-muted-foreground">
+        Historique des dispensations du patient (carte {carte})
+      </h2>
+      <DispensationsListeEcran
+        dispensations={dispensations}
+        recap={recap}
+        vide="Aucune dispensation ne correspond à ces critères."
+      />
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-10">
@@ -48,19 +66,10 @@ export default async function PharmacienPage({
         {erreur ? (
           <p className="text-sm text-destructive">{erreur}</p>
         ) : (
-          <DispensationFlowEcran role="PHARMACIEN" cible={CIBLE} stockInitial={stock} />
+          <DispensationFlowEcran role="PHARMACIEN" cible={CIBLE} stockInitial={stock} historique={historique} />
         )}
       </div>
 
-      <div className="space-y-4">
-        <h2 className="text-sm font-semibold text-muted-foreground">
-          Historique des dispensations de votre pharmacie
-        </h2>
-        <DispensationsListeEcran
-          dispensations={dispensations}
-          vide="Aucune dispensation ne correspond à ces critères."
-        />
-      </div>
     </div>
   );
 }

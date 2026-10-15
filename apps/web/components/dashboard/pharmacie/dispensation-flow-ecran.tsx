@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import {
@@ -40,10 +41,13 @@ export function DispensationFlowEcran({
   role,
   cible,
   stockInitial,
+  historique,
 }: {
   role: 'CAISSIERE' | 'PHARMACIEN';
   cible: string;
   stockInitial: LigneStock[];
+  /** Historique du patient : affiché uniquement une fois la recherche effectuée dans CET écran. */
+  historique?: React.ReactNode;
 }) {
   const peutSubstituer = role === 'PHARMACIEN';
   const [pending, startTransition] = useTransition();
@@ -72,7 +76,16 @@ export function DispensationFlowEcran({
   const ordonnanceSelectionnee: PrescriptionActive | null =
     resultat?.ordonnances.find((o) => o.id === ordonnanceId) ?? null;
 
+  const router = useRouter();
+
+  // Un `?carte=` resté dans l'adresse (rechargement, lien) ne doit rien afficher : pas de recherche, pas d'historique.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has('carte')) router.replace(cible, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function reinitialiser() {
+    router.replace(cible, { scroll: false });
     setResultat(null);
     setOrdonnanceId(null);
     setSelections({});
@@ -96,6 +109,8 @@ export function DispensationFlowEcran({
         return;
       }
       setResultat(res.resultat);
+      // l'historique de la page se limite à ce patient
+      router.replace(`${cible}?carte=${encodeURIComponent(res.resultat.patient.numeroCarte)}`, { scroll: false });
     });
   }
 
@@ -308,7 +323,7 @@ export function DispensationFlowEcran({
           </CardHeader>
           <CardContent className="space-y-1.5">
             {resultat.ordonnances.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Aucune prescription active pour ce patient.</p>
+              <p className="text-sm text-muted-foreground">Aucune prescription à servir ni en attente de validation pour ce patient.</p>
             ) : (
               resultat.ordonnances.map((o) => (
                 <div
@@ -616,6 +631,8 @@ export function DispensationFlowEcran({
           </CardContent>
         </Card>
       )}
+
+      {resultat && historique}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-import { listerDispensationsPharmacie } from '@/app/dashboard-pharmacie/dispensation-actions';
+import { listerDispensationsPharmacie, recapitulatifDispensations } from '@/app/dashboard-pharmacie/dispensation-actions';
 import { DispensationsListeEcran } from '@/components/dashboard/pharmacie/dispensations-liste-ecran';
 import { PageTitre } from '@/components/page-titre';
 import { requeteListe, type ParametresUrl } from '@/lib/liste-serveur';
@@ -20,10 +20,11 @@ export default async function ComptablePage({
 }: {
   searchParams: Promise<ParametresUrl>;
 }) {
-  const dispensations = await listerDispensationsPharmacie(
-    requeteListe(await searchParams, ['q', 'du', 'au']),
-    'PAYEE',
-  );
+  const filtres = requeteListe(await searchParams, ['q', 'du', 'au']);
+  const [dispensations, recap] = await Promise.all([
+    listerDispensationsPharmacie(filtres, 'PAYEE'),
+    recapitulatifDispensations(`${filtres}${filtres ? '&' : '?'}statut=PAYEE`),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -33,6 +34,7 @@ export default async function ComptablePage({
       />
       <DispensationsListeEcran
         dispensations={dispensations}
+        recap={recap}
         filtreStatut={false}
         vide="Aucune dispensation réglée ne correspond à ces critères."
       />

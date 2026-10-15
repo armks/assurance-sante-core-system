@@ -214,16 +214,21 @@ export class PharmacyService {
       select: { id: true, ordonnanceId: true, statut: true },
       orderBy: { createdAt: 'desc' },
     });
+    // Seules les prescriptions À SERVIR (au moins une ligne disponible) ou EN ATTENTE (facture ouverte) sont proposées :
+    // une prescription entièrement servie reste ACTIVE en base mais n'a plus rien à facturer.
+    const aAfficher = ordonnances.filter(
+      (o) => o.lignesOrdonnance.some((l) => l.statut === 'DISPONIBLE') || enCours.some((e) => e.ordonnanceId === o.id),
+    );
     const refs = await this.prixReferenceParDenomination(
       ctx.organisationId,
-      ordonnances.flatMap((o) => o.lignesOrdonnance.map((l) => l.denominationMedicament)),
+      aAfficher.flatMap((o) => o.lignesOrdonnance.map((l) => l.denominationMedicament)),
     );
     const seuilMajorationPourcent = await this.seuilMajorationPourcent();
 
     return {
       seuilMajorationPourcent,
       patient: await this.fichePatient(adherent, beneficiaire),
-      ordonnances: ordonnances.map((o) => ({
+      ordonnances: aAfficher.map((o) => ({
         id: o.id,
         numeroTraitement: o.dossier.numeroTraitement,
         statut: o.statut,
@@ -397,15 +402,17 @@ export class PharmacyService {
           taux_remboursement_std: Prisma.Decimal | null;
           prix_reference_xof: Prisma.Decimal | null;
           medicament_essentiel: boolean;
+          statut_homologation: string;
+          activee: boolean;
         }[]
       >(Prisma.sql`
         SELECT n.id, n.denomination_commune, n.nom_commercial, n.dosage, n.forme, n.classe_therapeutique, n.remboursable,
-               n.taux_remboursement_std, n.prix_reference_xof, n.medicament_essentiel
-          FROM referentiel_national_medicaments n
-         WHERE n.deleted_at IS NULL AND n.statut_homologation = 'HOMOLOGUE'
-           AND EXISTS (SELECT 1 FROM medicaments m
+               n.taux_remboursement_std, n.prix_reference_xof, n.medicament_essentiel, n.statut_homologation,
+               (n.statut_homologation = 'HOMOLOGUE' AND EXISTS (SELECT 1 FROM medicaments m
                         WHERE m.organisation_id = ${ctx.organisationId}::uuid AND m.deleted_at IS NULL
-                          AND m.statut_homologation = 'HOMOLOGUE' AND m.catalogue_national_id = n.id)
+                          AND m.statut_homologation = 'HOMOLOGUE' AND m.catalogue_national_id = n.id)) AS activee
+          FROM referentiel_national_medicaments n
+         WHERE n.deleted_at IS NULL AND n.statut_homologation <> 'RETIRE'
          ORDER BY n.denomination_commune, n.nom_commercial`),
       this.prisma.stockMedicamentPharmacie.findMany({
         where: { pharmacieId: ctx.pharmacieId!, catalogueNationalId: { not: null } },
@@ -426,6 +433,8 @@ export class PharmacyService {
         tauxRemboursementStd: m.taux_remboursement_std === null ? null : m.taux_remboursement_std.toString(),
         prixReferenceXof: m.prix_reference_xof === null ? null : m.prix_reference_xof.toString(),
         medicamentEssentiel: m.medicament_essentiel,
+        statutHomologation: m.statut_homologation ?? 'HOMOLOGUE',
+        activee: m.activee ?? false,
         dansMaListe: !!l,
         disponible: l ? l.disponible : null,
         note: l ? l.note : null,
@@ -985,12 +994,7 @@ export class PharmacyService {
               ])}`
         ).map((r) => r.id)
       : null;
-    const where: Prisma.DispensationPharmacieWhereInput = {
-      pharmacieId: ctx.pharmacieId!,
-      ...(dto.statut ? { statut: dto.statut } : {}),
-      ...(filtrePeriode(dto.du, dto.au) ? { datePreparation: filtrePeriode(dto.du, dto.au) } : {}),
-      ...(idsRecherche ? { id: { in: idsRecherche } } : {}),
-    };
+    const where = this.filtreDispensations(ctx.pharmacieId!, dto, idsRecherche);
     const [total, dispensations] = await Promise.all([
       this.prisma.dispensationPharmacie.count({ where }),
       this.prisma.dispensationPharmacie.findMany({
@@ -1000,8 +1004,11 @@ export class PharmacyService {
           include: {
             dossier: {
               select: {
-                adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
-                beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true } },
+                adherent: { select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } } },
+                beneficiaire: {
+                  select: { nom: true, prenom: true, numeroCarte: true, adherent: { select: { souscripteur: { select: { nom: true } } } } },
+                },
+                police: { select: { produit: { select: { nom: true } } } },
               },
             },
           },
@@ -1042,6 +1049,11 @@ export class PharmacyService {
         patient: patient
           ? { nom: patient.nom, prenom: patient.prenom, numeroCarte: patient.numeroCarte }
           : null,
+        societe:
+          d.ordonnance.dossier.adherent?.souscripteur?.nom ??
+          d.ordonnance.dossier.beneficiaire?.adherent?.souscripteur?.nom ??
+          null,
+        formule: d.ordonnance.dossier.police?.produit?.nom ?? null,
         lignes: d.lignes.map((l) => ({
           denominationMedicament: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
           quantite: l.quantite,
@@ -1051,6 +1063,84 @@ export class PharmacyService {
       };
     });
     return versPage(items, total, page, limite);
+  }
+
+  /** Filtre commun à la liste et au récapitulatif (même périmètre, mêmes chiffres). */
+  private filtreDispensations(
+    pharmacieId: string,
+    dto: ListerDispensationsQueryDto,
+    idsRecherche: string[] | null,
+  ): Prisma.DispensationPharmacieWhereInput {
+    const contient = (v: string) => ({ contains: v.trim(), mode: 'insensitive' as const });
+    const dossier: Prisma.DossierSoinsWhereInput[] = [];
+    if (dto.carte?.trim()) {
+      dossier.push({
+        OR: [{ adherent: { numeroCarte: contient(dto.carte) } }, { beneficiaire: { numeroCarte: contient(dto.carte) } }],
+      });
+    }
+    if (dto.societe?.trim()) {
+      dossier.push({
+        OR: [
+          { adherent: { souscripteur: { nom: contient(dto.societe) } } },
+          { beneficiaire: { adherent: { souscripteur: { nom: contient(dto.societe) } } } },
+        ],
+      });
+    }
+    if (dto.formule?.trim()) dossier.push({ police: { produit: { nom: contient(dto.formule) } } });
+    return {
+      pharmacieId,
+      ...(dto.statut ? { statut: dto.statut } : dto.horsAnnulees ? { statut: { not: 'ANNULEE' } } : {}),
+      ...(filtrePeriode(dto.du, dto.au) ? { datePreparation: filtrePeriode(dto.du, dto.au) } : {}),
+      ...(idsRecherche ? { id: { in: idsRecherche } } : {}),
+      ...(dossier.length > 0 ? { ordonnance: { dossier: { AND: dossier } } } : {}),
+    };
+  }
+
+  /**
+   * Récapitulatif (cumul sur TOUT le périmètre filtré, pas seulement la page) : nombre de factures, coût total,
+   * part assurance et part patient. Mêmes règles que la liste (lignes en litige exclues des parts).
+   */
+  async recapitulatifDispensations(user: AuthenticatedUser, dto: ListerDispensationsQueryDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+    const idsRecherche = dto.q?.trim()
+      ? (
+          await this.prisma.$queryRaw<{ id: string }[]>`
+            SELECT dp.id::text AS id
+            FROM dispensations_pharmacie dp
+            JOIN ordonnances o ON o.id = dp.ordonnance_id
+            JOIN dossiers_soins d ON d.id = o.dossier_soins_id
+            LEFT JOIN adherents ad ON ad.id = d.adherent_id
+            LEFT JOIN beneficiaires b ON b.id = d.beneficiaire_id
+            WHERE dp.pharmacie_id = ${ctx.pharmacieId!}::uuid
+              AND ${conditionRecherche(dto.q, [
+                Prisma.sql`ad.prenom`, Prisma.sql`ad.nom`, Prisma.sql`ad.numero_carte`,
+                Prisma.sql`b.prenom`, Prisma.sql`b.nom`, Prisma.sql`b.numero_carte`,
+              ])}`
+        ).map((r) => r.id)
+      : null;
+    const dispensations = await this.prisma.dispensationPharmacie.findMany({
+      where: this.filtreDispensations(ctx.pharmacieId!, dto, idsRecherche),
+      select: { montantTotal: true, lignes: { select: { ligneOrdonnanceId: true, montantAssurance: true, montantPatient: true } } },
+    });
+    const enLitige = await this.chargerLignesEnLitige(dispensations.flatMap((d) => d.lignes.map((l) => l.ligneOrdonnanceId)));
+    let total = new Decimal(0);
+    let assurance = new Decimal(0);
+    let patient = new Decimal(0);
+    for (const d of dispensations) {
+      total = total.add(new Decimal(d.montantTotal.toString()));
+      for (const l of d.lignes) {
+        if (enLitige.has(l.ligneOrdonnanceId)) continue;
+        assurance = assurance.add(new Decimal(l.montantAssurance.toString()));
+        patient = patient.add(new Decimal(l.montantPatient.toString()));
+      }
+    }
+    return {
+      nombre: dispensations.length,
+      montantTotal: total.toFixed(2),
+      montantAssurance: assurance.toFixed(2),
+      montantPatient: patient.toFixed(2),
+    };
   }
 
   // --- Côté ADHÉRENT : ses dispensations en attente (avec le code) --
@@ -1603,6 +1693,179 @@ export class PharmacyService {
       dateSoumission: facture.dateSoumission,
       nbLignesIncluses: lignesFacturables.length,
       nbLignesExclues: toutesLignes.length - lignesFacturables.length,
+    };
+  }
+
+  /**
+   * Aperçu AVANT soumission de la facture mensuelle : les dispensations payées du mois (mêmes lignes que la
+   * soumission), cumuls part assuré / part assurance / coût total, et total à régler par l'assurance. Les lignes
+   * contestées sont repérées et ne sont PAS comptées dans le total à régler (comme à la soumission). Lecture seule.
+   */
+  async previsualiserFactureMensuelle(user: AuthenticatedUser, periode: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (
+      !ctx.roleChain.some((r) => (ROLES_FACTURATION_MENSUELLE as readonly string[]).includes(r)) ||
+      !ctx.pharmacieId
+    ) {
+      throw new ForbiddenException('Réservé au pharmacien ou au comptable de la pharmacie concernée.');
+    }
+    const debut = new Date(`${periode}T00:00:00.000Z`);
+    if (Number.isNaN(debut.getTime()) || debut.getUTCDate() !== 1) {
+      throw new BadRequestException('periode doit être le premier jour d’un mois, au format YYYY-MM-01.');
+    }
+    const fin = new Date(Date.UTC(debut.getUTCFullYear(), debut.getUTCMonth() + 1, 1));
+
+    const existante = await this.prisma.factureMensuellePharmacie.findFirst({
+      where: { pharmacieId: ctx.pharmacieId, periode: debut },
+      select: { id: true, statut: true },
+    });
+    const soumise = !!existante && existante.statut !== 'EN_PREPARATION';
+
+    const lignes = await this.prisma.ligneDispensation.findMany({
+      where: {
+        dispensation: { pharmacieId: ctx.pharmacieId, statut: 'PAYEE' },
+        ...(soumise
+          ? { factureMensuelleId: existante!.id }
+          : {
+              factureMensuelleId: null,
+              OR: [{ dispensation: { datePaiement: { gte: debut, lt: fin } } }, { reporteeMoisSuivant: true }],
+            }),
+      },
+      select: {
+        id: true,
+        ligneOrdonnanceId: true,
+        quantite: true,
+        montantLigne: true,
+        montantAssurance: true,
+        montantPatient: true,
+        medicamentSubstitue: true,
+        ligneOrdonnance: { select: { denominationMedicament: true } },
+        dispensation: {
+          select: {
+            id: true,
+            datePaiement: true,
+            ordonnance: {
+              select: {
+                dossier: {
+                  select: {
+                    numeroTraitement: true,
+                    adherent: { select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } } },
+                    beneficiaire: {
+                      select: { nom: true, prenom: true, numeroCarte: true, adherent: { select: { souscripteur: { select: { nom: true } } } } },
+                    },
+                    police: { select: { produit: { select: { nom: true } } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ dispensation: { datePaiement: 'asc' } }, { id: 'asc' }],
+    });
+    const enLitige = await this.chargerLignesEnLitige(lignes.map((l) => l.ligneOrdonnanceId));
+
+    const zero = () => new Decimal(0);
+    const parDispensation = new Map<
+      string,
+      {
+        id: string;
+        datePaiement: Date | null;
+        numeroTraitement: string | null;
+        patient: { nom: string; prenom: string; numeroCarte: string | null } | null;
+        societe: string | null;
+        formule: string | null;
+        total: Decimal;
+        assure: Decimal;
+        assurance: Decimal;
+        contesteAssurance: Decimal;
+        lignes: {
+          denominationMedicament: string;
+          quantite: number;
+          montantLigne: string;
+          montantAssurance: string;
+          montantPatient: string;
+          enLitige: boolean;
+        }[];
+      }
+    >();
+    let total = zero();
+    let assure = zero();
+    let assurance = zero();
+    let contesteAssurance = zero();
+    let nbLignesContestees = 0;
+    for (const l of lignes) {
+      const d = l.dispensation;
+      const dossier = d.ordonnance.dossier;
+      const patient = dossier.adherent ?? dossier.beneficiaire;
+      let r = parDispensation.get(d.id);
+      if (!r) {
+        r = {
+          id: d.id,
+          datePaiement: d.datePaiement,
+          numeroTraitement: dossier.numeroTraitement ?? null,
+          patient: patient ? { nom: patient.nom, prenom: patient.prenom, numeroCarte: patient.numeroCarte } : null,
+          societe: dossier.adherent?.souscripteur?.nom ?? dossier.beneficiaire?.adherent?.souscripteur?.nom ?? null,
+          formule: dossier.police?.produit?.nom ?? null,
+          total: zero(),
+          assure: zero(),
+          assurance: zero(),
+          contesteAssurance: zero(),
+          lignes: [],
+        };
+        parDispensation.set(d.id, r);
+      }
+      const contestee = enLitige.has(l.ligneOrdonnanceId);
+      const ml = new Decimal(l.montantLigne.toString());
+      const ma = new Decimal(l.montantAssurance.toString());
+      const mp = new Decimal(l.montantPatient.toString());
+      r.total = r.total.add(ml);
+      r.assure = r.assure.add(mp);
+      r.assurance = r.assurance.add(ma);
+      total = total.add(ml);
+      assure = assure.add(mp);
+      assurance = assurance.add(ma);
+      if (contestee) {
+        r.contesteAssurance = r.contesteAssurance.add(ma);
+        contesteAssurance = contesteAssurance.add(ma);
+        nbLignesContestees += 1;
+      }
+      r.lignes.push({
+        denominationMedicament: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
+        quantite: l.quantite,
+        montantLigne: ml.toFixed(2),
+        montantAssurance: ma.toFixed(2),
+        montantPatient: mp.toFixed(2),
+        enLitige: contestee,
+      });
+    }
+
+    return {
+      periode: debut.toISOString().slice(0, 10),
+      statutFacture: existante ? existante.statut : null,
+      dispensations: [...parDispensation.values()].map((r) => ({
+        id: r.id,
+        datePaiement: r.datePaiement,
+        numeroTraitement: r.numeroTraitement,
+        patient: r.patient,
+        societe: r.societe,
+        formule: r.formule,
+        montantTotal: r.total.toFixed(2),
+        montantPatient: r.assure.toFixed(2),
+        montantAssurance: r.assurance.toFixed(2),
+        montantARegler: r.assurance.sub(r.contesteAssurance).toFixed(2),
+        contestee: r.lignes.some((x) => x.enLitige),
+        lignes: r.lignes,
+      })),
+      totaux: {
+        nbDispensations: parDispensation.size,
+        nbLignesContestees,
+        montantTotal: total.toFixed(2),
+        montantPatient: assure.toFixed(2),
+        montantAssurance: assurance.toFixed(2),
+        montantContesteExclu: contesteAssurance.toFixed(2),
+        montantARegler: assurance.sub(contesteAssurance).toFixed(2),
+      },
     };
   }
 

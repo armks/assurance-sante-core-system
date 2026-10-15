@@ -24,7 +24,7 @@ export default async function MedicamentsPage() {
     <div className="space-y-8">
       <PageTitre
         titre="Médicaments remboursables"
-        description="Les médicaments du catalogue national activés par votre assureur — sans les actes. Vous tenez votre liste (ajout, disponibilité, note) ; les tarifs du catalogue national ne sont jamais modifiés."
+        description="Réplique du catalogue national des médicaments, base unique de toutes les pharmacies. Un médicament absent peut y être ajouté ; vous tenez votre liste (ajout, disponibilité, note), les tarifs nationaux ne sont jamais modifiés."
       />
       {erreur ? <p className="text-sm text-destructive">{erreur}</p> : <MedicamentsEcran medicaments={medicaments} peutModifier={peutModifier} />}
     </div>

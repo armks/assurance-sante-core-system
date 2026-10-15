@@ -72,6 +72,8 @@ export function DataTable<T extends object>({
   filtres = [],
   actions,
   actionLigne,
+  classeLigne,
+  surClicLigne,
   chargement = false,
   parPage = 10,
   vide = 'Aucune donnée.',
@@ -89,6 +91,10 @@ export function DataTable<T extends object>({
   actions?: React.ReactNode;
   /** Cellule d'action en fin de ligne. */
   actionLigne?: (row: T) => React.ReactNode;
+  /** Clic (ou Entrée) sur une ligne : ouvre un détail. Les boutons / liens de la ligne gardent leur propre action. */
+  surClicLigne?: (row: T) => void;
+  /** Classe CSS ajoutée à une ligne (ex. surlignage d'un état particulier). */
+  classeLigne?: (row: T) => string | undefined;
   chargement?: boolean;
   /** Lignes par page (0 = pas de pagination). */
   parPage?: number;
@@ -342,7 +348,27 @@ export function DataTable<T extends object>({
             ) : (
               <>
                 {lignesAffichees.map((row) => (
-                  <tr key={cleLigne(row)} className="border-t" data-selectionne={selection?.ids.has(cleLigne(row)) ? 'oui' : undefined}>
+                  <tr
+                    key={cleLigne(row)}
+                    className={cn('border-t', classeLigne?.(row), surClicLigne && 'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none')}
+                    data-selectionne={selection?.ids.has(cleLigne(row)) ? 'oui' : undefined}
+                    tabIndex={surClicLigne ? 0 : undefined}
+                    onClick={
+                      surClicLigne
+                        ? (e) => {
+                            if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
+                            surClicLigne(row);
+                          }
+                        : undefined
+                    }
+                    onKeyDown={
+                      surClicLigne
+                        ? (e) => {
+                            if (e.key === 'Enter' && e.target === e.currentTarget) surClicLigne(row);
+                          }
+                        : undefined
+                    }
+                  >
                     {selection && (
                       <td className="w-8 px-3 py-2">
                         <input

@@ -114,6 +114,8 @@ export interface LigneDispensationResume {
   denominationMedicament: string;
   quantite: number;
   montantLigne: string;
+  /** Ligne contestée : exclue des parts assurance / assuré. */
+  enLitige?: boolean;
 }
 
 /** Ligne de la liste `GET /pharmacy/dispensations` — pharmacien (tous statuts) /
@@ -128,5 +130,17 @@ export interface DispensationResume {
   dateValidationPatient: string | null;
   datePaiement: string | null;
   patient: PatientDispensation | null;
+  /** Société (souscripteur) de l'adhérent. */
+  societe?: string | null;
+  /** Formule d'assurance (produit de la police). */
+  formule?: string | null;
   lignes: LigneDispensationResume[];
+}
+
+/** Cumul du périmètre filtré (toutes les pages). */
+export interface RecapDispensations {
+  nombre: number;
+  montantTotal: string;
+  montantAssurance: string;
+  montantPatient: string;
 }

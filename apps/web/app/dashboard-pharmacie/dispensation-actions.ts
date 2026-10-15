@@ -8,6 +8,7 @@ import { PAGE_VIDE } from '@/lib/liste-serveur';
 import type {
   DispensationDetail,
   DispensationResume,
+  RecapDispensations,
   LigneStock,
   RecherchePrescriptionsResultat,
   StatutDispensation,
@@ -99,6 +100,16 @@ export async function listerDispensationsPharmacie(
   const qs = p.toString();
   const res = await apiFetch(`/api/v1/pharmacy/dispensations${qs ? `?${qs}` : ''}`);
   return res.ok ? ((await res.json()) as PageServeur<DispensationResume>) : PAGE_VIDE;
+}
+
+/** Cumul (nombre, coût, part assurance, part assuré) du périmètre filtré — `filtres` : chaîne `?…` issue de l'URL. */
+export async function recapitulatifDispensations(filtres = ''): Promise<RecapDispensations | null> {
+  const p = new URLSearchParams(filtres.startsWith('?') ? filtres.slice(1) : filtres);
+  p.delete('page');
+  p.delete('limite');
+  const qs = p.toString();
+  const res = await apiFetch(`/api/v1/pharmacy/dispensations/recapitulatif${qs ? `?${qs}` : ''}`);
+  return res.ok ? ((await res.json()) as RecapDispensations) : null;
 }
 
 export async function preparerDispensation(

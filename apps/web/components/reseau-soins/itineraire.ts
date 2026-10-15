@@ -34,35 +34,46 @@ export function urlItineraire(lieu: LieuAnnuaire, origine?: { lat: number; lng: 
   return `https://www.google.com/maps/dir/?${p.toString()}`;
 }
 
+/** Dernière position connue du navigateur, gardée en mémoire pour que le clic n'attende jamais la géolocalisation. */
+let derniereOrigine: { lat: number; lng: number } | undefined;
+let enCours = false;
+
+function lirePosition(): void {
+  if (enCours || typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+  enCours = true;
+  navigator.geolocation.getCurrentPosition(
+    (p) => {
+      derniereOrigine = { lat: p.coords.latitude, lng: p.coords.longitude };
+      enCours = false;
+    },
+    () => {
+      enCours = false;
+    },
+    // précision réseau suffisante pour un itinéraire, et position récente réutilisée (10 min)
+    { enableHighAccuracy: false, timeout: 8_000, maximumAge: 10 * 60_000 },
+  );
+}
+
 /**
- * Ouvre l'itinéraire dans un nouvel onglet, depuis la position du navigateur.
- * L'onglet est ouvert tout de suite (dans le geste de l'utilisateur, sinon le
- * bloqueur de fenêtres surgissantes l'empêcherait après l'attente de la
- * géolocalisation), puis dirigé vers Google Maps : avec `origin` si la position
- * est obtenue, sans (destination seule) si elle est refusée, indisponible ou
- * trop lente.
+ * À appeler à l'ouverture de la page : lit la position EN ARRIÈRE-PLAN, sans bloquer, et seulement si l'autorisation
+ * est déjà accordée (aucune fenêtre de permission à l'ouverture de la page).
+ */
+export function prechargerPosition(): void {
+  if (typeof navigator === 'undefined' || !('permissions' in navigator)) return;
+  navigator.permissions
+    .query({ name: 'geolocation' })
+    .then((r) => {
+      if (r.state === 'granted') lirePosition();
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * Ouvre l'itinéraire dans un nouvel onglet IMMÉDIATEMENT (aucune attente de géolocalisation) : avec la position
+ * déjà connue si on l'a, sinon destination seule — Google Maps part alors de la position de l'appareil et la
+ * demande lui-même. Le clic lance en même temps une lecture de la position pour que le suivant soit instantané.
  */
 export function ouvrirItineraire(lieu: LieuAnnuaire): void {
-  const onglet = window.open('', '_blank');
-  if (onglet) {
-    onglet.opener = null;
-    onglet.document.title = 'Itinéraire…';
-    onglet.document.body.textContent = `Calcul de l’itinéraire vers ${lieu.nom}…`;
-  }
-  let fait = false;
-  const aller = (origine?: { lat: number; lng: number }) => {
-    if (fait) return;
-    fait = true;
-    const url = urlItineraire(lieu, origine);
-    if (onglet && !onglet.closed) onglet.location.replace(url);
-    else window.open(url, '_blank', 'noopener');
-  };
-  if (!('geolocation' in navigator)) return aller();
-  navigator.geolocation.getCurrentPosition(
-    (p) => aller({ lat: p.coords.latitude, lng: p.coords.longitude }),
-    () => aller(),
-    { timeout: 10_000, maximumAge: 5 * 60_000 },
-  );
-  // Filet : l'utilisateur ignore la demande d'autorisation sans répondre.
-  window.setTimeout(() => aller(), 15_000);
+  window.open(urlItineraire(lieu, derniereOrigine), '_blank', 'noopener');
+  lirePosition();
 }

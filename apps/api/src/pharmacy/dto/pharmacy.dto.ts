@@ -107,6 +107,9 @@ export class ListerMesDispensationsQueryDto extends PeriodeQueryDto {
   @IsOptional()
   @IsIn(STATUTS_DISPENSATION)
   statut?: (typeof STATUTS_DISPENSATION)[number];
+
+  /** N° de carte du titulaire ou d'un bénéficiaire (contient, casse ignorée). */
+  @IsOptional() @IsString() @MaxLength(60) carte?: string;
 }
 
 /**

@@ -8833,3 +8833,49 @@ Terminé.
 - Test annulé : la facture de septembre 2026 soumise en test (0 F, aucune ligne liée, aucun paiement) a été supprimée en base ; la période peut de nouveau être soumise.
 - API : `GET /pharmacy/factures-mensuelles/apercu?periode=YYYY-MM-01` (pharmacien / comptable, lecture seule) — mêmes lignes que la soumission (payées dans le mois + reportées), regroupées par prescription, avec cumul part assuré / part assurance / coût total, lignes contestées repérées, `montantContesteExclu` et `montantARegler` (part assurance hors lignes contestées = montant qui sera réellement facturé).
 - Web : sur « Factures mensuelles » (pharmacien et comptable), tableau des factures de prescription du mois (lignes contestées en orange, clic = détail des médicaments), 4 cartes de cumul dont « Total à régler par l'assurance », bascule « Mois à facturer » / « Mois en cours (aperçu) ». `DataTable` : prop `classeLigne`. tsc OK, 3 tests ajoutés (pharmacy.service.spec).
+
+## 2026-10-15 — Espace adhérent : le titulaire présenté en entier dans « Ma photo de profil »
+- `/dashboard-adherent/beneficiaires` : le cadre « Ma photo de profil » affiche la fiche complète du titulaire (`FichePatient` : photo agrandie zoomable, nom, naissance, lien, société, carte, formule) + statut de la carte et police ; le lien « Changer la photo » reste (`PhotoUploader` : nouvelle option `texteSeul`). Le chemin de stockage de la photo n'est pas transmis au navigateur (`sansCheminsPhoto`). tsc OK.
+
+## 2026-10-15 — Espace adhérent : bénéficiaires présentés comme le titulaire
+- Chaque bénéficiaire de `/dashboard-adherent/beneficiaires` est affiché avec la même fiche que le titulaire (`FichePatient` compacte : photo agrandie zoomable, nom, naissance, lien, société, carte, formule) + statut, police, « Changer la photo » et « Modifier » (tant que la carte n'est pas attribuée). tsc OK.
+
+## 2026-10-15 — Vue d'ensemble adhérent : titulaire en entier avant « Statut de la couverture », bénéficiaires dans « Ma famille »
+- `/dashboard-adherent` : nouvelle case « Mon profil » (fiche complète du titulaire : photo agrandie, naissance, société, carte, formule, statut de la carte, police, n° adhérent) juste avant les chiffres-clés ; « Ma famille » ne liste plus que les bénéficiaires, chacun avec la même fiche (compacte) et son statut. tsc OK.
+
+## 2026-10-15 — Vue d'ensemble adhérent : tableau des garanties déroulant
+- « Votre couverture » : le tableau des garanties est replié ; un clic sur son en-tête (Garantie, Taux, Plafonds, Réseau) le déroule / le replie (chevron, `aria-expanded`). tsc OK.
+
+## 2026-10-15 — Plafonds annuels restants : un accordéon par garantie
+- `PlafondsFamilleCarte` (vue d'ensemble adhérent et fiche adhérent côté société) : chaque garantie est un accordéon replié (`<details>`, chevron) dont l'en-tête rappelle le restant famille ou le plafond par personne ; le détail (jauge famille, tableau par personne) se déroule au clic. tsc OK.
+
+## 2026-10-15 — « Mes dispensations » (adhérent) identique au tableau de la pharmacie
+- `DispensationsListeEcran` (tableau de l'historique pharmacie) accepte `adherent` : même tableau (patient, coût, part assurance, part assuré, statut, préparée / payée le, détail des médicaments en popup au clic, cumul en tête) + pharmacie, code de confirmation et « Valider le code », sans les boutons de suppression. `/dashboard-adherent/dispensations` l'utilise (l'ancien tableau est retiré).
+- API : `GET /pharmacy/dispensations/mes-dispensations` renvoie aussi patient, lignes (médicament, quantité, montant), dates de validation / paiement ; nouveau `GET …/mes-dispensations/recapitulatif` (cumul de toutes les pages filtrées). tsc OK, tests pharmacy 98/98.
+
+## 2026-10-15 — « Mes factures » (adhérent) alignée sur les factures de prescription de la pharmacie
+- `/dashboard-adherent/factures` : filtres sur une ligne (n° de carte du titulaire / d'un bénéficiaire avec suggestions, période aujourd'hui / semaine / mois / entre deux dates, statut), 4 cartes de cumul (factures, coût total, part assurance, part assuré), tableau (émise le, bénéficiaire + carte, dossier, coût, part assurance, part assuré, statut, code de facturation + « Valider le code »), détail (dont tarifs en cours d'examen / facture complémentaire) en popup au clic. Jour par défaut.
+- API : `GET /preauthorization/codes-facturation` accepte `carte` et renvoie le bénéficiaire ; nouveau `GET …/codes-facturation/recapitulatif`. Bornes de période partagées dans `lib/periode-rapide.ts` (réutilisées par la page de la pharmacie). tsc OK, tests preauthorization (factures) 66/66.
+
+## 2026-10-15 — « Mes dispensations » : mêmes champs de recherche que « Mes factures »
+- Barre de recherche partagée `FiltresFamille` (une ligne : n° de carte du titulaire / d'un bénéficiaire avec suggestions, période aujourd'hui / semaine / mois / entre deux dates, statut), utilisée par `/dashboard-adherent/factures` et `/dashboard-adherent/dispensations` (jour par défaut). API : `mes-dispensations` accepte `carte`. tsc OK, tests pharmacy 98/98.
+
+## 2026-10-15 — Espace adhérent : page « Ma carte » supprimée
+- La carte est émise par l'assureur : page `dashboard-adherent/carte`, composant `carte-ecran.tsx` et entrées « Ma carte » des menus adhérent retirés. L'émission de carte côté assureur (`/member/adherents/:id/carte`) est inchangée. tsc OK.
+
+## 2026-10-15 — « Mes réclamations » (adhérent) : établissement, parts, carte du patient, cumul et détail des soins
+- Tableau : colonnes Établissement (ou pharmacie), Patient + n° de carte, Coût, Part assuré, Part assurance ; cartes de cumul en tête (réclamations, part assuré, part assurance, coût total — suivent la recherche) ; clic sur une ligne = popup du détail des soins (actes ou médicaments, montants, statut, motifs de rejet, plafond restant). Recherche par n° de carte, patient, établissement, dossier.
+- API : `GET /claims/reclamations` renvoie en plus `etablissement`, `numeroTraitement`, `patient`, `partAssurance`, `partAssure`, `soins` (champs ajoutés, rien retiré). tsc OK, tests claims 37/37.
+
+## 2026-10-15 — Réclamations (adhérent) : fiche de l'établissement de traitement et du patient dans le détail
+- Popup « Détail des soins » : deux cadres « Établissement de traitement » (nom, type, code, adresse / localisation, téléphone — pharmacie incluse) et « Patient » (nom, n° de carte). API : `etablissementDetail` ajouté à `GET /claims/reclamations`. tsc OK, tests claims OK.
+
+## 2026-10-15 — Espace adhérent : établissement sanitaire / pharmacie visité + personne soignée sur les 3 tableaux
+- Composant partagé `BlocEtablissementPatient` (fiche de l'établissement ou de la pharmacie : nom, type, code, adresse, téléphone ; personne soignée : nom, n° de carte) utilisé dans le détail au clic de « Mes réclamations », « Mes factures » et « Mes dispensations ». « Mes factures » gagne la colonne Établissement (API : `etablissement` / `etablissementDetail` sur `codes-facturation`) ; « Mes dispensations » reçoit `pharmacieDetail`. tsc OK, tests pharmacy / claims / preauthorization (factures) OK.
+
+## 2026-10-15 — Correction du calcul coût / part assuré / part assurance dans « Mes réclamations »
+- Constat (base réelle) : les 2 réclamations de pharmacie sont « en revue » (code E016, acte non tarifable) avec un remboursement provisoire à 0 ; le tableau en déduisait part assurance 0 et part assuré = 100 % du coût (800 F / 3 320 F) alors que les dispensations donnent 640 F + 160 F et 2 656 F + 664 F.
+- Règle : rejet = 0 pris en charge ; approuvée / payée = remboursement décidé ; en attente de décision = répartition de la dispensation affichée « (estimée) » (aucune valeur pour un acte sans estimation). `partEstimee` ajouté à l'API ; popup et colonnes alignés. tsc OK, tests claims 37/37. À traiter à part : pourquoi l'adjudication classe les dispensations pharmacie en E016 (acte non tarifable).
+
+## 2026-10-15 — Réseau de soins (adhérent) : le clic sur « Itinéraire » n'attend plus la géolocalisation
+- Cause : `ouvrirItineraire` ouvrait un onglet vierge puis attendait `getCurrentPosition` (jusqu'à 10-15 s) avant de rediriger vers Google Maps. Maintenant : ouverture immédiate de Google Maps (avec la dernière position connue si on l'a, sinon destination seule : Google part de la position de l'appareil), lecture de la position en arrière-plan (au chargement si l'autorisation est déjà accordée, et au clic pour le suivant). Mesure : l'annuaire de la page (3 lieux) se lit en ~100 ms, ce n'était pas la cause. tsc OK.

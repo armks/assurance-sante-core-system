@@ -1,6 +1,6 @@
 'use client';
 
-import { Gauge } from 'lucide-react';
+import { ChevronDown, Gauge } from 'lucide-react';
 
 import { useCategoriesActe } from '@/components/categories-acte';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -73,7 +73,7 @@ export function PlafondsFamilleCarte({
           </p>
         )}
       </CardHeader>
-      <CardContent className="space-y-5">
+      <CardContent className="space-y-2">
         {erreur ? (
           <p className="text-sm text-destructive">{erreur}</p>
         ) : !plafonds || plafonds.garanties.length === 0 ? (
@@ -82,8 +82,23 @@ export function PlafondsFamilleCarte({
           </p>
         ) : (
           plafonds.garanties.map((g) => (
-            <section key={g.garantieId} className="space-y-2">
-              <h3 className="text-sm font-medium">{libelle(g.categorieActe)}</h3>
+            <details key={g.garantieId} className="group rounded-md border">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-2">
+                  <ChevronDown aria-hidden="true" className="size-4 transition-transform group-open:rotate-180" />
+                  {libelle(g.categorieActe)}
+                </span>
+                {g.restantFamille !== null && g.plafondFamille !== null ? (
+                  <span className="text-xs font-normal tabular-nums text-muted-foreground">
+                    Famille : {montant(g.restantFamille)} restants
+                  </span>
+                ) : g.plafondPersonne !== null ? (
+                  <span className="text-xs font-normal tabular-nums text-muted-foreground">
+                    Plafond {montant(g.plafondPersonne)} / personne
+                  </span>
+                ) : null}
+              </summary>
+              <div className="space-y-2 border-t px-3 py-3">
 
               {g.plafondFamille !== null && g.restantFamille !== null && (
                 <div className="space-y-1 rounded-md border p-2.5">
@@ -133,7 +148,8 @@ export function PlafondsFamilleCarte({
                   </tbody>
                 </table>
               </div>
-            </section>
+              </div>
+            </details>
           ))
         )}
       </CardContent>

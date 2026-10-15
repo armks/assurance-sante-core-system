@@ -608,11 +608,116 @@ export class ClaimsService {
       orderBy: { createdAt: 'desc' },
       include: {
         remboursement: true,
-        adherent: { select: { id: true, nom: true, prenom: true, numeroAdherent: true } },
-        beneficiaire: { select: { id: true, nom: true, prenom: true } },
+        adherent: { select: { id: true, nom: true, prenom: true, numeroAdherent: true, numeroCarte: true } },
+        beneficiaire: { select: { id: true, nom: true, prenom: true, numeroCarte: true } },
+        dispensation: {
+          select: {
+            pharmacie: { select: { nom: true, code: true, ville: true, commune: true, quartier: true, telephone: true } },
+            lignes: {
+              select: {
+                quantite: true,
+                montantLigne: true,
+                montantAssurance: true,
+                montantPatient: true,
+                medicamentSubstitue: true,
+                ligneOrdonnance: { select: { denominationMedicament: true } },
+              },
+            },
+          },
+        },
       },
     });
-    return this.avecRoleRevue(reclamations);
+
+    // Établissement et détail des soins : la réclamation ne porte que des identifiants (dossier, acte) — 2 requêtes groupées.
+    const idsDossiers = [...new Set(reclamations.map((r) => r.dossierSoinsId))];
+    const idsActes = [...new Set(reclamations.map((r) => r.acteDossierId).filter((v): v is string => !!v))];
+    const [dossiers, actes] = await Promise.all([
+      idsDossiers.length
+        ? this.prisma.dossierSoins.findMany({
+            where: { id: { in: idsDossiers } },
+            select: {
+              id: true,
+              numeroTraitement: true,
+              etablissement: { select: { nom: true, code: true, typeEtablissement: true, ville: true, commune: true, quartier: true, adresseComplete: true, telephone: true } },
+            },
+          })
+        : [],
+      idsActes.length
+        ? this.prisma.acteDossier.findMany({
+            where: { id: { in: idsActes } },
+            select: { id: true, libelle: true, categorieActe: true, quantite: true, montantPrescrit: true },
+          })
+        : [],
+    ]);
+    const dossierParId = new Map(dossiers.map((d) => [d.id, d]));
+    const acteParId = new Map(actes.map((x) => [x.id, x]));
+    const enrichies = reclamations.map((r) => {
+      const personne = r.adherent ?? r.beneficiaire ?? null;
+      const dossier = dossierParId.get(r.dossierSoinsId);
+      const acte = r.acteDossierId ? acteParId.get(r.acteDossierId) : undefined;
+      const montant = new Decimal(r.montant.toString());
+      // Parts : décision FINALE d'abord (rejet = 0 pris en charge ; approuvée / payée = remboursement décidé). Tant que
+      // l'adjudication n'a pas tranché (soumise, en analyse, en revue), un remboursement provisoire à 0 ne doit PAS
+      // se lire « tout à votre charge » : pour une dispensation on affiche la répartition calculée à la préparation
+      // (estimée), sinon rien.
+      const finale = ['AUTO_ADJUDIQUE', 'PAYEE'].includes(r.statut) && !!r.remboursement;
+      let partAssurance: Decimal | null = null;
+      let partEstimee = false;
+      if (r.statut === 'REJETE') partAssurance = new Decimal(0);
+      else if (finale) partAssurance = new Decimal(r.remboursement!.montantRembourse.toString());
+      else if (r.dispensation) {
+        partAssurance = r.dispensation.lignes.reduce((acc, l) => acc.add(new Decimal(l.montantAssurance.toString())), new Decimal(0));
+        partEstimee = true;
+      }
+      return {
+        ...r,
+        etablissement: r.dispensation?.pharmacie.nom ?? dossier?.etablissement.nom ?? null,
+        // fiche de l'établissement (ou de la pharmacie) qui a soigné / délivré
+        etablissementDetail: r.dispensation
+          ? {
+              nom: r.dispensation.pharmacie.nom,
+              code: r.dispensation.pharmacie.code,
+              type: 'PHARMACIE',
+              localisation: [r.dispensation.pharmacie.quartier, r.dispensation.pharmacie.commune, r.dispensation.pharmacie.ville].filter(Boolean).join(', ') || null,
+              adresse: null as string | null,
+              telephone: r.dispensation.pharmacie.telephone,
+            }
+          : dossier
+            ? {
+                nom: dossier.etablissement.nom,
+                code: dossier.etablissement.code,
+                type: dossier.etablissement.typeEtablissement,
+                localisation: [dossier.etablissement.quartier, dossier.etablissement.commune, dossier.etablissement.ville].filter(Boolean).join(', ') || null,
+                adresse: dossier.etablissement.adresseComplete,
+                telephone: dossier.etablissement.telephone,
+              }
+            : null,
+        numeroTraitement: dossier?.numeroTraitement ?? null,
+        patient: personne ? { nom: personne.nom, prenom: personne.prenom, numeroCarte: personne.numeroCarte } : null,
+        partAssurance: partAssurance ? partAssurance.toFixed(2) : null,
+        partAssure: partAssurance ? montant.sub(partAssurance).toFixed(2) : null,
+        /** `true` : répartition prévue à la préparation, l'adjudication n'a pas encore décidé. */
+        partEstimee,
+        soins: r.dispensation
+          ? r.dispensation.lignes.map((l) => ({
+              libelle: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
+              categorie: 'PHARMACIE',
+              quantite: l.quantite,
+              montant: l.montantLigne.toFixed(2),
+            }))
+          : acte
+            ? [
+                {
+                  libelle: acte.libelle,
+                  categorie: acte.categorieActe,
+                  quantite: acte.quantite,
+                  montant: (acte.montantPrescrit ?? r.montant).toString(),
+                },
+              ]
+            : [],
+      };
+    });
+    return this.avecRoleRevue(enrichies);
   }
 
   async obtenirReclamation(user: AuthenticatedUser, id: string) {

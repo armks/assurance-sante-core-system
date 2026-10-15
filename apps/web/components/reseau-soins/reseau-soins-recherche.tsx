@@ -1,12 +1,12 @@
 'use client';
 
 import { Navigation } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import { DataTable, StatutBadge, type ColonneTable, type FiltreSelect } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 
-import { ouvrirItineraire } from './itineraire';
+import { ouvrirItineraire, prechargerPosition } from './itineraire';
 import { LIBELLE_TYPE_LIEU, type LieuAnnuaire } from './lieu';
 
 const options = (valeurs: (string | null)[], libelle: (v: string) => string = (v) => v) =>
@@ -25,6 +25,9 @@ const libelleType = (t: string) => LIBELLE_TYPE_LIEU[t] ?? t;
  * chaque page lui passe des `LieuAnnuaire` déjà réduits côté serveur.
  */
 export function ReseauSoinsRecherche({ lieux, parPage = 15 }: { lieux: LieuAnnuaire[]; parPage?: number }) {
+  // position lue en arrière-plan (si déjà autorisée) : le clic sur « Itinéraire » ne l'attend jamais
+  useEffect(() => prechargerPosition(), []);
+
   const filtres: FiltreSelect[] = useMemo(
     () => [
       { cle: 'ville', libelle: 'Ville', options: options(lieux.map((l) => l.ville)) },

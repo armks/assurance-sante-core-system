@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Coins, HandCoins, ReceiptText, ShieldCheck } from 'lucide-react';
 import { useState, useTransition } from 'react';
 
+import { validerCodeDispensation } from '@/app/dashboard-adherent/dispensations/actions';
 import { annulerDispensation, supprimerDispensationAnnulee } from '@/app/dashboard-pharmacie/dispensation-actions';
 import type { DispensationResume, RecapDispensations } from '@/app/dashboard-pharmacie/dispensation-types';
 import {
@@ -16,6 +17,9 @@ import {
   type ColonneTable,
   type PageServeur,
 } from '@/components/dashboard/patterns';
+import { BlocEtablissementPatient } from '@/components/dashboard/adherent/bloc-etablissement-patient';
+import { FiltresFamille } from '@/components/dashboard/adherent/filtres-famille';
+import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 
 const LIBELLE_STATUT: Record<string, string> = {
@@ -73,6 +77,9 @@ export function DispensationsListeEcran({
   vide,
   filtreStatut = true,
   recap = null,
+  adherent = false,
+  periode = 'jour',
+  cartesFamille = [],
 }: {
   /** Page renvoyée par l'API (pagination, recherche, statut, période serveur). */
   dispensations: PageServeur<DispensationResume>;
@@ -81,7 +88,14 @@ export function DispensationsListeEcran({
   filtreStatut?: boolean;
   /** Cumul du périmètre filtré (toutes les pages) : affiché en tête quand il est fourni. */
   recap?: RecapDispensations | null;
+  /** Espace adhérent : même tableau, avec la pharmacie, le code de confirmation et « Valider le code » (sans suppression). */
+  adherent?: boolean;
+  /** Espace adhérent : période effective et cartes de la famille pour la barre de recherche. */
+  periode?: string;
+  cartesFamille?: { numeroCarte: string; nom: string }[];
 }) {
+  const router = useRouter();
+  const [validation, demarrerValidation] = useTransition();
   const [ouverte, setOuverte] = useState<DispensationResume | null>(null);
   const colonnes: ColonneTable<DispensationResume>[] = [
     {
@@ -90,6 +104,9 @@ export function DispensationsListeEcran({
       rendu: (d) =>
         d.patient ? `${d.patient.prenom} ${d.patient.nom} (${d.patient.numeroCarte})` : '—',
     },
+    ...(adherent
+      ? [{ cle: 'pharmacie', entete: 'Pharmacie', rendu: (d: DispensationResume) => d.pharmacie ?? '—' }]
+      : []),
     {
       cle: 'montantTotal',
       entete: 'Coût',
@@ -126,7 +143,36 @@ export function DispensationsListeEcran({
       entete: 'Payée le',
       rendu: (d) => dateFr(d.datePaiement),
     },
-    ...(filtreStatut
+    ...(adherent
+      ? [
+          {
+            cle: 'code',
+            entete: 'Code de confirmation',
+            rendu: (d: DispensationResume) =>
+              d.code ? <span className="font-mono font-semibold">{d.code}</span> : <span className="text-muted-foreground">—</span>,
+          },
+          {
+            cle: 'actions',
+            entete: '',
+            rendu: (d: DispensationResume) =>
+              d.code ? (
+                <Button
+                  size="xs"
+                  disabled={validation}
+                  onClick={() =>
+                    demarrerValidation(async () => {
+                      await validerCodeDispensation(d.code!);
+                      router.refresh();
+                    })
+                  }
+                >
+                  Valider le code
+                </Button>
+              ) : null,
+          },
+        ]
+      : []),
+    ...(filtreStatut && !adherent
       ? [
           {
             cle: 'actions',
@@ -150,16 +196,20 @@ export function DispensationsListeEcran({
           <CarteResume libelle="Part assuré" valeur={montantFr(recap.montantPatient)} icon={HandCoins} />
         </GrilleCartes>
       )}
-      <FiltresServeur
-        recherche={{ placeholder: 'Patient, n° de carte, médicament…' }}
-        periode
-        libellePeriode="Préparée"
-        selects={
-          filtreStatut
-            ? [{ cle: 'statut', libelle: 'Statut', options: Object.entries(LIBELLE_STATUT).map(([valeur, libelle]) => ({ valeur, libelle })) }]
-            : []
-        }
-      />
+      {adherent ? (
+        <FiltresFamille periode={periode} cartesFamille={cartesFamille} statuts={LIBELLE_STATUT} />
+      ) : (
+        <FiltresServeur
+          recherche={adherent ? undefined : { placeholder: 'Patient, n° de carte, médicament…' }}
+          periode
+          libellePeriode="Préparée"
+          selects={
+            filtreStatut
+              ? [{ cle: 'statut', libelle: 'Statut', options: Object.entries(LIBELLE_STATUT).map(([valeur, libelle]) => ({ valeur, libelle })) }]
+              : []
+          }
+        />
+      )}
       <DataTable
         donnees={dispensations.items}
         cleLigne={(d) => d.id}
@@ -177,10 +227,14 @@ export function DispensationsListeEcran({
                 <DialogTitle>Prescription servie</DialogTitle>
                 <DialogDescription>
                   {ouverte.patient ? `${ouverte.patient.prenom} ${ouverte.patient.nom} (${ouverte.patient.numeroCarte})` : '—'}
+                  {adherent && ouverte.pharmacie ? ` · ${ouverte.pharmacie}` : ''}
                   {' · '}
                   {dateFr(ouverte.datePreparation)}
                 </DialogDescription>
               </div>
+              {adherent && (
+                <BlocEtablissementPatient etablissement={ouverte.pharmacieDetail} nomEtablissement={ouverte.pharmacie} patient={ouverte.patient} />
+              )}
               <ul className="divide-y rounded-md border text-sm">
                 {ouverte.lignes.map((l, i) => (
                   <li key={i} className="flex items-center justify-between gap-3 px-3 py-1.5">

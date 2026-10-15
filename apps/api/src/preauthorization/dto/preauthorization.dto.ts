@@ -70,4 +70,10 @@ export class ListerMesFacturesQueryDto extends PeriodeQueryDto {
   @IsOptional()
   @IsIn(STATUTS_FACTURE_DOSSIER)
   statut?: (typeof STATUTS_FACTURE_DOSSIER)[number];
+
+  /** N° de carte du titulaire ou d'un bénéficiaire (contient, casse ignorée). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  carte?: string;
 }

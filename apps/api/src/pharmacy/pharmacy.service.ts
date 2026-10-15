@@ -1152,24 +1152,23 @@ export class PharmacyService {
       return versPage([], 0, page, limite);
     }
     // Pagination SERVEUR (remplace `take: 50`) + statut + période de préparation.
-    const where: Prisma.DispensationPharmacieWhereInput = {
-      ordonnance: {
-        dossier: {
-          OR: [
-            { adherentId: ctx.adherentId },
-            { beneficiaire: { adherentId: ctx.adherentId } },
-          ],
-        },
-      },
-      ...(dto.statut ? { statut: dto.statut } : {}),
-      ...(filtrePeriode(dto.du, dto.au) ? { datePreparation: filtrePeriode(dto.du, dto.au) } : {}),
-    };
+    const where = this.filtreMesDispensations(ctx.adherentId, dto);
     const [total, dispensations] = await Promise.all([
       this.prisma.dispensationPharmacie.count({ where }),
       this.prisma.dispensationPharmacie.findMany({
         where,
         include: {
-          pharmacie: { select: { nom: true } },
+          pharmacie: { select: { nom: true, code: true, ville: true, commune: true, quartier: true, telephone: true } },
+          ordonnance: {
+            select: {
+              dossier: {
+                select: {
+                  adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
+                  beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true } },
+                },
+              },
+            },
+          },
           lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } } },
         },
         orderBy: [{ datePreparation: 'desc' }, { id: 'asc' }],
@@ -1178,6 +1177,7 @@ export class PharmacyService {
       }),
     ]);
     const items = dispensations.map((d) => {
+      const patient = d.ordonnance?.dossier?.adherent ?? d.ordonnance?.dossier?.beneficiaire ?? null;
       const montantPatient = d.lignes.reduce(
         (acc, l) => acc.add(new Decimal(l.montantPatient.toString())),
         new Decimal(0),
@@ -1189,6 +1189,14 @@ export class PharmacyService {
       return {
         id: d.id,
         pharmacie: d.pharmacie.nom,
+        pharmacieDetail: {
+          nom: d.pharmacie.nom,
+          code: d.pharmacie.code,
+          type: 'PHARMACIE',
+          localisation: [d.pharmacie.quartier, d.pharmacie.commune, d.pharmacie.ville].filter(Boolean).join(', ') || null,
+          adresse: null as string | null,
+          telephone: d.pharmacie.telephone,
+        },
         statut: d.statut,
         montantTotal: d.montantTotal.toFixed(2),
         montantAssurance: montantAssurance.toFixed(2),
@@ -1196,9 +1204,71 @@ export class PharmacyService {
         code: d.statut === 'EN_ATTENTE_VALIDATION_PATIENT' ? d.codeConfirmation : undefined,
         medicaments: d.lignes.map((l) => l.ligneOrdonnance.denominationMedicament),
         datePreparation: d.datePreparation,
+        dateValidationPatient: d.dateValidationPatient,
+        datePaiement: d.datePaiement,
+        patient: patient ? { nom: patient.nom, prenom: patient.prenom, numeroCarte: patient.numeroCarte } : null,
+        lignes: d.lignes.map((l) => ({
+          denominationMedicament: l.medicamentSubstitue ?? l.ligneOrdonnance.denominationMedicament,
+          quantite: l.quantite,
+          montantLigne: l.montantLigne?.toFixed(2) ?? '0.00',
+        })),
       };
     });
     return versPage(items, total, page, limite);
+  }
+
+  private filtreMesDispensations(
+    adherentId: string,
+    dto: { statut?: string; du?: string; au?: string; carte?: string },
+  ): Prisma.DispensationPharmacieWhereInput {
+    const carte = dto.carte?.trim();
+    return {
+      ordonnance: {
+        dossier: {
+          OR: [{ adherentId }, { beneficiaire: { adherentId } }],
+          ...(carte
+            ? {
+                AND: [
+                  {
+                    OR: [
+                      { adherent: { numeroCarte: { contains: carte, mode: 'insensitive' as const } } },
+                      { beneficiaire: { numeroCarte: { contains: carte, mode: 'insensitive' as const } } },
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        },
+      },
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(filtrePeriode(dto.du, dto.au) ? { datePreparation: filtrePeriode(dto.du, dto.au) } : {}),
+    };
+  }
+
+  /** Cumul (nombre, coût, part assurance, part assuré) de TOUTES les dispensations filtrées de l'adhérent (toutes pages). */
+  async recapitulatifMesDispensations(user: AuthenticatedUser, dto: ListerMesDispensationsQueryDto = {}) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.adherentId) return { nombre: 0, montantTotal: '0.00', montantAssurance: '0.00', montantPatient: '0.00' };
+    const dispensations = await this.prisma.dispensationPharmacie.findMany({
+      where: this.filtreMesDispensations(ctx.adherentId, dto),
+      select: { montantTotal: true, lignes: { select: { montantAssurance: true, montantPatient: true } } },
+    });
+    let total = new Decimal(0);
+    let assurance = new Decimal(0);
+    let patient = new Decimal(0);
+    for (const d of dispensations) {
+      total = total.add(new Decimal(d.montantTotal.toString()));
+      for (const l of d.lignes) {
+        assurance = assurance.add(new Decimal(l.montantAssurance.toString()));
+        patient = patient.add(new Decimal(l.montantPatient.toString()));
+      }
+    }
+    return {
+      nombre: dispensations.length,
+      montantTotal: total.toFixed(2),
+      montantAssurance: assurance.toFixed(2),
+      montantPatient: patient.toFixed(2),
+    };
   }
 
   /**

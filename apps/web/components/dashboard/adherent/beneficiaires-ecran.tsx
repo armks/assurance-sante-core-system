@@ -24,10 +24,9 @@ import {
 } from '@/lib/member';
 import { PhotoUploader } from '@/components/dashboard/adherents/photo-uploader';
 import { ChampsContactsBeneficiaire, lireContacts } from '@/components/dashboard/adherents/champs-contacts';
-import type { Beneficiaire } from '@/components/dashboard/adherents/types';
+import type { AdherentDetail, Beneficiaire } from '@/components/dashboard/adherents/types';
+import { FichePatient } from '@/components/dashboard/centre-medical/fiche-patient';
 
-const LIBELLE_LIEN = Object.fromEntries(LIENS_PARENTE.map((l) => [l.valeur, l.libelle]));
-const dateFr = (d: string) => new Date(d).toLocaleDateString('fr-FR');
 
 function ChampsBeneficiaire({ beneficiaire }: { beneficiaire?: Beneficiaire }) {
   return (
@@ -88,11 +87,14 @@ function lireDto(fd: FormData) {
  */
 export function BeneficiairesEcran({
   adherentId,
+  adherent,
   beneficiaires,
   photoAdherentUrl,
   photosParBeneficiaire,
 }: {
   adherentId: string;
+  /** Titulaire, présenté en entier dans le cadre « Ma photo de profil ». */
+  adherent: AdherentDetail;
   beneficiaires: Beneficiaire[];
   photoAdherentUrl: string | null;
   photosParBeneficiaire: Record<string, string | null>;
@@ -107,14 +109,43 @@ export function BeneficiairesEcran({
           <CardTitle className="text-base">Ma photo de profil</CardTitle>
         </CardHeader>
         <CardContent>
-          <PhotoUploader
-            url={photoAdherentUrl}
-            onUpload={async (fd) => {
-              const r = await televerserMaPhoto(adherentId, fd);
-              router.refresh();
-              return r;
-            }}
-          />
+          <div className="flex flex-col gap-3 rounded-lg border p-2.5 sm:flex-row sm:items-stretch sm:gap-4" data-testid="fiche-titulaire">
+            <FichePatient
+              patient={{
+                nom: adherent.nom,
+                prenom: adherent.prenom,
+                dateNaissance: adherent.dateNaissance,
+                sexe: adherent.sexe,
+                numeroCarte: adherent.numeroCarte,
+                societe: adherent.souscripteur?.nom ?? null,
+                photoUrl: photoAdherentUrl,
+                lien: 'TITULAIRE',
+                formule: adherent.police?.produit?.nom ?? null,
+              }}
+            />
+            <div className="grid flex-1 content-between gap-y-2 text-sm">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                <div>
+                  <dt className="text-sm text-muted-foreground">Statut de la carte</dt>
+                  <dd className="font-medium">{adherent.statut}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm text-muted-foreground">Police</dt>
+                  <dd>{adherent.police?.numeroPolice ?? '—'}</dd>
+                </div>
+              </dl>
+              <PhotoUploader
+                texteSeul
+                nomPersonne={`${adherent.prenom} ${adherent.nom}`}
+                url={photoAdherentUrl}
+                onUpload={async (fd) => {
+                  const r = await televerserMaPhoto(adherentId, fd);
+                  router.refresh();
+                  return r;
+                }}
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -141,55 +172,70 @@ export function BeneficiairesEcran({
             <p className="text-sm text-muted-foreground">Aucun bénéficiaire pour l’instant.</p>
           )}
           {beneficiaires.map((b) => (
-            <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3">
-              <div className="flex items-center gap-3">
-                <PhotoUploader
-                  url={photosParBeneficiaire[b.id] ?? null}
-                  nomPersonne={`${b.nom} ${b.prenom}`}
-                  onUpload={async (fd) => {
-                    const r = await televerserPhotoBeneficiaire(adherentId, b.id, fd);
-                    router.refresh();
-                    return r;
-                  }}
-                />
-                <div className="text-sm">
-                  <p className="font-medium">
-                    {b.nom} {b.prenom}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {LIBELLE_LIEN[b.lienParente] ?? b.lienParente} · {dateFr(b.dateNaissance)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {b.numeroCarte && (
-                  <span className="font-mono text-xs text-muted-foreground">{b.numeroCarte}</span>
-                )}
-                <StatutBadge statut={b.statut} map={TON_STATUT_BENEFICIAIRE} libelles={LIBELLE_STATUT_BENEFICIAIRE} />
-                {b.numeroCarte === null && (
-                  <FormulaireModal
-                    titre="Modifier la proposition"
-                    description="Encore modifiable : la carte n'a pas encore été attribuée."
-                    libelleSoumettre="Enregistrer"
-                    declencheur={
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-                      >
-                        Modifier
-                      </button>
-                    }
-                    ouvert={editionId === b.id}
-                    onOuvertChange={(v) => setEditionId(v ? b.id : null)}
-                    onSoumettre={async (fd) => {
-                      const r = await modifierMonBeneficiaire(adherentId, b.id, lireDto(fd));
+            <div key={b.id} className="flex flex-col gap-3 rounded-lg border p-2.5 sm:flex-row sm:items-stretch sm:gap-4">
+              <FichePatient
+                compact
+                patient={{
+                  nom: b.nom,
+                  prenom: b.prenom,
+                  dateNaissance: b.dateNaissance,
+                  sexe: b.sexe,
+                  numeroCarte: b.numeroCarte,
+                  societe: adherent.souscripteur?.nom ?? null,
+                  photoUrl: photosParBeneficiaire[b.id] ?? null,
+                  lien: b.lienParente,
+                  formule: adherent.police?.produit?.nom ?? null,
+                }}
+              />
+              <div className="grid flex-1 content-between gap-y-2 text-sm">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Statut</dt>
+                    <dd>
+                      <StatutBadge statut={b.statut} map={TON_STATUT_BENEFICIAIRE} libelles={LIBELLE_STATUT_BENEFICIAIRE} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-sm text-muted-foreground">Police</dt>
+                    <dd>{adherent.police?.numeroPolice ?? '—'}</dd>
+                  </div>
+                </dl>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <PhotoUploader
+                    texteSeul
+                    url={photosParBeneficiaire[b.id] ?? null}
+                    nomPersonne={`${b.nom} ${b.prenom}`}
+                    onUpload={async (fd) => {
+                      const r = await televerserPhotoBeneficiaire(adherentId, b.id, fd);
+                      router.refresh();
                       return r;
                     }}
-                    onSucces={() => router.refresh()}
-                  >
-                    <ChampsBeneficiaire beneficiaire={b} />
-                  </FormulaireModal>
-                )}
+                  />
+                  {b.numeroCarte === null && (
+                    <FormulaireModal
+                      titre="Modifier la proposition"
+                      description="Encore modifiable : la carte n'a pas encore été attribuée."
+                      libelleSoumettre="Enregistrer"
+                      declencheur={
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                        >
+                          Modifier
+                        </button>
+                      }
+                      ouvert={editionId === b.id}
+                      onOuvertChange={(v) => setEditionId(v ? b.id : null)}
+                      onSoumettre={async (fd) => {
+                        const r = await modifierMonBeneficiaire(adherentId, b.id, lireDto(fd));
+                        return r;
+                      }}
+                      onSucces={() => router.refresh()}
+                    >
+                      <ChampsBeneficiaire beneficiaire={b} />
+                    </FormulaireModal>
+                  )}
+                </div>
               </div>
             </div>
           ))}

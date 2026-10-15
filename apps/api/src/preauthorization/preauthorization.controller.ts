@@ -301,6 +301,12 @@ export class PreauthorizationController {
     return this.preauth.genererFactureSelection(user, id, dto);
   }
 
+  /** Côté ADHÉRENT : cumul (nombre, coût, parts) du périmètre filtré. */
+  @Get('codes-facturation/recapitulatif')
+  recapitulatifMesFactures(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesFacturesQueryDto) {
+    return this.preauth.recapitulatifMesFactures(user, dto);
+  }
+
   /** Côté ADHÉRENT : ses factures, avec le code de facturation et la synthèse. */
   @Get('codes-facturation')
   mesFactures(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesFacturesQueryDto) {

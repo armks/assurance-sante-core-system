@@ -54,7 +54,6 @@ export async function televerserMaPhoto(adherentId: string, fd: FormData): Promi
   });
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
   revalidatePath(CIBLE);
-  revalidatePath('/dashboard-adherent/carte');
   return { ok: true, ...(await res.json()) };
 }
 

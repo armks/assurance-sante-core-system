@@ -122,6 +122,11 @@ export class PharmacyController {
   }
 
   /** Côté ADHÉRENT : ses dispensations en attente (avec le code). */
+  @Get('dispensations/mes-dispensations/recapitulatif')
+  recapitulatifMesDispensations(@CurrentUser() user: AuthenticatedUser, @Query() query: ListerMesDispensationsQueryDto) {
+    return this.pharmacy.recapitulatifMesDispensations(user, query);
+  }
+
   @Get('dispensations/mes-dispensations')
   mesDispensations(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesDispensationsQueryDto) {
     return this.pharmacy.listerMesDispensations(user, dto);

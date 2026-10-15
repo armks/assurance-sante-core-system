@@ -20,6 +20,7 @@ export function PhotoUploader({
   libelle = 'Changer la photo',
   nomPersonne,
   compact = false,
+  texteSeul = false,
 }: {
   /** URL signée courte durée (jamais le chemin de stockage brut). */
   url: string | null;
@@ -29,6 +30,8 @@ export function PhotoUploader({
   nomPersonne?: string;
   /** Avatar plus petit, pour une ligne de tableau. */
   compact?: boolean;
+  /** Sans médaillon : seulement le lien « Changer la photo » (la photo est déjà affichée ailleurs). */
+  texteSeul?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pending, start] = useTransition();
@@ -38,6 +41,7 @@ export function PhotoUploader({
 
   return (
     <div className="flex items-center gap-3">
+      {!texteSeul && (
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
@@ -48,6 +52,7 @@ export function PhotoUploader({
       >
         <Medaillon url={urlLocale} nom={nomPersonne ?? ''} taille={compact ? 'sm' : 'md'} />
       </button>
+      )}
       <input
         ref={inputRef}
         type="file"

@@ -46,6 +46,7 @@ export default async function BeneficiairesPage() {
       ) : (
         <BeneficiairesEcran
           adherentId={adherentId}
+          adherent={sansCheminsPhoto(adherent)}
           beneficiaires={sansCheminsPhoto({ beneficiaires }).beneficiaires ?? []}
           photoAdherentUrl={photos.adherent}
           photosParBeneficiaire={photos.beneficiaires}

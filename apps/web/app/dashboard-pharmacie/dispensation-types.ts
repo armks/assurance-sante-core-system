@@ -130,6 +130,10 @@ export interface DispensationResume {
   dateValidationPatient: string | null;
   datePaiement: string | null;
   patient: PatientDispensation | null;
+  /** Espace adhérent : nom de la pharmacie et code de confirmation (visible tant qu'il attend sa validation). */
+  pharmacie?: string;
+  pharmacieDetail?: { nom: string; code: string; type: string; localisation: string | null; adresse: string | null; telephone: string | null };
+  code?: string;
   /** Société (souscripteur) de l'adhérent. */
   societe?: string | null;
   /** Formule d'assurance (produit de la police). */

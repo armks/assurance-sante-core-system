@@ -2633,18 +2633,21 @@ export class PreauthorizationService {
       return versPage([], 0, page, limite);
     }
     // Pagination SERVEUR (remplace `take: 50`) + statut + période de création.
-    const periode = filtrePeriode(dto.du, dto.au);
-    const where: Prisma.FactureDossierWhereInput = {
-      ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)),
-      deletedAt: null,
-      ...(dto.statut ? { statut: dto.statut } : {}),
-      ...(periode ? { createdAt: periode } : {}),
-    };
+    const where = await this.filtreMesFactures(ctx.adherentId, dto);
     const [total, factures] = await Promise.all([
       this.prisma.factureDossier.count({ where }),
       this.prisma.factureDossier.findMany({
         where,
-        include: { dossier: { select: { numeroTraitement: true } } },
+        include: {
+          dossier: {
+            select: {
+              numeroTraitement: true,
+              etablissement: { select: { nom: true, code: true, typeEtablissement: true, ville: true, commune: true, quartier: true, adresseComplete: true, telephone: true } },
+              adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
+              beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true } },
+            },
+          },
+        },
         orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
         skip: offset,
         take: limite,
@@ -2656,8 +2659,23 @@ export class PreauthorizationService {
       this.prisma,
       factures.map((f) => f.tarifProposeId).filter((x): x is string => !!x),
     );
-    const items = factures.map((f, idx) => ({
+    const items = factures.map((f, idx) => {
+      const patient = f.dossier.adherent ?? f.dossier.beneficiaire ?? null;
+      return {
       id: f.id,
+      patient: patient ? { nom: patient.nom, prenom: patient.prenom, numeroCarte: patient.numeroCarte } : null,
+      etablissement: f.dossier.etablissement?.nom ?? null,
+      etablissementDetail: f.dossier.etablissement
+        ? {
+            nom: f.dossier.etablissement.nom,
+            code: f.dossier.etablissement.code,
+            type: f.dossier.etablissement.typeEtablissement,
+            localisation:
+              [f.dossier.etablissement.quartier, f.dossier.etablissement.commune, f.dossier.etablissement.ville].filter(Boolean).join(', ') || null,
+            adresse: f.dossier.etablissement.adresseComplete,
+            telephone: f.dossier.etablissement.telephone,
+          }
+        : null,
       actesTarifEnExamen: enExamen[idx],
       complementaire: !!f.tarifProposeId,
       tarifComplementaire: f.tarifProposeId ? (complements.get(f.tarifProposeId) ?? null) : null,
@@ -2670,8 +2688,48 @@ export class PreauthorizationService {
       montantAssurance: f.montantAssurance.toFixed(2),
       montantPatient: f.montantPatient.toFixed(2),
       createdAt: f.createdAt,
-    }));
+      };
+    });
     return versPage(items, total, page, limite);
+  }
+
+  private async filtreMesFactures(adherentId: string, dto: ListerMesFacturesQueryDto): Promise<Prisma.FactureDossierWhereInput> {
+    const periode = filtrePeriode(dto.du, dto.au);
+    const carte = dto.carte?.trim();
+    return {
+      ...(await this.filtreMoiEtMesBeneficiaires(adherentId)),
+      deletedAt: null,
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(periode ? { createdAt: periode } : {}),
+      ...(carte
+        ? {
+            dossier: {
+              OR: [
+                { adherent: { numeroCarte: { contains: carte, mode: 'insensitive' as const } } },
+                { beneficiaire: { numeroCarte: { contains: carte, mode: 'insensitive' as const } } },
+              ],
+            },
+          }
+        : {}),
+    };
+  }
+
+  /** Cumul (nombre, coût, part assurance, part assuré) de TOUTES les factures filtrées de l'adhérent et de sa famille. */
+  async recapitulatifMesFactures(user: AuthenticatedUser, dto: ListerMesFacturesQueryDto = {}) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.adherentId) return { nombre: 0, montantTotal: '0.00', montantAssurance: '0.00', montantPatient: '0.00' };
+    const agr = await this.prisma.factureDossier.aggregate({
+      where: await this.filtreMesFactures(ctx.adherentId, dto),
+      _count: { _all: true },
+      _sum: { montantTotal: true, montantAssurance: true, montantPatient: true },
+    });
+    const f = (v: { toFixed: (n: number) => string } | null | undefined) => (v ? v.toFixed(2) : '0.00');
+    return {
+      nombre: agr._count._all,
+      montantTotal: f(agr._sum.montantTotal),
+      montantAssurance: f(agr._sum.montantAssurance),
+      montantPatient: f(agr._sum.montantPatient),
+    };
   }
 
   /**

@@ -14,7 +14,17 @@ export const LIBELLE_STATUT_MEMBRE: Record<string, string> = {
   SUSPENDU: 'Suspendu',
   RADIE: 'Radié',
   PROPOSE_SORTANT: 'Sortie proposée',
+  /** Statut AFFICHÉ (jamais stocké) d'un membre actif dont la police n'est plus active. */
+  POLICE_INACTIVE: 'Police inactive',
 };
+
+/**
+ * Statut à afficher : un membre ACTIF dont la police n'est pas (ou plus) ACTIVE n'est pas « Actif » — sa carte ne permet
+ * aucun soin. Le statut stocké ne change pas (la police peut être renouvelée ou réactivée) ; seul l'affichage en tient compte.
+ */
+export function statutMembreAffiche(statut: string, statutPolice?: string | null): string {
+  return statut === 'ACTIF' && statutPolice && statutPolice !== 'ACTIVE' ? 'POLICE_INACTIVE' : statut;
+}
 
 /** Options du FILTRE de statut des listes d'adhérents — `STATUTS_MEMBRE` +
  * `PROPOSE_SORTANT`. Distinct de `STATUTS_MEMBRE`, qui pilote les boutons de
@@ -30,6 +40,7 @@ export const TON_STATUT_MEMBRE: Record<
   SUSPENDU: 'attention',
   RADIE: 'danger',
   PROPOSE_SORTANT: 'attention',
+  POLICE_INACTIVE: 'attention',
 };
 
 export const SEXES = [

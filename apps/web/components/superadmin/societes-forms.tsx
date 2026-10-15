@@ -115,6 +115,7 @@ export function CreerSocieteFlow() {
         start(async () => {
           const r = await initierCreationOrganisation({
             nom: String(f.get('nom') ?? ''),
+            codeAssureur: String(f.get('codeAssureur') ?? '').trim() || undefined,
             type: f.get('type') === 'MUTUELLE' ? 'MUTUELLE' : 'ASSUREUR',
             pays: String(f.get('pays') ?? ''),
             devise: String(f.get('devise') ?? 'XOF'),
@@ -134,6 +135,18 @@ export function CreerSocieteFlow() {
       <div className="grid gap-2">
         <Label htmlFor="nom">Nom</Label>
         <Input id="nom" name="nom" required placeholder="Nouvelle Mutuelle CI" />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="codeAssureur">Code assureur</Label>
+        <Input
+          id="codeAssureur"
+          name="codeAssureur"
+          inputMode="numeric"
+          pattern="[0-9]{3,8}"
+          maxLength={8}
+          placeholder="3 à 8 chiffres — vide : attribué automatiquement"
+          title="Numéro unique de l’assureur : 3 à 8 chiffres"
+        />
       </div>
       <div className="grid gap-2">
         <Label htmlFor="type">Type</Label>

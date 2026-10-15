@@ -27,11 +27,13 @@ import { Button } from '@/components/ui/button';
 import { BandeauLienInvitation, BoutonLienInvitationListe, genererLienInvitation, type LienInvitation } from './lien-invitation';
 import {
   LIBELLE_STATUT_MEMBRE,
+  statutMembreAffiche,
   STATUTS_MEMBRE_FILTRE,
   TON_STATUT_MEMBRE,
 } from '@/lib/member';
 import { ChampsNouvelAdherent } from './champs-nouvel-adherent';
 import type { AdherentListe, OptionRef, PoliceRef } from './types';
+import { ChangerPoliceMasse } from './changer-police-masse';
 
 export function AdherentsListe({
   adherents: adherentsEntrants,
@@ -101,7 +103,7 @@ export function AdherentsListe({
       entete: 'Statut',
       rendu: (a) => (
         <StatutBadge
-          statut={a.statut}
+          statut={statutMembreAffiche(a.statut, a.police?.statut)}
           map={TON_STATUT_MEMBRE}
           libelles={LIBELLE_STATUT_MEMBRE}
         />
@@ -177,6 +179,8 @@ export function AdherentsListe({
         colonnes={colonnes}
         actions={
           peutAjouter ? (
+            <div className="flex flex-wrap items-center gap-2">
+            <ChangerPoliceMasse adherents={adherents} polices={polices} />
             <FormulaireModal
               titre="Nouvel adhérent"
               description="L’adhérent est créé ACTIF ; ses numéros d’adhérent et de carte sont générés automatiquement."
@@ -217,6 +221,7 @@ export function AdherentsListe({
                 avecInvitation={peutInviter}
               />
             </FormulaireModal>
+            </div>
           ) : undefined
         }
         actionLigne={(a) => {

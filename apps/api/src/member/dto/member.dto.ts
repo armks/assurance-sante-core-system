@@ -20,6 +20,17 @@ import {
   STATUTS_SORTANT_CIBLE,
 } from '../member.types';
 
+/** `POST member/adherents/changer-police` — rattachement en masse (adhérents + leurs bénéficiaires) à une police ACTIVE. */
+export class ChangerPoliceMasseDto {
+  @IsUUID() policeCibleId!: string;
+
+  /** Tous les adhérents (non radiés) de cette police passent à la police cible. */
+  @IsOptional() @IsUUID() policeSourceId?: string;
+
+  /** Ou une sélection d'adhérents. Au moins l'un des deux est requis. */
+  @IsOptional() @IsArray() @ArrayNotEmpty() @IsUUID('all', { each: true }) adherentIds?: string[];
+}
+
 /** `GET member/adherents` — `statut` en liste blanche (une valeur inconnue
  * renvoie 400 au lieu d'une liste vide silencieuse). */
 export class ListerAdherentsQueryDto {

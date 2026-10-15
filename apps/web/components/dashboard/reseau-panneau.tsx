@@ -37,7 +37,9 @@ import {
   LIBELLE_STATUT_LIEU,
   LIBELLE_TYPE_ETABLISSEMENT,
   LIBELLE_VERIFICATION,
+  OPTIONS_CATEGORIE_ETABLISSEMENT,
   TYPES_ETABLISSEMENT,
+  libelleCategorieEtablissement,
   libelleTypeEtablissement,
 } from '@/lib/reseau';
 
@@ -46,6 +48,7 @@ export interface LieuReseau {
   nom: string;
   code: string;
   typeEtablissement?: string;
+  categorieEtablissement?: string;
   ville: string | null;
   commune: string | null;
   quartier?: string | null;
@@ -284,6 +287,7 @@ export function ReseauPanneau({
                 ? await creerEtablissement({
                     ...base,
                     typeEtablissement: String(f.get('typeEtablissement') ?? ''),
+                    categorieEtablissement: String(f.get('categorieEtablissement') ?? '') || undefined,
                   })
                 : await creerPharmacie(base);
               setRes(r);
@@ -299,6 +303,24 @@ export function ReseauPanneau({
             <Label htmlFor="code">Code</Label>
             <Input id="code" name="code" required placeholder="Unique" />
           </div>
+          {estEtab && (
+            <div className="grid gap-2">
+              <Label htmlFor="categorieEtablissement">Catégorie</Label>
+              <select
+                id="categorieEtablissement"
+                name="categorieEtablissement"
+                defaultValue="CENTRE_MEDICAL"
+                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                title="Niveau hiérarchique : une formule couvre sa catégorie et les catégories inférieures"
+              >
+                {OPTIONS_CATEGORIE_ETABLISSEMENT.map((c) => (
+                  <option key={c.valeur} value={c.valeur}>
+                    {c.libelle}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {estEtab && (
             <div className="grid gap-2">
               <Label htmlFor="typeEtablissement">Type</Label>
@@ -404,6 +426,7 @@ export function ReseauPanneau({
                     {estEtab && (
                       <td className="px-3 py-2 text-muted-foreground">
                         {libelleTypeEtablissement(l.typeEtablissement)}
+                        <span className="block text-xs">{libelleCategorieEtablissement(l.categorieEtablissement)}</span>
                       </td>
                     )}
                     <td className="px-3 py-2 text-muted-foreground">
@@ -513,6 +536,7 @@ export function ReseauPanneau({
                                   typeEtablissement:
                                     String(fd.get('typeEtablissement') ?? '') ||
                                     undefined,
+                                  categorieEtablissement: String(fd.get('categorieEtablissement') ?? '') || undefined,
                                 })
                               : await modifierPharmacie(l.id, input);
                             return r.ok
@@ -522,6 +546,15 @@ export function ReseauPanneau({
                         >
                           <ChampTexte name="nom" label="Nom" required defaultValue={l.nom} />
                           <ChampTexte name="code" label="Code" required defaultValue={l.code} />
+                          {estEtab && (
+                            <ChampSelect
+                              name="categorieEtablissement"
+                              label="Catégorie"
+                              aide="Niveau hiérarchique : une formule couvre sa catégorie et les catégories inférieures."
+                              defaultValue={l.categorieEtablissement}
+                              options={OPTIONS_CATEGORIE_ETABLISSEMENT}
+                            />
+                          )}
                           {estEtab && (
                             <ChampSelect
                               name="typeEtablissement"

@@ -111,6 +111,19 @@ export class PlanController {
     return this.plan.creerNouvelleVersion(user, id);
   }
 
+  /**
+   * ÉTENDRE une formule PUBLIÉE : ajoute une garantie pour une catégorie d'acte jusque-là NON couverte (les polices rattachées en
+   * bénéficient aussitôt). Les garanties existantes restent figées : les modifier passe par une nouvelle version.
+   */
+  @Post(':id/garanties/extension')
+  etendreProduitPublie(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateGarantieDto,
+  ) {
+    return this.plan.etendreProduitPublie(user, id, dto);
+  }
+
   @Post(':id/garanties')
   ajouterGarantie(
     @CurrentUser() user: AuthenticatedUser,

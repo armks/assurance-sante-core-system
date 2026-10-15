@@ -58,12 +58,24 @@ export class ListerMesCodesConsultationQueryDto extends PeriodeQueryDto {
   @IsOptional()
   @IsIn(STATUTS_CODE_CONSULTATION)
   statut?: (typeof STATUTS_CODE_CONSULTATION)[number];
+
+  /** N° de carte du titulaire ou d'un bénéficiaire (contient, casse ignorée). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  carte?: string;
 }
 
 export class ListerMesCodesOrdonnanceQueryDto extends PeriodeQueryDto {
   @IsOptional()
   @IsIn(STATUTS_CODE_ORDONNANCE)
   statut?: (typeof STATUTS_CODE_ORDONNANCE)[number];
+
+  /** N° de carte du titulaire ou d'un bénéficiaire (contient, casse ignorée). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  carte?: string;
 }
 
 export class ListerMesFacturesQueryDto extends PeriodeQueryDto {

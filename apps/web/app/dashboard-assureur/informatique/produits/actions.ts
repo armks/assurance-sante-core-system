@@ -12,6 +12,7 @@ export async function creerProduit(input: {
   nom: string;
   periodeCumulPlafond?: string;
   delaiDeclarationJours?: number;
+  niveauAccesEtablissement?: string;
 }): Promise<ResultatSoumission> {
   const res = await apiFetch('/api/v1/plan/produits', {
     method: 'POST',
@@ -21,6 +22,7 @@ export async function creerProduit(input: {
       ...(input.delaiDeclarationJours !== undefined && !Number.isNaN(input.delaiDeclarationJours)
         ? { delaiDeclarationJours: input.delaiDeclarationJours }
         : {}),
+      ...(input.niveauAccesEtablissement ? { niveauAccesEtablissement: input.niveauAccesEtablissement } : {}),
     }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
@@ -35,7 +37,7 @@ export async function creerProduit(input: {
  */
 export async function modifierProduit(
   produitId: string,
-  input: { nom: string; periodeCumulPlafond: string; delaiDeclarationJours: number },
+  input: { nom: string; periodeCumulPlafond: string; delaiDeclarationJours: number; niveauAccesEtablissement?: string },
 ): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/plan/produits/${produitId}`, {
     method: 'PATCH',
@@ -43,6 +45,7 @@ export async function modifierProduit(
       nom: input.nom,
       periodeCumulPlafond: input.periodeCumulPlafond,
       delaiDeclarationJours: input.delaiDeclarationJours,
+      ...(input.niveauAccesEtablissement ? { niveauAccesEtablissement: input.niveauAccesEtablissement } : {}),
     }),
   });
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
@@ -62,6 +65,8 @@ export interface GarantieInput {
   delaiCarenceJours?: number;
   reseauSoins?: string;
   exclusions?: string[];
+  /** Motif — obligatoire pour modifier une garantie d'une formule publiée. */
+  motif?: string;
 }
 
 /** Ajoute une ligne de garantie à un produit BROUILLON. */
@@ -85,6 +90,29 @@ export async function ajouterGarantie(
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(`${CIBLE}/${produitId}`);
   return { ok: true, message: 'Garantie ajoutée.' };
+}
+
+/** Étend une formule PUBLIÉE : garantie pour une catégorie d'acte jusque-là non couverte (effet immédiat sur ses polices). */
+export async function etendreProduitPublie(
+  produitId: string,
+  input: GarantieInput,
+): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(
+    Object.entries(input).filter(
+      ([, v]) =>
+        v !== undefined &&
+        v !== '' &&
+        !(Array.isArray(v) && v.length === 0) &&
+        !(typeof v === 'number' && Number.isNaN(v)),
+    ),
+  );
+  const res = await apiFetch(`/api/v1/plan/produits/${produitId}/garanties/extension`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(`${CIBLE}/${produitId}`);
+  return { ok: true, message: 'Garantie ajoutée : les polices de cette formule en bénéficient dès maintenant.' };
 }
 
 /** Retire une garantie d'un produit BROUILLON. */
@@ -157,6 +185,32 @@ export async function modifierGarantie(
   if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
   revalidatePath(`${CIBLE}/${produitId}`);
   return { ok: true, message: 'Garantie modifiée.' };
+}
+
+/** Hausse (+) ou baisse (−) en pourcentage de toutes les grilles tarifaires de la formule (cotisations à venir). */
+export async function ajusterTarifsFormule(
+  produitId: string,
+  input: { pourcentage: number; motif: string },
+): Promise<ResultatSoumission> {
+  const res = await apiFetch('/api/v1/billing/grilles-tarifaires/ajuster', {
+    method: 'POST',
+    body: JSON.stringify({ produitId, ...input }),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const r = (await res.json()) as { grillesAjustees: number };
+  revalidatePath(`${CIBLE}/${produitId}`);
+  return { ok: true, message: `${r.grillesAjustees} grille(s) tarifaire(s) ajustée(s) de ${input.pourcentage > 0 ? '+' : ''}${input.pourcentage} % : effet sur les cotisations calculées ensuite.` };
+}
+
+/** Crée un nouveau BROUILLON version+1 en clonant produit + garanties. */
+export async function modifierNiveauAcces(
+  produitId: string,
+  input: { niveauAccesEtablissement: string; motif: string },
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/plan/produits/${produitId}`, { method: 'PATCH', body: JSON.stringify(input) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(`${CIBLE}/${produitId}`);
+  return { ok: true, message: 'Niveau d’accès modifié : il s’applique aux nouvelles demandes de soins.' };
 }
 
 /** Crée un nouveau BROUILLON version+1 en clonant produit + garanties. */

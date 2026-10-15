@@ -1,3 +1,4 @@
+import type { ChangerPoliceMasseDto } from './dto/member.dto';
 import {
   BadRequestException,
   ConflictException,
@@ -59,6 +60,9 @@ type Db = PrismaService | Prisma.TransactionClient;
  * profondeur : ces règles doublent la policy RLS `adherents_ecriture` — le
  * chemin NestJS passe par `postgres` (pooler) et contourne la RLS.
  */
+/** Entités SANS accès au fichier des adhérents : établissements de santé et pharmacies. */
+const ENTITES_SANS_FICHIER_ADHERENTS: string[] = ['PHARMACIE', 'CENTRE_MEDICAL'];
+
 @Injectable()
 export class AdherentService {
   private readonly logger = new Logger(AdherentService.name);
@@ -184,6 +188,7 @@ export class AdherentService {
     filtres: { statut?: string; souscripteurId?: string; q?: string },
   ) {
     const ctx = await this.contexteAppelant(user);
+    this.assertLectureFichierAdherents(ctx);
     return this.prisma.adherent.findMany({
       where: {
         organisationId: ctx.organisationId,
@@ -318,6 +323,69 @@ export class AdherentService {
     if (pris) throw new ConflictException(`Cet e-mail est déjà utilisé par un autre adhérent (${email}).`);
   }
 
+  /**
+   * Changement de police en masse : les adhérents choisis (ou tous ceux d'une police source) passent à la police cible, qui doit être
+   * ACTIVE et appartenir à leur société. Les bénéficiaires n'ont pas de police propre : ils suivent leur titulaire (rien d'autre à
+   * mettre à jour). Les adhérents radiés et ceux d'une autre société sont ignorés ; tout est tracé dans le journal d'audit.
+   */
+  async changerPoliceEnMasse(user: AuthenticatedUser, dto: ChangerPoliceMasseDto) {
+    const ctx = await this.contexteAppelant(user);
+    if (!this.aRoleAssureur(ctx)) {
+      throw new ForbiddenException('Le changement de police en masse est réservé au personnel habilité de l\'assureur.');
+    }
+    if (!dto.policeSourceId && !dto.adherentIds?.length) {
+      throw new BadRequestException('Indiquez la police d\'origine ou la liste des adhérents.');
+    }
+    const cible = await this.prisma.police.findFirst({
+      where: { id: dto.policeCibleId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!cible) throw new NotFoundException('Police cible inconnue ou hors de votre organisation.');
+    if (cible.statut !== 'ACTIVE') {
+      throw new ConflictException(`La police cible doit être ACTIVE (statut de ${cible.numeroPolice} : ${cible.statut}).`);
+    }
+    if (dto.policeSourceId) {
+      const source = await this.prisma.police.findFirst({
+        where: { id: dto.policeSourceId, organisationId: ctx.organisationId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!source) throw new NotFoundException('Police d\'origine inconnue ou hors de votre organisation.');
+    }
+
+    const candidats = await this.prisma.adherent.findMany({
+      where: {
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+        statut: { not: 'RADIE' },
+        ...(dto.policeSourceId ? { policeId: dto.policeSourceId } : {}),
+        ...(dto.adherentIds?.length ? { id: { in: dto.adherentIds } } : {}),
+      },
+      select: { id: true, souscripteurId: true, policeId: true, _count: { select: { beneficiaires: { where: { deletedAt: null } } } } },
+    });
+    const aTransferer = candidats.filter((a) => a.souscripteurId === cible.souscripteurId && a.policeId !== cible.id);
+    const ids = aTransferer.map((a) => a.id);
+    const beneficiaires = aTransferer.reduce((n, a) => n + a._count.beneficiaires, 0);
+
+    if (ids.length > 0) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.adherent.updateMany({ where: { id: { in: ids } }, data: { policeId: cible.id } });
+        await this.audit(
+          tx,
+          ctx.userId,
+          'CHANGEMENT_POLICE_MASSE',
+          cible.id,
+          { policeCible: cible.numeroPolice, policeSourceId: dto.policeSourceId ?? null, adherents: ids.length, beneficiaires },
+          'adherents',
+        );
+      });
+    }
+    return {
+      policeCible: cible.numeroPolice,
+      adherentsTransferes: ids.length,
+      beneficiairesCouverts: beneficiaires,
+      ignores: candidats.length - ids.length,
+    };
+  }
+
   async modifierAdherent(
     user: AuthenticatedUser,
     id: string,
@@ -334,6 +402,7 @@ export class AdherentService {
         ctx.organisationId,
         dto.policeId,
         actuel.souscripteurId,
+        true,
       );
     }
 
@@ -1376,6 +1445,7 @@ export class AdherentService {
     organisationId: string,
     policeId: string,
     souscripteurId: string,
+    exigerActive = false,
   ): Promise<void> {
     const police = await this.prisma.police.findFirst({
       where: { id: policeId, organisationId, deletedAt: null },
@@ -1388,9 +1458,26 @@ export class AdherentService {
         "Cette police n'appartient pas au souscripteur de l'adhérent.",
       );
     }
+    if (exigerActive && police.statut !== 'ACTIVE') {
+      throw new ConflictException(
+        `Un adhérent ne peut être rattaché qu'à une police ACTIVE (statut de ${police.numeroPolice} : ${police.statut}).`,
+      );
+    }
+  }
+
+  /**
+   * Le fichier des adhérents (identité, contacts, famille) n'est lisible que par l'assureur, la société affiliée (limitée à
+   * ses adhérents) et l'adhérent lui-même (limité à son dossier). Établissements de santé et pharmacies passent par leurs
+   * propres routes (carte, code, ordonnance), jamais par ce fichier — audit d'isolation.
+   */
+  private assertLectureFichierAdherents(ctx: ContexteAppelant): void {
+    if (ctx.entite && ENTITES_SANS_FICHIER_ADHERENTS.includes(ctx.entite)) {
+      throw new ForbiddenException("Le fichier des adhérents n'est pas accessible à ce compte.");
+    }
   }
 
   private async chargerAdherent(ctx: ContexteAppelant, id: string) {
+    this.assertLectureFichierAdherents(ctx);
     const adherent = await this.prisma.adherent.findFirst({
       where: { id, organisationId: ctx.organisationId, deletedAt: null },
       include: {
@@ -1406,7 +1493,7 @@ export class AdherentService {
             statut: true,
             dateDebut: true,
             dateFin: true,
-            produit: { select: { id: true, nom: true, version: true } },
+            produit: { select: { id: true, nom: true, version: true, niveauAccesEtablissement: true } },
           },
         },
       },

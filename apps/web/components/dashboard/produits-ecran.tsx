@@ -1,5 +1,6 @@
 'use client';
 
+import { OPTIONS_CATEGORIE_ETABLISSEMENT } from '@/lib/reseau';
 import { FileStack, Package, PackageCheck, PackageOpen } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -139,6 +140,7 @@ export function ProduitsEcran({ produits }: { produits: Produit[] }) {
                 nom: String(fd.get('nom') ?? ''),
                 periodeCumulPlafond: String(fd.get('periodeCumulPlafond') ?? 'ANNEE_POLICE'),
                 delaiDeclarationJours: Number(fd.get('delaiDeclarationJours') ?? DELAI_DECLARATION_DEFAUT_JOURS),
+                niveauAccesEtablissement: String(fd.get('niveauAccesEtablissement') ?? '') || undefined,
               })
             }
             onSucces={() => router.refresh()}
@@ -156,6 +158,13 @@ export function ProduitsEcran({ produits }: { produits: Produit[] }) {
               aide={AIDE_PERIODE_CUMUL}
               defaultValue="ANNEE_POLICE"
               options={OPTIONS_PERIODE_CUMUL}
+            />
+            <ChampSelect
+              name="niveauAccesEtablissement"
+              label="Niveau d’accès aux établissements"
+              aide="Catégorie d’établissement la plus haute couverte ; les catégories inférieures le sont aussi (une formule « Clinique » couvre aussi hôpital public et centre médical, pas la polyclinique)."
+              defaultValue="POLYCLINIQUE"
+              options={OPTIONS_CATEGORIE_ETABLISSEMENT}
             />
             <ChampNombre
               name="delaiDeclarationJours"

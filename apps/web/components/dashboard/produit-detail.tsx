@@ -1,11 +1,16 @@
 'use client';
 
+import { changerFormuleEnMasse } from '@/app/dashboard-assureur/informatique/polices/actions';
+import { OPTIONS_CATEGORIE_ETABLISSEMENT, libelleCategorieEtablissement } from '@/lib/reseau';
 import { Info, Lock } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
 import {
   ajouterGarantie,
+  ajusterTarifsFormule,
+  etendreProduitPublie,
+  modifierNiveauAcces,
   archiverProduit,
   creerNouvelleVersion,
   desarchiverProduit,
@@ -68,6 +73,7 @@ export interface ProduitAvecGaranties {
   periodeCumulPlafond: PeriodeCumulPlafond;
   /** Délai de déclaration après la fin de la police, en jours (prisma/sql/071). */
   delaiDeclarationJours: number;
+  niveauAccesEtablissement?: string;
   garanties: Garantie[];
   /** Catégories actives du référentiel sans garantie (calculé par l'API) :
    * à confirmer « non couvertes » avant publication. */
@@ -88,17 +94,27 @@ const LIBELLE_STATUT: Record<string, string> = {
 };
 
 /** Champs communs au formulaire d'ajout/modification d'une garantie. */
-function ChampsGarantie({ defaut }: { defaut?: Garantie }) {
+function ChampsGarantie({ defaut, exclues = [], avecMotif = false }: { defaut?: Garantie; exclues?: string[]; avecMotif?: boolean }) {
   const { options: optionsCategories } = useCategoriesActe();
   return (
     <>
+      {avecMotif && (
+        <ChampTexte
+          name="motif"
+          label="Motif de la modification"
+          required
+          minLength={5}
+          maxLength={500}
+          aide="Formule publiée : la modification s’applique aux soins à venir de toutes ses polices et est tracée avec ce motif (valeurs avant / après)."
+        />
+      )}
       <ChampSelect
         name="categorieActe"
         label="Catégorie d’acte"
         required
         placeholder="Choisir une catégorie…"
         defaultValue={defaut?.categorieActe}
-        options={optionsCategories()}
+        options={optionsCategories().filter((o) => !exclues.includes(o.valeur))}
       />
       <ChampNombre
         name="tauxCouverture"
@@ -183,6 +199,7 @@ function lireGarantieFormData(fd: FormData): GarantieInput {
   };
   return {
     categorieActe: String(fd.get('categorieActe') ?? ''),
+    motif: String(fd.get('motif') ?? '').trim() || undefined,
     tauxCouverture: num('tauxCouverture'),
     plafondParActe: num('plafondParActe'),
     plafondAnnuelPersonne: plafond('plafondAnnuelPersonne'),
@@ -222,6 +239,8 @@ export function ProduitDetail({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  // Après une évolution des garanties / de l'accès : on propose d'ajuster aussi le coût de la formule.
+  const [rappelTarifs, setRappelTarifs] = useState(false);
 
   const brouillon = produit.statut === 'BROUILLON';
   const archive = produit.statut === 'ARCHIVE';
@@ -299,6 +318,37 @@ export function ProduitDetail({
     },
   ];
 
+  const modaleAjusterTarifs = (declencheur: React.ReactNode) => (
+          <FormulaireModal
+            titre="Ajuster le coût de la formule"
+            mode="center"
+            description="Hausse (+) ou baisse (−) en pourcentage de toutes les grilles tarifaires de cette formule. Ne touche que les cotisations calculées ensuite ; celles déjà émises ne changent pas."
+            declencheur={declencheur}
+            libelleSoumettre="Appliquer l’ajustement"
+            onSoumettre={async (fd) =>
+              ajusterTarifsFormule(produit.id, {
+                pourcentage: Number(fd.get('pourcentage')),
+                motif: String(fd.get('motif') ?? '').trim(),
+              })
+            }
+            onSucces={() => {
+ router.refresh();
+ setRappelTarifs(false);
+ }}
+          >
+            <ChampNombre
+              name="pourcentage"
+              label="Variation des tarifs (%)"
+              required
+              min={-90}
+              max={500}
+              step="0.01"
+              aide="Exemples : 10 = hausse de 10 % ; -15 = baisse de 15 %."
+            />
+            <ChampTexte name="motif" label="Motif" required minLength={5} maxLength={500} />
+          </FormulaireModal>
+  );
+
   const nouvelleVersion = () =>
     start(async () => {
       setErreur(null);
@@ -310,14 +360,27 @@ export function ProduitDetail({
 
   return (
     <div className="space-y-6">
+      {rappelTarifs && peutGererPlan && !archive && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-amber-900 dark:text-amber-200">
+          <Info className="size-4 shrink-0" />
+          <p className="flex-1">
+            Les garanties de cette formule ont évolué : pensez à ajuster aussi son <b>coût</b> (hausse ou baisse des tarifs) pour rester
+            cohérent avec la couverture.
+          </p>
+          {modaleAjusterTarifs(<Button size="sm">Ajuster le coût</Button>)}
+          <Button size="sm" variant="ghost" onClick={() => setRappelTarifs(false)}>
+            Plus tard
+          </Button>
+        </div>
+      )}
       {/* --- Bandeau lecture seule (cohérent avec le 409 de l'API) --- */}
       {!brouillon && (
         <div className="flex items-start gap-2 rounded-md border border-sky-500/40 bg-sky-500/5 p-3 text-sm text-sky-800 dark:text-sky-300">
           <Lock className="mt-0.5 size-4 shrink-0" />
           <p>
             Produit {LIBELLE_STATUT[produit.statut].toLowerCase()} — le nom et
-            les garanties sont figés (lecture seule). Toute évolution passe par
-            une nouvelle version.
+            les garanties peuvent être modifiées (avec un motif, tracées) ou étendues
+            par de nouvelles garanties ; le nom et la catégorie d’une garantie ne changent pas.
           </p>
         </div>
       )}
@@ -347,6 +410,7 @@ export function ProduitDetail({
                   nom: String(fd.get('nom') ?? ''),
                   periodeCumulPlafond: String(fd.get('periodeCumulPlafond') ?? 'ANNEE_POLICE'),
                   delaiDeclarationJours: Number(fd.get('delaiDeclarationJours') ?? DELAI_DECLARATION_DEFAUT_JOURS),
+                  niveauAccesEtablissement: String(fd.get('niveauAccesEtablissement') ?? '') || undefined,
                 })
               }
               onSucces={() => router.refresh()}
@@ -364,6 +428,13 @@ export function ProduitDetail({
                 aide={AIDE_PERIODE_CUMUL}
                 defaultValue={produit.periodeCumulPlafond}
                 options={OPTIONS_PERIODE_CUMUL}
+              />
+              <ChampSelect
+                name="niveauAccesEtablissement"
+                label="Niveau d’accès aux établissements"
+                aide="Catégorie d’établissement la plus haute couverte ; les catégories inférieures le sont aussi (une formule « Clinique » couvre aussi hôpital public et centre médical, pas la polyclinique)."
+                defaultValue={produit.niveauAccesEtablissement ?? 'POLYCLINIQUE'}
+                options={OPTIONS_CATEGORIE_ETABLISSEMENT}
               />
               <ChampNombre
                 name="delaiDeclarationJours"
@@ -391,6 +462,41 @@ export function ProduitDetail({
           </Ligne>
           <Ligne label="Délai de déclaration après la fin du contrat">
             {produit.delaiDeclarationJours ?? DELAI_DECLARATION_DEFAUT_JOURS} jours
+          </Ligne>
+          <Ligne label="Accès aux établissements">
+            jusqu’à « {libelleCategorieEtablissement(produit.niveauAccesEtablissement ?? 'POLYCLINIQUE')} » (et en dessous)
+            {produit.statut === 'PUBLIE' && peutGererPlan && (
+              <FormulaireModal
+                titre="Modifier l’accès aux établissements"
+                mode="center"
+                description="Formule publiée : le nouveau niveau s’applique aux prochaines demandes de soins de toutes ses polices (les dossiers déjà ouverts ne changent pas). Modification tracée avec son motif."
+                declencheur={
+                  <Button size="xs" variant="outline" className="ml-2">
+                    Modifier
+                  </Button>
+                }
+                libelleSoumettre="Enregistrer"
+                onSoumettre={async (fd) =>
+                  modifierNiveauAcces(produit.id, {
+                    niveauAccesEtablissement: String(fd.get('niveauAccesEtablissement') ?? ''),
+                    motif: String(fd.get('motif') ?? '').trim(),
+                  })
+                }
+                onSucces={() => {
+ router.refresh();
+ setRappelTarifs(true);
+ }}
+              >
+                <ChampSelect
+                  name="niveauAccesEtablissement"
+                  label="Niveau d’accès aux établissements"
+                  required
+                  defaultValue={produit.niveauAccesEtablissement ?? 'POLYCLINIQUE'}
+                  options={OPTIONS_CATEGORIE_ETABLISSEMENT}
+                />
+                <ChampTexte name="motif" label="Motif de la modification" required minLength={5} maxLength={500} />
+              </FormulaireModal>
+            )}
           </Ligne>
           <Ligne label="Garanties">{produit.garanties.length}</Ligne>
           {!brouillon && (
@@ -423,7 +529,21 @@ export function ProduitDetail({
             parPage={0}
             colonnes={colonnes}
             actions={
-              brouillon && peutGererPlan ? (
+              produit.statut === 'PUBLIE' && peutGererPlan ? (
+                <FormulaireModal
+                  titre="Étendre la formule : ajouter une garantie"
+                  description="Ajoute une couverture pour une catégorie d’acte aujourd’hui non couverte. Les polices de cette formule en bénéficient immédiatement ; les garanties existantes ne changent pas (pour les modifier, créez une nouvelle version)."
+                  declencheurLabel="Ajouter une garantie"
+                  libelleSoumettre="Étendre la formule"
+                  onSoumettre={async (fd) => etendreProduitPublie(produit.id, lireGarantieFormData(fd))}
+                  onSucces={() => {
+ router.refresh();
+ setRappelTarifs(true);
+ }}
+                >
+                  <ChampsGarantie exclues={produit.garanties.map((g) => g.categorieActe)} />
+                </FormulaireModal>
+              ) : brouillon && peutGererPlan ? (
                 <FormulaireModal
                   titre="Ajouter une garantie"
                   description="Une ligne de couverture par catégorie d’acte."
@@ -432,14 +552,37 @@ export function ProduitDetail({
                   onSoumettre={async (fd) =>
                     ajouterGarantie(produit.id, lireGarantieFormData(fd))
                   }
-                  onSucces={() => router.refresh()}
+                  onSucces={() => {
+ router.refresh();
+ setRappelTarifs(true);
+ }}
                 >
                   <ChampsGarantie />
                 </FormulaireModal>
               ) : undefined
             }
             actionLigne={
-              brouillon && peutGererPlan
+              produit.statut === 'PUBLIE' && peutGererPlan
+                ? (g) => (
+                    <FormulaireModal
+                      titre="Modifier la garantie"
+                      description="Formule publiée : la modification s’applique aux soins à venir de toutes ses polices ; les factures et remboursements déjà calculés ne changent pas."
+                      declencheur={
+                        <Button type="button" size="xs" variant="ghost">
+                          Modifier
+                        </Button>
+                      }
+                      libelleSoumettre="Enregistrer"
+                      onSoumettre={async (fd) => modifierGarantie(produit.id, g.id, lireGarantieFormData(fd))}
+                      onSucces={() => {
+ router.refresh();
+ setRappelTarifs(true);
+ }}
+                    >
+                      <ChampsGarantie defaut={g} avecMotif exclues={produit.garanties.filter((x) => x.id !== g.id).map((x) => x.categorieActe)} />
+                    </FormulaireModal>
+                  )
+                : brouillon && peutGererPlan
                 ? (g) => (
                     <span className="flex justify-end gap-2">
                       <FormulaireModal
@@ -458,7 +601,10 @@ export function ProduitDetail({
                             lireGarantieFormData(fd),
                           )
                         }
-                        onSucces={() => router.refresh()}
+                        onSucces={() => {
+ router.refresh();
+ setRappelTarifs(true);
+ }}
                       >
                         <ChampsGarantie defaut={g} />
                       </FormulaireModal>
@@ -468,7 +614,10 @@ export function ProduitDetail({
                         consequence="Le produit est encore en brouillon : la garantie disparaît de sa liste."
                         verifier={() => verifierAction('garantie', g.id, 'supprimer')}
                         onConfirmer={() => supprimerGarantie(produit.id, g.id)}
-                        onSucces={() => router.refresh()}
+                        onSucces={() => {
+ router.refresh();
+ setRappelTarifs(true);
+ }}
                         declencheur={
                           <Button type="button" size="xs" variant="ghost">
                             Retirer
@@ -537,6 +686,22 @@ export function ProduitDetail({
           <Button variant="outline" disabled={pending} onClick={nouvelleVersion}>
             Créer une nouvelle version
           </Button>
+        )}
+        {!archive && peutGererPlan && modaleAjusterTarifs(<Button variant="outline">Ajuster les tarifs</Button>)}
+        {produit.statut === 'PUBLIE' && produit.version > 1 && peutGererPlan && (
+          <FormulaireModal
+            titre="Appliquer cette version aux polices"
+            mode="center"
+            description="Toutes les polices ACTIVES des versions précédentes de cette formule passent à celle-ci (avenant « changement de formule » daté d’aujourd’hui). Les soins déjà traités gardent leurs anciennes garanties."
+            declencheur={<Button variant="outline">Appliquer aux polices actives</Button>}
+            libelleSoumettre="Appliquer"
+            onSoumettre={async () => changerFormuleEnMasse(produit.id)}
+            onSucces={() => router.refresh()}
+          >
+            <p className="text-sm text-muted-foreground">
+              Version {produit.version} de « {produit.nom} ».
+            </p>
+          </FormulaireModal>
         )}
         {!archive && peutGererPlan && (
           <ConfirmationAction

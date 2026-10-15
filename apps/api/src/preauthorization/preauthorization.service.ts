@@ -154,6 +154,76 @@ function messageIneligibilite(
  * C'est la SEULE voie d'ouverture d'un dossier : `CareEpisodeService.ouvrirDossier`
  * n'est plus exposé par aucune route (checklist v19).
  */
+const SELECT_ETABLISSEMENT_DETAIL = {
+  nom: true,
+  code: true,
+  typeEtablissement: true,
+  ville: true,
+  commune: true,
+  quartier: true,
+  adresseComplete: true,
+  telephone: true,
+} as const;
+
+/** Établissement tel qu'affiché à l'adhérent (nom, type, code, localisation, téléphone). */
+function detailEtablissement(e: {
+  nom: string;
+  code: string;
+  typeEtablissement: string;
+  ville: string | null;
+  commune: string | null;
+  quartier: string | null;
+  adresseComplete: string | null;
+  telephone: string | null;
+}) {
+  return {
+    nom: e.nom,
+    code: e.code,
+    type: e.typeEtablissement,
+    localisation: [e.quartier, e.commune, e.ville].filter(Boolean).join(', ') || null,
+    adresse: e.adresseComplete,
+    telephone: e.telephone,
+  };
+}
+
+/** Filtre « n° de carte contient… » sur le titulaire ou le bénéficiaire d'un code. */
+function filtreCarte(carte: string) {
+  return {
+    OR: [
+      { adherent: { numeroCarte: { contains: carte, mode: 'insensitive' as const } } },
+      { beneficiaire: { numeroCarte: { contains: carte, mode: 'insensitive' as const } } },
+    ],
+  };
+}
+
+const cumulVide = () => ({ nombre: 0, montantTotal: '0.00', montantAssurance: '0.00', montantPatient: '0.00' });
+
+type MontantDecimal = { toString(): string };
+
+function cumulerFactures(factures: { montantTotal: MontantDecimal; montantAssurance: MontantDecimal; montantPatient: MontantDecimal }[]) {
+  const t = { total: new Decimal(0), assurance: new Decimal(0), patient: new Decimal(0) };
+  for (const f of factures) {
+    t.total = t.total.add(new Decimal(f.montantTotal.toString()));
+    t.assurance = t.assurance.add(new Decimal(f.montantAssurance.toString()));
+    t.patient = t.patient.add(new Decimal(f.montantPatient.toString()));
+  }
+  return t;
+}
+
+function cumulerDispensations(
+  dispensations: { montantTotal: MontantDecimal; lignes: { montantAssurance: MontantDecimal; montantPatient: MontantDecimal }[] }[],
+) {
+  const t = { total: new Decimal(0), assurance: new Decimal(0), patient: new Decimal(0) };
+  for (const d of dispensations) {
+    t.total = t.total.add(new Decimal(d.montantTotal.toString()));
+    for (const l of d.lignes) {
+      t.assurance = t.assurance.add(new Decimal(l.montantAssurance.toString()));
+      t.patient = t.patient.add(new Decimal(l.montantPatient.toString()));
+    }
+  }
+  return t;
+}
+
 @Injectable()
 export class PreauthorizationService {
   private readonly logger = new Logger(PreauthorizationService.name);
@@ -348,23 +418,82 @@ export class PreauthorizationService {
     if (!ctx.adherentId) {
       return versPage([], 0, page, limite);
     }
-    // Pagination SERVEUR (remplace `take: 50`) + statut + période d'émission.
-    const periode = filtrePeriode(dto.du, dto.au);
-    const where: Prisma.CodeConsultationWhereInput = {
-      ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)),
-      ...(dto.statut ? { statut: dto.statut } : {}),
-      ...(periode ? { dateEmission: periode } : {}),
-    };
-    const [total, items] = await Promise.all([
+    // Pagination SERVEUR (remplace `take: 50`) + statut + période d'émission + n° de carte.
+    const where = await this.filtreMesCodesConsultation(ctx.adherentId, dto);
+    const [total, codes] = await Promise.all([
       this.prisma.codeConsultation.count({ where }),
       this.prisma.codeConsultation.findMany({
         where,
+        include: {
+          etablissement: { select: SELECT_ETABLISSEMENT_DETAIL },
+          adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
+          beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true } },
+          dossier: {
+            select: {
+              numeroTraitement: true,
+              factures: { where: { deletedAt: null }, select: { montantTotal: true, montantAssurance: true, montantPatient: true } },
+            },
+          },
+        },
         orderBy: [{ dateEmission: 'desc' }, { id: 'asc' }],
         skip: offset,
         take: limite,
       }),
     ]);
+    const items = codes.map((c) => {
+      const patient = c.adherent ?? c.beneficiaire ?? null;
+      const t = cumulerFactures(c.dossier?.factures ?? []);
+      return {
+        id: c.id,
+        code: c.code,
+        statut: c.statut,
+        etablissementId: c.etablissementId,
+        etablissement: c.etablissement.nom,
+        etablissementDetail: detailEtablissement(c.etablissement),
+        patient: patient ? { nom: patient.nom, prenom: patient.prenom, numeroCarte: patient.numeroCarte } : null,
+        numeroTraitement: c.dossier?.numeroTraitement ?? null,
+        categorieActe: c.categorieActe,
+        dateEmission: c.dateEmission,
+        dateExpiration: c.dateExpiration,
+        montantTotal: t.total.toFixed(2),
+        montantAssurance: t.assurance.toFixed(2),
+        montantPatient: t.patient.toFixed(2),
+      };
+    });
     return versPage(items, total, page, limite);
+  }
+
+  private async filtreMesCodesConsultation(
+    adherentId: string,
+    dto: ListerMesCodesConsultationQueryDto,
+  ): Promise<Prisma.CodeConsultationWhereInput> {
+    const periode = filtrePeriode(dto.du, dto.au);
+    const carte = dto.carte?.trim();
+    return {
+      ...(await this.filtreMoiEtMesBeneficiaires(adherentId)),
+      ...(carte ? { AND: [filtreCarte(carte)] } : {}),
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(periode ? { dateEmission: periode } : {}),
+    };
+  }
+
+  /** Cumul (nombre, coût, part assurance, part assuré) des consultations filtrées de l'adhérent et de sa famille. */
+  async recapitulatifMesCodes(user: AuthenticatedUser, dto: ListerMesCodesConsultationQueryDto = {}) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.adherentId) return cumulVide();
+    const codes = await this.prisma.codeConsultation.findMany({
+      where: await this.filtreMesCodesConsultation(ctx.adherentId, dto),
+      select: {
+        dossier: { select: { factures: { where: { deletedAt: null }, select: { montantTotal: true, montantAssurance: true, montantPatient: true } } } },
+      },
+    });
+    const t = cumulerFactures(codes.flatMap((c) => c.dossier?.factures ?? []));
+    return {
+      nombre: codes.length,
+      montantTotal: t.total.toFixed(2),
+      montantAssurance: t.assurance.toFixed(2),
+      montantPatient: t.patient.toFixed(2),
+    };
   }
 
   // --- Validation (établissement) → ouverture du dossier -----------
@@ -590,31 +719,104 @@ export class PreauthorizationService {
     if (!ctx.adherentId) {
       return versPage([], 0, page, limite);
     }
-    // Pagination SERVEUR (remplace `take: 50`) + statut + période d'émission.
-    const periode = filtrePeriode(dto.du, dto.au);
-    const where: Prisma.CodeOrdonnanceWhereInput = {
-      ...(await this.filtreMoiEtMesBeneficiaires(ctx.adherentId)),
-      ...(dto.statut ? { statut: dto.statut } : {}),
-      ...(periode ? { dateEmission: periode } : {}),
-    };
+    // Pagination SERVEUR (remplace `take: 50`) + statut + période d'émission + n° de carte.
+    const where = await this.filtreMesCodesOrdonnance(ctx.adherentId, dto);
     const [total, codes] = await Promise.all([
       this.prisma.codeOrdonnance.count({ where }),
       this.prisma.codeOrdonnance.findMany({
         where,
+        include: {
+          adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
+          beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true } },
+          ordonnance: {
+            select: {
+              datePrescription: true,
+              dossier: { select: { numeroTraitement: true, etablissement: { select: SELECT_ETABLISSEMENT_DETAIL } } },
+              lignesOrdonnance: {
+                orderBy: { createdAt: 'asc' },
+                select: { denominationMedicament: true, dosage: true, posologie: true, duree: true, quantitePrescrite: true, statut: true },
+              },
+              dispensationsPharmacie: {
+                where: { statut: { not: 'ANNULEE' } },
+                select: { montantTotal: true, lignes: { select: { montantAssurance: true, montantPatient: true } } },
+              },
+            },
+          },
+        },
         orderBy: [{ dateEmission: 'desc' }, { id: 'asc' }],
         skip: offset,
         take: limite,
       }),
     ]);
-    const items = codes.map((c) => ({
-      id: c.id,
-      ordonnanceId: c.ordonnanceId,
-      code: c.code,
-      statut: c.statut,
-      dateEmission: c.dateEmission,
-      dateExpiration: c.dateExpiration,
-    }));
+    const items = codes.map((c) => {
+      const patient = c.adherent ?? c.beneficiaire ?? null;
+      const etab = c.ordonnance?.dossier.etablissement ?? null;
+      const t = cumulerDispensations(c.ordonnance?.dispensationsPharmacie ?? []);
+      return {
+        id: c.id,
+        ordonnanceId: c.ordonnanceId,
+        code: c.code,
+        statut: c.statut,
+        dateEmission: c.dateEmission,
+        dateExpiration: c.dateExpiration,
+        patient: patient ? { nom: patient.nom, prenom: patient.prenom, numeroCarte: patient.numeroCarte } : null,
+        etablissement: etab?.nom ?? null,
+        etablissementDetail: etab ? detailEtablissement(etab) : null,
+        numeroTraitement: c.ordonnance?.dossier.numeroTraitement ?? null,
+        medicaments: (c.ordonnance?.lignesOrdonnance ?? []).map((l) => ({
+          denomination: l.denominationMedicament,
+          dosage: l.dosage,
+          posologie: l.posologie,
+          duree: l.duree,
+          quantite: l.quantitePrescrite,
+          statut: l.statut,
+        })),
+        montantTotal: t.total.toFixed(2),
+        montantAssurance: t.assurance.toFixed(2),
+        montantPatient: t.patient.toFixed(2),
+      };
+    });
     return versPage(items, total, page, limite);
+  }
+
+  private async filtreMesCodesOrdonnance(
+    adherentId: string,
+    dto: ListerMesCodesOrdonnanceQueryDto,
+  ): Promise<Prisma.CodeOrdonnanceWhereInput> {
+    const periode = filtrePeriode(dto.du, dto.au);
+    const carte = dto.carte?.trim();
+    return {
+      ...(await this.filtreMoiEtMesBeneficiaires(adherentId)),
+      ...(carte ? { AND: [filtreCarte(carte)] } : {}),
+      ...(dto.statut ? { statut: dto.statut } : {}),
+      ...(periode ? { dateEmission: periode } : {}),
+    };
+  }
+
+  /** Cumul (nombre, coût, part assurance, part assuré) des ordonnances filtrées (dispensations non annulées). */
+  async recapitulatifMesCodesOrdonnance(user: AuthenticatedUser, dto: ListerMesCodesOrdonnanceQueryDto = {}) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.adherentId) return cumulVide();
+    const codes = await this.prisma.codeOrdonnance.findMany({
+      where: await this.filtreMesCodesOrdonnance(ctx.adherentId, dto),
+      select: {
+        ordonnance: {
+          select: {
+            dispensationsPharmacie: {
+              where: { statut: { not: 'ANNULEE' } },
+              select: { montantTotal: true, lignes: { select: { montantAssurance: true, montantPatient: true } } },
+            },
+          },
+        },
+      },
+    });
+    const t = cumulerDispensations(codes.flatMap((c) => c.ordonnance?.dispensationsPharmacie ?? []));
+    return {
+      nombre: codes.length,
+      montantTotal: t.total.toFixed(2),
+      montantAssurance: t.assurance.toFixed(2),
+      montantPatient: t.patient.toFixed(2),
+    };
   }
 
   /**
@@ -939,6 +1141,25 @@ export class PreauthorizationService {
   async obtenirTicket(user: AuthenticatedUser, ticketSoinsId: string) {
     const ctx = await this.contexteAppelant(user);
     const ticket = await this.chargerTicket(ctx.organisationId, ticketSoinsId);
+    // Isolation : le ticket (et ses actes) n'est lisible que par l'assureur, le centre médical DU dossier et le patient
+    // concerné (titulaire ou bénéficiaire) — 404 sinon, pour ne pas révéler son existence.
+    const dossier = await this.prisma.dossierSoins.findUnique({
+      where: { id: ticket.dossierSoinsId },
+      select: { etablissementId: true, adherentId: true, beneficiaireId: true },
+    });
+    const estAssureur = ctx.roleChain.some((r) => r.startsWith('ASSUREUR_'));
+    const estCentre = ctx.roleChain.some((r) => (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r));
+    const estAdherent = ctx.roleChain.some((r) => (ROLES_ADHERENT as readonly string[]).includes(r));
+    const autorise =
+      estAssureur ||
+      (estCentre && !!dossier && ctx.etablissementId === dossier.etablissementId) ||
+      (estAdherent &&
+        !!dossier &&
+        ((!!ctx.adherentId && dossier.adherentId === ctx.adherentId) ||
+          (await this.estMonBeneficiaire(ctx, dossier.beneficiaireId))));
+    if (!autorise) {
+      throw new NotFoundException('Ticket de soins introuvable.');
+    }
     const actes = await this.prisma.acteDossier.findMany({
       where: { ticketSoinsId, deletedAt: null },
       orderBy: { datePrescription: 'asc' },

@@ -8,7 +8,7 @@ import type { AdherentDetail as AdherentDetailType } from '@/components/dashboar
 import { PageTitre } from '@/components/page-titre';
 import { StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
-import { LIBELLE_STATUT_MEMBRE, TON_STATUT_MEMBRE } from '@/lib/member';
+import { LIBELLE_STATUT_MEMBRE, TON_STATUT_MEMBRE, statutMembreAffiche } from '@/lib/member';
 import { apiFetch } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
 import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
@@ -44,6 +44,16 @@ export default async function AdherentPage({
   const peutModifierPhoto = peutModifierPhotoMembre(roleChain);
   const photos = await chargerPhotosFamille(adherent);
 
+  // Polices ACTIVES de la société de l'adhérent : cibles possibles d'un changement de police.
+  const resPolices = adherent.souscripteur?.id
+    ? await apiFetch(`/api/v1/policy/polices?souscripteurId=${adherent.souscripteur.id}&statut=ACTIVE`)
+    : null;
+  const polices: { id: string; numeroPolice: string; produit?: { nom: string } | null }[] =
+    resPolices && resPolices.ok ? await resPolices.json() : [];
+  const policesDisponibles = polices
+    .filter((p) => p.id !== adherent.police?.id)
+    .map((p) => ({ id: p.id, libelle: `${p.numeroPolice}${p.produit?.nom ? ` — ${p.produit.nom}` : ''}` }));
+
   return (
     <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
@@ -57,7 +67,7 @@ export default async function AdherentPage({
         titre={`${adherent.nom} ${adherent.prenom}`}
         action={
           <StatutBadge
-            statut={adherent.statut}
+            statut={statutMembreAffiche(adherent.statut, adherent.police?.statut)}
             map={TON_STATUT_MEMBRE}
             libelles={LIBELLE_STATUT_MEMBRE}
           />
@@ -65,6 +75,7 @@ export default async function AdherentPage({
       />
 
       <AdherentDetail
+        policesDisponibles={policesDisponibles}
         retourHref="/dashboard-assureur/informatique/adherents"
         adherent={sansCheminsPhoto(adherent)}
         peutGerer={peutGererMembres(etat.identity.permissions.roleChain)}

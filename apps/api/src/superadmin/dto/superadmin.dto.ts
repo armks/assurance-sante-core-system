@@ -21,6 +21,10 @@ export class InitierCreationOrganisationDto {
   @IsOptional() @IsString() @MaxLength(200)
   raisonSociale?: string;
 
+  /** Numéro unique de l'assureur (3 à 8 chiffres). Absent : attribué automatiquement à la création. */
+  @IsOptional() @Matches(/^[0-9]{3,8}$/, { message: 'Le code assureur doit comporter 3 à 8 chiffres.' })
+  codeAssureur?: string;
+
   @IsIn(['ASSUREUR', 'MUTUELLE'])
   type!: 'ASSUREUR' | 'MUTUELLE';
 

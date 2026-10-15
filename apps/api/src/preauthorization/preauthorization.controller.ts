@@ -59,6 +59,12 @@ export class PreauthorizationController {
     return this.preauth.genererCodeConsultation(user, dto);
   }
 
+  /** Côté ADHÉRENT : cumul (nombre, coût, parts) des consultations filtrées. */
+  @Get('codes-consultation/recapitulatif')
+  recapitulatifMesCodes(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesCodesConsultationQueryDto) {
+    return this.preauth.recapitulatifMesCodes(user, dto);
+  }
+
   @Get('codes-consultation')
   listerMesCodes(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesCodesConsultationQueryDto) {
     return this.preauth.listerMesCodes(user, dto);
@@ -97,6 +103,12 @@ export class PreauthorizationController {
     @Body() dto: CreerOrdonnanceDto,
   ) {
     return this.preauth.creerOrdonnance(user, dto);
+  }
+
+  /** Côté ADHÉRENT : cumul (nombre, coût, parts) des ordonnances filtrées. */
+  @Get('codes-ordonnance/recapitulatif')
+  recapitulatifMesCodesOrdonnance(@CurrentUser() user: AuthenticatedUser, @Query() dto: ListerMesCodesOrdonnanceQueryDto) {
+    return this.preauth.recapitulatifMesCodesOrdonnance(user, dto);
   }
 
   /** Côté ADHÉRENT : ses codes d'ordonnance (avec la valeur du code). */

@@ -54,6 +54,7 @@ describe('PlanService', () => {
       update: jest.Mock;
       aggregate: jest.Mock;
     };
+    grilleTarifaire: { findMany: jest.Mock; create: jest.Mock };
     garantie: {
       create: jest.Mock;
       findFirst: jest.Mock;
@@ -77,6 +78,7 @@ describe('PlanService', () => {
         update: jest.fn(),
         aggregate: jest.fn(),
       },
+      grilleTarifaire: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
       garantie: {
         create: jest.fn(),
         findFirst: jest.fn(),
@@ -285,6 +287,17 @@ describe('PlanService', () => {
     });
   });
 
+  it('produit PUBLIE : une garantie ne se modifie qu’avec un motif, sans changer de catégorie', async () => {
+    identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
+    prisma.produit.findFirst.mockResolvedValue({ id: 'p1', organisationId: 'org-1', nom: 'Essentielle', statut: 'PUBLIE', version: 1 });
+    prisma.garantie.findFirst.mockResolvedValue({ id: 'g1', produitId: 'p1', categorieActe: 'CONSULTATION', tauxCouverture: 80 });
+    await expect(service.modifierGarantie(USER, 'p1', 'g1', { tauxCouverture: 90 })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.modifierGarantie(USER, 'p1', 'g1', { tauxCouverture: 90, motif: 'Amélioration 2027', categorieActe: 'PHARMACIE' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.garantie.update).not.toHaveBeenCalled();
+  });
+
   it('refuse toute modification d’un produit PUBLIE (garantie, produit, ajout)', async () => {
     identity.getMe.mockResolvedValue(identite(['ASSUREUR_INFORMATIQUE']));
     prisma.produit.findFirst.mockResolvedValue({
@@ -294,10 +307,6 @@ describe('PlanService', () => {
       statut: 'PUBLIE',
       version: 1,
     });
-
-    await expect(
-      service.modifierGarantie(USER, 'p1', 'g1', { tauxCouverture: 90 }),
-    ).rejects.toBeInstanceOf(ConflictException);
 
     await expect(
       service.modifierProduit(USER, 'p1', { nom: 'Autre' }),

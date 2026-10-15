@@ -233,7 +233,7 @@ export class CareEpisodeService {
       beneficiaireId?: string;
       policeId: string;
     },
-    etablissement: { statut: string } | null,
+    etablissement: { statut: string; categorieEtablissement?: string } | null,
     police: {
       statut: string;
       dateDebut: Date | null;
@@ -313,6 +313,23 @@ export class CareEpisodeService {
             `Délai de carence non écoulé : les consultations ne sont couvertes qu'à partir du ${finCarence.toISOString().slice(0, 10)}.`,
           );
         }
+      }
+    }
+
+    // 4 bis. Niveau d'accès : la formule donne accès à sa catégorie d'établissement et aux catégories inférieures, jamais aux
+    //        supérieures (un centre médical ne conduit pas à une polyclinique). Contrôlé tant que la carte est valide.
+    if (etablissement?.categorieEtablissement && police) {
+      const [categorieEtab, produit] = await Promise.all([
+        this.prisma.categorieEtablissement.findUnique({ where: { code: etablissement.categorieEtablissement } }),
+        this.prisma.produit.findUnique({
+          where: { id: police.produitId },
+          select: { nom: true, niveauAcces: { select: { libelle: true, niveau: true } } },
+        }),
+      ]);
+      if (categorieEtab && produit && categorieEtab.niveau > produit.niveauAcces.niveau) {
+        blocages.push(
+          `Votre formule « ${produit.nom} » couvre jusqu'au niveau « ${produit.niveauAcces.libelle} » : elle ne donne pas accès aux établissements de catégorie « ${categorieEtab.libelle} ».`,
+        );
       }
     }
 

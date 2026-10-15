@@ -61,6 +61,7 @@ export class PlanService {
       );
     }
 
+    if (dto.niveauAccesEtablissement) await this.exigerCategorieEtablissement(dto.niveauAccesEtablissement);
     const version = await this.prochaineVersion(ctx.organisationId, dto.nom);
 
     const id = await this.prisma.$transaction(async (tx) => {
@@ -76,6 +77,7 @@ export class PlanService {
           ...(dto.delaiDeclarationJours !== undefined
             ? { delaiDeclarationJours: dto.delaiDeclarationJours }
             : {}),
+          ...(dto.niveauAccesEtablissement ? { niveauAccesEtablissement: dto.niveauAccesEtablissement } : {}),
         },
       });
       for (const g of dto.garanties ?? []) {
@@ -118,6 +120,11 @@ export class PlanService {
     return this.chargerProduit(ctx.organisationId, id);
   }
 
+  private async exigerCategorieEtablissement(code: string): Promise<void> {
+    const c = await this.prisma.categorieEtablissement.findFirst({ where: { code, actif: true } });
+    if (!c) throw new BadRequestException(`Catégorie d'établissement inconnue : ${code}.`);
+  }
+
   async modifierProduit(
     user: AuthenticatedUser,
     id: string,
@@ -126,6 +133,30 @@ export class PlanService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     const produit = await this.assertProduitDansPerimetre(ctx.organisationId, id);
+    // PUBLIÉ : seul le niveau d'accès aux établissements se modifie (avec motif, tracé avant / après) ; le reste est figé.
+    if (produit.statut === 'PUBLIE') {
+      const autres = Object.keys(dto).filter((k) => k !== 'niveauAccesEtablissement' && k !== 'motif' && (dto as Record<string, unknown>)[k] !== undefined);
+      if (autres.length > 0 || !dto.niveauAccesEtablissement) {
+        throw new ConflictException(
+          'Modification impossible : le produit est PUBLIE. Seul son niveau d’accès aux établissements peut être modifié (avec motif) ; pour le reste, créez une nouvelle version.',
+        );
+      }
+      const motif = dto.motif?.trim();
+      if (!motif || motif.length < 5) {
+        throw new BadRequestException('Le motif de la modification est obligatoire sur une formule publiée (5 caractères minimum).');
+      }
+      await this.exigerCategorieEtablissement(dto.niveauAccesEtablissement);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.produit.update({ where: { id }, data: { niveauAccesEtablissement: dto.niveauAccesEtablissement } });
+        await this.audit(tx, ctx.userId, 'MODIFICATION_NIVEAU_ACCES_PRODUIT_PUBLIE', id, {
+          produit: `${produit.nom} v${produit.version}`,
+          motif,
+          avant: produit.niveauAccesEtablissement,
+          apres: dto.niveauAccesEtablissement,
+        });
+      });
+      return this.chargerProduit(ctx.organisationId, id);
+    }
     this.assertBrouillon(produit, 'Modification du produit');
     await this.dependances.assertPossible(user, 'produit', id, 'modifier');
 
@@ -142,8 +173,10 @@ export class PlanService {
       }
     }
 
+    if (dto.niveauAccesEtablissement) await this.exigerCategorieEtablissement(dto.niveauAccesEtablissement);
     await this.prisma.$transaction(async (tx) => {
-      await tx.produit.update({ where: { id }, data: { ...dto } });
+      const { motif: _motif, ...champs } = dto;
+      await tx.produit.update({ where: { id }, data: { ...champs } });
       await this.audit(tx, ctx.userId, 'MODIFICATION_PRODUIT', id, {
         champs: Object.keys(dto),
       });
@@ -313,8 +346,23 @@ export class PlanService {
           // produit en année civile basculerait en silence sur le défaut année de police)
           periodeCumulPlafond: source.periodeCumulPlafond,
           delaiDeclarationJours: source.delaiDeclarationJours,
+          niveauAccesEtablissement: source.niveauAccesEtablissement,
         },
       });
+      // Les grilles tarifaires (coût de la formule) suivent la nouvelle version, sinon les polices rattachées n'auraient plus de tarif.
+      const grillesSource = await tx.grilleTarifaire.findMany({ where: { produitId: id, deletedAt: null } });
+      for (const gr of grillesSource) {
+        await tx.grilleTarifaire.create({
+          data: {
+            organisationId: ctx.organisationId,
+            produitId: nouveau.id,
+            trancheAgeMin: gr.trancheAgeMin,
+            trancheAgeMax: gr.trancheAgeMax,
+            souscripteurId: gr.souscripteurId,
+            montantMensuel: gr.montantMensuel,
+          },
+        });
+      }
       for (const g of garantiesSource) {
         await tx.garantie.create({
           data: {
@@ -377,6 +425,44 @@ export class PlanService {
     });
   }
 
+  /**
+   * Extension d'une formule PUBLIÉE (jamais d'une formule archivée) : ajout d'une garantie pour une catégorie sans garantie. Cela
+   * ne peut qu'AMÉLIORER la couverture (une catégorie « non couverte » devient couverte) : aucune garantie existante n'est
+   * modifiée, donc aucune décision déjà prise n'est remise en cause. La catégorie est retirée des « catégories non couvertes »
+   * confirmées à la publication. Tracé à l'audit.
+   */
+  async etendreProduitPublie(user: AuthenticatedUser, produitId: string, dto: CreateGarantieDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const produit = await this.assertProduitDansPerimetre(ctx.organisationId, produitId);
+    if (produit.statut !== 'PUBLIE') {
+      throw new ConflictException(
+        produit.statut === 'BROUILLON'
+          ? "Le produit est encore en brouillon : ajoutez la garantie directement."
+          : `Extension impossible : le produit est ${produit.statut}.`,
+      );
+    }
+    await this.categoriesActe.exigerActive(dto.categorieActe);
+    await this.assertCategorieLibre(produitId, dto.categorieActe);
+
+    return this.prisma.$transaction(async (tx) => {
+      const garantie = await tx.garantie.create({ data: this.garantieCreateData(produitId, dto) });
+      await tx.produit.update({
+        where: { id: produitId },
+        data: { categoriesNonCouvertes: produit.categoriesNonCouvertes.filter((c) => c !== dto.categorieActe) },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'EXTENSION_GARANTIE_PRODUIT_PUBLIE',
+        produitId,
+        { garantieId: garantie.id, categorie: dto.categorieActe, produit: `${produit.nom} v${produit.version}` },
+        'garanties',
+      );
+      return garantie;
+    });
+  }
+
   async modifierGarantie(
     user: AuthenticatedUser,
     produitId: string,
@@ -389,8 +475,11 @@ export class PlanService {
       ctx.organisationId,
       produitId,
     );
-    // cas critique : une garantie d'un produit publié est immuable
-    this.assertBrouillon(produit, 'Modification de garantie');
+    // BROUILLON : modification libre. PUBLIÉ : permise à l'Assurance Informatique / Direction avec un MOTIF, tracée avant / après,
+    // sans changer la catégorie ; les décisions déjà prises (factures, remboursements) ne sont pas recalculées, les soins à venir
+    // appliquent la nouvelle valeur. ARCHIVÉ : figé.
+    const publie = produit.statut === 'PUBLIE';
+    if (!publie) this.assertBrouillon(produit, 'Modification de garantie');
 
     const garantie = await this.prisma.garantie.findFirst({
       where: { id: garantieId, produitId, deletedAt: null },
@@ -398,24 +487,44 @@ export class PlanService {
     if (!garantie) {
       throw new NotFoundException('Garantie introuvable.');
     }
-    // ADR-007 : une garantie déjà utilisée (dossier, réclamation) ne se modifie plus
-    await this.dependances.assertPossible(user, 'garantie', garantieId, 'modifier');
+    const motif = dto.motif?.trim();
+    if (publie) {
+      if (!motif || motif.length < 5) {
+        throw new BadRequestException('Le motif de la modification est obligatoire sur une formule publiée (5 caractères minimum).');
+      }
+      if (dto.categorieActe !== undefined && dto.categorieActe !== garantie.categorieActe) {
+        throw new ConflictException("La catégorie d'une garantie publiée ne change pas : ajoutez une garantie pour une autre catégorie.");
+      }
+    } else {
+      // ADR-007 : en brouillon, une garantie déjà utilisée (dossier, réclamation) ne se modifie plus
+      await this.dependances.assertPossible(user, 'garantie', garantieId, 'modifier');
+    }
     if (dto.categorieActe !== undefined && dto.categorieActe !== garantie.categorieActe) {
       await this.categoriesActe.exigerActive(dto.categorieActe);
       await this.assertCategorieLibre(produitId, dto.categorieActe);
     }
 
+    const data = this.garantieUpdateData(dto);
     await this.prisma.$transaction(async (tx) => {
-      await tx.garantie.update({
-        where: { id: garantieId },
-        data: this.garantieUpdateData(dto),
-      });
+      await tx.garantie.update({ where: { id: garantieId }, data });
+      const avant: Record<string, unknown> = {};
+      const apres: Record<string, unknown> = {};
+      for (const cle of Object.keys(data)) {
+        const a = (garantie as unknown as Record<string, unknown>)[cle];
+        const n = (data as Record<string, unknown>)[cle];
+        avant[cle] = a === null || a === undefined ? null : typeof a === 'object' && !Array.isArray(a) ? String(a) : a;
+        apres[cle] = n === null || n === undefined ? null : typeof n === 'object' && !Array.isArray(n) ? String(n) : n;
+      }
       await this.audit(
         tx,
         ctx.userId,
-        'MODIFICATION_GARANTIE',
+        publie ? 'MODIFICATION_GARANTIE_PRODUIT_PUBLIE' : 'MODIFICATION_GARANTIE',
         produitId,
-        { garantieId, champs: Object.keys(dto) },
+        {
+          garantieId,
+          champs: Object.keys(data),
+          ...(publie ? { produit: `${produit.nom} v${produit.version}`, motif, avant, apres } : {}),
+        } as Prisma.InputJsonValue,
         'garanties',
       );
     });

@@ -1,3 +1,4 @@
+import { ChangerPoliceMasseDto } from './dto/member.dto';
 import {
   Body,
   Controller,
@@ -66,6 +67,12 @@ export class MemberController {
   }
 
   // --- Adhérents ---------------------------------------------------
+
+  /** Rattachement en masse des adhérents (et, par eux, de leurs bénéficiaires) à une autre police ACTIVE. */
+  @Post('adherents/changer-police')
+  changerPoliceEnMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChangerPoliceMasseDto) {
+    return this.adherents.changerPoliceEnMasse(user, dto);
+  }
 
   @Post('adherents')
   creerAdherent(

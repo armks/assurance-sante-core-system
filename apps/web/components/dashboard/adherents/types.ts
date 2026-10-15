@@ -27,7 +27,7 @@ export interface AdherentListe {
     id: string;
     numeroPolice: string;
     statut: string;
-    produit: { nom: string; version: number } | null;
+    produit: { nom: string; version: number; niveauAccesEtablissement?: string } | null;
   } | null;
   _count?: { beneficiaires: number };
   /** Chemin de stockage (bucket privé `photos`) — jamais affiché directement,

@@ -62,8 +62,13 @@ export class SuperadminActionsService {
 
     const plan = dto.plan ?? 'STARTER';
     const role = dto.premierCompteRole ?? 'ASSUREUR_INFORMATIQUE';
+    const codeAssureur = dto.codeAssureur?.trim() || null;
+    if (codeAssureur && (await this.prisma.organisation.count({ where: { codeAssureur } })) > 0) {
+      throw new ConflictException(`Le code assureur ${codeAssureur} est déjà attribué à une autre société.`);
+    }
     const payload = {
       nom: dto.nom,
+      codeAssureur,
       raisonSociale: dto.raisonSociale ?? null,
       type: dto.type,
       pays: dto.pays,
@@ -78,7 +83,7 @@ export class SuperadminActionsService {
       premierCompteRole: role,
     };
     const resume =
-      `Créer l'organisation « ${dto.nom} » (${dto.type}, ${dto.pays}) — plan ${plan} — ` +
+      `Créer l'organisation « ${dto.nom} » (${dto.type}, ${dto.pays}${codeAssureur ? `, code assureur ${codeAssureur}` : ''}) — plan ${plan} — ` +
       `et inviter ${dto.premierCompteEmail} comme ${role}.`;
 
     return this.initier(user, 'CREATION_ORGANISATION', payload, resume);
@@ -252,6 +257,7 @@ export class SuperadminActionsService {
           id: randomUUID(),
           nom: p.nom as string,
           slug,
+          ...(p.codeAssureur ? { codeAssureur: p.codeAssureur as string } : {}),
           raisonSociale: (p.raisonSociale as string | null) ?? null,
           type: p.type as string,
           pays: p.pays as string,

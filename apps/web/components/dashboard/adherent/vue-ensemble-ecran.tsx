@@ -9,7 +9,9 @@ import { CarteResume, GrilleCartes, StatutBadge } from '@/components/dashboard/p
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   LIBELLE_STATUT_BENEFICIAIRE,
+  LIBELLE_STATUT_MEMBRE,
   TON_STATUT_BENEFICIAIRE,
+  statutMembreAffiche,
 } from '@/lib/member';
 import { LIBELLE_POLICE, TON_POLICE } from '@/lib/police';
 import { useCategoriesActe } from '@/components/categories-acte';
@@ -153,7 +155,7 @@ export function AdherentVueEnsemble({
               <dl className="grid flex-1 content-start grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div>
                   <dt className="text-sm text-muted-foreground">Statut de la carte</dt>
-                  <dd className="font-medium">{adherent.statut}</dd>
+                  <dd className="font-medium">{LIBELLE_STATUT_MEMBRE[statutMembreAffiche(adherent.statut, police?.statut)] ?? adherent.statut}</dd>
                 </div>
                 <div>
                   <dt className="text-sm text-muted-foreground">Police</dt>
@@ -237,7 +239,7 @@ export function AdherentVueEnsemble({
                   />
                   <div className="text-sm">
                     <p className="text-sm text-muted-foreground">Statut</p>
-                    <StatutBadge statut={b.statut} map={TON_STATUT_BENEFICIAIRE} libelles={LIBELLE_STATUT_BENEFICIAIRE} />
+                    <StatutBadge statut={statutMembreAffiche(b.statut, police?.statut)} map={TON_STATUT_BENEFICIAIRE} libelles={LIBELLE_STATUT_BENEFICIAIRE} />
                   </div>
                 </li>
               ))}

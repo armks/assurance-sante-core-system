@@ -38,6 +38,9 @@ model Organisation {
   logoUrl          String?   @map("logo_url")
   /// Chemin de la page d'accueil dédiée (/{slug}) — prisma/sql/061. Unique,
   /// généré depuis `nom`, modifiable par SUPERADMIN_PRINCIPAL.
+  /// Numéro unique de l'assureur (3 à 8 chiffres, prisma/sql/097) : identifie l'organisation dans toutes les données
+  /// (qui portent `organisationId`), pour les séparer par pays et par assureur. Auto-attribué si non saisi.
+  codeAssureur     String    @unique @default(dbgenerated("(nextval('organisations_code_assureur_seq'::regclass))::text")) @map("code_assureur")
   slug             String // unique parmi les non supprimés : index partiel (prisma/sql/074)
   /// Bannière de la page /{slug} (prisma/sql/062) — ASSUREUR_INFORMATIQUE ; null :
   /// valeur par défaut de la plateforme.
@@ -365,6 +368,8 @@ model ImportAdherents {
 /// beneficiaires — ayants droit rattachés à un adhérent titulaire. prisma/sql/022.
 model Beneficiaire {
   id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   adherentId    String    @map("adherent_id") @db.Uuid
   lienParente   String    @map("lien_parente") // CONJOINT | ENFANT | PERE | MERE | AUTRE
   nom           String
@@ -400,12 +405,15 @@ model Beneficiaire {
 
   @@index([adherentId])
   @@index([statut])
+  @@index([organisationId])
   @@map("beneficiaires")
 }
 
 /// membres_comite_gestion — gouvernance des collectivités (v9 §1.3).
 model MembreComiteGestion {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   souscripteurId  String    @map("souscripteur_id") @db.Uuid
   userId          String    @map("user_id") @db.Uuid
   fonction        String
@@ -420,6 +428,7 @@ model MembreComiteGestion {
 
   @@index([souscripteurId])
   @@index([userId])
+  @@index([organisationId])
   @@map("membres_comite_gestion")
 }
 
@@ -493,6 +502,8 @@ model Convention {
 /// convention_valeurs — valeur en FCFA d'une lettre-clé, par contexte (prisma/sql/081).
 model ConventionValeur {
   id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   conventionId    String    @map("convention_id") @db.Uuid
   lettreCleCode   String    @map("lettre_cle_code")
   contexte        String // AMBULATOIRE | HOSPITALISATION
@@ -505,6 +516,7 @@ model ConventionValeur {
   lettreCle  LettreCle  @relation(fields: [lettreCleCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
 
   @@index([conventionId])
+  @@index([organisationId])
   @@map("convention_valeurs")
 }
 
@@ -512,6 +524,8 @@ model ConventionValeur {
 /// L'identifiant d'une ligne migrée est celui de l'ancien tarif conventionné.
 model ConventionActe {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   conventionId      String    @map("convention_id") @db.Uuid
   referentielActeId String    @map("referentiel_acte_id") @db.Uuid
   prixForfaitaire   Decimal?  @map("prix_forfaitaire") @db.Decimal(14, 2)
@@ -527,6 +541,7 @@ model ConventionActe {
 
   @@index([conventionId])
   @@index([referentielActeId])
+  @@index([organisationId])
   @@map("convention_actes")
 }
 
@@ -595,11 +610,14 @@ model Produit {
   /// Jours après la fin de la police pendant lesquels des soins reçus pendant la
   /// couverture peuvent encore être déclarés (prisma/sql/071). Défaut 90 ; 0 = aucun.
   delaiDeclarationJours Int @default(90) @map("delai_declaration_jours")
+  /// Catégorie d'établissement la plus haute couverte (prisma/sql/100) ; les niveaux inférieurs sont aussi couverts.
+  niveauAccesEtablissement String @default("POLYCLINIQUE") @map("niveau_acces_etablissement")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   organisation      Organisation      @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  niveauAcces CategorieEtablissement @relation("ProduitNiveauAcces", fields: [niveauAccesEtablissement], references: [code], onDelete: NoAction, onUpdate: NoAction)
   garanties         Garantie[]
   polices           Police[]
   grillesTarifaires GrilleTarifaire[]
@@ -615,6 +633,8 @@ model Produit {
 /// garanties — lignes de couverture d'un produit. Montants en Decimal.
 model Garantie {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   produitId         String    @map("produit_id") @db.Uuid
   categorieActe     String    @map("categorie_acte") // FK categories_acte.code (prisma/sql/067)
   tauxCouverture    Decimal   @map("taux_couverture") @db.Decimal(5, 2) // obligatoire depuis prisma/sql/067
@@ -640,6 +660,7 @@ model Garantie {
   // + index unique partiel (produit_id, categorie_acte) WHERE deleted_at IS NULL
   //   (garanties_produit_categorie_unique, prisma/sql/067 — non exprimable ici)
   @@index([produitId])
+  @@index([organisationId])
   @@map("garanties")
 }
 
@@ -678,6 +699,8 @@ model Police {
 /// avenants — modifications contractuelles d'une police. prisma/sql/005.
 model Avenant {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   policeId               String    @map("police_id") @db.Uuid
   type                   String // AJOUT_ADHERENT | RADIATION_ADHERENT | CHANGEMENT_FORMULE | AJOUT_BENEFICIAIRE | MODIFICATION_TARIFAIRE | RESILIATION
   dateEffet              DateTime  @map("date_effet") @db.Date
@@ -699,6 +722,7 @@ model Avenant {
 
   @@index([policeId])
   @@index([statut])
+  @@index([organisationId])
   @@map("avenants")
 }
 
@@ -730,6 +754,8 @@ model GrilleTarifaire {
 /// plan_paiement_collectivite — modalités de paiement d'une COLLECTIVITE (v9 §2.2). prisma/sql/006.
 model PlanPaiementCollectivite {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   souscripteurId         String    @map("souscripteur_id") @db.Uuid
   periodicite            String // MENSUELLE | TRIMESTRIELLE | SAISONNIERE | ANNUELLE
   partMembrePourcent     Decimal   @default(100) @map("part_membre_pourcent") @db.Decimal(5, 2)
@@ -741,12 +767,15 @@ model PlanPaiementCollectivite {
 
   souscripteur Souscripteur @relation(fields: [souscripteurId], references: [id], onDelete: Restrict, onUpdate: NoAction)
 
+  @@index([organisationId])
   @@map("plan_paiement_collectivite")
 }
 
 /// cotisations — appels de cotisation. adherent_id XOR societe_id (CHECK). prisma/sql/006.
 model Cotisation {
   id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   policeId          String    @map("police_id") @db.Uuid
   adherentId        String?   @map("adherent_id") @db.Uuid
   societeId         String?   @map("societe_id") @db.Uuid
@@ -774,6 +803,7 @@ model Cotisation {
   @@index([policeId])
   @@index([statut])
   @@index([dateEcheance])
+  @@index([organisationId])
   @@map("cotisations")
 }
 
@@ -783,6 +813,8 @@ model Cotisation {
 /// `decision` null tant que non traité. prisma/sql/007.
 model QuestionnaireMedical {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   souscripteurId        String    @map("souscripteur_id") @db.Uuid
   reponses              Json      @default("{}")
   antecedentsDeclares   String[]  @default([]) @map("antecedents_declares")
@@ -802,6 +834,7 @@ model QuestionnaireMedical {
 
   @@index([souscripteurId])
   @@index([decision])
+  @@index([organisationId])
   @@map("questionnaires_medicaux")
 }
 
@@ -809,6 +842,8 @@ model QuestionnaireMedical {
 /// (colonne `prime_finale` GENERATED ALWAYS AS ... STORED — ne pas écrire). prisma/sql/007.
 model TarificationIndividuelle {
   id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   policeId               String   @map("police_id") @db.Uuid
   questionnaireMedicalId String   @map("questionnaire_medical_id") @db.Uuid
   ageASubscription       Int      @map("age_a_souscription")
@@ -825,6 +860,7 @@ model TarificationIndividuelle {
 
   @@index([policeId])
   @@index([questionnaireMedicalId], map: "tarification_individuelle_questionnaire_id_idx")
+  @@index([organisationId])
   @@map("tarification_individuelle")
 }
 
@@ -876,6 +912,8 @@ model EtablissementSante {
   organisationId    String    @map("organisation_id") @db.Uuid
   nom               String
   code              String // unique parmi les non supprimés : index partiel (prisma/sql/074)
+  /// Catégorie hiérarchisée (prisma/sql/100) : une formule d'un niveau donné accède aux établissements de ce niveau et en dessous.
+  categorieEtablissement String @default("CENTRE_MEDICAL") @map("categorie_etablissement")
   typeEtablissement String    @map("type_etablissement") // HOPITAL_PUBLIC | CLINIQUE_PRIVEE | CABINET_MEDICAL | CENTRE_SANTE | LABORATOIRE | CENTRE_IMAGERIE | OPTICIEN | DENTISTE | MATERNITE
   pays              String    @default("Côte d'Ivoire")
   ville             String?
@@ -903,6 +941,7 @@ model EtablissementSante {
   deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   organisation       Organisation       @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  categorie CategorieEtablissement @relation("EtabCategorie", fields: [categorieEtablissement], references: [code], onDelete: NoAction, onUpdate: NoAction)
   dossiers           DossierSoins[]     @relation("DossierEtablissement")
   dossiersTransferes DossierSoins[]     @relation("DossierTransfereVers")
   codesConsultation  CodeConsultation[]
@@ -966,6 +1005,8 @@ model Pharmacie {
 /// établissement OU d'une pharmacie (v8 §9, PROMPT 15). prisma/sql/024.
 model VerificationEtablissement {
   id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   etablissementId  String?  @map("etablissement_id") @db.Uuid
   pharmacieId      String?  @map("pharmacie_id") @db.Uuid
   dateVerification DateTime @default(now()) @map("date_verification") @db.Timestamptz(6)
@@ -980,6 +1021,7 @@ model VerificationEtablissement {
 
   @@index([etablissementId, dateVerification])
   @@index([pharmacieId, dateVerification])
+  @@index([organisationId])
   @@map("verifications_etablissement")
 }
 
@@ -1158,6 +1200,8 @@ model DossierSoins {
 /// + policy RLS + CareEpisodeService. prisma/sql/011.
 model ConsultationDossier {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   numeroConsultation String    @unique @default(dbgenerated("(((('CST-'::text || to_char(now(), 'YYYY-MM'::text)) || '-'::text) || lpad((nextval('consultations_dossier_numero_seq'::regclass))::text, 6, '0'::text)))")) @map("numero_consultation")
   dossierSoinsId     String    @map("dossier_soins_id") @db.Uuid
   medecinId          String    @map("medecin_id") @db.Uuid
@@ -1178,6 +1222,7 @@ model ConsultationDossier {
 
   @@index([dossierSoinsId])
   @@index([medecinId])
+  @@index([organisationId])
   @@map("consultations_dossier")
 }
 
@@ -1259,6 +1304,8 @@ model Ordonnance {
 /// voir `PharmacyService.confirmerPaiementDispensation`. prisma/sql/026.
 model LigneOrdonnance {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   ordonnanceId           String    @map("ordonnance_id") @db.Uuid
   denominationMedicament String    @map("denomination_medicament")
   dosage                 String?
@@ -1279,6 +1326,7 @@ model LigneOrdonnance {
   @@index([ordonnanceId])
   @@index([statut])
   @@index([pharmacieServanteId])
+  @@index([organisationId])
   @@map("lignes_ordonnance")
 }
 
@@ -1350,6 +1398,8 @@ model ContestationActe {
 /// documenté au prompt précédent, comblé ici. prisma/sql/026.
 model StockMedicamentPharmacie {
   id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   pharmacieId            String   @map("pharmacie_id") @db.Uuid
   denominationMedicament String   @map("denomination_medicament")
   prixPharmacie          Decimal? @map("prix_pharmacie") @db.Decimal(14, 2)
@@ -1364,6 +1414,7 @@ model StockMedicamentPharmacie {
 
   @@unique([pharmacieId, denominationMedicament])
   @@index([pharmacieId])
+  @@index([organisationId])
   @@map("stock_medicaments_pharmacie")
 }
 
@@ -1374,6 +1425,8 @@ model StockMedicamentPharmacie {
 /// verifier_dispensation_payable). prisma/sql/026.
 model DispensationPharmacie {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   ordonnanceId          String    @map("ordonnance_id") @db.Uuid
   pharmacieId           String    @map("pharmacie_id") @db.Uuid
   /// utilisateur ayant préparé la dispensation (n'importe lequel des 3
@@ -1396,11 +1449,14 @@ model DispensationPharmacie {
   @@index([ordonnanceId])
   @@index([pharmacieId])
   @@index([statut])
+  @@index([organisationId])
   @@map("dispensations_pharmacie")
 }
 
 model LigneDispensation {
   id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   dispensationId      String    @map("dispensation_id") @db.Uuid
   ligneOrdonnanceId   String    @map("ligne_ordonnance_id") @db.Uuid
   prixUnitaire        Decimal   @map("prix_unitaire") @db.Decimal(14, 2)
@@ -1448,6 +1504,7 @@ model LigneDispensation {
   @@index([dispensationId])
   @@index([ligneOrdonnanceId])
   @@index([factureMensuelleId])
+  @@index([organisationId])
   @@map("lignes_dispensation")
 }
 
@@ -1565,6 +1622,8 @@ model TicketSoins {
 /// (v10 §1.2). prisma/sql/014.
 model ActeDossier {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   dossierSoinsId        String    @map("dossier_soins_id") @db.Uuid
   ticketSoinsId         String    @map("ticket_soins_id") @db.Uuid
   consultationId        String?   @map("consultation_id") @db.Uuid
@@ -1636,6 +1695,7 @@ model ActeDossier {
   @@index([dossierSoinsId])
   @@index([ticketSoinsId])
   @@index([statut])
+  @@index([organisationId])
   @@map("actes_dossier")
 }
 
@@ -1879,6 +1939,8 @@ model PaiementGroupe {
 /// pharmacie), même pattern que `AutorisationRepetitionActe` (codeActe/typeVisite).
 model PaiementGroupeFacture {
   id                              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   paiementGroupeId                String  @map("paiement_groupe_id") @db.Uuid
   factureMensuelleEtablissementId String? @map("facture_mensuelle_etablissement_id") @db.Uuid
   factureMensuellePharmacieId     String? @map("facture_mensuelle_pharmacie_id") @db.Uuid
@@ -1888,6 +1950,7 @@ model PaiementGroupeFacture {
   factureMensuellePharmacie      FactureMensuellePharmacie?     @relation(fields: [factureMensuellePharmacieId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([paiementGroupeId])
+  @@index([organisationId])
   @@map("paiements_groupes_factures")
 }
 
@@ -2152,6 +2215,8 @@ model Reclamation {
 /// INSERT-only pour svc_adjudication ; jamais mis à jour. prisma/sql/018.
 model Remboursement {
   id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Société propriétaire — héritée du parent par déclencheur (prisma/sql/098), jamais à renseigner.
+  organisationId String @default(dbgenerated()) @map("organisation_id") @db.Uuid
   reclamationId       String   @unique @map("reclamation_id") @db.Uuid
   montantRembourse    Decimal  @map("montant_rembourse") @db.Decimal(14, 2)
   plafondRestantApres Decimal? @map("plafond_restant_apres") @db.Decimal(14, 2)
@@ -2161,6 +2226,7 @@ model Remboursement {
 
   reclamation Reclamation @relation(fields: [reclamationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  @@index([organisationId])
   @@map("remboursements")
 }
 
@@ -2329,4 +2395,18 @@ model PartenaireVitrine {
 
   @@index([organisationId, ordreAffichage])
   @@map("partenaires_vitrine")
+}
+
+/// categories_etablissement — hiérarchie des établissements (prisma/sql/100). `niveau` croissant : centre médical (1) <
+/// hôpital public (2) < clinique (3) < polyclinique (4). Référentiel partagé, lisible par tout compte authentifié.
+model CategorieEtablissement {
+  code    String  @id
+  libelle String
+  niveau  Int     @unique
+  actif   Boolean @default(true)
+
+  etablissements EtablissementSante[] @relation("EtabCategorie")
+  produits       Produit[]            @relation("ProduitNiveauAcces")
+
+  @@map("categories_etablissement")
 }

@@ -11,6 +11,7 @@ import { exigerIdentite } from '@/lib/identity';
 import { chargerPhotosFamille, sansCheminsPhoto } from '@/lib/photos';
 import {
   LIBELLE_STATUT_MEMBRE,
+  statutMembreAffiche,
   TON_STATUT_MEMBRE,
   peutGererMembres,
   peutInviterAdherent,
@@ -62,7 +63,7 @@ export async function AdherentSocieteDetail({
         titre={`${adherent.nom} ${adherent.prenom}`}
         action={
           <StatutBadge
-            statut={adherent.statut}
+            statut={statutMembreAffiche(adherent.statut, adherent.police?.statut)}
             map={TON_STATUT_MEMBRE}
             libelles={LIBELLE_STATUT_MEMBRE}
           />

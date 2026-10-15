@@ -21,6 +21,7 @@ import {
   LIENS_PARENTE,
   SEXES,
   TON_STATUT_BENEFICIAIRE,
+  statutMembreAffiche,
 } from '@/lib/member';
 import { PhotoUploader } from '@/components/dashboard/adherents/photo-uploader';
 import { ChampsContactsBeneficiaire, lireContacts } from '@/components/dashboard/adherents/champs-contacts';
@@ -192,7 +193,7 @@ export function BeneficiairesEcran({
                   <div>
                     <dt className="text-sm text-muted-foreground">Statut</dt>
                     <dd>
-                      <StatutBadge statut={b.statut} map={TON_STATUT_BENEFICIAIRE} libelles={LIBELLE_STATUT_BENEFICIAIRE} />
+                      <StatutBadge statut={statutMembreAffiche(b.statut, adherent.police?.statut)} map={TON_STATUT_BENEFICIAIRE} libelles={LIBELLE_STATUT_BENEFICIAIRE} />
                     </dd>
                   </div>
                   <div>

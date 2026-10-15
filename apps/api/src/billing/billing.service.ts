@@ -1,3 +1,4 @@
+import type { AjusterGrillesDto } from './dto/billing.dto';
 import {
   BadRequestException,
   ConflictException,
@@ -143,6 +144,52 @@ export class BillingService {
    * Modification d'une grille (ADR-007) : permise même si elle a servi (chaque
    * cotisation garde son montant) ; avant / après dans l'audit.
    */
+  /**
+   * Ajuste le COÛT d'une formule : hausse (+) ou baisse (−) en pourcentage de ses grilles tarifaires (standard et négociées, ou la
+   * seule grille négociée d'une société). N'affecte que les cotisations calculées ENSUITE : celles déjà émises ne changent pas.
+   * Tracé à l'audit (motif, pourcentage, montants avant / après par grille).
+   */
+  async ajusterGrilles(user: AuthenticatedUser, dto: AjusterGrillesDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestionGrilles(ctx);
+    if (dto.pourcentage === 0) throw new BadRequestException('Le pourcentage ne peut pas être nul.');
+    const produit = await this.prisma.produit.findFirst({
+      where: { id: dto.produitId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!produit) throw new NotFoundException('Produit introuvable.');
+    const grilles = await this.prisma.grilleTarifaire.findMany({
+      where: {
+        produitId: dto.produitId,
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+        ...(dto.souscripteurId ? { souscripteurId: dto.souscripteurId } : {}),
+      },
+    });
+    if (grilles.length === 0) {
+      throw new ConflictException('Aucune grille tarifaire à ajuster pour cette formule : créez d\'abord ses grilles.');
+    }
+    const coef = new Decimal(1).add(new Decimal(dto.pourcentage).div(100));
+    const detail = grilles.map((g) => ({
+      id: g.id,
+      tranche: `${g.trancheAgeMin}-${g.trancheAgeMax}`,
+      societe: g.souscripteurId,
+      avant: new Decimal(g.montantMensuel.toString()).toFixed(2),
+      apres: new Decimal(g.montantMensuel.toString()).mul(coef).toDecimalPlaces(2).toFixed(2),
+    }));
+    await this.prisma.$transaction(async (tx) => {
+      for (const d of detail) {
+        await tx.grilleTarifaire.update({ where: { id: d.id }, data: { montantMensuel: d.apres } });
+      }
+      await this.audit(tx, ctx.userId, 'AJUSTEMENT_TARIFS_FORMULE', dto.produitId, {
+        produit: `${produit.nom} v${produit.version}`,
+        pourcentage: dto.pourcentage,
+        motif: dto.motif.trim(),
+        grilles: detail,
+      } as Prisma.InputJsonValue, 'grilles_tarifaires');
+    });
+    return { produit: { id: produit.id, nom: produit.nom, version: produit.version }, pourcentage: dto.pourcentage, grillesAjustees: detail.length, detail };
+  }
+
   async modifierGrille(user: AuthenticatedUser, id: string, dto: UpdateGrilleDto) {
     const ctx = await this.contexteAppelant(user);
     this.assertGestionGrilles(ctx);

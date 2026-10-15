@@ -49,6 +49,7 @@ export async function creerEtablissement(input: {
   nom: string;
   code: string;
   typeEtablissement: string;
+  categorieEtablissement?: string;
   ville?: string;
   commune?: string;
   adresseComplete?: string;
@@ -105,7 +106,7 @@ interface ModifierLieuInput {
 
 export async function modifierEtablissement(
   id: string,
-  input: ModifierLieuInput & { typeEtablissement?: string },
+  input: ModifierLieuInput & { typeEtablissement?: string; categorieEtablissement?: string },
 ): Promise<ResultatReseau> {
   const res = await apiFetch(`/api/v1/provider/etablissements/${id}`, {
     method: 'PATCH',

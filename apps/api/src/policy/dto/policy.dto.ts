@@ -81,6 +81,23 @@ export class CreateAvenantDto {
   impactCotisation?: number;
 }
 
+/** `POST policies/:id/changer-formule` — rattache une police ACTIVE à une version PUBLIÉE de formule (avenant « changement de formule »). */
+export class ChangerFormulePoliceDto {
+  @IsUUID()
+  produitId!: string;
+
+  /** Date d'effet (dans la période de la police) ; défaut : aujourd'hui. */
+  @IsOptional()
+  @IsISO8601()
+  dateEffet?: string;
+}
+
+/** `POST policies/changer-formule-masse` — toutes les polices ACTIVES d'anciennes versions de la formule passent à la version choisie. */
+export class ChangerFormuleMasseDto {
+  @IsUUID()
+  produitCibleId!: string;
+}
+
 /** Modification libre d'une police AU STADE DU DEVIS (le souscripteur ne change pas). */
 export class UpdatePoliceDto {
   @IsOptional()

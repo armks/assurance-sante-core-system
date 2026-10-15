@@ -49,6 +49,12 @@ export class ReferenceController {
     return this.categoriesActe.lister();
   }
 
+  /** Catégories d'établissement hiérarchisées (niveau croissant) — donnée de référence non sensible. */
+  @Get('categories-etablissement')
+  listerCategoriesEtablissement() {
+    return this.reference.listerCategoriesEtablissement();
+  }
+
   // --- Catalogue national partagé (v1 §10.4, PROMPT 23) --------
 
   /** Catalogue national (hors retirés) + état d'ACTIVATION pour l'organisation de l'appelant (ADR-009). */

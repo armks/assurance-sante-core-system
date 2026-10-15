@@ -6,6 +6,7 @@ import { useState, useTransition } from 'react';
 import {
   annulerAvenant,
   appliquerAvenant,
+  changerFormulePolice,
   changerStatut,
   creerAvenant,
   dupliquerEnDevis,
@@ -92,9 +93,14 @@ const montant = (v: string | null) =>
 export function PoliceDetail({
   police,
   actions,
+  formulesPubliees = [],
+  peutChangerFormule = false,
 }: {
   police: Police;
   actions: ActionsPolice;
+  /** Versions PUBLIÉES de formule vers lesquelles la police peut évoluer (hors version actuelle). */
+  formulesPubliees?: { id: string; libelle: string }[];
+  peutChangerFormule?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -166,6 +172,38 @@ export function PoliceDetail({
             {police.produit
               ? `${police.produit.nom} · v${police.produit.version}`
               : '—'}
+            {active && peutChangerFormule && (
+              <FormulaireModal
+                titre="Mettre à jour la formule de la police"
+                description={
+                  formulesPubliees.length === 0
+                    ? 'Aucune autre version publiée. Créez une nouvelle version de la formule (Produits), mettez à jour ses garanties puis publiez-la.'
+                    : 'La police passe à la version choisie (garanties à jour) par un avenant « changement de formule » daté. Les soins déjà traités gardent leurs anciennes garanties.'
+                }
+                declencheur={
+                  <Button size="xs" variant="outline" className="ml-2">
+                    Mettre à jour
+                  </Button>
+                }
+                libelleSoumettre="Appliquer"
+                onSoumettre={async (fd) =>
+                  changerFormulePolice(police.id, {
+                    produitId: String(fd.get('produitId') ?? ''),
+                    dateEffet: String(fd.get('dateEffet') ?? ''),
+                  })
+                }
+                onSucces={() => router.refresh()}
+              >
+                <ChampSelect
+                  name="produitId"
+                  label="Nouvelle version de la formule"
+                  required
+                  placeholder="Choisir une version publiée…"
+                  options={formulesPubliees.map((f) => ({ valeur: f.id, libelle: f.libelle }))}
+                />
+                <ChampTexte name="dateEffet" label="Date d’effet (facultatif, aujourd’hui par défaut)" type="date" />
+              </FormulaireModal>
+            )}
           </Ligne>
           <Ligne label="Début">{dateFr(police.dateDebut)}</Ligne>
           <Ligne label="Fin">{dateFr(police.dateFin)}</Ligne>

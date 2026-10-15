@@ -16,6 +16,28 @@ import {
   ValidateNested,
 } from 'class-validator';
 
+/** `POST billing/grilles-tarifaires/ajuster` — hausse (+) ou baisse (−) en pourcentage de toutes les grilles d'une formule. */
+export class AjusterGrillesDto {
+  @IsUUID()
+  produitId!: string;
+
+  /** Pourcentage appliqué aux montants mensuels : 10 = +10 %, −15 = −15 %. */
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(-90)
+  @Max(500)
+  pourcentage!: number;
+
+  /** Limite l'ajustement à la grille négociée d'une société (sinon toutes les grilles de la formule). */
+  @IsOptional()
+  @IsUUID()
+  souscripteurId?: string;
+
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  motif!: string;
+}
+
 export class CreateGrilleDto {
   @IsUUID()
   produitId!: string;

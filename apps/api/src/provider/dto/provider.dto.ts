@@ -62,6 +62,9 @@ export class CreateEtablissementDto extends BaseLieuDto {
   @IsIn(TYPES_ETABLISSEMENT)
   typeEtablissement!: (typeof TYPES_ETABLISSEMENT)[number];
 
+  /** Catégorie hiérarchisée (centre médical < hôpital public < clinique < polyclinique) ; défaut base : CENTRE_MEDICAL. */
+  @IsOptional() @IsString() @MaxLength(40) categorieEtablissement?: string;
+
   @IsOptional() @IsString() @MaxLength(40) telephoneUrgence?: string;
   @IsOptional() @IsObject() horairesSemaine?: Record<string, unknown>;
 
@@ -74,6 +77,7 @@ export class UpdateEtablissementDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(40) code?: string;
   @IsOptional() @IsString() @MaxLength(80) pays?: string;
   @IsOptional() @IsIn(TYPES_ETABLISSEMENT) typeEtablissement?: string;
+  @IsOptional() @IsString() @MaxLength(40) categorieEtablissement?: string;
   @IsOptional() @IsString() @MaxLength(120) ville?: string;
   @IsOptional() @IsString() @MaxLength(120) commune?: string;
   @IsOptional() @IsString() @MaxLength(120) quartier?: string;

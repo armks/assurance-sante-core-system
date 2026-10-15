@@ -48,6 +48,15 @@ type Db = PrismaService | Prisma.TransactionClient;
 export class ReferenceService {
   private readonly logger = new Logger(ReferenceService.name);
 
+  /** Catégories d'établissement actives, du niveau le plus bas au plus haut. */
+  listerCategoriesEtablissement() {
+    return this.prisma.categorieEtablissement.findMany({
+      where: { actif: true },
+      orderBy: { niveau: 'asc' },
+      select: { code: true, libelle: true, niveau: true },
+    });
+  }
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: IdentityService,

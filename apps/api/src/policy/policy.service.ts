@@ -1,3 +1,4 @@
+import type { ChangerFormuleMasseDto, ChangerFormulePoliceDto } from './dto/policy.dto';
 import {
   BadRequestException,
   ConflictException,
@@ -494,6 +495,100 @@ export class PolicyService {
   }
 
   // --- Polices : modifier, supprimer, dupliquer en devis (ADR-007, lot 5) -----------------
+
+  /**
+   * Fait évoluer une police ACTIVE vers une autre version PUBLIÉE de formule. Les garanties d'une version publiée ne se modifient
+   * jamais (les soins déjà traités gardent leurs règles) : on crée une nouvelle version (brouillon copié de la précédente), on met à jour
+   * ses garanties, on la publie, puis on y rattache les polices par un avenant « changement de formule » appliqué et daté.
+   */
+  async changerFormule(user: AuthenticatedUser, policeId: string, dto: ChangerFormulePoliceDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const police = await this.assertPoliceDansPerimetre(ctx.organisationId, policeId);
+    if (police.statut !== 'ACTIVE') {
+      throw new ConflictException(`Seule une police ACTIVE peut changer de formule (statut actuel : ${police.statut}).`);
+    }
+    const produit = await this.produitPublieCible(ctx.organisationId, dto.produitId);
+    if (produit.id === police.produitId) {
+      throw new ConflictException('La police est déjà rattachée à cette version de formule.');
+    }
+    const dateEffet = dto.dateEffet ? new Date(dto.dateEffet) : new Date();
+    this.assertDateEffetDansPeriode(police, dateEffet);
+
+    const avenantId = await this.prisma.$transaction(async (tx) => {
+      const avenant = await this.appliquerChangementFormule(tx, ctx.userId, police, produit, dateEffet);
+      return avenant.id;
+    });
+    return { policeId, avenantId, produit: { id: produit.id, nom: produit.nom, version: produit.version } };
+  }
+
+  /** Toutes les polices ACTIVES des versions antérieures de la même formule passent à la version publiée choisie. */
+  async changerFormuleEnMasse(user: AuthenticatedUser, dto: ChangerFormuleMasseDto) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertGestion(ctx);
+    const cible = await this.produitPublieCible(ctx.organisationId, dto.produitCibleId);
+    const polices = await this.prisma.police.findMany({
+      where: {
+        organisationId: ctx.organisationId,
+        deletedAt: null,
+        statut: 'ACTIVE',
+        produit: { nom: cible.nom, version: { lt: cible.version }, deletedAt: null },
+      },
+    });
+    const aujourdhui = new Date();
+    let appliquees = 0;
+    let ignorees = 0;
+    await this.prisma.$transaction(async (tx) => {
+      for (const police of polices) {
+        // police hors de sa période aujourd'hui : l'avenant daté du jour serait refusé → ignorée
+        if ((police.dateDebut && aujourdhui < police.dateDebut) || (police.dateFin && aujourdhui > police.dateFin)) {
+          ignorees += 1;
+          continue;
+        }
+        await this.appliquerChangementFormule(tx, ctx.userId, police, cible, aujourdhui);
+        appliquees += 1;
+      }
+    });
+    return { produit: { id: cible.id, nom: cible.nom, version: cible.version }, policesMisesAJour: appliquees, ignorees };
+  }
+
+  private async produitPublieCible(organisationId: string, produitId: string) {
+    const produit = await this.prisma.produit.findFirst({ where: { id: produitId, organisationId, deletedAt: null } });
+    if (!produit) throw new NotFoundException('Formule introuvable.');
+    if (produit.statut !== 'PUBLIE') {
+      throw new BadRequestException(`Une police ne peut référencer qu'une formule PUBLIÉE (« ${produit.nom} » v${produit.version} : ${produit.statut}).`);
+    }
+    return produit;
+  }
+
+  private async appliquerChangementFormule(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    police: { id: string; produitId: string; numeroPolice: string | null },
+    produit: { id: string; nom: string; version: number },
+    dateEffet: Date,
+  ) {
+    const avenant = await tx.avenant.create({
+      data: {
+        policeId: police.id,
+        type: 'CHANGEMENT_FORMULE',
+        dateEffet,
+        creePar: userId,
+        proratisationAppliquee: false,
+        impactCotisation: null,
+        statut: 'APPLIQUE',
+      },
+    });
+    await tx.police.update({ where: { id: police.id }, data: { produitId: produit.id } });
+    await this.audit(
+      tx,
+      userId,
+      'CHANGEMENT_FORMULE_POLICE',
+      police.id,
+      { avenantId: avenant.id, ancienProduitId: police.produitId, nouveauProduitId: produit.id, formule: `${produit.nom} v${produit.version}`, dateEffet: dateEffet.toISOString().slice(0, 10) },
+    );
+    return avenant;
+  }
 
   /** Modification libre — AU STADE DU DEVIS seulement ; ensuite, un avenant. */
   async modifierPolice(user: AuthenticatedUser, id: string, dto: UpdatePoliceDto) {

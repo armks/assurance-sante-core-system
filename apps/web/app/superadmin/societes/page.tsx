@@ -34,6 +34,7 @@ interface Organisation {
   createdAt: string;
   logoUrl: string | null;
   slug: string;
+  codeAssureur: string;
   licence: Licence | null;
 }
 
@@ -87,6 +88,7 @@ export default async function Societes() {
               <div className="flex flex-wrap items-center gap-2">
                 <CardTitle className="text-base">{org.nom}</CardTitle>
                 <Badge variant="secondary">{org.type}</Badge>
+                <Badge variant="outline" title="Code assureur">Code {org.codeAssureur}</Badge>
                 <Badge variant="outline">{org.pays}</Badge>
                 <Badge variant="muted">{org.devise}</Badge>
                 {org.licence ? (

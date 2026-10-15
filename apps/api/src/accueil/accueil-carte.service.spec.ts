@@ -46,7 +46,7 @@ describe('AccueilCarteService — fiche', () => {
   it('carte ACTIVE : expose uniquement les champs prévus et journalise la consultation', async () => {
     const { service, audits } = creer();
     const f = await service.fiche(USER, 'CM-1');
-    expect(Object.keys(f).sort()).toEqual(['carte', 'contacts', 'dateNaissance', 'nom', 'numeroCarte', 'photoUrl', 'police', 'prenom', 'produit', 'societe', 'souscripteur', 'type'].sort());
+    expect(Object.keys(f).sort()).toEqual(['carte', 'contacts', 'dateNaissance', 'lien', 'nom', 'numeroCarte', 'photoUrl', 'police', 'prenom', 'produit', 'sexe', 'societe', 'souscripteur', 'type'].sort());
     expect(f.carte).toEqual({ mention: 'ACTIVE', active: true, motifs: [] });
     expect(f.photoUrl).toBe('https://signe/p/a1.jpg');
     expect(JSON.stringify(f)).not.toContain('jo.doe@mail.test');

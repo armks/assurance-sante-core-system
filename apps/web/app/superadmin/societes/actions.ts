@@ -48,6 +48,7 @@ async function initier(path: string, body: unknown): Promise<ResultatInitiation>
 /** Étape 1 — création d'une organisation + premier compte (envoie le code). */
 export async function initierCreationOrganisation(input: {
   nom: string;
+  codeAssureur?: string;
   type: 'ASSUREUR' | 'MUTUELLE';
   pays: string;
   devise: string;

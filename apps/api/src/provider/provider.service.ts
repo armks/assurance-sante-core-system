@@ -78,6 +78,7 @@ export class ProviderService {
     const ctx = await this.contexteAppelant(user);
     this.assertGestion(ctx);
     await this.assertCodeLibre('etablissementSante', dto.code);
+    if (dto.categorieEtablissement) await this.exigerCategorieEtablissement(dto.categorieEtablissement);
 
     const { latitude, longitude, avertissements } = await this.resoudreCoords(
       dto,
@@ -98,6 +99,7 @@ export class ProviderService {
           nom: dto.nom,
           code: dto.code,
           typeEtablissement: dto.typeEtablissement,
+          ...(dto.categorieEtablissement ? { categorieEtablissement: dto.categorieEtablissement } : {}),
           ...(dto.pays ? { pays: dto.pays } : {}),
           ville: dto.ville ?? null,
           commune: dto.commune ?? null,
@@ -1302,6 +1304,9 @@ export class ProviderService {
     if (dto.code !== undefined && dto.code !== avant.code) {
       await this.assertCodeLibre(modele, dto.code);
     }
+    if (cible === 'etablissement' && (dto as UpdateEtablissementDto).categorieEtablissement) {
+      await this.exigerCategorieEtablissement((dto as UpdateEtablissementDto).categorieEtablissement!);
+    }
 
     const data = this.lieuUpdateData(dto);
     const avertissements: Avertissement[] = [];
@@ -1426,6 +1431,11 @@ export class ProviderService {
     return cible === 'etablissement'
       ? this.chargerEtablissement(ctx.organisationId, id)
       : this.chargerPharmacie(ctx.organisationId, id);
+  }
+
+  private async exigerCategorieEtablissement(code: string): Promise<void> {
+    const c = await this.prisma.categorieEtablissement.findFirst({ where: { code, actif: true } });
+    if (!c) throw new BadRequestException(`Catégorie d'établissement inconnue : ${code}.`);
   }
 
   private lieuUpdateData(

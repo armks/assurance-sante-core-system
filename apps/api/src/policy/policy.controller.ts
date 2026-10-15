@@ -16,6 +16,8 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   AnnulerMotifDto,
+  ChangerFormuleMasseDto,
+  ChangerFormulePoliceDto,
   ChangerStatutDto,
   CreateAvenantDto,
   CreateDevisDto,
@@ -88,6 +90,22 @@ export class PolicyController {
   }
 
   /** « Dupliquer en devis » depuis une police terminée. */
+  /** Rattache TOUTES les polices actives des anciennes versions de la formule à la version publiée choisie. */
+  @Post('changer-formule-masse')
+  changerFormuleMasse(@CurrentUser() user: AuthenticatedUser, @Body() dto: ChangerFormuleMasseDto) {
+    return this.policy.changerFormuleEnMasse(user, dto);
+  }
+
+  /** Fait évoluer une police ACTIVE : elle passe à une autre version PUBLIÉE de formule (garanties à jour). */
+  @Post(':id/changer-formule')
+  changerFormule(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ChangerFormulePoliceDto,
+  ) {
+    return this.policy.changerFormule(user, id, dto);
+  }
+
   @Post(':id/dupliquer')
   dupliquer(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.policy.dupliquerEnDevis(user, id);

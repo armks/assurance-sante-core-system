@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import type { RecapDispensations } from '@/app/dashboard-pharmacie/dispensation-types';
+import type { AdherentDetail } from '@/components/dashboard/adherents/types';
 import {
   ConsultationEcran,
   type CodeConsultation,
@@ -11,12 +13,12 @@ import type { PageServeur } from '@/components/dashboard/patterns';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { PAGE_VIDE, requeteListe, type ParametresUrl } from '@/lib/liste-serveur';
 import { exigerIdentite } from '@/lib/identity';
+import { bornesPeriode, periodeDemandee } from '@/lib/periode-rapide';
+import { niveauCategorieEtablissement } from '@/lib/reseau';
 
 export const metadata: Metadata = { title: 'Consultation — Adhérent' };
 
-interface AdherentPoliceOnly {
-  police: { id: string } | null;
-}
+type AdherentPoliceOnly = AdherentDetail;
 
 export default async function ConsultationPage({
   searchParams,
@@ -38,30 +40,60 @@ export default async function ConsultationPage({
     );
   }
 
-  const [resEtabs, resAdherent, resCodes] = await Promise.all([
+  const params = await searchParams;
+  const un = (k: string) => {
+    const v = params[k];
+    return (Array.isArray(v) ? v[0] : v) || undefined;
+  };
+  const periode = periodeDemandee(un('periode'));
+  const { du, au } = bornesPeriode(periode, un('du'), un('au'));
+  const filtres = requeteListe({ ...params, du, au }, ['du', 'au', 'statut', 'carte']);
+  const sansPage = filtres.replace(/[?&](page|limite)=[^&]*/g, '').replace(/^&/, '?');
+
+  const [resEtabs, resAdherent, resCodes, resRecap] = await Promise.all([
     apiFetch('/api/v1/provider/etablissements?statut=ACTIF'),
     apiFetch(`/api/v1/member/adherents/${adherentId}`),
-    apiFetch(`/api/v1/preauthorization/codes-consultation${requeteListe(await searchParams, ['du', 'au', 'statut'])}`),
+    apiFetch(`/api/v1/preauthorization/codes-consultation${filtres}`),
+    apiFetch(`/api/v1/preauthorization/codes-consultation/recapitulatif${sansPage}`),
   ]);
 
-  const etablissements: EtablissementOption[] = resEtabs.ok ? await resEtabs.json() : [];
+  const tousEtablissements: EtablissementOption[] = resEtabs.ok ? await resEtabs.json() : [];
   const erreur = resEtabs.ok ? null : await messageErreur(resEtabs);
   const adherent: AdherentPoliceOnly | null = resAdherent.ok ? await resAdherent.json() : null;
+  // Niveau d'accès de la formule : on ne propose que les établissements de sa catégorie ou d'une catégorie inférieure.
+  const niveauFormule = niveauCategorieEtablissement(adherent?.police?.produit?.niveauAccesEtablissement ?? 'POLYCLINIQUE');
+  const accessibles = new Set(
+    tousEtablissements.filter((e) => niveauCategorieEtablissement(e.categorieEtablissement) <= niveauFormule).map((e) => e.id),
+  );
   const codes: PageServeur<CodeConsultation> = resCodes.ok ? await resCodes.json() : PAGE_VIDE;
+  const recap: RecapDispensations | null = resRecap.ok ? await resRecap.json() : null;
+  const cartesFamille = adherent
+    ? [
+        { numeroCarte: adherent.numeroCarte, nom: `${adherent.prenom} ${adherent.nom} (titulaire)` },
+        ...(adherent.beneficiaires ?? [])
+          .filter((b) => b.numeroCarte)
+          .map((b) => ({ numeroCarte: b.numeroCarte!, nom: `${b.prenom} ${b.nom}` })),
+      ]
+    : [];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PageTitre
-        titre="Demander une consultation"
-        description="Sélectionnez l’établissement, obtenez un code à transmettre oralement à l’accueil."
+        titre="Mes consultations"
+        description="Consultations du jour par défaut — demandez un code, à transmettre oralement à l’accueil de l’établissement."
+        uneLigne
       />
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
         <ConsultationEcran
-          etablissements={etablissements}
+          etablissements={tousEtablissements}
+          accessibles={[...accessibles]}
           policeId={adherent?.police?.id ?? null}
           codes={codes}
+          recap={recap}
+          periode={periode}
+          cartesFamille={cartesFamille}
         />
       )}
     </div>

@@ -278,7 +278,7 @@ export async function televerserPhotoBeneficiairePersonnel(
 /** Modifie l'identité d'un adhérent (refusé s'il est archivé : désarchivez-le d'abord). */
 export async function modifierAdherent(
   id: string,
-  input: { nom?: string; prenom?: string; dateNaissance?: string; sexe?: string; telephone?: string; email?: string },
+  input: { nom?: string; prenom?: string; dateNaissance?: string; sexe?: string; telephone?: string; email?: string; policeId?: string },
 ): Promise<ResultatSoumission> {
   const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
   const res = await apiFetch(`/api/v1/member/adherents/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -347,4 +347,21 @@ export async function desarchiverBeneficiaire(
   if (!res.ok) return { ok: false, error: await messageErreur(res) };
   revalider(`/${adherentId}`);
   return { ok: true };
+}
+
+/** Rattache en masse les adhérents (et leurs bénéficiaires) d'une police à une autre police ACTIVE. */
+export async function changerPoliceEnMasse(input: {
+  policeSourceId: string;
+  policeCibleId: string;
+  /** Sélection d'adhérents (cochés) ; absent : tous ceux de la police d'origine. */
+  adherentIds?: string[];
+}): Promise<ResultatSoumission> {
+  const res = await apiFetch('/api/v1/member/adherents/changer-police', { method: 'POST', body: JSON.stringify(input) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const r = (await res.json()) as { policeCible: string; adherentsTransferes: number; beneficiairesCouverts: number; ignores: number };
+  revalider();
+  return {
+    ok: true,
+    message: `${r.adherentsTransferes} adhérent(s) et ${r.beneficiairesCouverts} bénéficiaire(s) rattaché(s) à ${r.policeCible}${r.ignores ? ` (${r.ignores} ignoré(s))` : ''}.`,
+  };
 }

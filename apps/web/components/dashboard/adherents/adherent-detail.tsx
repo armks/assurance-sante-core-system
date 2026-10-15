@@ -36,6 +36,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   LIBELLE_STATUT_BENEFICIAIRE,
   LIBELLE_STATUT_MEMBRE,
+  statutMembreAffiche,
   LIENS_PARENTE,
   SEXES,
   STATUT_BENEFICIAIRE_EN_ATTENTE_ASSUREUR,
@@ -80,6 +81,7 @@ export function AdherentDetail({
   photosParBeneficiaire = {},
   estSociete = false,
   retourHref,
+  policesDisponibles = [],
 }: {
   adherent: AdherentDetailType;
   peutGerer: boolean;
@@ -105,6 +107,8 @@ export function AdherentDetail({
   estSociete?: boolean;
   /** Page de liste où revenir après une suppression. */
   retourHref?: string;
+  /** Polices ACTIVES de la société (hors police actuelle) vers lesquelles l'assureur peut rattacher l'adhérent. */
+  policesDisponibles?: { id: string; libelle: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -205,7 +209,7 @@ export function AdherentDetail({
           </Ligne>
           <Ligne label="Statut">
             <StatutBadge
-              statut={adherent.statut}
+              statut={statutMembreAffiche(adherent.statut, adherent.police?.statut)}
               map={TON_STATUT_MEMBRE}
               libelles={LIBELLE_STATUT_MEMBRE}
             />
@@ -325,6 +329,32 @@ export function AdherentDetail({
                     <ChampTexte name="email" label="E-mail" type="email" maxLength={200} defaultValue={adherent.email ?? ''} />
                   </div>
                 </FormulaireModal>
+                {!estSociete && (
+                  <FormulaireModal
+                    titre="Changer la police"
+                    description={
+                      policesDisponibles.length === 0
+                        ? 'Aucune autre police ACTIVE pour cette société : créez ou réactivez-en une dans « Polices ».'
+                        : 'L’adhérent (et ses bénéficiaires) sera couvert par la police choisie, qui doit être active.'
+                    }
+                    declencheur={
+                      <Button size="sm" variant="outline" disabled={pending || adherent.statut === 'RADIE'}>
+                        Changer la police
+                      </Button>
+                    }
+                    libelleSoumettre="Rattacher"
+                    onSoumettre={async (fd) => modifierAdherent(adherent.id, { policeId: String(fd.get('policeId') ?? '') })}
+                    onSucces={() => router.refresh()}
+                  >
+                    <ChampSelect
+                      name="policeId"
+                      label="Nouvelle police"
+                      required
+                      placeholder="Choisir une police active…"
+                      options={policesDisponibles.map((p) => ({ valeur: p.id, libelle: p.libelle }))}
+                    />
+                  </FormulaireModal>
+                )}
                 {estSociete && adherent.statut === 'ACTIF' && (
                   <FormulaireModal
                     titre="Proposer la suspension de l’adhérent"

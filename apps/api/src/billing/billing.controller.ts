@@ -1,3 +1,4 @@
+import { AjusterGrillesDto } from './dto/billing.dto';
 import {
   Body,
   Controller,
@@ -43,6 +44,12 @@ export class BillingController {
     @Body() dto: CreateGrilleDto,
   ) {
     return this.billing.creerGrille(user, dto);
+  }
+
+  /** Hausse ou baisse (%) de toutes les grilles d'une formule, avec motif — s'applique aux cotisations à venir. */
+  @Post('grilles-tarifaires/ajuster')
+  ajusterGrilles(@CurrentUser() user: AuthenticatedUser, @Body() dto: AjusterGrillesDto) {
+    return this.billing.ajusterGrilles(user, dto);
   }
 
   @Get('grilles-tarifaires')

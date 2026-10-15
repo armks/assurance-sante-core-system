@@ -13,6 +13,7 @@ import { PageTitre } from '@/components/page-titre';
 import { StatutBadge } from '@/components/dashboard/patterns';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
+import { exigerIdentite } from '@/lib/identity';
 
 export const metadata: Metadata = { title: 'Police — Assurance Informatique' };
 
@@ -30,6 +31,16 @@ export default async function PolicePage({
   const actions: ActionsPolice = resActions.ok
     ? await resActions.json()
     : { statut: police.statut, transitions: [], actions: [] };
+
+  // Versions publiées de formule (gestion réservée à la Direction et à l'Assurance Informatique).
+  const etat = await exigerIdentite(`/dashboard-assureur/informatique/polices/${id}`);
+  const roleChain = etat.kind === 'ok' ? etat.identity.permissions.roleChain : [];
+  const peutChangerFormule = roleChain.some((r: string) => ['ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE', 'ASSUREUR_EXPLOITATION'].includes(r));
+  const resProduits = peutChangerFormule ? await apiFetch('/api/v1/plan/produits?statut=PUBLIE') : null;
+  const produits: { id: string; nom: string; version: number }[] = resProduits && resProduits.ok ? await resProduits.json() : [];
+  const formulesPubliees = produits
+    .filter((p) => p.id !== (police as unknown as { produitId?: string }).produitId)
+    .map((p) => ({ id: p.id, libelle: `${p.nom} · v${p.version}` }));
 
   return (
     <div className="space-y-6">
@@ -51,7 +62,7 @@ export default async function PolicePage({
         }
       />
 
-      <PoliceDetail police={police} actions={actions} />
+      <PoliceDetail police={police} actions={actions} formulesPubliees={formulesPubliees} peutChangerFormule={peutChangerFormule} />
     </div>
   );
 }

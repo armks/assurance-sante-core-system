@@ -185,3 +185,29 @@ export async function dupliquerEnDevis(
   revalidatePath(CIBLE);
   return { ok: true, id: p.id, numeroPolice: p.numeroPolice };
 }
+
+/** Fait évoluer une police ACTIVE vers une autre version PUBLIÉE de sa formule (avenant « changement de formule »). */
+export async function changerFormulePolice(
+  id: string,
+  input: { produitId: string; dateEffet?: string },
+): Promise<ResultatSoumission> {
+  const body = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined && v !== ''));
+  const res = await apiFetch(`/api/v1/policy/polices/${id}/changer-formule`, { method: 'POST', body: JSON.stringify(body) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const r = (await res.json()) as { produit: { nom: string; version: number } };
+  revalidatePath(CIBLE);
+  revalidatePath(`${CIBLE}/${id}`);
+  return { ok: true, message: `Police rattachée à « ${r.produit.nom} » v${r.produit.version}.` };
+}
+
+/** Rattache toutes les polices actives des anciennes versions d'une formule à la version publiée choisie. */
+export async function changerFormuleEnMasse(produitCibleId: string): Promise<ResultatSoumission> {
+  const res = await apiFetch('/api/v1/policy/polices/changer-formule-masse', { method: 'POST', body: JSON.stringify({ produitCibleId }) });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  const r = (await res.json()) as { policesMisesAJour: number; ignorees: number; produit: { nom: string; version: number } };
+  revalidatePath(CIBLE);
+  return {
+    ok: true,
+    message: `${r.policesMisesAJour} police(s) rattachée(s) à « ${r.produit.nom} » v${r.produit.version}${r.ignorees ? ` (${r.ignorees} hors période, ignorée(s))` : ''}.`,
+  };
+}

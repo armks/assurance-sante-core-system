@@ -79,6 +79,12 @@ export class CreateGarantieDto {
 
 /** Mise à jour partielle d'une garantie (produit BROUILLON uniquement). */
 export class UpdateGarantieDto {
+  /** Motif de la modification — OBLIGATOIRE (5 caractères min.) sur une formule PUBLIÉE ; tracé à l'audit avec les valeurs avant / après. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  motif?: string;
+
   @IsOptional()
   @IsString()
   @Matches(FORMAT_CODE_CATEGORIE, { message: 'categorieActe doit être un code de catégorie (ex. CONSULTATION).' })

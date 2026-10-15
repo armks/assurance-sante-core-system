@@ -37,6 +37,15 @@ export class CreateProduitDto {
   @Max(3650)
   delaiDeclarationJours?: number;
 
+  /**
+   * Catégorie d'établissement la plus haute couverte par la formule (centre médical < hôpital public < clinique < polyclinique).
+   * Les niveaux inférieurs sont aussi couverts. Défaut base : POLYCLINIQUE (aucune restriction).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  niveauAccesEtablissement?: string;
+
   /** Garanties initiales (optionnel — on peut aussi les ajouter ensuite). */
   @IsOptional()
   @IsArray()
@@ -69,4 +78,15 @@ export class UpdateProduitDto {
   @Min(0)
   @Max(3650)
   delaiDeclarationJours?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  niveauAccesEtablissement?: string;
+
+  /** Motif — obligatoire pour modifier le niveau d'accès d'une formule PUBLIÉE (seul champ modifiable alors). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  motif?: string;
 }

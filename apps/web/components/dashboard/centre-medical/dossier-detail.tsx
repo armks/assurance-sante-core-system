@@ -64,7 +64,7 @@ interface Consultation {
   statut: string;
   dateConsultation: string;
 }
-interface Acte {
+export interface Acte {
   id: string;
   libelle: string;
   categorieActe: string;
@@ -149,6 +149,9 @@ export function DossierDetail({
   roleChain,
   medecins = [],
   tarifConsultation = null,
+  lectureSeule = false,
+  actionActe,
+  pied,
 }: {
   dossier: DossierComplet;
   moiId: string;
@@ -159,6 +162,12 @@ export function DossierDetail({
   medecins?: MedecinCentre[];
   /** Tarif d'une consultation selon la convention de l'établissement (F), `null` si indisponible. */
   tarifConsultation?: number | null;
+  /** Vue du personnel de l'assurance : aucune écriture du parcours de soins (ajout, réalisation, facturation, clôture du centre). */
+  lectureSeule?: boolean;
+  /** Action supplémentaire par acte (ex. décision de pré-autorisation de l'assurance). */
+  actionActe?: (a: Acte) => React.ReactNode;
+  /** Remplace les cartes « Clôture » et « Notes » (clôture forcée et notes de l'assurance). */
+  pied?: React.ReactNode;
 }) {
   const { libelle: libelleCategorieActe, options: optionsCategories } = useCategoriesActe();
   const router = useRouter();
@@ -169,13 +178,13 @@ export function DossierDetail({
   const cloturable = ouvert || dossier.statut === 'SUSPENDU';
   const ticketOuvert = dossier.ticket?.statut === 'OUVERT';
 
-  const suisMedecin = roleChain.includes(ROLE_MEDECIN_TRAITANT);
-  const peutGerer = aUnRole(roleChain, ROLES_GESTION_DOSSIER);
+  const suisMedecin = !lectureSeule && roleChain.includes(ROLE_MEDECIN_TRAITANT);
+  const peutGerer = !lectureSeule && aUnRole(roleChain, ROLES_GESTION_DOSSIER);
   const peutAjouterActe = ouvert && ticketOuvert && peutGerer;
   /** L'accueil renseigne la consultation et les actes « sur information du médecin ». */
-  const estAccueil = !suisMedecin && roleChain.includes(ROLE_DECLARATION_REALISATION);
+  const estAccueil = !lectureSeule && !suisMedecin && roleChain.includes(ROLE_DECLARATION_REALISATION);
   const peutAjouterConsultation = ouvert && (suisMedecin || estAccueil);
-  const peutFacturer = aUnRole(roleChain, ROLES_GENERATION_FACTURE);
+  const peutFacturer = !lectureSeule && aUnRole(roleChain, ROLES_GENERATION_FACTURE);
   const nomMedecin = (id: string | null | undefined) =>
     id ? (medecins.find((m) => m.id === id)?.libelle ?? (id === moiId ? 'Moi' : 'Médecin du centre')) : '—';
 
@@ -333,7 +342,7 @@ export function DossierDetail({
   ];
 
   /** Rôle EXACT : seul le médecin traitant atteste la réalisation d'un acte. */
-  const peutMarquerRealise = role === ROLE_MEDECIN_TRAITANT && dossier.ticket?.statut !== 'ANNULE';
+  const peutMarquerRealise = !lectureSeule && role === ROLE_MEDECIN_TRAITANT && dossier.ticket?.statut !== 'ANNULE';
   /** L'accueil déclare la réalisation « sur information du médecin » (médecin désigné, tracé). */
   const peutDeclarerRealise = estAccueil && dossier.ticket?.statut !== 'ANNULE';
 
@@ -414,13 +423,13 @@ export function DossierDetail({
           <CardTitle className="text-base">Consultations</CardTitle>
         </CardHeader>
         <CardContent>
-          {!ouvert && (
+          {!ouvert && !lectureSeule && (
             <p className="mb-3 text-sm text-muted-foreground">
               Le dossier n’est plus ouvert — aucune consultation ne peut être
               ajoutée.
             </p>
           )}
-          {ouvert && !peutAjouterConsultation && (
+          {ouvert && !lectureSeule && !peutAjouterConsultation && (
             <p className="mb-3 text-sm text-muted-foreground">
               Seuls le médecin du centre et l’accueil peuvent ajouter une consultation.
             </p>
@@ -608,8 +617,10 @@ export function DossierDetail({
             cleLigne={(a) => a.id}
             parPage={0}
             colonnes={colActes}
-            actionLigne={(a) =>
-              (peutMarquerRealise ||
+            actionLigne={(a) => (
+              <div className="flex items-center justify-end gap-1">
+                {actionActe?.(a)}
+                {(peutMarquerRealise ||
                 (peutDeclarerRealise && !PREAUTORISATION_BLOQUANTE.includes(a.statutPreautorisation))) &&
               a.statut === 'PRESCRIT' ? (
                 <FormulaireModal
@@ -632,8 +643,9 @@ export function DossierDetail({
                   {estAccueil && <ChampMedecinRealisateur medecins={medecins} />}
                   <ChampDateRealisation />
                 </FormulaireModal>
-              ) : null
-            }
+              ) : null}
+              </div>
+            )}
             vide="Aucun acte enregistré."
           />
         </CardContent>
@@ -644,6 +656,8 @@ export function DossierDetail({
         <TicketDetail dossier={dossier as unknown as DossierFacturation} peutFacturer />
       )}
 
+      {pied ?? (
+      <>
       {/* --- Clôture --- */}
       <Card className="gap-2 py-3">
         <CardHeader>
@@ -708,6 +722,8 @@ export function DossierDetail({
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

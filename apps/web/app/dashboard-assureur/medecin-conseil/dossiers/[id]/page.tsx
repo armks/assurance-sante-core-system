@@ -69,6 +69,8 @@ export default async function DossierMedecinConseilPage({
         dossier={dossier}
         peutCloturerForce={peutCloturerForce}
         peutAjouterNote={peutAjouterNote}
+        roleChain={roleChain}
+        moiId={etat.identity.profil.id}
       />
     </div>
   );

@@ -8978,3 +8978,21 @@ Terminé.
 
 ## 2026-10-16 — Exploitation : blocs de pré-autorisation en accordéon
 - Les trois blocs (Propositions à valider, Transmis au médecin conseil, Actes traités) sont des accordéons (`BlocAccordeon` dans `exploitation-preautorisations-ecran.tsx`) : en-tête cliquable avec chevron et nombre d'actes ; le premier est ouvert par défaut. tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Dossier de soins côté assurance : même présentation que le centre médical + décision par acte
+- La page `/dashboard-assureur/informatique/dossiers/{id}` (et celle du médecin conseil) réutilise `DossierDetail` du centre médical : fiche patient complète, consultations, ordonnances, actes du ticket de soins, en lecture seule du parcours de soins (nouvelle prop `lectureSeule`, aucune écriture : ajout, réalisation, facturation, clôture du centre). Cartes « Clôture forcée » et « Notes » conservées via la prop `pied`.
+- Bouton **Décision** sur chaque acte du tableau : Assurance Exploitation sur les actes `EN_ATTENTE_EXPLOITATION` (même formulaire que la file : approuver, refuser, escalader, ajustements), Médecin Conseil sur les actes `EN_ATTENTE_MEDECIN_CONSEIL` (approuver / refuser avec motif). Prop `actionActe` de `DossierDetail`.
+- Fichiers : `centre-medical/dossier-detail.tsx`, `exploitation/dossier-supervision-detail.tsx` (réécrit), `exploitation-preautorisations-ecran.tsx` (`DecisionExploitation` exporté), pages dossiers informatique et médecin-conseil. tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Dossier côté assurance : rapport du dossier
+- Carte « Rapport du dossier » ajoutée à la page dossier de l'assurance (`RapportDossier` dans `dossier-supervision-detail.tsx`) : total des actes prescrits, part assurance, part assuré (estimations hors actes refusés), solde restant dû, et tableau des cycles de facturation (total, parts, statut, code patient). tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Liste des dossiers de soins (assurance) : chiffres par dossier et cumul
+- API : `GET /care-episode/dossiers` renvoie en plus, par dossier, `synthese` (actes validés, en attente de validation, refusés, coût total estimé, part assurance, part assuré — actes refusés exclus), calculée en une seule requête groupée (`syntheseActesParDossier`). Tests care-episode OK (44).
+- Web : `dossiers-supervision-ecran.tsx` — ligne = n° traitement, patient, n° carte, société d'origine, établissement traitant, statut, date, actes validés, en attente de validation, coût total estimé, par assurance, par assuré, bouton Ouvrir ; cartes de cumul en tête ; recherche étendue (patient, carte, société). tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Liste des dossiers (assurance) : ligne dépliable sur les actes
+- `DataTable` : nouvelle prop `detailLigne` (clic ou Entrée sur la ligne = affiche / masque un détail sous elle ; boutons et liens de la ligne inchangés). Liste des dossiers : le déroulé affiche les actes (acte, quantité, date, pré-autorisation, coût estimé, par assurance, par assuré). API : `synthese.actes` ajouté à `GET /care-episode/dossiers`. `CarteResume` : option `compact`. tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Liste des dossiers (assurance) : consultations dans le déroulé
+- Sous les actes, le déroulé d'une ligne affiche les consultations : n°, date, motif des soins, code affection (CIM-10), affection (libellé CIM-10), diagnostic. API : `synthese.consultations` (libellés CIM-10 résolus en une requête). tsc OK, non testé dans le navigateur.

@@ -9,7 +9,7 @@ import {
   Search,
 } from 'lucide-react';
 import * as React from 'react';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -74,6 +74,7 @@ export function DataTable<T extends object>({
   actionLigne,
   classeLigne,
   surClicLigne,
+  detailLigne,
   chargement = false,
   parPage = 10,
   vide = 'Aucune donnée.',
@@ -93,6 +94,8 @@ export function DataTable<T extends object>({
   actionLigne?: (row: T) => React.ReactNode;
   /** Clic (ou Entrée) sur une ligne : ouvre un détail. Les boutons / liens de la ligne gardent leur propre action. */
   surClicLigne?: (row: T) => void;
+  /** Détail déroulant : un clic (ou Entrée) sur la ligne affiche / masque ce contenu sous elle. Les boutons et liens de la ligne gardent leur action. */
+  detailLigne?: (row: T) => React.ReactNode;
   /** Classe CSS ajoutée à une ligne (ex. surlignage d'un état particulier). */
   classeLigne?: (row: T) => string | undefined;
   chargement?: boolean;
@@ -118,6 +121,14 @@ export function DataTable<T extends object>({
     null,
   );
   const [page, setPage] = useState(1);
+  const [deroulees, setDeroulees] = useState<ReadonlySet<string>>(new Set());
+  const basculerDetail = (id: string) =>
+    setDeroulees((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
   const idRecherche = useId();
 
   const colonneParCle = useMemo(
@@ -347,24 +358,27 @@ export function DataTable<T extends object>({
               ))
             ) : (
               <>
-                {lignesAffichees.map((row) => (
+                {lignesAffichees.map((row) => {
+                  const surClic = surClicLigne ?? (detailLigne ? () => basculerDetail(cleLigne(row)) : undefined);
+                  return (
+                  <Fragment key={cleLigne(row)}>
                   <tr
-                    key={cleLigne(row)}
-                    className={cn('border-t', classeLigne?.(row), surClicLigne && 'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none')}
+                    className={cn('border-t', classeLigne?.(row), surClic && 'cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none')}
                     data-selectionne={selection?.ids.has(cleLigne(row)) ? 'oui' : undefined}
-                    tabIndex={surClicLigne ? 0 : undefined}
+                    tabIndex={surClic ? 0 : undefined}
+                    aria-expanded={detailLigne && !surClicLigne ? deroulees.has(cleLigne(row)) : undefined}
                     onClick={
-                      surClicLigne
+                      surClic
                         ? (e) => {
                             if ((e.target as HTMLElement).closest('button, a, input, select, textarea, label')) return;
-                            surClicLigne(row);
+                            surClic(row);
                           }
                         : undefined
                     }
                     onKeyDown={
-                      surClicLigne
+                      surClic
                         ? (e) => {
-                            if (e.key === 'Enter' && e.target === e.currentTarget) surClicLigne(row);
+                            if (e.key === 'Enter' && e.target === e.currentTarget) surClic(row);
                           }
                         : undefined
                     }
@@ -401,7 +415,16 @@ export function DataTable<T extends object>({
                       </td>
                     )}
                   </tr>
-                ))}
+                  {detailLigne && !surClicLigne && deroulees.has(cleLigne(row)) && (
+                    <tr className="border-t bg-muted/20">
+                      <td colSpan={nbCol} className="px-3 py-3">
+                        {detailLigne(row)}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  );
+                })}
                 {lignesFiltrees.length === 0 && (
                   <tr className="border-t">
                     <td

@@ -28,13 +28,17 @@ export default async function DossierSupervisionPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [etat, res] = await Promise.all([
+  const [etat, res, resEtabs] = await Promise.all([
     exigerIdentite(`/dashboard-assureur/informatique/dossiers/${id}`),
     apiFetch(`/api/v1/care-episode/dossiers/${id}`),
+    // réorientation proposée dans la décision d'exploitation
+    apiFetch('/api/v1/provider/etablissements?statut=ACTIF'),
   ]);
   if (res.status === 404) notFound();
   const dossier = (await res.json()) as DossierSupervisionDetailType;
   const roleChain = etat.kind === 'ok' ? etat.identity.permissions?.roleChain ?? [] : [];
+  const etablissements: { id: string; nom: string }[] = resEtabs.ok ? await resEtabs.json() : [];
+  const moiId = etat.kind === 'ok' ? etat.identity.profil.id : '';
   const peutCloturerForce = roleChain.includes(ROLE_CLOTURE_FORCEE);
   const peutAjouterNote = roleChain.some((r) => ROLES_ECRITURE_NOTE_DOSSIER.includes(r));
 
@@ -61,6 +65,9 @@ export default async function DossierSupervisionPage({
         dossier={dossier}
         peutCloturerForce={peutCloturerForce}
         peutAjouterNote={peutAjouterNote}
+        roleChain={roleChain}
+        moiId={moiId}
+        etablissements={etablissements}
       />
     </div>
   );

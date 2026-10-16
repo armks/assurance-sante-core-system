@@ -30,6 +30,7 @@ export function CarteResume({
   icon: Icon,
   tonIndice = 'neutre',
   href,
+  compact = false,
 }: {
   libelle: string;
   valeur: React.ReactNode;
@@ -37,24 +38,27 @@ export function CarteResume({
   icon?: LucideIcon;
   tonIndice?: 'neutre' | 'positif' | 'negatif';
   href?: string;
+  /** Carte moins haute (marges et chiffre réduits), pour les rangées de beaucoup de cases. */
+  compact?: boolean;
 }) {
   const contenu = (
     <Card
       className={cn(
         'h-full',
+        compact && 'gap-0 py-2',
         href && 'transition-colors hover:border-primary/40 hover:bg-accent/40',
       )}
     >
-      <CardContent className="flex items-start justify-between gap-3">
+      <CardContent className={cn('flex items-start justify-between gap-3', compact && 'px-4')}>
         <div className="min-w-0">
           <p className="truncate text-sm text-muted-foreground">{libelle}</p>
-          <p className="mt-1 text-2xl font-semibold tracking-tight tabular-nums">
+          <p className={cn('mt-1 font-semibold tracking-tight tabular-nums', compact ? 'text-xl leading-tight' : 'text-2xl')}>
             {valeur}
           </p>
           {indice != null && (
             <p
               className={cn(
-                'mt-1 text-xs',
+                compact ? 'text-xs' : 'mt-1 text-xs',
                 tonIndice === 'positif' &&
                   'text-emerald-600 dark:text-emerald-400',
                 tonIndice === 'negatif' && 'text-rose-600 dark:text-rose-400',
@@ -66,7 +70,7 @@ export function CarteResume({
           )}
         </div>
         {Icon && (
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground">
+          <span className={cn('grid shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground', compact ? 'size-8' : 'size-9')}>
             <Icon className="size-4" />
           </span>
         )}

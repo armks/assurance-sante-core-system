@@ -53,6 +53,50 @@ const ALPHABET_TICKET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
  * établissement que le dossier (v10 §1) — vérifié ici, par le trigger Postgres
  * `verifier_medecin_traitant()` et par la policy RLS (défense en profondeur).
  */
+export interface SyntheseActesDossier {
+  nbActes: number;
+  actesValides: number;
+  actesEnAttente: number;
+  actesRefuses: number;
+  coutTotal: number;
+  partAssurance: number;
+  partAssure: number;
+  /** Détail des actes (affiché au déroulé de la ligne). */
+  actes: {
+    id: string;
+    libelle: string;
+    quantite: number;
+    statutPreautorisation: string;
+    statut: string;
+    datePrescription: Date;
+    cout: number;
+    partAssurance: number;
+    partAssure: number;
+  }[];
+  /** Consultations : motif des soins, code et libellé de l'affection (CIM-10). */
+  consultations: {
+    id: string;
+    numeroConsultation: string;
+    dateConsultation: Date;
+    motif: string | null;
+    diagnostic: string | null;
+    codeAffection: string | null;
+    affection: string | null;
+    statut: string;
+  }[];
+}
+const SYNTHESE_VIDE: SyntheseActesDossier = {
+  nbActes: 0,
+  actesValides: 0,
+  actesEnAttente: 0,
+  actesRefuses: 0,
+  coutTotal: 0,
+  partAssurance: 0,
+  partAssure: 0,
+  actes: [],
+  consultations: [],
+};
+
 @Injectable()
 export class CareEpisodeService {
   private readonly logger = new Logger(CareEpisodeService.name);
@@ -739,7 +783,96 @@ export class CareEpisodeService {
       include: { etablissement: { select: { nom: true } } },
       orderBy: { dateOuverture: 'desc' },
     });
-    return this.avecIdentitePatient(dossiers);
+    const [avecPatient, syntheses] = await Promise.all([
+      this.avecIdentitePatient(dossiers),
+      this.syntheseActesParDossier(dossiers.map((d) => d.id)),
+    ]);
+    return avecPatient.map((d) => ({ ...d, synthese: syntheses.get(d.id) ?? SYNTHESE_VIDE }));
+  }
+
+  /**
+   * Chiffres de chaque dossier de la liste, en UNE requête : actes validés (pré-autorisation non requise ou accordée), en attente
+   * de validation, refusés ; coût total estimé et parts assurance / assuré (estimations, actes refusés exclus).
+   */
+  private async syntheseActesParDossier(dossierSoinsIds: string[]) {
+    const res = new Map<string, SyntheseActesDossier>();
+    if (dossierSoinsIds.length === 0) return res;
+    const actes = await this.prisma.acteDossier.findMany({
+      where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
+      orderBy: { datePrescription: 'asc' },
+      select: {
+        id: true,
+        libelle: true,
+        statut: true,
+        datePrescription: true,
+        dossierSoinsId: true,
+        quantite: true,
+        statutPreautorisation: true,
+        montantPrescrit: true,
+        montantSimuleAssurance: true,
+        montantSimulePatient: true,
+      },
+    });
+    for (const a of actes) {
+      const s = res.get(a.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [] };
+      s.nbActes += 1;
+      if (a.statutPreautorisation === 'REFUSEE') {
+        s.actesRefuses += 1;
+      } else {
+        if (a.statutPreautorisation.startsWith('EN_ATTENTE')) s.actesEnAttente += 1;
+        else s.actesValides += 1;
+        s.coutTotal += Number(a.montantPrescrit ?? 0) * a.quantite;
+        s.partAssurance += Number(a.montantSimuleAssurance ?? 0);
+        s.partAssure += Number(a.montantSimulePatient ?? 0);
+      }
+      const refuse = a.statutPreautorisation === 'REFUSEE';
+      s.actes.push({
+        id: a.id,
+        libelle: a.libelle,
+        quantite: a.quantite,
+        statutPreautorisation: a.statutPreautorisation,
+        statut: a.statut,
+        datePrescription: a.datePrescription,
+        cout: Number(a.montantPrescrit ?? 0) * a.quantite,
+        partAssurance: refuse ? 0 : Number(a.montantSimuleAssurance ?? 0),
+        partAssure: refuse ? 0 : Number(a.montantSimulePatient ?? 0),
+      });
+      res.set(a.dossierSoinsId, s);
+    }
+    const consultations = await this.prisma.consultationDossier.findMany({
+      where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
+      orderBy: { dateConsultation: 'asc' },
+      select: {
+        id: true,
+        dossierSoinsId: true,
+        numeroConsultation: true,
+        dateConsultation: true,
+        motif: true,
+        diagnostic: true,
+        codeCim10: true,
+        statut: true,
+      },
+    });
+    const codes = [...new Set(consultations.map((c) => c.codeCim10).filter((c): c is string => !!c))];
+    const maladies = codes.length
+      ? await this.prisma.maladieCim10.findMany({ where: { code: { in: codes } }, select: { code: true, libelle: true } })
+      : [];
+    const libelleAffection = new Map(maladies.map((m) => [m.code, m.libelle]));
+    for (const c of consultations) {
+      const s = res.get(c.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [] };
+      s.consultations.push({
+        id: c.id,
+        numeroConsultation: c.numeroConsultation,
+        dateConsultation: c.dateConsultation,
+        motif: c.motif,
+        diagnostic: c.diagnostic,
+        codeAffection: c.codeCim10,
+        affection: c.codeCim10 ? (libelleAffection.get(c.codeCim10) ?? null) : null,
+        statut: c.statut,
+      });
+      res.set(c.dossierSoinsId, s);
+    }
+    return res;
   }
 
   /**

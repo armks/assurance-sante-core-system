@@ -1,5 +1,7 @@
 import localFont from 'next/font/local';
 
+import { BandeauAnnonces } from '@/components/accueil/bandeau-annonces';
+import type { AnnoncePublique } from '@/lib/annonces-publiques';
 import type { EvenementPublic } from '@/lib/evenements-publics';
 import type { PartenairePublic } from '@/lib/partenaires-publics';
 import type { StatistiquesPubliques } from '@/lib/statistiques-publiques';
@@ -32,12 +34,15 @@ export function PageAccueil({
   statistiques,
   evenements,
   partenaires = [],
+  annonces = [],
   societe,
 }: {
   statistiques: StatistiquesPubliques | null;
   evenements: EvenementPublic[];
   /** Logos des partenaires du bandeau défilant (ceux de la société sur sa page, ceux de la plateforme sur la page principale). */
   partenaires?: PartenairePublic[];
+  /** Annonces du bandeau défilant fixé au bas de la page (disparaît après la durée définie). */
+  annonces?: AnnoncePublique[];
   societe?: MarqueVitrine & {
     slug: string;
     hero: HeroPersonnalise;
@@ -58,6 +63,7 @@ export function PageAccueil({
         <Formulaires organisation={societe?.slug} />
       </main>
       <PiedDePage marque={societe} racine={racine} contact={societe?.contact} />
+      <BandeauAnnonces annonces={annonces} />
     </div>
   );
 }

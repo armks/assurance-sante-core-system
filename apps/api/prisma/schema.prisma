@@ -51,6 +51,7 @@ model Organisation {
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
   deletedAt        DateTime? @map("deleted_at")
 
+  annoncesBandeau   AnnonceBandeau[]
   profils           Profil[]
   auditLogs         AuditLog[]
   souscripteurs     Souscripteur[]
@@ -2409,4 +2410,25 @@ model CategorieEtablissement {
   produits       Produit[]            @relation("ProduitNiveauAcces")
 
   @@map("categories_etablissement")
+}
+
+/// annonces_bandeau — messages du bandeau défilant du bas de la page d'accueil (prisma/sql/101). `organisationId` null = toutes
+/// les pages d'accueil (superadmin). Accès réservé à NestJS.
+model AnnonceBandeau {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId         String?   @map("organisation_id") @db.Uuid
+  texte                  String
+  dureeAffichageSecondes Int       @default(30) @map("duree_affichage_secondes")
+  dateDebut              DateTime  @default(now()) @map("date_debut") @db.Timestamptz(6)
+  dateFin                DateTime? @map("date_fin") @db.Timestamptz(6)
+  actif                  Boolean   @default(true)
+  creePar                String?   @map("cree_par") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  organisation Organisation? @relation(fields: [organisationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([organisationId])
+  @@map("annonces_bandeau")
 }

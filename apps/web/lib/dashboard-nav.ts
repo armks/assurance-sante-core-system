@@ -16,6 +16,7 @@ import {
   History,
   type LucideIcon,
   MapPin,
+  Megaphone,
   Package,
   PackageCheck,
   Pill,
@@ -534,6 +535,10 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
     // exact côté API et RLS) — absent de la navigation de l'adjoint.
     ...(racineVueEnsemble === INFORMATIQUE
       ? [{ label: 'Événements', href: `${INFORMATIQUE}/evenements`, icon: CalendarDays }]
+      : []),
+    // Annonces du bandeau défilant du bas de la page d'accueil de SA société : même rôle exact que les événements.
+    ...(racineVueEnsemble === INFORMATIQUE
+      ? [{ label: 'Annonces', href: `${INFORMATIQUE}/annonces`, icon: Megaphone }]
       : []),
     // Logos des partenaires du bandeau défilant de la page d'accueil de SA société : même rôle exact que les événements.
     ...(racineVueEnsemble === INFORMATIQUE

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
+import { AnnoncesService } from './annonces.service';
 import { EvenementsService } from './evenements.service';
 import { PartenairesVitrineService } from './partenaires-vitrine.service';
 import { VitrineService } from './vitrine.service';
@@ -22,6 +23,7 @@ export class VitrineController {
     private readonly vitrine: VitrineService,
     private readonly evenements: EvenementsService,
     private readonly partenaires: PartenairesVitrineService,
+    private readonly annonces: AnnoncesService,
   ) {}
 
   @Post('demandes')
@@ -57,6 +59,14 @@ export class VitrineController {
     const slug = typeof organisation === 'string' && /^[a-z0-9-]{2,60}$/.test(organisation) ? organisation : undefined;
     if (organisation !== undefined && !slug) return [];
     return this.partenaires.publics(ipClient(req), slug);
+  }
+
+  /** Annonces du bandeau défilant du bas de la page d'accueil : celles de la société `?organisation={slug}` (ou de la vitrine) + celles de toute la plateforme. */
+  @Get('annonces')
+  obtenirAnnonces(@Req() req: Request, @Query('organisation') organisation?: string) {
+    const slug = typeof organisation === 'string' && /^[a-z0-9-]{2,60}$/.test(organisation) ? organisation : undefined;
+    if (organisation !== undefined && !slug) return [];
+    return this.annonces.publiques(ipClient(req), slug);
   }
 
   /** Nom, chemin et logo d'une société active (page /{slug}) ; 404 sinon. */

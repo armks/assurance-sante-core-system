@@ -7,6 +7,7 @@ import {
   Building2,
   History,
   Library,
+  Megaphone,
   ShieldCheck,
   SlidersHorizontal,
   Type,
@@ -47,6 +48,8 @@ const NAV: (EntreeNav & { largeur?: LargeurPage })[] = [
   // Maladies codées CIM-10 : choisies par les médecins pour le diagnostic des consultations
   { label: 'Maladies (CIM-10)', href: '/superadmin/cim10', icon: Stethoscope },
   // Traçabilité : qui a fait quoi, dans toutes les organisations
+  // Bandeau d'annonces défilant au bas des pages d'accueil (toute la plateforme ou une société)
+  { label: 'Annonces', href: '/superadmin/annonces', icon: Megaphone },
   { label: 'Journal des actions', href: '/superadmin/journal-actions', icon: History },
 ];
 

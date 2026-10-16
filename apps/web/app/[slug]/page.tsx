@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { cache } from 'react';
 
 import { PageAccueil } from '@/components/accueil/page-accueil';
+import { chargerAnnoncesPubliques } from '@/lib/annonces-publiques';
 import { chargerEvenementsPublics } from '@/lib/evenements-publics';
 import { chargerPartenairesPublics } from '@/lib/partenaires-publics';
 import { chargerOrganisationPublique } from '@/lib/organisation-publique';
@@ -32,10 +33,11 @@ export async function generateMetadata({ params }: PageProps<'/[slug]'>): Promis
 export default async function PageSociete({ params }: PageProps<'/[slug]'>) {
   const org = await societe((await params).slug);
   if (!org) notFound();
-  const [statistiques, evenements, partenaires] = await Promise.all([
+  const [statistiques, evenements, partenaires, annonces] = await Promise.all([
     chargerStatistiquesPubliques(org.slug),
     chargerEvenementsPublics(org.slug),
     chargerPartenairesPublics(org.slug),
+    chargerAnnoncesPubliques(org.slug),
   ]);
 
   return (
@@ -43,6 +45,7 @@ export default async function PageSociete({ params }: PageProps<'/[slug]'>) {
       statistiques={statistiques}
       evenements={evenements}
       partenaires={partenaires}
+      annonces={annonces}
       societe={{
         slug: org.slug,
         nom: org.nom,

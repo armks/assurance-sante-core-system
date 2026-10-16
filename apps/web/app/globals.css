@@ -120,7 +120,28 @@
 .accueil-fondu { animation: accueil-fondu 160ms ease-out both; }
 .accueil-defilement:hover { animation-play-state: paused; }
 
+/* Bandeau d'annonces du bas de la page d'accueil : montée / descente, défilement de GAUCHE À DROITE (le texte entre par la gauche et sort
+   par la droite : il part entièrement hors champ à gauche puis traverse tout le bandeau). */
+@keyframes annonce-montee {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes annonce-descente {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(100%); opacity: 0; }
+}
+@keyframes annonce-defilement {
+  from { left: 0; transform: translateX(-100%); }
+  to { left: 100%; transform: translateX(0); }
+}
+.annonce-montee { animation: annonce-montee 450ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.annonce-descente { animation: annonce-descente 400ms ease-in both; }
+.annonce-defilement { animation: annonce-defilement var(--duree-tour, 30s) linear infinite; }
+.annonce-defilement:hover { animation-play-state: paused; }
+
 @media (prefers-reduced-motion: reduce) {
+  .annonce-defilement { animation: none; position: static; transform: none; }
+  .annonce-montee, .annonce-descente { animation: none; }
   .accueil-apparition,
   .accueil-texte-entree,
   .accueil-defilement,

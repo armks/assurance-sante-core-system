@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 
 import { PageAccueil } from '@/components/accueil/page-accueil';
 import { aUneSession } from '@/lib/identity';
+import { chargerAnnoncesPubliques } from '@/lib/annonces-publiques';
 import { chargerEvenementsPublics } from '@/lib/evenements-publics';
 import { chargerPartenairesPublics } from '@/lib/partenaires-publics';
 import { chargerStatistiquesPubliques } from '@/lib/statistiques-publiques';
@@ -22,11 +23,12 @@ export default async function Accueil() {
   if (await aUneSession()) {
     redirect('/dashboard');
   }
-  const [statistiques, evenements, partenaires] = await Promise.all([
+  const [statistiques, evenements, partenaires, annonces] = await Promise.all([
     chargerStatistiquesPubliques(),
     chargerEvenementsPublics(),
     chargerPartenairesPublics(),
+    chargerAnnoncesPubliques(),
   ]);
 
-  return <PageAccueil statistiques={statistiques} evenements={evenements} partenaires={partenaires} />;
+  return <PageAccueil statistiques={statistiques} evenements={evenements} partenaires={partenaires} annonces={annonces} />;
 }

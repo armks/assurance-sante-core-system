@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { IdentityModule } from '../identity/identity.module';
+import { AnnoncesController } from './annonces.controller';
+import { AnnoncesService } from './annonces.service';
 import { DemandesAdhesionController } from './demandes-adhesion.controller';
 import { DemandesAdhesionService } from './demandes-adhesion.service';
 import { EvenementsController } from './evenements.controller';
@@ -20,7 +22,7 @@ import { DependancesModule } from '../dependances/dependances.module';
  */
 @Module({
   imports: [IdentityModule, DependancesModule],
-  controllers: [VitrineController, EvenementsController, PartenairesVitrineController, DemandesAdhesionController],
-  providers: [VitrineService, StatistiquesService, EvenementsService, PartenairesVitrineService, DemandesAdhesionService],
+  controllers: [VitrineController, AnnoncesController, EvenementsController, PartenairesVitrineController, DemandesAdhesionController],
+  providers: [VitrineService, StatistiquesService, AnnoncesService, EvenementsService, PartenairesVitrineService, DemandesAdhesionService],
 })
 export class VitrineModule {}

@@ -2316,8 +2316,17 @@ export class PreauthorizationService {
             numeroTraitement: true,
             typeVisite: true,
             etablissement: { select: { nom: true } },
-            adherent: { select: { nom: true, prenom: true } },
-            beneficiaire: { select: { nom: true, prenom: true } },
+            adherent: {
+              select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } },
+            },
+            beneficiaire: {
+              select: {
+                nom: true,
+                prenom: true,
+                numeroCarte: true,
+                adherent: { select: { souscripteur: { select: { nom: true } } } },
+              },
+            },
           },
         },
         etablissementExecution: { select: { nom: true } },
@@ -2345,6 +2354,9 @@ export class PreauthorizationService {
       typeVisite: a.dossier.typeVisite,
       etablissement: a.dossier.etablissement.nom,
       etablissementExecution: a.etablissementExecution?.nom ?? null,
+      societe:
+        a.dossier.adherent?.souscripteur.nom ?? a.dossier.beneficiaire?.adherent.souscripteur.nom ?? '—',
+      numeroCarte: a.dossier.adherent?.numeroCarte ?? a.dossier.beneficiaire?.numeroCarte ?? '—',
       patient: a.dossier.adherent
         ? `${a.dossier.adherent.prenom} ${a.dossier.adherent.nom}`
         : a.dossier.beneficiaire

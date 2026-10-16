@@ -282,6 +282,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${MEDECIN_CONSEIL}/preautorisations`,
       icon: ClipboardList,
     },
+    { label: 'Dossiers de soins', href: `${MEDECIN_CONSEIL}/dossiers`, icon: Stethoscope },
     {
       label: 'Réclamations en revue',
       href: `${MEDECIN_CONSEIL}/reclamations-revue`,
@@ -327,6 +328,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${PHARMACIEN_CONSEIL}/prescriptions`,
       icon: FileText,
     },
+    { label: 'Dossiers de soins', href: `${PHARMACIEN_CONSEIL}/dossiers`, icon: Stethoscope },
   ],
   // Direction : vue d'ensemble propre + les écrans de gestion partagés avec
   // l'informatique (l'API autorise déjà ASSUREUR_DIRECTION sur ces modules).
@@ -424,18 +426,6 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
       href: `${racineVueEnsemble}/preautorisations`,
       icon: ClipboardList,
     },
-    {
-      label: 'Souscripteurs',
-      href: `${INFORMATIQUE}/souscripteurs`,
-      icon: Building2,
-    },
-    { label: 'Polices', href: `${INFORMATIQUE}/polices`, icon: FileText },
-    { label: 'Adhérents', href: `${INFORMATIQUE}/adherents`, icon: Users },
-    {
-      label: 'Réclamations',
-      href: `${INFORMATIQUE}/reclamations`,
-      icon: ReceiptText,
-    },
     // Écran ajouté pour exercer un droit déjà existant côté API mais jusque-là
     // sans aucune interface : la clôture forcée est réservée à
     // ASSUREUR_EXPLOITATION (ROLE_CLOTURE_FORCEE, care-episode.types.ts).
@@ -447,6 +437,18 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
       href: `${INFORMATIQUE}/dossiers`,
       icon: Stethoscope,
     },
+    {
+      label: 'Réclamations',
+      href: `${INFORMATIQUE}/reclamations`,
+      icon: ReceiptText,
+    },
+    {
+      label: 'Souscripteurs',
+      href: `${INFORMATIQUE}/souscripteurs`,
+      icon: Building2,
+    },
+    { label: 'Polices', href: `${INFORMATIQUE}/polices`, icon: FileText },
+    { label: 'Adhérents', href: `${INFORMATIQUE}/adherents`, icon: Users },
     // Demandes du formulaire « Adhésion » (ROLES_DEMANDES_ADHESION =
     // INFORMATIQUE + EXPLOITATION, vitrine.types.ts).
     { label: 'Demandes d’adhésion', href: `${INFORMATIQUE}/demandes-adhesion`, icon: Inbox },

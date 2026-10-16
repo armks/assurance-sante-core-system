@@ -8996,3 +8996,22 @@ Terminé.
 
 ## 2026-10-16 — Liste des dossiers (assurance) : consultations dans le déroulé
 - Sous les actes, le déroulé d'une ligne affiche les consultations : n°, date, motif des soins, code affection (CIM-10), affection (libellé CIM-10), diagnostic. API : `synthese.consultations` (libellés CIM-10 résolus en une requête). tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Liste des dossiers (assurance) : en-têtes sur une ligne
+- Intitulés raccourcis (Société, Établissement, Validés, En attente, Coût estimé, Assurance, Assuré) et option `entetesUneLigne` ajoutée à `DataTable` (désactivée par défaut). tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Liste des dossiers (assurance) : filtres riches, mois en cours par défaut
+- Barre de filtres sur une ligne : période (du / au), patient, n° de carte, société, établissement, plus recherche et statut du tableau. Par défaut : dossiers du MOIS EN COURS ; les cartes de cumul suivent les filtres. Boutons « Toute période » et « Mois en cours ». Filtrage côté navigateur (dossiers déjà chargés) sur la date d'ouverture. tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Liste des dossiers (assurance) : prescriptions / ordonnances en accordéon
+- Dans le déroulé d'une ligne, après actes et consultations : « Prescriptions — ordonnances », un accordéon par ordonnance (date, consultation liée, nombre de médicaments, statut) qui se déplie sur ses médicaments (dosage, posologie, durée, quantité, délivrance). API : `synthese.ordonnances` (sans les codes de retrait). tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Menu Exploitation : ordre des entrées
+- `navExploitation` (`lib/dashboard-nav.ts`) : Pré-autorisations, puis Dossiers de soins, puis Réclamations, avant Souscripteurs, Polices, Adhérents, Demandes d'adhésion. tsc OK.
+
+## 2026-10-16 — Pré-autorisations : en-têtes du tableau sur une ligne
+- Intitulés raccourcis (Établissement, Consultation, Assurance) et retour à la ligne interdit dans les en-têtes des tableaux groupés (`exploitation-preautorisations-ecran.tsx`). tsc OK.
+
+## 2026-10-16 — Médecin conseil et pharmacien conseil : mêmes principes de structuration
+- Médecin conseil, « Pré-autorisations » : une ligne par dossier (n° dossier, société, n° carte, patient, établissement, consultation, coût, assurance, date), dépliable sur les actes escaladés, récapitulatif cumulé, bloc en accordéon, bouton « Décision » du second niveau (`preautorisations-conseil-ecran.tsx`). API : `en-attente-preautorisation` renvoie en plus dossierId, société, n° carte, type de visite, statut. `PropositionsGroupees` (prop `actionActe`), `BlocAccordeon` et `DecisionMedecinConseil` partagés depuis `exploitation-preautorisations-ecran.tsx`.
+- Nouvelle entrée de menu « Dossiers de soins » pour le médecin conseil et le pharmacien conseil (pages `/dashboard-assureur/{medecin,pharmacien}-conseil/dossiers`) : même liste que l'exploitation (filtres, mois en cours, cumul, lignes dépliables actes / consultations / ordonnances) ; `DossiersSupervisionEcran` accepte `racineDossier`. La page « Prescriptions » du pharmacien conseil n'a pas été modifiée. tsc OK, non testé dans le navigateur.

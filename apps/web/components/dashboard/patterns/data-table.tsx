@@ -82,6 +82,7 @@ export function DataTable<T extends object>({
   piedMasque = false,
   selection,
   compact = false,
+  entetesUneLigne = false,
 }: {
   colonnes: ColonneTable<T>[];
   donnees: T[];
@@ -110,6 +111,8 @@ export function DataTable<T extends object>({
   piedMasque?: boolean;
   /** Lignes resserrées : cellules plus étroites, texte sur UNE seule ligne (le contenu long est tronqué par la colonne). */
   compact?: boolean;
+  /** Chaque intitulé de colonne tient sur UNE ligne (pas de retour à la ligne dans l'en-tête). */
+  entetesUneLigne?: boolean;
   /** Cases à cocher par ligne + « tout sélectionner (page affichée) » + compteur. */
   selection?: SelectionTable<T>;
 }) {
@@ -286,7 +289,7 @@ export function DataTable<T extends object>({
 
       <div className="overflow-x-auto rounded-lg border">
         <table className={cn('w-full', tailleTexte)}>
-          <thead className="bg-muted/50 text-left text-xs uppercase text-muted-foreground">
+          <thead className={cn('bg-muted/50 text-left text-xs uppercase text-muted-foreground', entetesUneLigne && 'whitespace-nowrap')}>
             <tr>
               {selection && (
                 <th className="w-8 px-3 py-2">

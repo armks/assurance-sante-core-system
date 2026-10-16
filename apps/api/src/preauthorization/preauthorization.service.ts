@@ -2250,10 +2250,21 @@ export class PreauthorizationService {
       include: {
         dossier: {
           select: {
+            id: true,
             numeroTraitement: true,
+            typeVisite: true,
             etablissement: { select: { nom: true } },
-            adherent: { select: { nom: true, prenom: true } },
-            beneficiaire: { select: { nom: true, prenom: true } },
+            adherent: {
+              select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } },
+            },
+            beneficiaire: {
+              select: {
+                nom: true,
+                prenom: true,
+                numeroCarte: true,
+                adherent: { select: { souscripteur: { select: { nom: true } } } },
+              },
+            },
           },
         },
       },
@@ -2266,6 +2277,12 @@ export class PreauthorizationService {
       categorieActe: a.categorieActe,
       codeActe: a.codeActe,
       quantite: a.quantite,
+      statutPreautorisation: a.statutPreautorisation,
+      dossierId: a.dossier.id,
+      typeVisite: a.dossier.typeVisite,
+      societe:
+        a.dossier.adherent?.souscripteur.nom ?? a.dossier.beneficiaire?.adherent.souscripteur.nom ?? '—',
+      numeroCarte: a.dossier.adherent?.numeroCarte ?? a.dossier.beneficiaire?.numeroCarte ?? '—',
       montantPrescrit: a.montantPrescrit?.toFixed(2) ?? null,
       montantSimuleAssurance: a.montantSimuleAssurance?.toFixed(2) ?? null,
       montantSimulePatient: a.montantSimulePatient?.toFixed(2) ?? null,

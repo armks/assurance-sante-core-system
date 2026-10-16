@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
 
-import {
-  PreautorisationsFile,
-  type ActeEnAttente,
-} from '@/components/dashboard/preautorisations-file';
+import type { ActeExploitation } from '@/components/dashboard/exploitation-preautorisations-ecran';
+import { PreautorisationsConseilEcran } from '@/components/dashboard/preautorisations-conseil-ecran';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 
@@ -13,7 +11,7 @@ export default async function PreautorisationsMedecinConseil() {
   const res = await apiFetch(
     '/api/v1/preauthorization/actes/en-attente-preautorisation',
   );
-  const actes: ActeEnAttente[] = res.ok ? await res.json() : [];
+  const actes: ActeExploitation[] = res.ok ? await res.json() : [];
   const erreur = res.ok ? null : await messageErreur(res);
 
   return (
@@ -25,7 +23,7 @@ export default async function PreautorisationsMedecinConseil() {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <PreautorisationsFile actes={actes} />
+        <PreautorisationsConseilEcran actes={actes} />
       )}
     </div>
   );

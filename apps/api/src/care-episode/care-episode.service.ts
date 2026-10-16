@@ -84,6 +84,23 @@ export interface SyntheseActesDossier {
     affection: string | null;
     statut: string;
   }[];
+  /** Ordonnances (prescriptions) avec leurs médicaments — jamais les codes de retrait. */
+  ordonnances: {
+    id: string;
+    consultationId: string | null;
+    datePrescription: Date;
+    dateValidite: Date | null;
+    statut: string;
+    lignes: {
+      id: string;
+      denominationMedicament: string;
+      dosage: string | null;
+      posologie: string | null;
+      duree: string | null;
+      quantitePrescrite: number | null;
+      statut: string;
+    }[];
+  }[];
 }
 const SYNTHESE_VIDE: SyntheseActesDossier = {
   nbActes: 0,
@@ -95,6 +112,7 @@ const SYNTHESE_VIDE: SyntheseActesDossier = {
   partAssure: 0,
   actes: [],
   consultations: [],
+  ordonnances: [],
 };
 
 @Injectable()
@@ -814,7 +832,7 @@ export class CareEpisodeService {
       },
     });
     for (const a of actes) {
-      const s = res.get(a.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [] };
+      const s = res.get(a.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [], ordonnances: [] };
       s.nbActes += 1;
       if (a.statutPreautorisation === 'REFUSEE') {
         s.actesRefuses += 1;
@@ -859,7 +877,7 @@ export class CareEpisodeService {
       : [];
     const libelleAffection = new Map(maladies.map((m) => [m.code, m.libelle]));
     for (const c of consultations) {
-      const s = res.get(c.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [] };
+      const s = res.get(c.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [], ordonnances: [] };
       s.consultations.push({
         id: c.id,
         numeroConsultation: c.numeroConsultation,
@@ -871,6 +889,42 @@ export class CareEpisodeService {
         statut: c.statut,
       });
       res.set(c.dossierSoinsId, s);
+    }
+    const ordonnances = await this.prisma.ordonnance.findMany({
+      where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
+      orderBy: { datePrescription: 'asc' },
+      select: {
+        id: true,
+        dossierSoinsId: true,
+        consultationId: true,
+        datePrescription: true,
+        dateValidite: true,
+        statut: true,
+        lignesOrdonnance: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            denominationMedicament: true,
+            dosage: true,
+            posologie: true,
+            duree: true,
+            quantitePrescrite: true,
+            statut: true,
+          },
+        },
+      },
+    });
+    for (const o of ordonnances) {
+      const s = res.get(o.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [], ordonnances: [] };
+      s.ordonnances.push({
+        id: o.id,
+        consultationId: o.consultationId,
+        datePrescription: o.datePrescription,
+        dateValidite: o.dateValidite,
+        statut: o.statut,
+        lignes: o.lignesOrdonnance,
+      });
+      res.set(o.dossierSoinsId, s);
     }
     return res;
   }

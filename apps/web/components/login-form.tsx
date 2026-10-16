@@ -6,7 +6,8 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { messageErreurAuth } from '@/lib/auth-erreurs'
 import { safeNextPath } from '@/lib/safe-next-path'
-import { createClient } from '@/lib/supabase/client'
+import { seConnecter } from '@/app/auth-actions'
+import { CaptchaChamp, type ValeurCaptcha } from '@/components/captcha-champ'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -25,20 +26,23 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [captcha, setCaptcha] = useState<ValeurCaptcha>({ jeton: '', reponse: '' })
+  const [renouvelerCaptcha, setRenouvelerCaptcha] = useState(0)
   const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    const supabase = createClient()
     setIsLoading(true)
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-      if (error) throw error
+      // Connexion côté serveur : le CAPTCHA est vérifié AVANT toute tentative sur le mot de passe.
+      const res = await seConnecter({ email, password, captchaJeton: captcha.jeton, captchaReponse: captcha.reponse })
+      if (!res.ok) {
+        setError(res.error)
+        setRenouvelerCaptcha((n) => n + 1) // un jeton ne sert qu'une fois : nouvelle image
+        return
+      }
       const next = new URLSearchParams(window.location.search).get('next')
       annoncerOuvertureLente() // la première page affichée après la connexion s'ouvre lentement (du haut vers le bas)
       router.push(safeNextPath(next, '/dashboard'))
@@ -95,6 +99,7 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              <CaptchaChamp onChange={setCaptcha} renouveler={renouvelerCaptcha} />
               {error && (
                 <p role="alert" className="text-sm text-destructive">
                   {error}

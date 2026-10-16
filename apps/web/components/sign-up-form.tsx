@@ -5,7 +5,8 @@ import { useState } from 'react'
 
 import { cn } from '@/lib/utils'
 import { messageErreurAuth } from '@/lib/auth-erreurs'
-import { createClient } from '@/lib/supabase/client'
+import { sInscrire } from '@/app/auth-actions'
+import { CaptchaChamp, type ValeurCaptcha } from '@/components/captcha-champ'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -24,11 +25,12 @@ export function SignUpForm({ className, ...props }: React.ComponentPropsWithoutR
   const [repeatPassword, setRepeatPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [captcha, setCaptcha] = useState<ValeurCaptcha>({ jeton: '', reponse: '' })
+  const [renouvelerCaptcha, setRenouvelerCaptcha] = useState(0)
   const router = useRouter()
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault()
-    const supabase = createClient()
     setIsLoading(true)
     setError(null)
 
@@ -39,14 +41,12 @@ export function SignUpForm({ className, ...props }: React.ComponentPropsWithoutR
     }
 
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/dashboard`,
-        },
-      })
-      if (error) throw error
+      const res = await sInscrire({ email, password, captchaJeton: captcha.jeton, captchaReponse: captcha.reponse })
+      if (!res.ok) {
+        setError(res.error)
+        setRenouvelerCaptcha((n) => n + 1)
+        return
+      }
       router.push('/auth/sign-up-success')
     } catch (error: unknown) {
       setError(messageErreurAuth(error))
@@ -112,6 +112,7 @@ export function SignUpForm({ className, ...props }: React.ComponentPropsWithoutR
                   {error}
                 </p>
               )}
+              <CaptchaChamp onChange={setCaptcha} renouveler={renouvelerCaptcha} />
               <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? 'Création du compte…' : 'Créer le compte'}
               </Button>

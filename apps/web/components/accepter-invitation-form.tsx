@@ -5,6 +5,7 @@ import { useState, useTransition } from 'react';
 
 import { accepterInvitation } from '@/app/accepter-invitation/[token]/actions';
 import { createClient } from '@/lib/supabase/client';
+import { CaptchaChamp, type ValeurCaptcha } from '@/components/captcha-champ';
 import { Button } from '@/components/ui/button';
 import { annoncerOuvertureLente } from '@/components/effet-defilement';
 import { Input } from '@/components/ui/input';
@@ -25,6 +26,8 @@ export function AccepterInvitationForm({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [erreur, setErreur] = useState<string | null>(null);
+  const [captcha, setCaptcha] = useState<ValeurCaptcha>({ jeton: '', reponse: '' });
+  const [renouvelerCaptcha, setRenouvelerCaptcha] = useState(0);
 
   return (
     <form
@@ -41,9 +44,10 @@ export function AccepterInvitationForm({
         }
 
         start(async () => {
-          const res = await accepterInvitation({ token, motDePasse: mdp });
+          const res = await accepterInvitation({ token, motDePasse: mdp, captchaJeton: captcha.jeton, captchaReponse: captcha.reponse });
           if (!res.ok) {
             setErreur(res.error);
+            setRenouvelerCaptcha((n) => n + 1);
             return;
           }
           const supabase = createClient();
@@ -89,6 +93,7 @@ export function AccepterInvitationForm({
           autoComplete="new-password"
         />
       </div>
+      <CaptchaChamp onChange={setCaptcha} renouveler={renouvelerCaptcha} />
       {erreur && <p className="text-sm text-destructive">{erreur}</p>}
       <Button type="submit" disabled={pending}>
         {pending ? 'Activation…' : 'Activer mon compte'}

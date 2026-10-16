@@ -1,6 +1,7 @@
 'use server';
 
 import { apiFetchPublic, messageErreur } from '@/lib/api';
+import { verifierCaptcha } from '@/lib/captcha';
 
 export type ResultatAcceptation =
   | { ok: true; email: string; dashboardRoute: string }
@@ -13,10 +14,15 @@ export type ResultatAcceptation =
 export async function accepterInvitation(input: {
   token: string;
   motDePasse: string;
+  captchaJeton: string;
+  captchaReponse: string;
 }): Promise<ResultatAcceptation> {
+  // CAPTCHA vérifié AVANT toute activation (le mot de passe n'est même pas transmis à l'API en cas d'échec)
+  const captcha = verifierCaptcha(input.captchaJeton, input.captchaReponse);
+  if (!captcha.ok) return captcha;
   const res = await apiFetchPublic('/api/v1/invitations/accepter', {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: JSON.stringify({ token: input.token, motDePasse: input.motDePasse }),
   });
   if (!res.ok) {
     return { ok: false, error: await messageErreur(res) };

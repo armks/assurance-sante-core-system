@@ -20,6 +20,8 @@ export default async function DashboardCentreMedicalLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // lancé en parallèle de l'identité : les deux appels ne s'enchaînent plus
+  const categories = chargerCategoriesActe();
   const etat = await exigerIdentite(ROUTE_CENTRE_MEDICAL);
 
   if (etat.kind === 'non-provisionne') {
@@ -66,7 +68,7 @@ export default async function DashboardCentreMedicalLayout({
       peutValider={permissions.peutValider}
       dashboardRoute={ROUTE_CENTRE_MEDICAL}
     >
-      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+      <CategoriesActeProvider categories={await categories}>
         {children}
       </CategoriesActeProvider>
     </DashboardShell>

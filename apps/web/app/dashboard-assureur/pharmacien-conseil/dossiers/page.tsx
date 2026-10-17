@@ -6,11 +6,17 @@ import {
 } from '@/components/dashboard/exploitation/dossiers-supervision-ecran';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
+import { periodeDepuisUrl, requetePeriode } from '@/lib/periode';
 
 export const metadata: Metadata = { title: 'Dossiers de soins — Pharmacien Conseil' };
 
-export default async function DossiersDeSoins() {
-  const res = await apiFetch('/api/v1/care-episode/dossiers');
+export default async function DossiersDeSoins({
+  searchParams,
+}: {
+  searchParams: Promise<{ du?: string; au?: string }>;
+}) {
+  const periode = periodeDepuisUrl(await searchParams);
+  const res = await apiFetch(`/api/v1/care-episode/dossiers${requetePeriode(periode)}`);
   const dossiers: DossierSupervisionResume[] = res.ok ? await res.json() : [];
   const erreur = res.ok ? null : await messageErreur(res);
 
@@ -23,7 +29,7 @@ export default async function DossiersDeSoins() {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <DossiersSupervisionEcran dossiers={dossiers} racineDossier="/dashboard-assureur/pharmacien-conseil/dossiers" />
+        <DossiersSupervisionEcran dossiers={dossiers} periodeServeur={periode} racineDossier="/dashboard-assureur/pharmacien-conseil/dossiers" />
       )}
     </div>
   );

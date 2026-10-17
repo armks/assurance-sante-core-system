@@ -9041,3 +9041,26 @@ Terminé.
 
 ## 2026-10-17 — Dossiers de soins (assurance) : prescriptions avant les actes
 - Ordre du déroulé : consultations → prescriptions (ordonnances en accordéon) → actes (accordéon). tsc OK, non testé au navigateur.
+
+## 2026-10-17 — Graphiques des vues d’ensemble, design coloré, menu en catégories
+- `components/dashboard/graphiques.tsx` (recharts) : `CarteGraphique`, `GraphiqueDonut`, `GraphiqueBarres`, `GraphiqueAire`, palette vive ; `exploitation/graphiques-soins.tsx` + `graphiques-soins-serveur.tsx` : dossiers par statut, état des actes, coûts mensuels assurance/assuré, établissements les plus coûteux.
+- Ajoutés aux vues d’ensemble : exploitation (+conjointe), informatique (+adjoint), direction, médecin conseil, pharmacien conseil ; comptable : cotisations par statut + montants dus/payés.
+- `CarteResume` : bandeau latéral, fond dégradé et pastille d’icône colorés (ton stable par libellé).
+- Menu : `NavItem.groupe` déduit du libellé (`GROUPE_PAR_LABEL`) ; catégories repliables colorées (Soins & prestations, Clients & contrats, Réseau & référentiels, Finance, Communication, Administration), ouvertes sur la page courante, catégories à 1 entrée = lien simple ; icônes colorées. Desktop et mobile.
+- Statut : tsc OK ; non testé au navigateur. Non couvert : vues d’ensemble centre médical, pharmacie, société, adhérent, médecin-souscripteur, superadmin.
+
+## 2026-10-17 — API : le port 3001 ne s'arrête plus sur une erreur asynchrone
+- Cause probable : une promesse rejetée sans `catch` (base ou service externe indisponible) fait quitter Node, donc le port 3001 se fermait seul.
+- `apps/api/src/main.ts` : `garderLeServeurEnVie()` journalise `unhandledRejection` / `uncaughtException` au lieu de quitter. Le refus de démarrer sans `SERVICE_JWT_SECRET` reste inchangé.
+- Statut : tsc OK ; l'API en cours doit être relancée (`npm run start:dev -w apps/api`) pour prendre le correctif.
+
+## 2026-10-17 — Performance : chargement des données et affichage des pages
+- **A. Statistiques en SQL** : `GET /care-episode/dossiers/statistiques` (GROUP BY : statuts, état des actes, coûts des 6 derniers mois, 6 établissements les plus coûteux) remplace le chargement de tous les dossiers pour les graphiques des vues d'ensemble.
+- **C. Affichage en flux** : `GraphiquesSoinsServeur` est enveloppé dans `<Suspense>` avec un squelette ; les graphiques n'attendent plus ni ne bloquent le reste de la page.
+- **B. Période pilotée par le serveur** : `GET /care-episode/dossiers?du=&au=` ; les pages dossiers (informatique, médecin conseil, pharmacien conseil) ne chargent que le mois en cours par défaut (`?du=&au=` dans l'URL, `lib/periode.ts`) ; un changement de dates recharge uniquement la période choisie, « Toute période » charge tout.
+- **D. Parallélisme** : les 5 layouts lancent `chargerCategoriesActe()` en parallèle de l'identité.
+- **F. Session partagée** : `lib/session.ts` (`lireSession`, `lireEmailVerifie` via `getClaims`, vérification locale du JWT) remplace `getUser()` (aller-retour réseau Supabase) et les relectures de session de chaque `apiFetch`.
+- **E. Cache** : catégories d'acte gardées 5 min en mémoire du serveur web (référentiel global).
+- **G. API** : compression gzip (`compression`), migration `102_index_performance_dossiers.sql` appliquée (index partiels `dossiers_soins(organisation_id, date_ouverture)` et `actes_dossier(dossier_soins_id)`).
+- Non fait : H (actes d'un dossier chargés à l'ouverture de l'accordéon) — la période limite déjà le volume ; à reprendre si une page reste lente.
+- Test HTTP réel (API sur port temporaire, compte éphémère supprimé) : statistiques identiques à la liste, filtre de période exact, date invalide → 400, gzip actif. tsc web + api OK, jest care-episode 44/44.

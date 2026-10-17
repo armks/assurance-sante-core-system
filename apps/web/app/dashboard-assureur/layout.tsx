@@ -17,6 +17,8 @@ export default async function DashboardAssureurLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // lancé en parallèle de l'identité : les deux appels ne s'enchaînent plus
+  const categories = chargerCategoriesActe();
   const etat = await exigerIdentite('/dashboard');
 
   if (etat.kind === 'non-provisionne') {
@@ -55,7 +57,7 @@ export default async function DashboardAssureurLayout({
       peutValider={permissions.peutValider}
       dashboardRoute={permissions.dashboardRoute}
     >
-      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+      <CategoriesActeProvider categories={await categories}>
         {children}
       </CategoriesActeProvider>
     </DashboardShell>

@@ -1,3 +1,4 @@
+import { GraphiquesSoinsServeur } from '@/components/dashboard/exploitation/graphiques-soins-serveur';
 import Link from 'next/link';
 import { CreditCard, FileText, Pill } from 'lucide-react';
 
@@ -16,6 +17,7 @@ export default function PharmacienConseilAccueil() {
         titre="Vue d’ensemble"
         description="Espace Pharmacien Conseil — gouvernance du référentiel des médicaments et revue des prescriptions."
       />
+      <GraphiquesSoinsServeur />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Link href="/dashboard-assureur/pharmacien-conseil/medicaments-a-homologuer" className="group block">
           <Card className="h-full transition-colors group-hover:border-primary/40 group-hover:bg-accent/40">

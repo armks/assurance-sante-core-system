@@ -22,6 +22,7 @@ import {
   Pill,
   ReceiptText,
   Scale,
+  Settings,
   Stethoscope,
   Users,
   Wallet,
@@ -49,7 +50,81 @@ export interface NavItem {
   bientot?: boolean;
   /** largeur du contenu de cette page (défaut : `liste`), voir `lib/navigation.ts`. */
   largeur?: LargeurPage;
+  /** catégorie de menu (sous-menu repliable) — déduite du libellé, voir `GROUPE_PAR_LABEL`. */
+  groupe?: GroupeNav;
 }
+
+export type CouleurGroupe = 'rose' | 'indigo' | 'teal' | 'emerald' | 'amber' | 'violet';
+export interface GroupeNav {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  couleur: CouleurGroupe;
+}
+
+const GROUPES = {
+  soins: { id: 'soins', label: 'Soins & prestations', icon: HeartPulse, couleur: 'rose' },
+  clients: { id: 'clients', label: 'Clients & contrats', icon: Building2, couleur: 'indigo' },
+  reseau: { id: 'reseau', label: 'Réseau & référentiels', icon: Handshake, couleur: 'teal' },
+  finance: { id: 'finance', label: 'Finance', icon: Wallet, couleur: 'emerald' },
+  communication: { id: 'communication', label: 'Communication', icon: Megaphone, couleur: 'amber' },
+  admin: { id: 'admin', label: 'Administration', icon: Settings, couleur: 'violet' },
+} as const satisfies Record<string, GroupeNav>;
+
+/**
+ * Catégorie de chaque entrée de menu. Un groupe qui ne compte qu'une entrée pour un rôle
+ * donné reste un lien simple : seules les catégories de 2 entrées ou plus deviennent un sous-menu.
+ */
+const GROUPE_PAR_LABEL: Record<string, GroupeNav> = {
+  'Accueil — codes': GROUPES.soins,
+  Consultation: GROUPES.soins,
+  Ordonnances: GROUPES.soins,
+  Dispensations: GROUPES.soins,
+  'Pré-autorisations': GROUPES.soins,
+  'Dossiers de soins': GROUPES.soins,
+  Contestations: GROUPES.soins,
+  Réclamations: GROUPES.soins,
+  'Réclamations en revue': GROUPES.soins,
+  Prescriptions: GROUPES.soins,
+  'Questionnaires médicaux': GROUPES.soins,
+  Tarifications: GROUPES.soins,
+  Souscripteurs: GROUPES.clients,
+  Produits: GROUPES.clients,
+  Polices: GROUPES.clients,
+  Adhérents: GROUPES.clients,
+  'Mes bénéficiaires': GROUPES.clients,
+  'Entrants / sortants': GROUPES.clients,
+  'Demandes d’adhésion': GROUPES.clients,
+  Établissements: GROUPES.reseau,
+  Pharmacies: GROUPES.reseau,
+  Conventions: GROUPES.reseau,
+  'Tarifs proposés': GROUPES.reseau,
+  'Actes du catalogue': GROUPES.reseau,
+  'Médicaments du catalogue': GROUPES.reseau,
+  'Médicaments remboursables': GROUPES.reseau,
+  'Référentiel médical': GROUPES.reseau,
+  'Catalogue national': GROUPES.reseau,
+  'Réseau de soins': GROUPES.reseau,
+  Cotisations: GROUPES.finance,
+  'Comptes financiers': GROUPES.finance,
+  'Mouvements & dépenses': GROUPES.finance,
+  'Factures pharmacie': GROUPES.finance,
+  'Factures établissements': GROUPES.finance,
+  'Factures mensuelles': GROUPES.finance,
+  'Factures des prescriptions': GROUPES.finance,
+  'Suivi des paiements': GROUPES.finance,
+  'Facturation sociétés': GROUPES.finance,
+  'Suivi des dispensations': GROUPES.finance,
+  Facturation: GROUPES.finance,
+  'Mes factures': GROUPES.finance,
+  'Facture mensuelle': GROUPES.finance,
+  Factures: GROUPES.finance,
+  Événements: GROUPES.communication,
+  Annonces: GROUPES.communication,
+  'Logos partenaires': GROUPES.communication,
+  Utilisateurs: GROUPES.admin,
+  'Journal des actions': GROUPES.admin,
+};
 
 /**
  * Navigation par dashboard de rôle. La clé est la `dashboardRoute` renvoyée par
@@ -585,5 +660,6 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
 }
 
 export function navPourDashboard(dashboardRoute: string | null): NavItem[] {
-  return (dashboardRoute && NAV_PAR_DASHBOARD[dashboardRoute]) || [];
+  const items = (dashboardRoute && NAV_PAR_DASHBOARD[dashboardRoute]) || [];
+  return items.map((i) => ({ ...i, groupe: GROUPE_PAR_LABEL[i.label] }));
 }

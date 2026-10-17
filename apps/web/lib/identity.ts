@@ -1,7 +1,7 @@
 import { cache } from 'react';
 import { redirect } from 'next/navigation';
 
-import { createClient } from '@/lib/supabase/server';
+import { lireEmailVerifie, lireSession } from '@/lib/session';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -59,19 +59,10 @@ export const ROUTE_ACCES_SUSPENDU = '/acces-suspendu';
  * ici — voir `exigerIdentite`.
  */
 const chargerIdentiteBrut = cache(async (): Promise<EtatIdentite | EtatSuspendu> => {
-  const supabase = await createClient();
+  const [emailVerifie, session] = await Promise.all([lireEmailVerifie(), lireSession()]);
+  if (emailVerifie === null || !session) return { kind: 'anonyme' };
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { kind: 'anonyme' };
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) return { kind: 'anonyme' };
-
-  const email = user.email ?? '—';
+  const email = emailVerifie;
 
   try {
     const res = await fetch(`${API_URL}/api/v1/identity/me`, {

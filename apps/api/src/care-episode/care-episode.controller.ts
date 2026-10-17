@@ -42,6 +42,12 @@ export class CareEpisodeController {
     return this.careEpisode.listerDossiers(user, dto);
   }
 
+  /** Chiffres agrégés (statuts, actes, coûts mensuels, établissements) pour les graphiques — déclarée AVANT `:id`. */
+  @Get('statistiques')
+  statistiques(@CurrentUser() user: AuthenticatedUser) {
+    return this.careEpisode.statistiquesDossiers(user);
+  }
+
   /**
    * Médecins de l'établissement de l'appelant — pour désigner le médecin d'une consultation ou celui qui a effectué un acte
    * (accueil). Déclarée AVANT `:id` : sinon « medecins » serait pris pour un identifiant.

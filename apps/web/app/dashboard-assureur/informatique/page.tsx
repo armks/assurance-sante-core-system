@@ -1,3 +1,4 @@
+import { GraphiquesSoinsServeur } from '@/components/dashboard/exploitation/graphiques-soins-serveur';
 import type { Metadata } from 'next';
 
 import { InformatiqueVueEnsemble } from '@/components/dashboard/informatique-vue-ensemble';
@@ -12,6 +13,7 @@ export default function VueEnsemble() {
         titre="Vue d’ensemble"
         description="Espace Assurance Informatique. Sélectionnez une section pour commencer."
       />
+      <GraphiquesSoinsServeur />
       <InformatiqueVueEnsemble />
     </div>
   );

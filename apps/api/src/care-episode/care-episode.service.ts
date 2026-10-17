@@ -780,7 +780,7 @@ export class CareEpisodeService {
 
   async listerDossiers(
     user: AuthenticatedUser,
-    filtres: { statut?: string; etablissementId?: string },
+    filtres: { statut?: string; etablissementId?: string; du?: string; au?: string },
   ) {
     const ctx = await this.contexteAppelant(user);
     const mode = this.modeLectureDossiers(ctx);
@@ -788,6 +788,14 @@ export class CareEpisodeService {
       where: {
         organisationId: ctx.organisationId,
         deletedAt: null,
+        ...(filtres.du || filtres.au
+          ? {
+              dateOuverture: {
+                ...(filtres.du ? { gte: new Date(`${filtres.du}T00:00:00.000Z`) } : {}),
+                ...(filtres.au ? { lt: new Date(new Date(`${filtres.au}T00:00:00.000Z`).getTime() + 86_400_000) } : {}),
+              },
+            }
+          : {}),
         ...(filtres.statut ? { statut: filtres.statut } : {}),
         ...(filtres.etablissementId
           ? { etablissementId: filtres.etablissementId }
@@ -806,6 +814,53 @@ export class CareEpisodeService {
       this.syntheseActesParDossier(dossiers.map((d) => d.id)),
     ]);
     return avecPatient.map((d) => ({ ...d, synthese: syntheses.get(d.id) ?? SYNTHESE_VIDE }));
+  }
+
+  /**
+   * Chiffres agrégés pour les graphiques des vues d'ensemble : calculés en SQL (GROUP BY) au lieu de charger
+   * tous les dossiers avec leurs actes. Mêmes règles que `syntheseActesParDossier` (actes refusés exclus des coûts).
+   */
+  async statistiquesDossiers(user: AuthenticatedUser) {
+    const ctx = await this.contexteAppelant(user);
+    const mode = this.modeLectureDossiers(ctx);
+    const etab =
+      mode === 'CENTRE_MEDICAL' && ctx.etablissementId
+        ? Prisma.sql`AND d.etablissement_id = ${ctx.etablissementId}::uuid`
+        : Prisma.empty;
+    const base = Prisma.sql`d.organisation_id = ${ctx.organisationId}::uuid AND d.deleted_at IS NULL ${etab}`;
+
+    const [parStatut, actes, parMois, parEtablissement] = await Promise.all([
+      this.prisma.$queryRaw<{ statut: string; n: number }[]>`
+        SELECT d.statut, COUNT(*)::int AS n FROM dossiers_soins d WHERE ${base} GROUP BY d.statut`,
+      this.prisma.$queryRaw<{ valides: number; enAttente: number; refuses: number }[]>`
+        SELECT
+          COUNT(*) FILTER (WHERE a.statut_preautorisation <> 'REFUSEE' AND a.statut_preautorisation NOT LIKE 'EN_ATTENTE%')::int AS "valides",
+          COUNT(*) FILTER (WHERE a.statut_preautorisation LIKE 'EN_ATTENTE%')::int AS "enAttente",
+          COUNT(*) FILTER (WHERE a.statut_preautorisation = 'REFUSEE')::int AS "refuses"
+        FROM actes_dossier a JOIN dossiers_soins d ON d.id = a.dossier_soins_id
+        WHERE ${base} AND a.deleted_at IS NULL`,
+      this.prisma.$queryRaw<{ mois: string; assurance: number; assure: number }[]>`
+        SELECT to_char(date_trunc('month', d.date_ouverture), 'YYYY-MM') AS mois,
+               COALESCE(SUM(a.montant_simule_assurance), 0)::float AS assurance,
+               COALESCE(SUM(a.montant_simule_patient), 0)::float AS assure
+        FROM actes_dossier a JOIN dossiers_soins d ON d.id = a.dossier_soins_id
+        WHERE ${base} AND a.deleted_at IS NULL AND a.statut_preautorisation <> 'REFUSEE'
+        GROUP BY 1 ORDER BY 1 DESC LIMIT 6`,
+      this.prisma.$queryRaw<{ nom: string; cout: number }[]>`
+        SELECT e.nom, COALESCE(SUM(COALESCE(a.montant_prescrit, 0) * a.quantite), 0)::float AS cout
+        FROM actes_dossier a
+        JOIN dossiers_soins d ON d.id = a.dossier_soins_id
+        JOIN etablissements_sante e ON e.id = d.etablissement_id
+        WHERE ${base} AND a.deleted_at IS NULL AND a.statut_preautorisation <> 'REFUSEE'
+        GROUP BY e.nom ORDER BY cout DESC LIMIT 6`,
+    ]);
+    return {
+      totalDossiers: parStatut.reduce((t, l) => t + l.n, 0),
+      parStatut,
+      actes: actes[0] ?? { valides: 0, enAttente: 0, refuses: 0 },
+      parMois: parMois.reverse(),
+      parEtablissement,
+    };
   }
 
   /**

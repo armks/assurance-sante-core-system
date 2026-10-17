@@ -1,3 +1,4 @@
+import { GraphiquesSoinsServeur } from '@/components/dashboard/exploitation/graphiques-soins-serveur';
 import Link from 'next/link';
 import { ClipboardList, FileSignature, Stethoscope } from 'lucide-react';
 
@@ -25,6 +26,7 @@ export default async function MedecinConseilAccueil() {
         titre="Vue d’ensemble"
         description="Espace Médecin Conseil — gouvernance du référentiel des actes."
       />
+      <GraphiquesSoinsServeur />
       <div className="grid gap-4 sm:grid-cols-2">
         {compteur && (
           <Link href="/dashboard-assureur/medecin-conseil/tarifs-proposes" className="group block sm:col-span-2" data-testid="compteur-tarifs-proposes">

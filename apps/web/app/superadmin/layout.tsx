@@ -23,6 +23,8 @@ export default async function SuperadminLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // lancé en parallèle de l'identité : les deux appels ne s'enchaînent plus
+  const categories = chargerCategoriesActe();
   const etat = await exigerIdentite('/superadmin/societes');
 
   if (etat.kind === 'non-provisionne') {
@@ -50,7 +52,7 @@ export default async function SuperadminLayout({
 
   return (
     <SuperadminShell email={etat.email} utilisateur={resumeUtilisateur(etat.identity.profil, etat.email)}>
-      <CategoriesActeProvider categories={await chargerCategoriesActe()}>
+      <CategoriesActeProvider categories={await categories}>
         {children}
       </CategoriesActeProvider>
     </SuperadminShell>

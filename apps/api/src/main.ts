@@ -1,6 +1,7 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
+import compression from 'compression';
 import { AppModule } from './app.module';
 
 /**
@@ -28,10 +29,29 @@ async function verifierSecretsObligatoires(
   }
 }
 
+/**
+ * Une promesse rejetée sans `catch` (appel réseau, base indisponible...) fait quitter Node
+ * par défaut : le port 3001 se fermait « tout seul ». On journalise et on garde le serveur
+ * en vie ; le démarrage reste, lui, refusé net (voir `verifierSecretsObligatoires`).
+ */
+function garderLeServeurEnVie(): void {
+  const journal = new Logger('Processus');
+  process.on('unhandledRejection', (raison) => {
+    journal.error(`Promesse rejetée non gérée : ${raison instanceof Error ? (raison.stack ?? raison.message) : String(raison)}`);
+  });
+  process.on('uncaughtException', (erreur) => {
+    journal.error(`Exception non interceptée : ${erreur.stack ?? erreur.message}`);
+  });
+}
+
 async function bootstrap(): Promise<void> {
+  garderLeServeurEnVie();
   const app = await NestFactory.create(AppModule);
 
   await verifierSecretsObligatoires(app);
+
+  // Réponses JSON compressées (gzip) : les listes volumineuses circulent 5 à 10 fois plus légères
+  app.use(compression());
 
   // Toutes les routes sont préfixées /api/v1 → GET /api/v1/identity/me
   app.setGlobalPrefix('api/v1');

@@ -8,6 +8,7 @@ import {
   Users,
 } from 'lucide-react';
 
+import { GraphiquesSoinsServeur } from '@/components/dashboard/exploitation/graphiques-soins-serveur';
 import { CarteResume, GrilleCartes } from '@/components/dashboard/patterns';
 import { PageTitre } from '@/components/page-titre';
 import {
@@ -148,6 +149,8 @@ export default async function DirectionAccueil() {
           }
         />
       </GrilleCartes>
+
+      <GraphiquesSoinsServeur />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">

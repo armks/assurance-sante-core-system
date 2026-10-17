@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { lireSession } from '@/lib/session';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
@@ -11,10 +11,7 @@ export async function apiFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const supabase = await createClient();
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  const session = await lireSession();
 
   const headers = new Headers(init.headers);
   // FormData (upload multipart, ex. pièces justificatives) : laisser fetch

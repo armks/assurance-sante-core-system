@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -19,6 +20,15 @@ export class ListerDossiersQueryDto {
   @IsOptional()
   @IsUUID()
   etablissementId?: string;
+
+  /** Période d'ouverture (AAAA-MM-JJ, bornes incluses) : limite le volume chargé côté serveur. */
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'du doit être une date AAAA-MM-JJ' })
+  du?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'au doit être une date AAAA-MM-JJ' })
+  au?: string;
 }
 
 export class OuvrirDossierDto {

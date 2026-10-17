@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Body,
   Controller,
@@ -99,6 +100,7 @@ export class InvitationsController {
     return this.invitations.consulterParToken(token);
   }
 
+  @Throttle({ default: { limit: 8, ttl: 60_000 } }) // anti force brute sur les codes
   @Post('accepter')
   @HttpCode(200)
   accepter(@Body() dto: AccepterInvitationDto) {

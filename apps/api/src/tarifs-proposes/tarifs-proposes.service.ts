@@ -10,6 +10,7 @@ import {
 import { Prisma, type TarifPropose } from '@prisma/client';
 import { createClient } from '@supabase/supabase-js';
 import { randomInt } from 'node:crypto';
+import { DUREE_CODE_FACTURATION_MS, expirationDans } from '../common/codes-secrets';
 import Decimal from 'decimal.js';
 import { AdjudicationClientService, type TraceTarif } from '../adjudication-client/adjudication-client.service';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -667,6 +668,7 @@ export class TarifsProposesService {
                 montantPatient: due.toFixed(2),
                 statut: 'EMISE',
                 codeFacturation: await this.codeFacturationUnique(tx),
+                codeFacturationExpireLe: expirationDans(DUREE_CODE_FACTURATION_MS),
                 tarifProposeId: id,
               },
             });

@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { acteurCourant, type PerimetreActeur } from '../common/acteur.context';
+import { protegerCodes } from '../common/codes-secrets';
 
 /** Opérations d'écriture journalisées : création / modification / suppression. */
 const OPERATIONS_JOURNALISEES: Record<string, 'CREATION' | 'MODIFICATION' | 'SUPPRESSION'> = {
@@ -58,7 +59,8 @@ export class PrismaService
       query: {
         $allModels: {
           async $allOperations({ model, operation, args, query }) {
-            const resultat = await query(args);
+            // codes à usage unique : empreinte + chiffrement en base, restitution en clair à la lecture (voir codes-secrets.ts)
+            const resultat = await protegerCodes(model, args as Record<string, unknown>, (a) => query(a as typeof args));
             const nature = OPERATIONS_JOURNALISEES[operation];
             const acteur = acteurCourant();
             if (!nature || !acteur || MODELES_EXCLUS.has(model)) return resultat;

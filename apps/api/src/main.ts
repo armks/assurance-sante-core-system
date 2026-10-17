@@ -1,7 +1,10 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { INestApplication } from '@nestjs/common';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import compression from 'compression';
+import helmet from 'helmet';
+import { secretCodesConfigure } from './common/codes-secrets';
 import { AppModule } from './app.module';
 
 /**
@@ -15,6 +18,16 @@ import { AppModule } from './app.module';
 async function verifierSecretsObligatoires(
   app: INestApplication,
 ): Promise<void> {
+  if (!secretCodesConfigure()) {
+    Logger.error(
+      'Démarrage refusé : CODES_SECRET_MAITRE est absent ou trop court (32 caractères minimum).\n' +
+        'Ce secret chiffre et vérifie les codes à usage unique (facturation, dispensation, consultation...) ; sans lui ils seraient illisibles.\n' +
+        'Générez-le (base64url, 48 octets aléatoires) avec Node crypto.randomBytes puis renseignez-le dans apps/api/.env.',
+      'Bootstrap',
+    );
+    await app.close();
+    process.exit(1);
+  }
   const secretJwtService = process.env.SERVICE_JWT_SECRET?.trim();
   if (!secretJwtService) {
     Logger.error(
@@ -46,9 +59,15 @@ function garderLeServeurEnVie(): void {
 
 async function bootstrap(): Promise<void> {
   garderLeServeurEnVie();
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   await verifierSecretsObligatoires(app);
+
+  // API pure JSON (appelée par le serveur web, jamais par un navigateur) : en-têtes de sécurité stricts, pas de CORS,
+  // pas d'indice sur la technologie, corps de requête borné
+  app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } }, crossOriginResourcePolicy: { policy: 'same-site' } }));
+  app.disable('x-powered-by');
+  app.useBodyParser('json', { limit: '2mb' });
 
   // Réponses JSON compressées (gzip) : les listes volumineuses circulent 5 à 10 fois plus légères
   app.use(compression());

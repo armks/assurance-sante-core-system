@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Body,
   Controller,
@@ -71,6 +72,7 @@ export class PreauthorizationController {
     return this.preauth.listerMesCodes(user, dto);
   }
 
+  @Throttle({ default: { limit: 8, ttl: 60_000 } }) // anti force brute sur les codes
   @Post('codes-consultation/valider')
   valider(
     @CurrentUser() user: AuthenticatedUser,
@@ -125,6 +127,7 @@ export class PreauthorizationController {
   }
 
   /** Côté PHARMACIE : saisie du code → révèle le contenu de l'ordonnance. */
+  @Throttle({ default: { limit: 8, ttl: 60_000 } }) // anti force brute sur les codes
   @Post('codes-ordonnance/valider')
   validerOrdonnance(
     @CurrentUser() user: AuthenticatedUser,
@@ -340,12 +343,22 @@ export class PreauthorizationController {
   }
 
   /** Côté ADHÉRENT : valide le code de facturation (condition du règlement). */
+  @Throttle({ default: { limit: 8, ttl: 60_000 } }) // anti force brute sur les codes
   @Post('codes-facturation/valider')
   validerFacturation(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ValiderCodeFacturationDto,
   ) {
     return this.preauth.validerCodeFacturation(user, dto);
+  }
+
+  /** Établissement : nouveau code de facturation (le précédent a expiré). */
+  @Post('factures/:id/renouveler-code')
+  renouvelerCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.preauth.renouvelerCodeFacturation(user, id);
   }
 
   @Get('factures/:id')

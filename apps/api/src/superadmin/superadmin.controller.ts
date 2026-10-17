@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Body,
   Controller,
@@ -54,6 +55,7 @@ export class SuperadminController {
     return this.actions.initierProlongationOrganisation(user, id, dto);
   }
 
+  @Throttle({ default: { limit: 8, ttl: 60_000 } }) // anti force brute sur les codes
   @Post('actions/confirmer')
   confirmer(
     @CurrentUser() user: AuthenticatedUser,

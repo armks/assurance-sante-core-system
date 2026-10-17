@@ -37,6 +37,14 @@ export async function apiFetchPublic(
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('Content-Type', 'application/json');
+  // adresse du visiteur : sert de clé au limiteur de débit de l'API (sinon tous les visiteurs partageraient celle du serveur web)
+  try {
+    const entetes = await (await import('next/headers')).headers();
+    const ip = entetes.get('x-forwarded-for')?.split(',')[0]?.trim();
+    if (ip) headers.set('X-Forwarded-For', ip);
+  } catch {
+    // hors requête (tâche) : pas d'adresse à transmettre
+  }
   return fetch(`${API_URL}${path}`, { ...init, headers, cache: 'no-store' });
 }
 

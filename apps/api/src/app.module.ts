@@ -1,5 +1,8 @@
 import { Cim10Module } from './cim10/cim10.module';
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { LimiteurDebitGuard } from './common/limiteur-debit.guard';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ActeurInterceptor } from './common/acteur.interceptor';
 import { JournalModule } from './journal/journal.module';
@@ -34,6 +37,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 600 }]),
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     EmailModule,
@@ -66,6 +70,10 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     Cim10Module,
   ],
   // Identité de l'utilisateur propagée à toute écriture de la requête (journal des actions)
-  providers: [{ provide: APP_INTERCEPTOR, useClass: ActeurInterceptor }],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: ActeurInterceptor },
+    // limite de débit globale (anti force brute / déni de service) ; plafonds plus bas sur les routes de codes (@Throttle)
+    { provide: APP_GUARD, useClass: LimiteurDebitGuard },
+  ],
 })
 export class AppModule {}

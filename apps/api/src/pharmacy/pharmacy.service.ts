@@ -1,8 +1,10 @@
 import { randomInt } from 'node:crypto';
+import { DUREE_CODE_CONFIRMATION_MS, estExpire, expirationDans } from '../common/codes-secrets';
 import {
   BadGatewayException,
   BadRequestException,
   ConflictException,
+  GoneException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -851,7 +853,7 @@ export class PharmacyService {
 
       const mis = await tx.dispensationPharmacie.update({
         where: { id: d.id },
-        data: { statut: 'EN_ATTENTE_VALIDATION_PATIENT', codeConfirmation: code },
+        data: { statut: 'EN_ATTENTE_VALIDATION_PATIENT', codeConfirmation: code, codeConfirmationExpireLe: expirationDans(DUREE_CODE_CONFIRMATION_MS) },
       });
       await this.audit(tx, ctx.userId, 'GENERATION_CODE_DISPENSATION', 'dispensations_pharmacie', d.id, {
         montantTotal: montantTotal.toFixed(2),
@@ -1298,6 +1300,28 @@ export class PharmacyService {
     return { id: d.id, statut: 'ANNULEE' as const };
   }
 
+  /** Nouveau code de confirmation (l'ancien a expiré ou est perdu) pour une dispensation encore en attente du patient. */
+  async renouvelerCodeDispensation(user: AuthenticatedUser, dispensationId: string) {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+    const d = await this.prisma.dispensationPharmacie.findFirst({
+      where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
+      select: { id: true, statut: true },
+    });
+    if (!d) throw new NotFoundException('Dispensation introuvable.');
+    if (d.statut !== 'EN_ATTENTE_VALIDATION_PATIENT') {
+      throw new ConflictException(`Le code ne peut être renouvelé qu’en attente de validation du patient (statut actuel : ${d.statut}).`);
+    }
+    const code = await this.genererCodeUnique();
+    const expireLe = expirationDans(DUREE_CODE_CONFIRMATION_MS);
+    await this.prisma.dispensationPharmacie.update({
+      where: { id: d.id },
+      data: { codeConfirmation: code, codeConfirmationExpireLe: expireLe },
+    });
+    await this.audit(this.prisma, ctx.userId, 'RENOUVELLEMENT_CODE_DISPENSATION', 'dispensations_pharmacie', d.id, null);
+    return { id: d.id, code, codeConfirmationExpireLe: expireLe };
+  }
+
   /** Validation du code par l'ADHÉRENT — passe à VALIDEE, PAS encore PAYEE. */
   async validerCodeDispensation(user: AuthenticatedUser, dto: ValiderCodeDispensationDto) {
     const ctx = await this.contexteAppelant(user);
@@ -1326,6 +1350,9 @@ export class PharmacyService {
       throw new ConflictException(
         `Ce code ne peut plus être validé (statut actuel : ${dispensation.statut}).`,
       );
+    }
+    if (estExpire(dispensation.codeConfirmationExpireLe)) {
+      throw new GoneException('Ce code a expiré : demandez à la pharmacie d’en générer un nouveau.');
     }
 
     const maj = await this.prisma.$transaction(async (tx) => {
@@ -1378,11 +1405,14 @@ export class PharmacyService {
     this.assertPharmacie(ctx);
     const d = await this.prisma.dispensationPharmacie.findFirst({
       where: { id: dispensationId, pharmacieId: ctx.pharmacieId! },
-      select: { id: true, statut: true, codeConfirmation: true },
+      select: { id: true, statut: true, codeConfirmation: true, codeConfirmationExpireLe: true },
     });
     if (!d) throw new NotFoundException('Dispensation introuvable.');
     if (d.statut !== 'EN_ATTENTE_VALIDATION_PATIENT') {
       throw new ConflictException(`Ce code ne peut plus être validé (statut actuel : ${d.statut}).`);
+    }
+    if (estExpire(d.codeConfirmationExpireLe)) {
+      throw new GoneException('Ce code a expiré : générez-en un nouveau pour le patient.');
     }
     if (!d.codeConfirmation || d.codeConfirmation !== code.trim().toUpperCase()) {
       await this.audit(this.prisma, ctx.userId, 'CODE_DISPENSATION_INCORRECT', 'dispensations_pharmacie', d.id, null);

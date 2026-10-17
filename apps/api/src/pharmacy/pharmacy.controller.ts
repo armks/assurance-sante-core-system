@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import {
   Body,
   Controller,
@@ -151,6 +152,7 @@ export class PharmacyController {
   }
 
   /** Côté ADHÉRENT : valide le code — passe à VALIDEE (pas encore payée). */
+  @Throttle({ default: { limit: 8, ttl: 60_000 } }) // anti force brute sur les codes
   @Post('dispensations/valider-code')
   validerCode(
     @CurrentUser() user: AuthenticatedUser,
@@ -160,6 +162,7 @@ export class PharmacyController {
   }
 
   /** Côté PHARMACIE : saisit le code communiqué par le patient — passe à VALIDEE. */
+  @Throttle({ default: { limit: 8, ttl: 60_000 } }) // anti force brute sur les codes
   @Post('dispensations/:id/valider-code-pharmacie')
   validerCodeParPharmacie(
     @CurrentUser() user: AuthenticatedUser,
@@ -179,6 +182,15 @@ export class PharmacyController {
   }
 
   /** Côté PHARMACIE : supprime (annule) une facture d'ordonnance non réglée de SA pharmacie. */
+  /** Pharmacie : nouveau code de confirmation (le précédent a expiré). */
+  @Post('dispensations/:id/renouveler-code')
+  renouvelerCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.pharmacy.renouvelerCodeDispensation(user, id);
+  }
+
   @Post('dispensations/:id/annuler')
   annuler(
     @CurrentUser() user: AuthenticatedUser,

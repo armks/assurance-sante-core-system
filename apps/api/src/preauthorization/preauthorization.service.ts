@@ -1,4 +1,5 @@
 import { randomInt } from 'node:crypto';
+import { DUREE_CODE_FACTURATION_MS, estExpire, expirationDans } from '../common/codes-secrets';
 import {
   BadRequestException,
   ConflictException,
@@ -2877,6 +2878,7 @@ export class PreauthorizationService {
           montantPatient,
           statut: 'EMISE',
           codeFacturation: code,
+          codeFacturationExpireLe: expirationDans(DUREE_CODE_FACTURATION_MS),
         },
       });
 
@@ -3086,6 +3088,36 @@ export class PreauthorizationService {
   }
 
   /**
+   * Renouvelle le code de facturation d'une facture dont le code a expiré (ou doit être remplacé) : nouveau code,
+   * nouvelle échéance. Personnel habilité de l'établissement de la facture uniquement ; impossible une fois le code validé.
+   */
+  async renouvelerCodeFacturation(user: AuthenticatedUser, factureId: string) {
+    const ctx = await this.contexteAppelant(user);
+    if (!ctx.roleChain.some((r) => (ROLES_GENERATION_FACTURE as readonly string[]).includes(r))) {
+      throw new ForbiddenException('Seul le personnel habilité à facturer peut renouveler un code de facturation.');
+    }
+    const facture = await this.prisma.factureDossier.findFirst({
+      where: { id: factureId, organisationId: ctx.organisationId, deletedAt: null },
+    });
+    if (!facture) throw new NotFoundException('Facture introuvable.');
+    const estCentreMedical = ctx.roleChain.some((r) => (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r));
+    if (estCentreMedical && ctx.etablissementId !== facture.etablissementId) {
+      throw new ForbiddenException("Vous n'appartenez pas à l'établissement de cette facture.");
+    }
+    if (facture.codeValideParPatient || ['REGLEE', 'CONTESTEE'].includes(facture.statut)) {
+      throw new ConflictException('Le code de cette facture a déjà été validé ou la facture est clôturée : aucun nouveau code nécessaire.');
+    }
+    const code = await this.genererCodeFacturationUnique();
+    const expireLe = expirationDans(DUREE_CODE_FACTURATION_MS);
+    await this.prisma.factureDossier.update({
+      where: { id: facture.id },
+      data: { codeFacturation: code, codeFacturationExpireLe: expireLe },
+    });
+    await this.audit(this.prisma, ctx.userId, 'RENOUVELLEMENT_CODE_FACTURATION', facture.id, null, 'factures_dossier');
+    return { factureId: facture.id, codeFacturationExpireLe: expireLe };
+  }
+
+  /**
    * Validation du code par l'ADHÉRENT lui-même (jamais l'établissement).
    * Marque `code_valide_par_patient = true` — condition SINE QUA NON du règlement.
    */
@@ -3119,6 +3151,9 @@ export class PreauthorizationService {
     }
     if (facture.codeValideParPatient) {
       throw new ConflictException('Ce code a déjà été validé.');
+    }
+    if (estExpire(facture.codeFacturationExpireLe)) {
+      throw new GoneException('Ce code de facturation a expiré : demandez à l’établissement d’en émettre un nouveau.');
     }
     if (['REGLEE', 'CONTESTEE'].includes(facture.statut)) {
       throw new ConflictException(

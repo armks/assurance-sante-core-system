@@ -1238,6 +1238,8 @@ model CodeConsultation {
   etablissementId String   @map("etablissement_id") @db.Uuid
   policeId        String   @map("police_id") @db.Uuid
   code            String   @unique
+  /// Code chiffré (AES-256-GCM) ; `code` ne contient que son empreinte HMAC (prisma/sql/103, common/codes-secrets.ts).
+  codeChiffre     String?  @map("code_chiffre")
   dateEmission    DateTime @default(now()) @map("date_emission") @db.Timestamptz(6)
   dateExpiration  DateTime @default(dbgenerated("(now() + '48:00:00'::interval)")) @map("date_expiration") @db.Timestamptz(6)
   statut          String   @default("EMIS") // EMIS | CONFIRME_PATIENT | UTILISE_ETABLISSEMENT | EXPIRE | ANNULE
@@ -1436,6 +1438,8 @@ model DispensationPharmacie {
   montantTotal          Decimal   @default(0) @map("montant_total") @db.Decimal(14, 2)
   statut                String    @default("EN_PREPARATION") // EN_PREPARATION | EN_ATTENTE_VALIDATION_PATIENT | VALIDEE | PAYEE | ANNULEE
   codeConfirmation      String?   @unique @map("code_confirmation")
+  codeConfirmationChiffre   String?   @map("code_confirmation_chiffre")
+  codeConfirmationExpireLe  DateTime? @map("code_confirmation_expire_le") @db.Timestamptz(6)
   datePreparation       DateTime  @default(now()) @map("date_preparation") @db.Timestamptz(6)
   dateValidationPatient DateTime? @map("date_validation_patient") @db.Timestamptz(6)
   datePaiement          DateTime? @map("date_paiement") @db.Timestamptz(6)
@@ -1572,6 +1576,7 @@ model CodeOrdonnance {
   adherentId              String?  @map("adherent_id") @db.Uuid
   beneficiaireId          String?  @map("beneficiaire_id") @db.Uuid
   code                    String   @unique
+  codeChiffre             String?  @map("code_chiffre")
   dateEmission            DateTime @default(now()) @map("date_emission") @db.Timestamptz(6)
   /// 7 → 14 jours (prisma/sql/040) — délai jugé trop court en pratique.
   dateExpiration          DateTime @default(dbgenerated("(now() + '14 days'::interval)")) @map("date_expiration") @db.Timestamptz(6)
@@ -1775,6 +1780,9 @@ model FactureDossier {
   montantPatient        Decimal   @default(0) @map("montant_patient") @db.Decimal(14, 2)
   statut                String    @default("EMISE") // EMISE | EN_VALIDATION | VALIDEE | REGLEE | CONTESTEE
   codeFacturation       String?   @unique @map("code_facturation")
+  /// Code chiffré ; `codeFacturation` ne contient que son empreinte (prisma/sql/103). Le code est TEMPORAIRE : `codeFacturationExpireLe`.
+  codeFacturationChiffre   String?  @map("code_facturation_chiffre")
+  codeFacturationExpireLe  DateTime? @map("code_facturation_expire_le") @db.Timestamptz(6)
   codeValideParPatient  Boolean   @default(false) @map("code_valide_par_patient")
   /// Facture COMPLÉMENTAIRE de la part patient d'un acte dont le tarif proposé a été décidé (prisma/sql/084)
   tarifProposeId        String?   @map("tarif_propose_id") @db.Uuid
@@ -2044,6 +2052,7 @@ model CodeValidationSuperadmin {
   action         String // CREATION_ORGANISATION | SUSPENSION_ORGANISATION | PROLONGATION_ORGANISATION
   payload        Json
   code           String   @unique
+  codeChiffre    String?  @map("code_chiffre")
   dateEmission   DateTime @default(now()) @map("date_emission") @db.Timestamptz(6)
   dateExpiration DateTime @default(dbgenerated("(now() + '00:15:00'::interval)")) @map("date_expiration") @db.Timestamptz(6)
   statut         String   @default("EMIS") // EMIS | CONFIRME | EXPIRE | ANNULE

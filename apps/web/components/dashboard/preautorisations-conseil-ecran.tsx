@@ -29,6 +29,7 @@ export function PreautorisationsConseilEcran({ actes }: { actes: ActeExploitatio
         <PropositionsGroupees
           actes={actes}
           etablissements={[]}
+          racineDossier="/dashboard-assureur/medecin-conseil/dossiers"
           onSucces={setMessage}
           libelleActes="Actes en attente"
           vide="Aucun acte en attente de pré-autorisation."

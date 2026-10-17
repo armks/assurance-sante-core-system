@@ -62,6 +62,14 @@ export class MarquerActeRealiseDto {
   @IsOptional() @IsUUID() medecinId?: string;
 }
 
+/** Annulation d'une décision de pré-autorisation (exploitation ou médecin conseil) : motif obligatoire, tracé dans l'audit. */
+export class AnnulerDecisionPreautorisationDto {
+  @IsString()
+  @MinLength(5)
+  @MaxLength(500)
+  motif!: string;
+}
+
 export class ValiderPreautorisationDto {
   @IsIn(['APPROUVE', 'REFUSE'])
   decision!: 'APPROUVE' | 'REFUSE';

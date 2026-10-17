@@ -36,6 +36,7 @@ import {
   AutoriserRepetitionDto,
   MarquerActeRealiseDto,
   TraiterParExploitationDto,
+  AnnulerDecisionPreautorisationDto,
   ValiderPreautorisationDto,
 } from './dto/acte.dto';
 import {
@@ -2046,6 +2047,107 @@ export class PreauthorizationService {
   }
 
   /**
+   * Annulation d'une décision de pré-autorisation (approuvée, approuvée partiellement ou refusée) par l'exploitation ou le médecin
+   * conseil, TANT QUE l'établissement n'a pas réalisé l'acte : l'acte repasse en attente du niveau de l'appelant (exploitation →
+   * EN_ATTENTE_EXPLOITATION, médecin conseil → EN_ATTENTE_MEDECIN_CONSEIL), les ajustements de la décision (quantité, nature, ticket
+   * modérateur, réorientation) sont effacés et la simulation est recalculée sur la demande initiale. Refusée dès que l'acte est
+   * réalisé (ou déjà facturé / liquidé / annulé) : la décision est alors définitive.
+   */
+  async annulerDecisionPreautorisation(
+    user: AuthenticatedUser,
+    acteId: string,
+    dto: AnnulerDecisionPreautorisationDto,
+  ) {
+    const ctx = await this.contexteAppelant(user);
+    const estExploitation = ctx.roleChain.some((r) =>
+      (ROLES_TRAITEMENT_EXPLOITATION as readonly string[]).includes(r),
+    );
+    const estMedecinConseil = ctx.roleChain.includes(ROLE_VALIDATION_PREAUTORISATION);
+    if (!estExploitation && !estMedecinConseil) {
+      throw new ForbiddenException(
+        "L'annulation d'une décision de pré-autorisation est réservée à l'exploitation et au médecin conseil.",
+      );
+    }
+
+    const acte = await this.chargerActePreautorisation(ctx, acteId);
+    if (!['APPROUVEE', 'APPROUVEE_PARTIELLEMENT', 'REFUSEE'].includes(acte.statutPreautorisation)) {
+      throw new ConflictException(
+        `Aucune décision à annuler sur cet acte (statut de pré-autorisation : ${acte.statutPreautorisation}).`,
+      );
+    }
+    if (acte.statut !== 'PRESCRIT') {
+      throw new ConflictException(
+        "Cet acte est déjà réalisé (ou facturé) : la décision de pré-autorisation ne peut plus être annulée.",
+      );
+    }
+    const dejaFacture = await this.prisma.ligneFacturation.count({ where: { acteDossierId: acteId } });
+    if (dejaFacture > 0) {
+      throw new ConflictException('Cet acte est déjà engagé dans une facturation : la décision ne peut plus être annulée.');
+    }
+
+    const nouveauStatut = estExploitation ? 'EN_ATTENTE_EXPLOITATION' : 'EN_ATTENTE_MEDECIN_CONSEIL';
+    // simulation recalculée sur la demande initiale (quantité demandée, établissement d'origine, ticket modérateur de la garantie)
+    const simulation =
+      acte.montantPrescrit !== null
+        ? (
+            await this.simulerMontantActe(
+              {
+                policeId: acte.dossier.policeId,
+                adherentId: acte.dossier.adherentId,
+                beneficiaireId: acte.dossier.beneficiaireId,
+                etablissementId: acte.dossier.etablissementId,
+                typeVisite: acte.dossier.typeVisite,
+              },
+              acte.dossier.police.produitId,
+              {
+                categorieActe: acte.categorieActe,
+                codeActe: acte.codeActe ?? undefined,
+                montantPrescrit: Number(acte.montantPrescrit.toString()),
+                quantite: acte.quantite,
+              },
+              undefined,
+            )
+          ).montants
+        : null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.acteDossier.update({
+        where: { id: acteId },
+        data: {
+          statutPreautorisation: nouveauStatut,
+          quantiteApprouvee: null,
+          typeActeApprouve: null,
+          ticketModerateurAjuste: null,
+          etablissementExecutionId: null,
+          ...(simulation
+            ? {
+                montantSimuleAssurance: simulation.montantSimuleAssurance,
+                montantSimulePatient: simulation.montantSimulePatient,
+                ticketModerateurSimule: simulation.ticketModerateurSimule,
+                tarifConventionneId: simulation.tarifConventionneId,
+              }
+            : {}),
+        },
+      });
+      await this.audit(
+        tx,
+        ctx.userId,
+        'PREAUTORISATION_DECISION_ANNULEE',
+        acteId,
+        {
+          motif: dto.motif,
+          statutPrecedent: acte.statutPreautorisation,
+          nouveauStatut,
+          niveau: estExploitation ? 'EXPLOITATION' : 'MEDECIN_CONSEIL',
+        },
+        'actes_dossier',
+      );
+    });
+
+    return this.prisma.acteDossier.findUnique({ where: { id: acteId } });
+  }
+
+  /**
    * Cœur partagé entre `validerPreautorisation` (médecin conseil, second
    * niveau) et `traiterParExploitation` (premier niveau, décisions APPROUVE/
    * REFUSE) : détermine le statut final (`APPROUVEE`/`APPROUVEE_
@@ -2365,6 +2467,7 @@ export class PreauthorizationService {
       montantSimulePatient: a.montantSimulePatient?.toFixed(2) ?? null,
       ticketModerateurSimule: a.ticketModerateurSimule?.toFixed(2) ?? null,
       statutPreautorisation: a.statutPreautorisation,
+      statut: a.statut,
       datePrescription: a.datePrescription,
       dossierId: a.dossier.id,
       numeroTraitement: a.dossier.numeroTraitement,

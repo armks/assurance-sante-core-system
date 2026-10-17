@@ -9015,3 +9015,17 @@ Terminé.
 ## 2026-10-16 — Médecin conseil et pharmacien conseil : mêmes principes de structuration
 - Médecin conseil, « Pré-autorisations » : une ligne par dossier (n° dossier, société, n° carte, patient, établissement, consultation, coût, assurance, date), dépliable sur les actes escaladés, récapitulatif cumulé, bloc en accordéon, bouton « Décision » du second niveau (`preautorisations-conseil-ecran.tsx`). API : `en-attente-preautorisation` renvoie en plus dossierId, société, n° carte, type de visite, statut. `PropositionsGroupees` (prop `actionActe`), `BlocAccordeon` et `DecisionMedecinConseil` partagés depuis `exploitation-preautorisations-ecran.tsx`.
 - Nouvelle entrée de menu « Dossiers de soins » pour le médecin conseil et le pharmacien conseil (pages `/dashboard-assureur/{medecin,pharmacien}-conseil/dossiers`) : même liste que l'exploitation (filtres, mois en cours, cumul, lignes dépliables actes / consultations / ordonnances) ; `DossiersSupervisionEcran` accepte `racineDossier`. La page « Prescriptions » du pharmacien conseil n'a pas été modifiée. tsc OK, non testé dans le navigateur.
+
+## 2026-10-16 — Annulation d'une décision de pré-autorisation (exploitation et médecin conseil)
+- API : `POST /preauthorization/actes/:id/annuler-decision-preautorisation` (motif obligatoire, ≥ 5 caractères). Réservé à l'exploitation (et conjointe) et au médecin conseil. Autorisé seulement si l'acte est décidé (approuvé, approuvé partiellement, refusé) ET encore `PRESCRIT` (non réalisé) et sans ligne de facturation ; sinon 409. L'acte revient en attente du niveau de l'appelant (exploitation → `EN_ATTENTE_EXPLOITATION`, médecin conseil → `EN_ATTENTE_MEDECIN_CONSEIL`), ajustements effacés, simulation recalculée sur la demande initiale, audit `PREAUTORISATION_DECISION_ANNULEE`.
+- Web : bouton « Annuler la décision » (`AnnulerDecision`) sur la page dossier de l'assurance et dans « Actes traités » de l'exploitation, visible uniquement tant que l'acte n'est pas réalisé ; l'API reste juge. Champ `statut` ajouté à la file de l'exploitation.
+- Vérifié en HTTP réel (12 contrôles : rôle sans droit 403, motif court 400, annulation exploitation et médecin conseil, 2e annulation 409, acte réalisé 409 pour les deux rôles, acte non décidé 409, aucun résidu) ; tsc OK ; jest preauthorization OK.
+
+## 2026-10-16 — Médecin conseil : bouton « Dossier » des pré-autorisations
+- `PropositionsGroupees` reçoit `racineDossier` ; le médecin conseil ouvre `/dashboard-assureur/medecin-conseil/dossiers/{id}` (même vue complète que l’exploitation : patient, consultations, ordonnances, actes avec décision/annulation, rapport). Retour vers Pré-autorisations.
+- Statut : tsc OK, non testé au navigateur.
+
+## 2026-10-16 — Médecin conseil : page Contestations organisée comme les pré-autorisations de l’exploitation
+- API contestation : `actes-a-examiner` et `contestations-actes` renvoient en plus dossierId, société, n° carte, type de visite, parts assurance/patient.
+- `medecin-conseil-actes-ecran.tsx` : 3 blocs en accordéon (Actes à examiner, Contestations en cours, Contestations traitées), chacun avec récapitulatif cumulé (actes, coût, assurance, patient), une ligne par dossier dépliable sur ses actes, bouton Dossier (fiche complète) + Contester / Valider / Rejeter par acte.
+- Statut : tsc web+api OK ; regroupement des actes à examiner limité à la page serveur courante ; non testé au navigateur.

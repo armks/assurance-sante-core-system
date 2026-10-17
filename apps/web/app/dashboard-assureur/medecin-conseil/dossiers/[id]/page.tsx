@@ -49,9 +49,9 @@ export default async function DossierMedecinConseilPage({
   return (
     <div className="space-y-6">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href="/dashboard-assureur/medecin-conseil/contestations">
+        <Link href="/dashboard-assureur/medecin-conseil/preautorisations">
           <ArrowLeft className="size-4" />
-          Contestations d'actes
+          Pré-autorisations
         </Link>
       </Button>
 

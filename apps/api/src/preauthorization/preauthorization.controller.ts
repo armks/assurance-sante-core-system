@@ -13,6 +13,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import {
   AjouterActeDto,
+  AnnulerDecisionPreautorisationDto,
   AutoriserRepetitionConsultationDto,
   AutoriserRepetitionDto,
   MarquerActeRealiseDto,
@@ -255,6 +256,19 @@ export class PreauthorizationController {
     @Body() dto: TraiterParExploitationDto,
   ) {
     return this.preauth.traiterParExploitation(user, id, dto);
+  }
+
+  /**
+   * ASSUREUR_EXPLOITATION(_CONJOINTE) ou MÉDECIN CONSEIL : annule une décision (approuvée / refusée) tant que l'acte n'est pas
+   * réalisé ; l'acte revient en attente du niveau de l'appelant. Impossible dès que l'acte est réalisé.
+   */
+  @Post('actes/:id/annuler-decision-preautorisation')
+  annulerDecisionPreautorisation(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AnnulerDecisionPreautorisationDto,
+  ) {
+    return this.preauth.annulerDecisionPreautorisation(user, id, dto);
   }
 
   /**

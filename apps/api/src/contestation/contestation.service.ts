@@ -494,9 +494,19 @@ export class ContestationService {
           select: {
             id: true,
             numeroTraitement: true,
+            typeVisite: true,
             etablissement: { select: { nom: true } },
-            adherent: { select: { nom: true, prenom: true } },
-            beneficiaire: { select: { nom: true, prenom: true } },
+            adherent: {
+              select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } },
+            },
+            beneficiaire: {
+              select: {
+                nom: true,
+                prenom: true,
+                numeroCarte: true,
+                adherent: { select: { souscripteur: { select: { nom: true } } } },
+              },
+            },
           },
         },
         contestations: { orderBy: { createdAt: 'desc' }, take: 1 },
@@ -513,7 +523,13 @@ export class ContestationService {
       montantPrescrit: a.montantPrescrit?.toFixed(2) ?? null,
       statut: a.statut,
       datePrescription: a.datePrescription,
+      montantSimuleAssurance: a.montantSimuleAssurance?.toFixed(2) ?? null,
+      montantSimulePatient: a.montantSimulePatient?.toFixed(2) ?? null,
       dossierId: a.dossier.id,
+      typeVisite: a.dossier.typeVisite,
+      societe:
+        a.dossier.adherent?.souscripteur?.nom ?? a.dossier.beneficiaire?.adherent?.souscripteur?.nom ?? '—',
+      numeroCarte: a.dossier.adherent?.numeroCarte ?? a.dossier.beneficiaire?.numeroCarte ?? '—',
       numeroTraitement: a.dossier.numeroTraitement,
       etablissement: a.dossier.etablissement.nom,
       patient: a.dossier.adherent
@@ -587,12 +603,26 @@ export class ContestationService {
             libelle: true,
             codeActe: true,
             montantPrescrit: true,
+            quantite: true,
+            montantSimuleAssurance: true,
+            montantSimulePatient: true,
             dossier: {
               select: {
+                id: true,
                 numeroTraitement: true,
+                typeVisite: true,
                 etablissement: { select: { nom: true } },
-                adherent: { select: { nom: true, prenom: true } },
-                beneficiaire: { select: { nom: true, prenom: true } },
+                adherent: {
+                  select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } },
+                },
+                beneficiaire: {
+                  select: {
+                    nom: true,
+                    prenom: true,
+                    numeroCarte: true,
+                    adherent: { select: { souscripteur: { select: { nom: true } } } },
+                  },
+                },
               },
             },
           },
@@ -612,7 +642,14 @@ export class ContestationService {
         libelle: c.acteDossier.libelle,
         codeActe: c.acteDossier.codeActe,
         montantPrescrit: c.acteDossier.montantPrescrit?.toFixed(2) ?? null,
+        quantite: c.acteDossier.quantite,
+        montantSimuleAssurance: c.acteDossier.montantSimuleAssurance?.toFixed(2) ?? null,
+        montantSimulePatient: c.acteDossier.montantSimulePatient?.toFixed(2) ?? null,
         etablissement: dossier.etablissement.nom,
+        dossierId: dossier.id,
+        typeVisite: dossier.typeVisite,
+        societe: dossier.adherent?.souscripteur?.nom ?? dossier.beneficiaire?.adherent?.souscripteur?.nom ?? '—',
+        numeroCarte: dossier.adherent?.numeroCarte ?? dossier.beneficiaire?.numeroCarte ?? '—',
         numeroTraitement: dossier.numeroTraitement,
         patient: dossier.adherent
           ? `${dossier.adherent.prenom} ${dossier.adherent.nom}`

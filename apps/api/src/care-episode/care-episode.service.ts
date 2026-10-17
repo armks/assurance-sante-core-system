@@ -870,22 +870,63 @@ export class CareEpisodeService {
   private async syntheseActesParDossier(dossierSoinsIds: string[]) {
     const res = new Map<string, SyntheseActesDossier>();
     if (dossierSoinsIds.length === 0) return res;
-    const actes = await this.prisma.acteDossier.findMany({
-      where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
-      orderBy: { datePrescription: 'asc' },
-      select: {
-        id: true,
-        libelle: true,
-        statut: true,
-        datePrescription: true,
-        dossierSoinsId: true,
-        quantite: true,
-        statutPreautorisation: true,
-        montantPrescrit: true,
-        montantSimuleAssurance: true,
-        montantSimulePatient: true,
-      },
-    });
+    // les trois lectures sont indépendantes : une seule attente au lieu de trois allers-retours successifs
+    const [actes, consultations, ordonnances] = await Promise.all([
+      this.prisma.acteDossier.findMany({
+        where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
+        orderBy: { datePrescription: 'asc' },
+        select: {
+          id: true,
+          libelle: true,
+          statut: true,
+          datePrescription: true,
+          dossierSoinsId: true,
+          quantite: true,
+          statutPreautorisation: true,
+          montantPrescrit: true,
+          montantSimuleAssurance: true,
+          montantSimulePatient: true,
+        },
+      }),
+      this.prisma.consultationDossier.findMany({
+        where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
+        orderBy: { dateConsultation: 'asc' },
+        select: {
+          id: true,
+          dossierSoinsId: true,
+          numeroConsultation: true,
+          dateConsultation: true,
+          motif: true,
+          diagnostic: true,
+          codeCim10: true,
+          statut: true,
+        },
+      }),
+      this.prisma.ordonnance.findMany({
+        where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
+        orderBy: { datePrescription: 'asc' },
+        select: {
+          id: true,
+          dossierSoinsId: true,
+          consultationId: true,
+          datePrescription: true,
+          dateValidite: true,
+          statut: true,
+          lignesOrdonnance: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              denominationMedicament: true,
+              dosage: true,
+              posologie: true,
+              duree: true,
+              quantitePrescrite: true,
+              statut: true,
+            },
+          },
+        },
+      }),
+    ]);
     for (const a of actes) {
       const s = res.get(a.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [], ordonnances: [] };
       s.nbActes += 1;
@@ -912,20 +953,6 @@ export class CareEpisodeService {
       });
       res.set(a.dossierSoinsId, s);
     }
-    const consultations = await this.prisma.consultationDossier.findMany({
-      where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
-      orderBy: { dateConsultation: 'asc' },
-      select: {
-        id: true,
-        dossierSoinsId: true,
-        numeroConsultation: true,
-        dateConsultation: true,
-        motif: true,
-        diagnostic: true,
-        codeCim10: true,
-        statut: true,
-      },
-    });
     const codes = [...new Set(consultations.map((c) => c.codeCim10).filter((c): c is string => !!c))];
     const maladies = codes.length
       ? await this.prisma.maladieCim10.findMany({ where: { code: { in: codes } }, select: { code: true, libelle: true } })
@@ -945,30 +972,6 @@ export class CareEpisodeService {
       });
       res.set(c.dossierSoinsId, s);
     }
-    const ordonnances = await this.prisma.ordonnance.findMany({
-      where: { dossierSoinsId: { in: dossierSoinsIds }, deletedAt: null },
-      orderBy: { datePrescription: 'asc' },
-      select: {
-        id: true,
-        dossierSoinsId: true,
-        consultationId: true,
-        datePrescription: true,
-        dateValidite: true,
-        statut: true,
-        lignesOrdonnance: {
-          orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            denominationMedicament: true,
-            dosage: true,
-            posologie: true,
-            duree: true,
-            quantitePrescrite: true,
-            statut: true,
-          },
-        },
-      },
-    });
     for (const o of ordonnances) {
       const s = res.get(o.dossierSoinsId) ?? { ...SYNTHESE_VIDE, actes: [], consultations: [], ordonnances: [] };
       s.ordonnances.push({

@@ -9064,3 +9064,8 @@ Terminé.
 - **G. API** : compression gzip (`compression`), migration `102_index_performance_dossiers.sql` appliquée (index partiels `dossiers_soins(organisation_id, date_ouverture)` et `actes_dossier(dossier_soins_id)`).
 - Non fait : H (actes d'un dossier chargés à l'ouverture de l'accordéon) — la période limite déjà le volume ; à reprendre si une page reste lente.
 - Test HTTP réel (API sur port temporaire, compte éphémère supprimé) : statistiques identiques à la liste, filtre de période exact, date invalide → 400, gzip actif. tsc web + api OK, jest care-episode 44/44.
+
+## 2026-10-17 — Performance : mesures et lectures de synthèse en parallèle
+- `syntheseActesParDossier` : lectures des actes, consultations et ordonnances lancées ensemble (`Promise.all`) au lieu de trois attentes successives.
+- Mesure sur 401 dossiers (400 clonés temporairement puis supprimés) : liste complète 1,1 Mo en ~460 ms ; liste du mois en cours 143 Ko en ~350 ms ; statistiques des graphiques 543 o en ~190 ms (plancher ≈ authentification + profil). Page dossiers : ~0,6 s sur le mois en cours, 1 à 3 s (jusqu'à 16 s en mode dev) en « toute période » avec 1,3 Mo de HTML.
+- Données de test supprimées (1 dossier restant), tsc OK, jest care-episode 44/44.

@@ -57,6 +57,18 @@ export async function validerCodeParPharmacie(dispensationId: string, code: stri
   return { ok: true, message: 'Code validé : le paiement peut être confirmé.' };
 }
 
+/** Nouveau code de confirmation (l'ancien a expiré ou est perdu) : renvoyé à la pharmacie pour le communiquer au patient. */
+export async function renouvelerCodeDispensation(
+  dispensationId: string,
+  cible: string,
+): Promise<{ ok: true; code: string; expireLe: string } | { ok: false; error: string }> {
+  const res = await apiFetch(`/api/v1/pharmacy/dispensations/${dispensationId}/renouveler-code`, { method: 'POST' });
+  if (!res.ok) return { ok: false, error: (await detailErreur(res)).error };
+  const corps = (await res.json()) as { code: string; codeConfirmationExpireLe: string };
+  revalidatePath(cible);
+  return { ok: true, code: corps.code, expireLe: corps.codeConfirmationExpireLe };
+}
+
 /** Supprime (annule) une facture d'ordonnance non réglée de la pharmacie. */
 export async function annulerDispensation(dispensationId: string, cible: string): Promise<ResultatSoumission> {
   const res = await apiFetch(`/api/v1/pharmacy/dispensations/${dispensationId}/annuler`, { method: 'POST' });

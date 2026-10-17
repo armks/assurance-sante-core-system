@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import {
   annulerDispensation,
+  renouvelerCodeDispensation,
   confirmerPaiementDispensation,
   validerCodeParPharmacie,
   obtenirDispensation,
@@ -72,6 +73,7 @@ export function DispensationFlowEcran({
 
   const [dispensation, setDispensation] = useState<DispensationDetail | null>(null);
   const [paiementErreur, setPaiementErreur] = useState<string | null>(null);
+  const [nouveauCodeInfo, setNouveauCodeInfo] = useState<string | null>(null);
 
   const ordonnanceSelectionnee: PrescriptionActive | null =
     resultat?.ordonnances.find((o) => o.id === ordonnanceId) ?? null;
@@ -195,6 +197,20 @@ export function DispensationFlowEcran({
       }
       setCodeSaisi('');
       await rafraichirDispensation();
+    });
+  }
+
+  function nouveauCode() {
+    if (!dispensation) return;
+    setPaiementErreur(null);
+    setNouveauCodeInfo(null);
+    startTransition(async () => {
+      const res = await renouvelerCodeDispensation(dispensation.id, cible);
+      if (!res.ok) {
+        setPaiementErreur(res.error);
+        return;
+      }
+      setNouveauCodeInfo(`Nouveau code : ${res.code} — valable jusqu’à ${new Date(res.expireLe).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}. Communiquez-le au patient ; l’ancien n’est plus valable.`);
     });
   }
 
@@ -606,6 +622,11 @@ export function DispensationFlowEcran({
                     <Button variant="ghost" className="text-destructive hover:text-destructive" onClick={supprimerFacture} disabled={pending}>
                       Supprimer la facture
                     </Button>
+                    {dispensation.statut === 'EN_ATTENTE_VALIDATION_PATIENT' && (
+                      <Button variant="ghost" onClick={nouveauCode} disabled={pending} title="Le code est valable 2 h : générez-en un nouveau s'il a expiré ou est perdu">
+                        Nouveau code
+                      </Button>
+                    )}
                     <Button variant="ghost" onClick={() => void rafraichirDispensation()} disabled={pending}>
                       Rafraîchir le statut
                     </Button>
@@ -625,6 +646,7 @@ export function DispensationFlowEcran({
                 {dispensation.statut === 'EN_ATTENTE_VALIDATION_PATIENT' && (
                   <p className="text-xs text-muted-foreground">Code reçu par le patient : saisissez-le pour débloquer le paiement.</p>
                 )}
+                {nouveauCodeInfo && <p className="text-sm font-medium" role="status">{nouveauCodeInfo}</p>}
                 {paiementErreur && <p className="text-sm text-destructive">{paiementErreur}</p>}
               </div>
             )}

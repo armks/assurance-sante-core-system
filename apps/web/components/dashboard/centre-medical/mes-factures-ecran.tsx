@@ -1,5 +1,10 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+import { useState, useTransition } from 'react';
+
+import { renouvelerCodeFacturation } from '@/app/dashboard-centre-medical/mes-factures-actions';
+import { Button } from '@/components/ui/button';
 import {
   DataTable,
   StatutBadge,
@@ -28,6 +33,36 @@ export interface FactureDossierEtablissement {
   reglesOrigine?: string[];
   complementaire?: boolean;
   tarifEnExamen?: boolean;
+  /** Code de facturation en attente de validation par le patient (jamais le code lui-même) ; `codeExpire` : à renouveler. */
+  codeAValider?: boolean;
+  codeExpire?: boolean;
+}
+
+/** « Nouveau code » : remplace le code de facturation de la facture (24 h), surtout quand il a expiré. */
+function BoutonNouveauCode({ facture }: { facture: FactureDossierEtablissement }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
+  if (!facture.codeAValider) return null;
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        size="xs"
+        variant={facture.codeExpire ? 'default' : 'ghost'}
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            const res = await renouvelerCodeFacturation(facture.id);
+            setMessage({ ok: res.ok, texte: res.ok ? (res.message ?? 'Code renouvelé.') : res.error });
+            if (res.ok) router.refresh();
+          })
+        }
+      >
+        {facture.codeExpire ? 'Code expiré — nouveau code' : 'Nouveau code'}
+      </Button>
+      {message && <span className={message.ok ? 'text-xs text-muted-foreground' : 'text-xs text-destructive'}>{message.texte}</span>}
+    </div>
+  );
 }
 
 const LIBELLE_STATUT = LIBELLE_STATUT_FACTURE_DOSSIER;
@@ -135,6 +170,7 @@ export function MesFacturesEcran({ factures }: { factures: FactureDossierEtablis
       }}
       filtres={filtres}
       colonnes={colonnes}
+      actionLigne={(f) => <BoutonNouveauCode facture={f} />}
       vide="Aucune facture pour l’instant."
     />
   );

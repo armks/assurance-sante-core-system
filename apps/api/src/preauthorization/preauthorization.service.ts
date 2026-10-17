@@ -3411,6 +3411,9 @@ export class PreauthorizationService {
       montantPatient: f.montantPatient.toFixed(2),
       createdAt: f.createdAt,
       dateReglement: f.dateReglement,
+      // jamais le code lui-même : seulement de quoi proposer « Nouveau code » (code non validé par le patient)
+      codeAValider: !!f.codeFacturation && !f.codeValideParPatient && !['REGLEE', 'CONTESTEE'].includes(f.statut),
+      codeExpire: estExpire(f.codeFacturationExpireLe),
     }));
   }
 

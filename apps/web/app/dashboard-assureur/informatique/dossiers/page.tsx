@@ -18,7 +18,7 @@ export default async function DossiersSupervision({
   searchParams: Promise<{ du?: string; au?: string }>;
 }) {
   const periode = periodeDepuisUrl(await searchParams);
-  const res = await apiFetch(`/api/v1/care-episode/dossiers${requetePeriode(periode)}`);
+  const res = await apiFetch(`/api/v1/care-episode/dossiers${requetePeriode(periode, true)}`);
   const dossiers: DossierSupervisionResume[] = res.ok ? await res.json() : [];
   const erreur = res.ok ? null : await messageErreur(res);
 
@@ -31,7 +31,7 @@ export default async function DossiersSupervision({
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <DossiersSupervisionEcran dossiers={dossiers} periodeServeur={periode} />
+        <DossiersSupervisionEcran dossiers={dossiers} periodeServeur={periode} detailsALaDemande />
       )}
     </div>
   );

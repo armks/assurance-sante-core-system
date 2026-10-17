@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { listerDispensationsPharmacie, recapitulatifDispensations } from '@/app/dashboard-pharmacie/dispensation-actions';
+import { GraphiqueRepartitionDispensations } from '@/components/dashboard/graphiques-roles';
 import { DispensationsListeEcran } from '@/components/dashboard/pharmacie/dispensations-liste-ecran';
 import { PageTitre } from '@/components/page-titre';
 import { requeteListe, type ParametresUrl } from '@/lib/liste-serveur';
@@ -32,6 +33,7 @@ export default async function ComptablePage({
         titre="Suivi des dispensations"
         description="Dispensations réglées de votre pharmacie — montants et historique."
       />
+      <GraphiqueRepartitionDispensations recap={recap} />
       <DispensationsListeEcran
         dispensations={dispensations}
         recap={recap}

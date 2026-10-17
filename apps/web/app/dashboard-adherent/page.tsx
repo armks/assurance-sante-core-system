@@ -8,6 +8,7 @@ import {
   type ProduitAvecGaranties,
   type ReclamationAdherent,
 } from '@/components/dashboard/adherent/vue-ensemble-ecran';
+import { GraphiquesAdherent } from '@/components/dashboard/graphiques-roles';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
@@ -64,6 +65,8 @@ export default async function AdherentAccueil() {
       {erreur || !adherent ? (
         <p className="text-sm text-destructive">{erreur ?? 'Adhérent introuvable.'}</p>
       ) : (
+        <>
+        <GraphiquesAdherent reclamations={reclamations} plafonds={plafonds} />
         <AdherentVueEnsemble
           adherent={sansCheminsPhoto(adherent)}
           produit={produit}
@@ -73,6 +76,7 @@ export default async function AdherentAccueil() {
           plafonds={plafonds}
           erreurPlafonds={erreurPlafonds}
         />
+        </>
       )}
     </div>
   );

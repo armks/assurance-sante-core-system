@@ -6,6 +6,7 @@ import {
   type EtablissementInfo,
 } from '@/components/dashboard/centre-medical/administratif-ecran';
 import type { DossierResume } from '@/components/dashboard/centre-medical/dossiers-ecran';
+import { GraphiquesSoinsServeur } from '@/components/dashboard/exploitation/graphiques-soins-serveur';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 import { exigerIdentite } from '@/lib/identity';
@@ -55,7 +56,10 @@ export default async function AdministratifPage() {
           {erreur ?? 'Établissement introuvable.'}
         </p>
       ) : (
-        <AdministratifEcran etablissement={etablissement} dossiers={dossiers} />
+        <>
+          <GraphiquesSoinsServeur />
+          <AdministratifEcran etablissement={etablissement} dossiers={dossiers} />
+        </>
       )}
     </div>
   );

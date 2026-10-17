@@ -6,6 +6,7 @@ import {
   type PoliceAssuree,
   type ProduitAvecGaranties,
 } from '@/components/dashboard/societe/assuree-ecran';
+import { GraphiquesCotisations } from '@/components/dashboard/graphiques-roles';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 
@@ -44,11 +45,14 @@ export default async function AssureeAccueil() {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <AssureeEcran
-          polices={polices}
-          garanties={garanties}
-          cotisations={cotisations}
-        />
+        <>
+          <GraphiquesCotisations cotisations={cotisations} />
+          <AssureeEcran
+            polices={polices}
+            garanties={garanties}
+            cotisations={cotisations}
+          />
+        </>
       )}
     </div>
   );

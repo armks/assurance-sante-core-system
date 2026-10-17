@@ -57,6 +57,15 @@ export class CareEpisodeController {
     return this.careEpisode.listerMedecinsEtablissement(user);
   }
 
+  /** Actes, consultations et ordonnances d'un dossier, à la demande (listes allégées) — déclarée avant `:id`. */
+  @Get(':id/details')
+  details(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.careEpisode.detailsDossier(user, id);
+  }
+
   @Get(':id')
   obtenir(
     @CurrentUser() user: AuthenticatedUser,

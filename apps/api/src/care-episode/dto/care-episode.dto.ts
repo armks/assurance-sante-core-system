@@ -26,6 +26,11 @@ export class ListerDossiersQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'du doit être une date AAAA-MM-JJ' })
   du?: string;
 
+  /** `1` : liste allégée (chiffres seuls) ; le détail d'un dossier se charge via `GET :id/details`. */
+  @IsOptional()
+  @IsIn(['1'])
+  allege?: '1';
+
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'au doit être une date AAAA-MM-JJ' })
   au?: string;

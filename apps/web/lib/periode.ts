@@ -29,11 +29,12 @@ export function periodeDepuisUrl(sp: { du?: Param; au?: Param }): PeriodeDossier
   return { du: valide(du), au: valide(au) };
 }
 
-/** Chaîne de requête API correspondant à la période (paramètres vides omis). */
-export function requetePeriode(p: PeriodeDossiers): string {
+/** Chaîne de requête API correspondant à la période (paramètres vides omis) ; `allege` : liste sans le détail des dossiers. */
+export function requetePeriode(p: PeriodeDossiers, allege = false): string {
   const q = new URLSearchParams();
   if (p.du) q.set('du', p.du);
   if (p.au) q.set('au', p.au);
+  if (allege) q.set('allege', '1');
   const s = q.toString();
   return s ? `?${s}` : '';
 }

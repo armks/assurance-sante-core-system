@@ -16,7 +16,7 @@ export default async function DossiersDeSoins({
   searchParams: Promise<{ du?: string; au?: string }>;
 }) {
   const periode = periodeDepuisUrl(await searchParams);
-  const res = await apiFetch(`/api/v1/care-episode/dossiers${requetePeriode(periode)}`);
+  const res = await apiFetch(`/api/v1/care-episode/dossiers${requetePeriode(periode, true)}`);
   const dossiers: DossierSupervisionResume[] = res.ok ? await res.json() : [];
   const erreur = res.ok ? null : await messageErreur(res);
 
@@ -29,7 +29,7 @@ export default async function DossiersDeSoins({
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <DossiersSupervisionEcran dossiers={dossiers} periodeServeur={periode} racineDossier="/dashboard-assureur/medecin-conseil/dossiers" />
+        <DossiersSupervisionEcran dossiers={dossiers} periodeServeur={periode} detailsALaDemande racineDossier="/dashboard-assureur/medecin-conseil/dossiers" />
       )}
     </div>
   );

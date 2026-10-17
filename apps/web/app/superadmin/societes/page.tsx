@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
 
+import { GraphiquesOrganisations } from '@/components/dashboard/graphiques-roles';
 import { PageTitre } from '@/components/page-titre';
 import { FileActionsEnAttente } from '@/components/superadmin/file-actions';
 import { LogoOrganisation } from '@/components/superadmin/logo-organisation';
@@ -72,6 +73,8 @@ export default async function Societes() {
           <CreerSocieteFlow />
         </CardContent>
       </Card>
+
+      <GraphiquesOrganisations organisations={organisations} />
 
       <FileActionsEnAttente actions={actionsEnAttente} />
 

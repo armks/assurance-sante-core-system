@@ -4,6 +4,7 @@ import {
   CotisationsSocieteListe,
   type CotisationSociete,
 } from '@/components/dashboard/societe/cotisations-societe-liste';
+import { GraphiquesCotisations } from '@/components/dashboard/graphiques-roles';
 import { PageTitre } from '@/components/page-titre';
 import { apiFetch, messageErreur } from '@/lib/api';
 
@@ -23,7 +24,10 @@ export default async function ComptableAccueil() {
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <CotisationsSocieteListe cotisations={cotisations} />
+        <>
+          <GraphiquesCotisations cotisations={cotisations} />
+          <CotisationsSocieteListe cotisations={cotisations} />
+        </>
       )}
     </div>
   );

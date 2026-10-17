@@ -134,9 +134,19 @@ export class ContestationService {
           select: {
             id: true,
             numeroTraitement: true,
+            typeVisite: true,
             etablissement: { select: { nom: true } },
-            adherent: { select: { nom: true, prenom: true } },
-            beneficiaire: { select: { nom: true, prenom: true } },
+            adherent: {
+              select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } },
+            },
+            beneficiaire: {
+              select: {
+                nom: true,
+                prenom: true,
+                numeroCarte: true,
+                adherent: { select: { souscripteur: { select: { nom: true } } } },
+              },
+            },
           },
         },
         lignesOrdonnance: {
@@ -157,6 +167,10 @@ export class ContestationService {
       dossierId: o.dossier.id,
       numeroTraitement: o.dossier.numeroTraitement,
       etablissement: o.dossier.etablissement.nom,
+      typeVisite: o.dossier.typeVisite,
+      societe:
+        o.dossier.adherent?.souscripteur?.nom ?? o.dossier.beneficiaire?.adherent?.souscripteur?.nom ?? '—',
+      numeroCarte: o.dossier.adherent?.numeroCarte ?? o.dossier.beneficiaire?.numeroCarte ?? '—',
       patient: o.dossier.adherent
         ? `${o.dossier.adherent.prenom} ${o.dossier.adherent.nom}`
         : o.dossier.beneficiaire
@@ -212,9 +226,21 @@ export class ContestationService {
               select: {
                 dossier: {
                   select: {
+                    id: true,
                     numeroTraitement: true,
-                    adherent: { select: { nom: true, prenom: true } },
-                    beneficiaire: { select: { nom: true, prenom: true } },
+                    typeVisite: true,
+                    etablissement: { select: { nom: true } },
+                    adherent: {
+                      select: { nom: true, prenom: true, numeroCarte: true, souscripteur: { select: { nom: true } } },
+                    },
+                    beneficiaire: {
+                      select: {
+                        nom: true,
+                        prenom: true,
+                        numeroCarte: true,
+                        adherent: { select: { souscripteur: { select: { nom: true } } } },
+                      },
+                    },
                   },
                 },
               },
@@ -239,6 +265,11 @@ export class ContestationService {
           ? { id: c.ligneOrdonnance.pharmacieServante.id, nom: c.ligneOrdonnance.pharmacieServante.nom }
           : null,
         numeroTraitement: dossier.numeroTraitement,
+        dossierId: dossier.id,
+        etablissement: dossier.etablissement.nom,
+        typeVisite: dossier.typeVisite,
+        societe: dossier.adherent?.souscripteur?.nom ?? dossier.beneficiaire?.adherent?.souscripteur?.nom ?? '—',
+        numeroCarte: dossier.adherent?.numeroCarte ?? dossier.beneficiaire?.numeroCarte ?? '—',
         patient: dossier.adherent
           ? `${dossier.adherent.prenom} ${dossier.adherent.nom}`
           : dossier.beneficiaire

@@ -9029,3 +9029,15 @@ Terminé.
 - API contestation : `actes-a-examiner` et `contestations-actes` renvoient en plus dossierId, société, n° carte, type de visite, parts assurance/patient.
 - `medecin-conseil-actes-ecran.tsx` : 3 blocs en accordéon (Actes à examiner, Contestations en cours, Contestations traitées), chacun avec récapitulatif cumulé (actes, coût, assurance, patient), une ligne par dossier dépliable sur ses actes, bouton Dossier (fiche complète) + Contester / Valider / Rejeter par acte.
 - Statut : tsc web+api OK ; regroupement des actes à examiner limité à la page serveur courante ; non testé au navigateur.
+
+## 2026-10-17 — Pharmacien conseil : page Prescriptions organisée comme les contestations du médecin conseil
+- API contestation : `ordonnances-a-examiner` et `contestations` renvoient en plus société, n° carte, type de visite (et dossierId, établissement pour les contestations).
+- `pharmacien-conseil-prescriptions-ecran.tsx` : 3 blocs en accordéon (Prescriptions à examiner, Contestations en cours, Contestations traitées), récapitulatif cumulé (lignes, servies, non délivrées, contestées — pas de montants : les lignes d’ordonnance n’en portent pas), une ligne par dossier dépliable sur les médicaments, bouton Dossier + Contester / Valider / Rejeter.
+- Statut : tsc web+api OK, jest contestation 50/50 ; regroupement limité à la page serveur courante ; non testé au navigateur.
+
+## 2026-10-17 — Dossiers de soins (assurance) : consultations avant les actes, actes en accordéon
+- `dossiers-supervision-ecran.tsx` : ordre consultations → actes (accordéon `<details>`, replié) → ordonnances (accordéon). Vaut pour les pages dossiers exploitation, médecin conseil et pharmacien conseil.
+- Statut : tsc OK, non testé au navigateur.
+
+## 2026-10-17 — Dossiers de soins (assurance) : prescriptions avant les actes
+- Ordre du déroulé : consultations → prescriptions (ordonnances en accordéon) → actes (accordéon). tsc OK, non testé au navigateur.

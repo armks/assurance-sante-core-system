@@ -72,6 +72,14 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Listes déroulantes natives : le fond du menu ouvert est fourni par le navigateur (clair) alors que le texte des champs hérite
+     du thème sombre (blanc) → options blanches sur fond blanc, visibles seulement au survol. Couleurs explicites : texte noir sur
+     fond blanc, quel que soit le thème. */
+  select option,
+  select optgroup {
+    background-color: #ffffff;
+    color: #111111;
+  }
 }
 
 /* ---------------------------------------------------------------------------

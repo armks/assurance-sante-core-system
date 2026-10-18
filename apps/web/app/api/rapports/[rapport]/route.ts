@@ -4,6 +4,8 @@ import { apiFetch } from '@/lib/api';
 const EXPORTS: Record<string, string> = {
   activite: '/api/v1/reporting/activite/export',
   'facturation-mensuelle': '/api/v1/reporting/facturation-mensuelle/export',
+  cotisations: '/api/v1/reporting/cotisations/export',
+  finances: '/api/v1/reporting/finances/export',
 };
 
 /**

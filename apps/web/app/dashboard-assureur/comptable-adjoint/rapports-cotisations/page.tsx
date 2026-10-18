@@ -1,0 +1,22 @@
+import type { Metadata } from 'next';
+
+import { RapportCotisationsPage } from '@/components/dashboard/rapports/rapport-finance-pages';
+import { PageTitre } from '@/components/page-titre';
+
+export const metadata: Metadata = { title: 'Rapport de cotisations — Comptable adjoint' };
+
+export default function Rapport({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  return (
+    <div className="space-y-8">
+      <PageTitre
+        titre="Rapport de cotisations"
+        description="Appels de cotisation : dû, encaissé, retards, par société et par mois, avec critères multiples et export en PDF ou Word."
+      />
+      <RapportCotisationsPage searchParams={searchParams} racine="/dashboard-assureur/comptable-adjoint/rapports-cotisations" />
+    </div>
+  );
+}

@@ -10,6 +10,7 @@ import {
   FileText,
   HeartPulse,
   Inbox,
+  Landmark,
   LayoutDashboard,
   LineChart,
   BookMarked,
@@ -127,6 +128,8 @@ const GROUPE_PAR_LABEL: Record<string, GroupeNav> = {
   'Logos partenaires': GROUPES.communication,
   Rapports: GROUPES.rapports,
   'Rapport de facturation': GROUPES.rapports,
+  'Rapport de cotisations': GROUPES.rapports,
+  'Rapport financier': GROUPES.rapports,
   Utilisateurs: GROUPES.admin,
   'Journal des actions': GROUPES.admin,
 };
@@ -666,6 +669,9 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
 
 /** Dashboards assureur dont le profil peut éditer les rapports (lecture, tout niveau d'accès) : entrée « Rapports » ajoutée en fin de menu. */
 const DASHBOARDS_AVEC_RAPPORTS = new Set([DIRECTION, EXPLOITATION, EXPLOITATION_CONJOINTE, INFORMATIQUE, INFORMATIQUE_ADJOINT, MEDECIN_CONSEIL, PHARMACIEN_CONSEIL]);
+/** Rapport de cotisations : comptabilité, direction, exploitation, informatique ; rapport financier : comptabilité, direction, informatique. */
+const DASHBOARDS_AVEC_RAPPORT_COTISATIONS = new Set([DIRECTION, EXPLOITATION, EXPLOITATION_CONJOINTE, INFORMATIQUE, INFORMATIQUE_ADJOINT, COMPTABLE, COMPTABLE_ADJOINT]);
+const DASHBOARDS_AVEC_RAPPORT_FINANCIER = new Set([DIRECTION, INFORMATIQUE, INFORMATIQUE_ADJOINT, COMPTABLE, COMPTABLE_ADJOINT]);
 /** Dashboards qui suivent la facturation des prestataires : entrée « Rapport de facturation » (comptables compris). */
 const DASHBOARDS_AVEC_RAPPORT_FACTURATION = new Set([...DASHBOARDS_AVEC_RAPPORTS, COMPTABLE, COMPTABLE_ADJOINT]);
 
@@ -677,6 +683,12 @@ export function navPourDashboard(dashboardRoute: string | null): NavItem[] {
   }
   if (dashboardRoute && DASHBOARDS_AVEC_RAPPORT_FACTURATION.has(dashboardRoute) && !base.some((i) => i.label === 'Rapport de facturation')) {
     supplement.push({ label: 'Rapport de facturation', href: `${dashboardRoute}/rapports-facturation`, icon: Receipt });
+  }
+  if (dashboardRoute && DASHBOARDS_AVEC_RAPPORT_COTISATIONS.has(dashboardRoute) && !base.some((i) => i.label === 'Rapport de cotisations')) {
+    supplement.push({ label: 'Rapport de cotisations', href: `${dashboardRoute}/rapports-cotisations`, icon: BarChart3 });
+  }
+  if (dashboardRoute && DASHBOARDS_AVEC_RAPPORT_FINANCIER.has(dashboardRoute) && !base.some((i) => i.label === 'Rapport financier')) {
+    supplement.push({ label: 'Rapport financier', href: `${dashboardRoute}/rapports-financiers`, icon: Landmark });
   }
   const items = supplement.length ? [...base, ...supplement] : base;
   return items.map((i) => ({ ...i, groupe: GROUPE_PAR_LABEL[i.label] }));

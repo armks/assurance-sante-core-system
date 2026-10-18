@@ -22,7 +22,8 @@ const { ValidationPipe } = require('@nestjs/common');
 const { NestFactory } = require('@nestjs/core');
 const { createClient } = require('@supabase/supabase-js');
 const { PrismaClient } = require('@prisma/client');
-const { AppModule } = require('../dist/app.module');
+// AUDIT_DIST=dist-e2e : audite un build à part (sans toucher à dist/ utilisé par un serveur de développement en cours)
+const { AppModule } = require(`../${process.env.AUDIT_DIST ?? 'dist'}/app.module`);
 
 const ECRITURES = process.argv.includes('--ecritures');
 const UUID = '00000000-0000-4000-8000-000000000001';

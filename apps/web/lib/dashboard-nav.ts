@@ -10,6 +10,7 @@ import {
   FileText,
   HeartPulse,
   Inbox,
+  KeyRound,
   Landmark,
   LayoutDashboard,
   LineChart,
@@ -131,6 +132,7 @@ const GROUPE_PAR_LABEL: Record<string, GroupeNav> = {
   'Rapport de cotisations': GROUPES.rapports,
   'Rapport financier': GROUPES.rapports,
   'Rapport des dispensations': GROUPES.rapports,
+  Licence: GROUPES.admin,
   Utilisateurs: GROUPES.admin,
   'Journal des actions': GROUPES.admin,
 };
@@ -670,6 +672,8 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
 
 /** Dashboards assureur dont le profil peut éditer les rapports (lecture, tout niveau d'accès) : entrée « Rapports » ajoutée en fin de menu. */
 const DASHBOARDS_AVEC_RAPPORTS = new Set([DIRECTION, EXPLOITATION, EXPLOITATION_CONJOINTE, INFORMATIQUE, INFORMATIQUE_ADJOINT, MEDECIN_CONSEIL, PHARMACIEN_CONSEIL, CENTRE_MEDICAL]);
+/** Licence de la société (date d'expiration, temps restant, renouvellement) : informatique et direction de l'assureur. */
+const DASHBOARDS_AVEC_LICENCE = new Set([INFORMATIQUE, INFORMATIQUE_ADJOINT, DIRECTION]);
 /** Relevé de soins personnel de l'adhérent (lui et ses bénéficiaires). */
 const DASHBOARDS_AVEC_RELEVE = new Set([ADHERENT, ADHERENT_INDIVIDUEL]);
 /** Rapport des dispensations : assureur (réseau) et pharmacie (sa pharmacie). */
@@ -700,6 +704,9 @@ export function navPourDashboard(dashboardRoute: string | null): NavItem[] {
   }
   if (dashboardRoute && DASHBOARDS_AVEC_RELEVE.has(dashboardRoute) && !base.some((i) => i.label === 'Mon relevé de soins')) {
     supplement.push({ label: 'Mon relevé de soins', href: `${dashboardRoute}/releve`, icon: FileText });
+  }
+  if (dashboardRoute && DASHBOARDS_AVEC_LICENCE.has(dashboardRoute) && !base.some((i) => i.label === 'Licence')) {
+    supplement.push({ label: 'Licence', href: `${dashboardRoute}/licence`, icon: KeyRound });
   }
   const items = supplement.length ? [...base, ...supplement] : base;
   return items.map((i) => ({ ...i, groupe: GROUPE_PAR_LABEL[i.label] }));

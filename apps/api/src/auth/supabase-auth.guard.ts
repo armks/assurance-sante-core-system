@@ -82,7 +82,7 @@ export class SupabaseAuthGuard implements CanActivate {
     // ne s'invalide pas de lui-même avant son expiration) — le statut est relu en base.
     const statut = await this.prisma.profil.findUnique({
       where: { id: payload.sub },
-      select: { statut: true },
+      select: { statut: true, organisationId: true },
     });
     if (statut?.statut === 'REVOQUE') {
       throw new ForbiddenException({
@@ -93,6 +93,7 @@ export class SupabaseAuthGuard implements CanActivate {
     }
 
     request.user = {
+      organisationId: statut?.organisationId ?? null,
       sub: payload.sub,
       email: (payload.email as string | undefined) ?? null,
       postgresRole: (payload.role as string | undefined) ?? null,

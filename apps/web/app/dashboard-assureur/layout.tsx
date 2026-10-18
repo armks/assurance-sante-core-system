@@ -1,3 +1,5 @@
+import { BandeauLicence } from '@/components/licence/bandeau-licence';
+import { blocageLicence } from '@/components/licence/blocage-licence';
 import { redirect } from 'next/navigation';
 
 import { DashboardShell } from '@/components/dashboard/shell';
@@ -41,6 +43,9 @@ export default async function DashboardAssureurLayout({
   }
 
   const { profil, permissions } = etat.identity;
+  // licence de la société non active : fenêtre d'activation (informatique / direction) ou message d'accès suspendu
+  const blocage = blocageLicence(etat.identity);
+  if (blocage) return blocage;
   if (profil.entite !== 'ASSUREUR') {
     // ce rôle ne relève pas de l'assureur : on le renvoie vers son aiguilleur
     redirect('/dashboard');
@@ -58,6 +63,17 @@ export default async function DashboardAssureurLayout({
       dashboardRoute={permissions.dashboardRoute}
     >
       <CategoriesActeProvider categories={await categories}>
+        <BandeauLicence
+          licence={etat.identity.licence}
+          roleChain={permissions.roleChain}
+          lien={
+            permissions.dashboardRoute === '/dashboard-assureur/informatique' ||
+            permissions.dashboardRoute === '/dashboard-assureur/informatique-adjoint' ||
+            permissions.dashboardRoute === '/dashboard-assureur/direction'
+              ? `${permissions.dashboardRoute}/licence`
+              : null
+          }
+        />
         {children}
       </CategoriesActeProvider>
     </DashboardShell>

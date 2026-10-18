@@ -1,3 +1,4 @@
+import { LicencesModule } from './licences/licences.module';
 import { ReportingModule } from './reporting/reporting.module';
 import { Cim10Module } from './cim10/cim10.module';
 import { Module } from '@nestjs/common';
@@ -58,6 +59,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     TarifsProposesModule,
     CareEpisodeModule,
     ReportingModule,
+    LicencesModule,
     PreauthorizationModule,
     AccueilModule,
     PharmacyModule,

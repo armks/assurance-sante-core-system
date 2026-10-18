@@ -5,7 +5,22 @@ import { lireEmailVerifie, lireSession } from '@/lib/session';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:3001';
 
+/** État de la licence de la société (calculé par l'API, `GET /identity/me`). */
+export interface EtatLicenceWeb {
+  etat: 'ACTIVE' | 'EXPIREE' | 'EN_ATTENTE_ACTIVATION' | 'SUSPENDUE' | 'ABSENTE';
+  typeLicence: string | null;
+  plan: string | null;
+  /** AAAA-MM-JJ */
+  dateDebut: string | null;
+  /** AAAA-MM-JJ ; null = sans échéance */
+  dateFin: string | null;
+  joursRestants: number | null;
+  bientotExpiree: boolean;
+}
+
 export interface IdentityMe {
+  /** Licence de la société ; null pour un compte sans société (superadmin). */
+  licence?: EtatLicenceWeb | null;
   profil: {
     id: string;
     organisationId: string | null;

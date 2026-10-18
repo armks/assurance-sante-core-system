@@ -1,3 +1,4 @@
+import type { EtatLicence } from '../licences/licence-etat';
 /** Niveaux d'accès des sous-rôles, du plus faible au plus fort. */
 export const NIVEAUX_ACCES = ['LECTURE_SEULE', 'MODIFICATION', 'ADMIN'] as const;
 export type NiveauAcces = (typeof NIVEAUX_ACCES)[number];
@@ -63,6 +64,8 @@ export interface PermissionsResume {
 
 export interface IdentityMeResponse {
   profil: ProfilResume;
+  /** État de la licence de la société (échéance, jours restants) ; absent pour un compte sans société. */
+  licence?: EtatLicence | null;
   /** null si le compte n'a pas encore de sous-rôle assigné. */
   permissions: PermissionsResume | null;
 }

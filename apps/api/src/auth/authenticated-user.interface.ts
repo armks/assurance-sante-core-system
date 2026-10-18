@@ -16,4 +16,6 @@ export interface AuthenticatedUser {
   aud: string | string[] | null;
   /** Token brut, utile pour propager l'auth vers d'autres services si besoin. */
   token: string;
+  /** Société du compte (lue en base par la garde, sans requête supplémentaire) ; null pour un compte sans société (superadmin). */
+  organisationId?: string | null;
 }

@@ -85,6 +85,7 @@ model Organisation {
   importsAdherents ImportAdherents[]
 
   @@map("organisations")
+  codesActivationLicence CodeActivationLicence[]
 }
 
 /// audit_log — journal d'audit unique (alimenté par log_audit(), v9 §1.6). Append-only.
@@ -2032,11 +2033,13 @@ model MouvementFinancier {
 model LicenceOrganisation {
   organisationId      String    @id @map("organisation_id") @db.Uuid
   plan                String    @default("STARTER") // STARTER | BUSINESS | ENTERPRISE
+  /// Durée de la licence (prisma/sql/105) : ESSAI | MENSUELLE | TRIMESTRIELLE | SEMESTRIELLE | ANNUELLE | BIENNALE
+  typeLicence         String    @default("ANNUELLE") @map("type_licence")
   limiteAdherents     Int?      @map("limite_adherents")
   limiteAppelsApiMois Int?      @map("limite_appels_api_mois")
   dateDebut           DateTime  @default(dbgenerated("CURRENT_DATE")) @map("date_debut") @db.Date
   dateFin             DateTime? @map("date_fin") @db.Date
-  statut              String    @default("ACTIVE") // ACTIVE | SUSPENDUE | EXPIREE
+  statut              String    @default("ACTIVE") // ACTIVE | SUSPENDUE | EXPIREE | EN_ATTENTE_ACTIVATION
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2044,6 +2047,28 @@ model LicenceOrganisation {
 
   @@index([statut])
   @@map("licences_organisation")
+}
+
+/// codes_activation_licence — code temporaire (24 h) généré par le superadmin et saisi par l'administrateur de l'assureur pour
+/// activer ou renouveler sa licence. `code` = empreinte HMAC, `codeChiffre` = version lisible chiffrée. prisma/sql/105.
+model CodeActivationLicence {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId String    @map("organisation_id") @db.Uuid
+  typeLicence    String    @map("type_licence")
+  code           String    @unique
+  codeChiffre    String?   @map("code_chiffre")
+  genererPar     String    @map("genere_par") @db.Uuid
+  dateGeneration DateTime  @default(now()) @map("date_generation") @db.Timestamptz(6)
+  dateExpiration DateTime  @default(dbgenerated("(now() + '24:00:00'::interval)")) @map("date_expiration") @db.Timestamptz(6)
+  statut         String    @default("EMIS") // EMIS | ACTIVE | EXPIRE | ANNULE
+  activePar      String?   @map("active_par") @db.Uuid
+  dateActivation DateTime? @map("date_activation") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([organisationId, statut])
+  @@map("codes_activation_licence")
 }
 
 /// codes_validation_superadmin — confirmation à deux temps des actions

@@ -22,7 +22,8 @@ describe('SupabaseAuthGuard — compte révoqué refusé à chaque requête (ADR
     const { request, ctx } = contexte('Bearer jeton');
     await expect(guard.canActivate(ctx)).resolves.toBe(true);
     expect(request.user.sub).toBe('u1');
-    expect(prisma.profil.findUnique).toHaveBeenCalledWith({ where: { id: 'u1' }, select: { statut: true } });
+    // la même lecture fournit aussi la société du compte (contrôle de licence), sans requête supplémentaire
+    expect(prisma.profil.findUnique).toHaveBeenCalledWith({ where: { id: 'u1' }, select: { statut: true, organisationId: true } });
   });
 
   it('jeton encore VALIDE mais compte REVOQUE : 403 COMPTE_REVOQUE (le statut est relu en base à chaque requête)', async () => {

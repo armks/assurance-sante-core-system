@@ -270,8 +270,10 @@ export class SuperadminActionsService {
           plan: p.plan as string,
           limiteAdherents: (p.limiteAdherents as number) ?? null,
           limiteAppelsApiMois: (p.limiteAppelsApiMois as number) ?? null,
-          dateFin: p.dateFin ? new Date(p.dateFin as string) : null,
-          statut: 'ACTIVE',
+          // une nouvelle société n'a pas accès à l'application tant que sa licence n'est pas activée (code d'activation saisi par
+          // son administrateur, ou activation directe par le superadmin) : la période démarre à l'activation
+          dateFin: null,
+          statut: 'EN_ATTENTE_ACTIVATION',
         },
       });
       await tx.codeValidationSuperadmin.update({

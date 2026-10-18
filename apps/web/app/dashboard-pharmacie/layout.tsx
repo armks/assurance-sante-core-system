@@ -1,3 +1,4 @@
+import { blocageLicence } from '@/components/licence/blocage-licence';
 import { redirect } from 'next/navigation';
 
 import { DashboardShell } from '@/components/dashboard/shell';
@@ -41,6 +42,9 @@ export default async function DashboardPharmacieLayout({
   }
 
   const { profil, permissions } = etat.identity;
+  // licence de la société non active : fenêtre d'activation (informatique / direction) ou message d'accès suspendu
+  const blocage = blocageLicence(etat.identity);
+  if (blocage) return blocage;
   if (profil.entite !== 'PHARMACIE') {
     redirect(permissions.dashboardRoute ?? '/dashboard');
   }

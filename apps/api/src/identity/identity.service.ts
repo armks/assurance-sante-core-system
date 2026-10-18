@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { SousRole } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
+import { calculerEtat } from '../licences/licence-etat';
 import { acteurCourant } from '../common/acteur.context';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -47,7 +48,7 @@ export class IdentityService {
       where: { id: user.sub, deletedAt: null },
       include: {
         sousRole: true,
-        organisation: { select: { nom: true, slug: true, statut: true, deletedAt: true } },
+        organisation: { select: { nom: true, slug: true, statut: true, deletedAt: true, licence: true } },
       },
     });
 
@@ -104,6 +105,9 @@ export class IdentityService {
     // (retrait du rattachement ou suppression du compte).
     const perimetre = await this.assertPerimetreActif(profil);
 
+    // état de la licence de la société, calculé sur la ligne déjà chargée (aucune requête de plus)
+    const licence = profil.organisationId ? calculerEtat(profil.organisation?.licence ?? null) : null;
+
     const profilResume: ProfilResume = {
       id: profil.id,
       organisationId: profil.organisationId,
@@ -137,7 +141,7 @@ export class IdentityService {
     // Compte créé mais rôle pas encore assigné (provisioning en cours) :
     // on renvoie le profil sans permissions plutôt qu'une erreur.
     if (!profil.role || !profil.sousRole) {
-      return { profil: profilResume, permissions: null };
+      return { profil: profilResume, permissions: null, licence };
     }
 
     // 25 sous-rôles au total : on les charge tous une fois pour résoudre la
@@ -167,7 +171,7 @@ export class IdentityService {
       },
     };
 
-    return { profil: profilResume, permissions };
+    return { profil: profilResume, permissions, licence };
   }
 
   /** Les sous-rôles (25 lignes de référence) changent très rarement : relus au plus toutes les 60 s plutôt qu'à chaque requête. */

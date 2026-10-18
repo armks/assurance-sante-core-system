@@ -18,6 +18,8 @@ export const estExpire = (dateExpiration: Date | null | undefined) => !!dateExpi
 export const CODES_SECRETS: Record<string, string> = {
   /// jeton d'invitation (lien reçu par e-mail) : même protection que les codes, mais sensible à la casse
   Invitation: 'token',
+  /// code d'activation de licence (temporaire 24 h, généré par le superadmin)
+  CodeActivationLicence: 'code',
   CodeConsultation: 'code',
   CodeOrdonnance: 'code',
   CodeValidationSuperadmin: 'code',

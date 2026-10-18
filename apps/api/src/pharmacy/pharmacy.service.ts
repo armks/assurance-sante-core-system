@@ -1,5 +1,9 @@
 import { randomInt } from 'node:crypto';
 import { DUREE_CODE_CONFIRMATION_MS, estExpire, expirationDans } from '../common/codes-secrets';
+import { documentFacturePharmacie } from '../reporting/facture-document';
+import { genererDocx } from '../reporting/docx';
+import { TYPES_MIME_IMPRESSION } from '../reporting/impression.dto';
+import { genererPdf } from '../reporting/pdf';
 import {
   BadGatewayException,
   BadRequestException,
@@ -1428,6 +1432,77 @@ export class PharmacyService {
       return { dispensationId: d.id, statut: 'VALIDEE' as const };
     });
     return maj;
+  }
+
+  /**
+   * Impression de la facture de médicaments (PDF ou Word) d'une dispensation PAYÉE par la pharmacie qui l'a délivrée : facture
+   * PARTIELLE si des médicaments de l'ordonnance restent à délivrer, DÉFINITIVE si toute l'ordonnance est délivrée. Personnel de la
+   * pharmacie concernée uniquement.
+   */
+  async imprimerDispensation(user: AuthenticatedUser, dispensationId: string, format: 'pdf' | 'docx') {
+    const ctx = await this.contexteAppelant(user);
+    this.assertPharmacie(ctx);
+    const d = await this.prisma.dispensationPharmacie.findFirst({
+      where: { id: dispensationId, pharmacieId: ctx.pharmacieId!, organisationId: ctx.organisationId },
+      include: {
+        pharmacie: { select: { nom: true, code: true, adresseComplete: true, quartier: true, commune: true, ville: true, telephone: true } },
+        lignes: { include: { ligneOrdonnance: { select: { denominationMedicament: true } } }, orderBy: { id: 'asc' } },
+        ordonnance: {
+          select: {
+            datePrescription: true,
+            lignesOrdonnance: { select: { statut: true } },
+            dossier: {
+              select: {
+                numeroTraitement: true,
+                adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
+                beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true, lienParente: true } },
+                police: { select: { souscripteur: { select: { nom: true } } } },
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!d) throw new NotFoundException('Dispensation introuvable.');
+    if (d.statut !== 'PAYEE') {
+      throw new ConflictException('La facture ne peut être imprimée qu’une fois la dispensation réglée par le patient.');
+    }
+    const dossier = d.ordonnance.dossier;
+    const patient = dossier.beneficiaire
+      ? { nom: `${dossier.beneficiaire.prenom} ${dossier.beneficiaire.nom}`, numeroCarte: dossier.beneficiaire.numeroCarte, lien: dossier.beneficiaire.lienParente }
+      : { nom: `${dossier.adherent?.prenom ?? ''} ${dossier.adherent?.nom ?? ''}`.trim() || '—', numeroCarte: dossier.adherent?.numeroCarte ?? null, lien: 'TITULAIRE' };
+    const lignes = d.lignes.map((l) => ({
+      medicament: l.ligneOrdonnance.denominationMedicament,
+      quantite: l.quantite,
+      prixUnitaire: Number(l.prixUnitaire),
+      montant: Number(l.montantLigne),
+      assurance: Number(l.montantAssurance),
+      patient: Number(l.montantPatient),
+    }));
+    const definitive = d.ordonnance.lignesOrdonnance.every((l) => l.statut === 'SERVIE');
+    const adresse = [d.pharmacie.adresseComplete ?? [d.pharmacie.quartier, d.pharmacie.commune].filter(Boolean).join(', '), d.pharmacie.ville].filter(Boolean).join(', ');
+    const profil = await this.prisma.profil.findUnique({ where: { id: ctx.userId }, select: { pseudo: true } });
+    const numero = `P-${dossier.numeroTraitement}-${d.id.slice(0, 6).toUpperCase()}`;
+    const doc = documentFacturePharmacie({
+      numeroFacture: numero,
+      datePreparation: d.datePreparation,
+      datePaiement: d.datePaiement,
+      typeFacture: definitive ? 'DEFINITIVE' : 'PARTIELLE',
+      pharmacie: { nom: d.pharmacie.nom, code: d.pharmacie.code, adresse: adresse || null, telephone: d.pharmacie.telephone },
+      patient: { ...patient, societe: dossier.police.souscripteur.nom, formule: null },
+      ordonnance: { date: d.ordonnance.datePrescription, dossierNumero: dossier.numeroTraitement },
+      lignes,
+      totaux: {
+        total: lignes.reduce((t, l) => t + l.montant, 0),
+        assurance: lignes.reduce((t, l) => t + l.assurance, 0),
+        patient: lignes.reduce((t, l) => t + l.patient, 0),
+      },
+      editePar: profil?.pseudo ?? 'personnel de la pharmacie',
+      edite: new Date(),
+    });
+    const buffer = format === 'pdf' ? await genererPdf(doc) : await genererDocx(doc);
+    await this.audit(this.prisma, ctx.userId, 'IMPRESSION_FACTURE_PHARMACIE', 'dispensations_pharmacie', d.id, { format, type: definitive ? 'DEFINITIVE' : 'PARTIELLE' });
+    return { buffer, nomFichier: `facture-medicaments-${numero}.${format}`, type: TYPES_MIME_IMPRESSION[format] };
   }
 
   /**

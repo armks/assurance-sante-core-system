@@ -1,5 +1,6 @@
 'use client';
 
+import { BoutonsImpression } from '@/components/documents/boutons-impression';
 import { useRouter } from 'next/navigation';
 import { Coins, HandCoins, ReceiptText, ShieldCheck } from 'lucide-react';
 import { useState, useTransition } from 'react';
@@ -178,7 +179,7 @@ export function DispensationsListeEcran({
             cle: 'actions',
             entete: '',
             rendu: (d: DispensationResume) =>
-              NON_REGLEES.includes(d.statut) ? <BoutonSupprimer id={d.id} /> : d.statut === 'ANNULEE' ? <BoutonSupprimer id={d.id} definitif /> : null,
+              NON_REGLEES.includes(d.statut) ? <BoutonSupprimer id={d.id} /> : d.statut === 'ANNULEE' ? <BoutonSupprimer id={d.id} definitif /> : d.statut === 'PAYEE' ? <BoutonsImpression type="facture-pharmacie" id={d.id} libelle="Imprimer" taille="xs" /> : null,
           },
         ]
       : []),
@@ -255,6 +256,7 @@ export function DispensationsListeEcran({
                 <StatutBadge statut={ouverte.statut} libelles={LIBELLE_STATUT} />
                 <span className="text-muted-foreground">{ouverte.datePaiement ? `Payée le ${dateFr(ouverte.datePaiement)}` : "Non réglée"}</span>
               </div>
+              {ouverte.statut === 'PAYEE' && <BoutonsImpression type="facture-pharmacie" id={ouverte.id} />}
             </div>
           )}
         </DialogContent>

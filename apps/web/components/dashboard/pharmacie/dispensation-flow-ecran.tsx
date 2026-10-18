@@ -1,5 +1,6 @@
 'use client';
 
+import { BoutonsImpression } from '@/components/documents/boutons-impression';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
@@ -595,7 +596,10 @@ export function DispensationFlowEcran({
                       dispensation.reclamation.statut}).
                   </p>
                 )}
-                <Button onClick={reinitialiser}>Nouvelle dispensation</Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <BoutonsImpression type="facture-pharmacie" id={dispensation.id} />
+                  <Button onClick={reinitialiser}>Nouvelle dispensation</Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-1 rounded-md border border-primary/40 bg-primary/5 p-3" data-testid="validation-code-patient">

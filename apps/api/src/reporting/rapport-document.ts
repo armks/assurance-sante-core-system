@@ -37,6 +37,8 @@ export interface RapportDocument {
   filtres: { libelle: string; valeur: string }[];
   genereLe: string;
   genererPar?: string;
+  /** intitulé du bloc d'informations d'en-tête (« Critères du rapport » par défaut ; « Informations » pour une facture) */
+  libelleCriteres?: string;
   sections: SectionRapport[];
 }
 

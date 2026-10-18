@@ -127,7 +127,7 @@ export async function genererDocx(rapport: RapportDocument): Promise<Buffer> {
     }),
     ...(rapport.filtres.length
       ? [
-          new Paragraph({ children: [new TextRun({ text: 'Critères du rapport', bold: true, size: 18 })] }),
+          new Paragraph({ children: [new TextRun({ text: rapport.libelleCriteres ?? 'Critères du rapport', bold: true, size: 18 })] }),
           ...rapport.filtres.map((f) => new Paragraph({ children: [new TextRun({ text: `• ${f.libelle} : ${f.valeur}`, size: 18 })] })),
         ]
       : []),

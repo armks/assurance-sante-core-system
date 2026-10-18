@@ -1,4 +1,5 @@
 import { Throttle } from '@nestjs/throttler';
+import { ImpressionQueryDto } from '../reporting/impression.dto';
 import {
   Body,
   Controller,
@@ -7,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -350,6 +352,18 @@ export class PreauthorizationController {
     @Body() dto: ValiderCodeFacturationDto,
   ) {
     return this.preauth.validerCodeFacturation(user, dto);
+  }
+
+  /** Impression de la facture de soins (PDF ou Word) d'un dossier dont la part du patient est réglée — établissement sanitaire. */
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('factures/:id/impression')
+  async imprimerFacture(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() dto: ImpressionQueryDto,
+  ) {
+    const f = await this.preauth.imprimerFacture(user, id, dto.format);
+    return new StreamableFile(f.buffer, { type: f.type, disposition: `attachment; filename="${f.nomFichier}"` });
   }
 
   /** Établissement : nouveau code de facturation (le précédent a expiré). */

@@ -46,7 +46,7 @@ export function genererPdf(rapport: RapportDocument): Promise<Buffer> {
       .fontSize(9)
       .text(`${rapport.organisation} — généré le ${rapport.genereLe}${rapport.genererPar ? ` par ${rapport.genererPar}` : ''}`);
     if (rapport.filtres.length) {
-      doc.moveDown(0.6).fillColor(COULEUR_TEXTE).font('Helvetica-Bold').fontSize(9).text('Critères du rapport');
+      doc.moveDown(0.6).fillColor(COULEUR_TEXTE).font('Helvetica-Bold').fontSize(9).text(rapport.libelleCriteres ?? 'Critères du rapport');
       doc.font('Helvetica').fontSize(9).fillColor(COULEUR_TEXTE);
       for (const f of rapport.filtres) doc.text(`• ${f.libelle} : ${f.valeur}`, { width: largeurUtile });
     }

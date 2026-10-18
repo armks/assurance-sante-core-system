@@ -9,6 +9,7 @@ import {
   StatutBadge,
   type ColonneTable,
 } from '@/components/dashboard/patterns';
+import { BoutonsImpression } from '@/components/documents/boutons-impression';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -347,6 +348,11 @@ export function TicketDetail({
                   <p className="pt-1 text-sm text-muted-foreground">
                     Réglée le {dateFr(f.dateReglement)}.
                   </p>
+                )}
+                {f.codeValideParPatient && (
+                  <div className="pt-2">
+                    <BoutonsImpression type="facture-soins" id={f.id} />
+                  </div>
                 )}
               </div>
             ))

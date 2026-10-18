@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
 import { renouvelerCodeFacturation } from '@/app/dashboard-centre-medical/mes-factures-actions';
+import { BoutonsImpression } from '@/components/documents/boutons-impression';
 import { Button } from '@/components/ui/button';
 import {
   DataTable,
@@ -36,6 +37,8 @@ export interface FactureDossierEtablissement {
   /** Code de facturation en attente de validation par le patient (jamais le code lui-même) ; `codeExpire` : à renouveler. */
   codeAValider?: boolean;
   codeExpire?: boolean;
+  /** part du patient réglée (code de facturation validé) : impression possible */
+  reglee?: boolean;
 }
 
 /** « Nouveau code » : remplace le code de facturation de la facture (24 h), surtout quand il a expiré. */
@@ -170,7 +173,7 @@ export function MesFacturesEcran({ factures }: { factures: FactureDossierEtablis
       }}
       filtres={filtres}
       colonnes={colonnes}
-      actionLigne={(f) => <BoutonNouveauCode facture={f} />}
+      actionLigne={(f) => (f.reglee ? <BoutonsImpression type="facture-soins" id={f.id} libelle="Imprimer" taille="xs" /> : <BoutonNouveauCode facture={f} />)}
       vide="Aucune facture pour l’instant."
     />
   );

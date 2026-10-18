@@ -1,4 +1,5 @@
 import { Throttle } from '@nestjs/throttler';
+import { ImpressionQueryDto } from '../reporting/impression.dto';
 import {
   Body,
   Controller,
@@ -9,6 +10,7 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -197,6 +199,18 @@ export class PharmacyController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.pharmacy.annulerDispensation(user, id);
+  }
+
+  /** Impression de la facture de médicaments (PDF ou Word) d'une dispensation réglée — pharmacie qui l'a délivrée. */
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('dispensations/:id/impression')
+  async imprimer(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() dto: ImpressionQueryDto,
+  ) {
+    const f = await this.pharmacy.imprimerDispensation(user, id, dto.format);
+    return new StreamableFile(f.buffer, { type: f.type, disposition: `attachment; filename="${f.nomFichier}"` });
   }
 
   /** Côté PHARMACIE : confirme le paiement — bloqué si le code n'est pas validé. */

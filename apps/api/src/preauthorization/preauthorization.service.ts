@@ -1,5 +1,9 @@
 import { randomInt } from 'node:crypto';
 import { DUREE_CODE_FACTURATION_MS, estExpire, expirationDans } from '../common/codes-secrets';
+import { documentFactureSoins } from '../reporting/facture-document';
+import { genererDocx } from '../reporting/docx';
+import { TYPES_MIME_IMPRESSION } from '../reporting/impression.dto';
+import { genererPdf } from '../reporting/pdf';
 import {
   BadRequestException,
   ConflictException,
@@ -3088,6 +3092,82 @@ export class PreauthorizationService {
   }
 
   /**
+   * Impression de la facture de soins d'un dossier (PDF ou Word) par l'établissement sanitaire : facture PARTIELLE (une partie des
+   * actes) ou DÉFINITIVE (dossier clos, tous les actes réalisés facturés), dont la part du patient est déjà réglée — c'est-à-dire
+   * validée par le patient avec son code de facturation. Réservé au personnel habilité de l'établissement de la facture.
+   */
+  async imprimerFacture(user: AuthenticatedUser, factureId: string, format: 'pdf' | 'docx') {
+    const ctx = await this.contexteAppelant(user);
+    const habilite = ctx.roleChain.some((r) => (ROLES_GENERATION_FACTURE as readonly string[]).includes(r));
+    if (!habilite) throw new ForbiddenException('L’impression des factures est réservée au personnel habilité de l’établissement.');
+    const facture = await this.prisma.factureDossier.findFirst({
+      where: { id: factureId, organisationId: ctx.organisationId, deletedAt: null },
+      include: {
+        etablissement: { select: { nom: true, code: true, adresseComplete: true, quartier: true, commune: true, ville: true, telephone: true } },
+        adherent: { select: { nom: true, prenom: true, numeroCarte: true } },
+        beneficiaire: { select: { nom: true, prenom: true, numeroCarte: true, lienParente: true } },
+        dossier: {
+          select: {
+            id: true,
+            numeroTraitement: true,
+            dateOuverture: true,
+            typeVisite: true,
+            statut: true,
+            police: { select: { souscripteur: { select: { nom: true } }, produit: { select: { nom: true } } } },
+          },
+        },
+        lignesFacturation: {
+          include: { acteDossier: { select: { libelle: true, codeActe: true, quantite: true, montantPrescrit: true, montantSimuleAssurance: true, montantSimulePatient: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    // même périmètre que la lecture d'une facture : le personnel d'un centre médical ne voit que son établissement
+    if (!facture || (ctx.roleChain.some((r) => (ROLES_CENTRE_MEDICAL as readonly string[]).includes(r)) && ctx.etablissementId !== facture.etablissementId)) {
+      throw new NotFoundException('Facture introuvable.');
+    }
+    if (!facture.codeValideParPatient) {
+      throw new ConflictException('La facture ne peut être imprimée qu’une fois sa part réglée : le patient doit d’abord valider son code de facturation.');
+    }
+
+    const [restantAFacturer, rang] = await Promise.all([
+      this.prisma.acteDossier.count({
+        where: { dossierSoinsId: facture.dossier.id, deletedAt: null, statut: 'REALISE', statutPreautorisation: { not: 'REFUSEE' }, lignesFacturation: { none: {} } },
+      }),
+      this.prisma.factureDossier.count({ where: { dossierSoinsId: facture.dossier.id, deletedAt: null, createdAt: { lte: facture.createdAt } } }),
+    ]);
+    const definitive = ['CLOTURE', 'FORCE_CLOS'].includes(facture.dossier.statut) && restantAFacturer === 0;
+    const adresse = [facture.etablissement.adresseComplete ?? [facture.etablissement.quartier, facture.etablissement.commune].filter(Boolean).join(', '), facture.etablissement.ville]
+      .filter(Boolean)
+      .join(', ');
+    const patient = facture.beneficiaire
+      ? { nom: `${facture.beneficiaire.prenom} ${facture.beneficiaire.nom}`, numeroCarte: facture.beneficiaire.numeroCarte, lien: facture.beneficiaire.lienParente }
+      : { nom: `${facture.adherent?.prenom ?? ''} ${facture.adherent?.nom ?? ''}`.trim() || '—', numeroCarte: facture.adherent?.numeroCarte ?? null, lien: 'TITULAIRE' };
+    const profil = await this.prisma.profil.findUnique({ where: { id: ctx.userId }, select: { pseudo: true } });
+    const doc = documentFactureSoins({
+      numeroFacture: `F-${facture.dossier.numeroTraitement}-${String(rang).padStart(2, '0')}`,
+      dateEmission: facture.createdAt,
+      typeFacture: definitive ? 'DEFINITIVE' : 'PARTIELLE',
+      etablissement: { nom: facture.etablissement.nom, code: facture.etablissement.code, adresse: adresse || null, telephone: facture.etablissement.telephone },
+      patient: { ...patient, societe: facture.dossier.police.souscripteur.nom, formule: facture.dossier.police.produit.nom },
+      dossier: { numero: facture.dossier.numeroTraitement, ouvertLe: facture.dossier.dateOuverture, typeVisite: facture.dossier.typeVisite },
+      lignes: facture.lignesFacturation.map((l) => {
+        const q = l.acteDossier.quantite;
+        const unitaire = Number(l.acteDossier.montantPrescrit ?? 0);
+        return { libelle: l.acteDossier.libelle, code: l.acteDossier.codeActe, quantite: q, prixUnitaire: unitaire, montant: unitaire * q, assurance: Number(l.acteDossier.montantSimuleAssurance ?? 0), patient: Number(l.acteDossier.montantSimulePatient ?? 0) };
+      }),
+      totaux: { total: Number(facture.montantTotal), assurance: Number(facture.montantAssurance), patient: Number(facture.montantPatient) },
+      patientValideLe: facture.dateValidationPatient,
+      reglementAssureurLe: facture.dateReglement,
+      editePar: profil?.pseudo ?? 'personnel de l’établissement',
+      edite: new Date(),
+    });
+    const buffer = format === 'pdf' ? await genererPdf(doc) : await genererDocx(doc);
+    await this.audit(this.prisma, ctx.userId, 'IMPRESSION_FACTURE', facture.id, { format, type: definitive ? 'DEFINITIVE' : 'PARTIELLE' }, 'factures_dossier');
+    return { buffer, nomFichier: `facture-${facture.dossier.numeroTraitement}-${String(rang).padStart(2, '0')}.${format}`, type: TYPES_MIME_IMPRESSION[format] };
+  }
+
+  /**
    * Renouvelle le code de facturation d'une facture dont le code a expiré (ou doit être remplacé) : nouveau code,
    * nouvelle échéance. Personnel habilité de l'établissement de la facture uniquement ; impossible une fois le code validé.
    */
@@ -3413,6 +3493,8 @@ export class PreauthorizationService {
       dateReglement: f.dateReglement,
       // jamais le code lui-même : seulement de quoi proposer « Nouveau code » (code non validé par le patient)
       codeAValider: !!f.codeFacturation && !f.codeValideParPatient && !['REGLEE', 'CONTESTEE'].includes(f.statut),
+      // part du patient réglée (code validé) : la facture peut être imprimée
+      reglee: f.codeValideParPatient,
       codeExpire: estExpire(f.codeFacturationExpireLe),
     }));
   }

@@ -11,6 +11,8 @@ import {
   NavMobile,
 } from '@/components/dashboard/navigation-shell';
 import { LogoutButton } from '@/components/logout-button';
+import { MessagerieFlottante } from '@/components/messagerie/messagerie-flottante';
+import { ROLES_MESSAGERIE } from '@/lib/messagerie';
 import { ModeToggle } from '@/components/mode-toggle';
 import { Badge } from '@/components/ui/badge';
 import { AvatarUtilisateur, CarteUtilisateur, nomAffiche, type UtilisateurResume } from '@/components/dashboard/utilisateur-resume';
@@ -136,6 +138,7 @@ export function DashboardShell({
           <div className={cn('mx-auto', CLASSE_LARGEUR[largeur])}>{children}</div>
         </main>
       </div>
+      {role && ROLES_MESSAGERIE.includes(role) && <MessagerieFlottante />}
     </div>
   );
 }

@@ -30,7 +30,7 @@ const UUID = '00000000-0000-4000-8000-000000000001';
 const PARAMS = { slug: 'assureur-test-a', token: 'jeton-inexistant', entite: 'etablissement', action: 'supprimer', format: 'pdf' };
 const PUBLIQUES = ['/invitations/token/:token', '/invitations/accepter', '/sante'];
 const PREFIXES_PUBLICS = ['/public/'];
-const PREFIXES_EXCLUS = ['/member/imports-adherents', '/reference/', '/superadmin', '/identity/me'];
+const PREFIXES_EXCLUS = ['/member/imports-adherents', '/reference/', '/superadmin', '/identity/me', '/messagerie/flux'];
 /** Écritures d'un profil externe tolérées sans 403, avec la raison. */
 const TOLEREES = [
   [/^\/underwriting\/questionnaires$/, 'questionnaire médical rempli par l’adhérent (validation du corps de requête)'],

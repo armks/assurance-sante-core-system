@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { PieChart as IconeRepartition, ReceiptText, Wallet, BarChart3 } from 'lucide-react';
+import { ReceiptText, Wallet } from 'lucide-react';
 
-import { CarteGraphique, COULEUR, GraphiqueBarres, GraphiqueDonut } from '@/components/dashboard/graphiques';
+import { GraphiquesCotisations } from '@/components/dashboard/graphiques-roles';
 import { CarteResume, GrilleCartes } from '@/components/dashboard/patterns';
 import {
   Card,
@@ -48,23 +48,6 @@ export function ComptableVueEnsemble({
     0,
   );
 
-  const LIB: Record<string, [string, string]> = {
-    A_PAYER: ['À payer', COULEUR.ambre],
-    PAYEE: ['Payées', COULEUR.vert],
-    EN_RETARD: ['En retard', COULEUR.rose],
-    PARTIELLE: ['Partielles', COULEUR.cyan],
-  };
-  const parStatut = new Map<string, { nb: number; du: number; paye: number }>();
-  for (const c of actives) {
-    const v = parStatut.get(c.statut) ?? { nb: 0, du: 0, paye: 0 };
-    v.nb += 1;
-    v.du += Number(c.montantDu);
-    v.paye += Number(c.montantPaye);
-    parStatut.set(c.statut, v);
-  }
-  const donneesDonut = [...parStatut].map(([k, v]) => ({ nom: LIB[k]?.[0] ?? k, valeur: v.nb, couleur: LIB[k]?.[1] }));
-  const donneesBarres = [...parStatut].map(([k, v]) => ({ nom: LIB[k]?.[0] ?? k, du: v.du, paye: v.paye }));
-
   return (
     <div className="space-y-8">
       <GrilleCartes>
@@ -89,21 +72,7 @@ export function ComptableVueEnsemble({
         <CarteResume libelle="Reste à encaisser" valeur={montantF(resteAEncaisser, { arrondi: true })} />
       </GrilleCartes>
 
-      <section className="grid gap-4 lg:grid-cols-2" aria-label="Graphiques">
-        <CarteGraphique titre="Cotisations par statut" description={`${actives.length} cotisation(s) active(s)`} icon={IconeRepartition} couleur={COULEUR.ambre}>
-          <GraphiqueDonut donnees={donneesDonut} libelleTotal="cotisations" />
-        </CarteGraphique>
-        <CarteGraphique titre="Montants dus et payés" description="Par statut de cotisation" icon={BarChart3} couleur={COULEUR.vert}>
-          <GraphiqueBarres
-            monetaire
-            donnees={donneesBarres}
-            series={[
-              { cle: 'du', nom: 'Montant dû', couleur: COULEUR.indigo },
-              { cle: 'paye', nom: 'Montant payé', couleur: COULEUR.vert },
-            ]}
-          />
-        </CarteGraphique>
-      </section>
+      <GraphiquesCotisations cotisations={cotisations} />
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">Accès rapides</h2>

@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  BarChart3,
   Building2,
   CalendarDays,
   ClipboardList,
@@ -68,6 +69,7 @@ const GROUPES = {
   reseau: { id: 'reseau', label: 'Réseau & référentiels', icon: Handshake, couleur: 'teal' },
   finance: { id: 'finance', label: 'Finance', icon: Wallet, couleur: 'emerald' },
   communication: { id: 'communication', label: 'Communication', icon: Megaphone, couleur: 'amber' },
+  rapports: { id: 'rapports', label: 'Rapports', icon: BarChart3, couleur: 'indigo' },
   admin: { id: 'admin', label: 'Administration', icon: Settings, couleur: 'violet' },
 } as const satisfies Record<string, GroupeNav>;
 
@@ -122,6 +124,7 @@ const GROUPE_PAR_LABEL: Record<string, GroupeNav> = {
   Événements: GROUPES.communication,
   Annonces: GROUPES.communication,
   'Logos partenaires': GROUPES.communication,
+  Rapports: GROUPES.rapports,
   Utilisateurs: GROUPES.admin,
   'Journal des actions': GROUPES.admin,
 };
@@ -659,7 +662,14 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
   ];
 }
 
+/** Dashboards assureur dont le profil peut éditer les rapports (lecture, tout niveau d'accès) : entrée « Rapports » ajoutée en fin de menu. */
+const DASHBOARDS_AVEC_RAPPORTS = new Set([DIRECTION, EXPLOITATION, EXPLOITATION_CONJOINTE, INFORMATIQUE, INFORMATIQUE_ADJOINT, MEDECIN_CONSEIL, PHARMACIEN_CONSEIL]);
+
 export function navPourDashboard(dashboardRoute: string | null): NavItem[] {
-  const items = (dashboardRoute && NAV_PAR_DASHBOARD[dashboardRoute]) || [];
+  const base = (dashboardRoute && NAV_PAR_DASHBOARD[dashboardRoute]) || [];
+  const items =
+    dashboardRoute && DASHBOARDS_AVEC_RAPPORTS.has(dashboardRoute) && !base.some((i) => i.label === 'Rapports')
+      ? [...base, { label: 'Rapports', href: `${dashboardRoute}/rapports`, icon: BarChart3 }]
+      : base;
   return items.map((i) => ({ ...i, groupe: GROUPE_PAR_LABEL[i.label] }));
 }

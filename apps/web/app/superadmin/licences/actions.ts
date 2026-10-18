@@ -43,3 +43,21 @@ export async function envoyerAlerteExpiration(organisationId: string): Promise<R
     ? { ok: true, message: `Alerte envoyée à ${j.destinataires} administrateur(s) de ${j.organisation}.` }
     : { ok: false, error: 'L’alerte n’a pas pu être envoyée (messagerie non configurée).' };
 }
+
+/** Envoie par e-mail le code d'activation en attente à l'adresse de la société d'assurance ou à son directeur. */
+export async function envoyerCodeParEmail(organisationId: string, cible: 'SOCIETE' | 'DIRECTEUR'): Promise<ResultatLicence> {
+  const res = await apiFetch(`/api/v1/superadmin/licences/${organisationId}/code/envoyer`, { method: 'POST', body: JSON.stringify({ cible }) });
+  if (!res.ok) return { ok: false, error: (await detailErreur(res)).error };
+  const j = (await res.json()) as { envoye: boolean; destinataires: string[]; expireLe: string };
+  if (!j.envoye) return { ok: false, error: 'L’e-mail n’a pas pu être envoyé (messagerie non configurée). Transmettez le code autrement.' };
+  const expire = new Date(j.expireLe).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
+  return { ok: true, message: `Code envoyé ${cible === 'SOCIETE' ? 'à la société' : 'au directeur'} (${j.destinataires.join(', ')}). Valable jusqu’au ${expire}.` };
+}
+
+/** Enregistre l'adresse e-mail de la société d'assurance (destinataire possible du code). */
+export async function definirEmailSociete(organisationId: string, email: string): Promise<ResultatLicence> {
+  const res = await apiFetch(`/api/v1/superadmin/licences/${organisationId}/email-societe`, { method: 'PATCH', body: JSON.stringify({ email }) });
+  if (!res.ok) return { ok: false, error: (await detailErreur(res)).error };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Adresse e-mail de la société enregistrée.' };
+}

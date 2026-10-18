@@ -26,6 +26,8 @@ type Db = PrismaService | Prisma.TransactionClient;
 
 const fr = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '—');
 const groupes = (c: string) => c.match(/.{1,4}/g)!.join('-');
+/** « jean.dupont@exemple.ci » → « je***@exemple.ci » : confirme le destinataire sans exposer l'adresse. */
+const masquerEmail = (e: string) => e.replace(/^(.{1,2})[^@]*(@.*)$/, '$1***$2');
 const dateHeureFr = (d: Date) => `${fr(d.toISOString().slice(0, 10))} à ${d.toISOString().slice(11, 16)} UTC`;
 
 /**
@@ -147,7 +149,12 @@ export class LicencesService {
     const organisations = await this.prisma.organisation.findMany({
       where: { deletedAt: null },
       orderBy: { nom: 'asc' },
-      select: { id: true, nom: true, statut: true, licence: true },
+      select: { id: true, nom: true, statut: true, licence: true, emailContact: true },
+    });
+    const directeurs = await this.prisma.profil.groupBy({
+      by: ['organisationId'],
+      where: { role: 'ASSUREUR_DIRECTION', deletedAt: null, organisationId: { in: organisations.map((o) => o.id) } },
+      _count: { _all: true },
     });
     const codes = await this.prisma.codeActivationLicence.findMany({
       where: { organisationId: { in: organisations.map((o) => o.id) } },
@@ -166,6 +173,9 @@ export class LicencesService {
         ...etat,
         libelleType: etat.typeLicence ? LIBELLE_TYPE_LICENCE[etat.typeLicence] : null,
         codeEnAttente: enAttente ? { typeLicence: enAttente.typeLicence, expireLe: enAttente.dateExpiration } : null,
+        // destinataires possibles du code (adresses jamais exposées ici)
+        emailSociete: o.emailContact?.trim() || null,
+        nbDirecteurs: directeurs.find((d) => d.organisationId === o.id)?._count._all ?? 0,
         derniereActivation: derniere ? { typeLicence: derniere.typeLicence, le: derniere.dateActivation } : null,
       };
     });
@@ -234,6 +244,59 @@ export class LicencesService {
     };
   }
 
+  /**
+   * Envoie par e-mail le code d'activation EN ATTENTE (non expiré) de la société, à l'adresse de la société d'assurance ou à son
+   * (ses) directeur(s). Les adresses ne sont jamais saisies librement : uniquement celles enregistrées pour la société et ses
+   * directeurs. Le code est relu en base (déchiffré) ; il n'apparaît dans aucune réponse de l'API.
+   */
+  async envoyerCode(user: AuthenticatedUser, organisationId: string, cible: 'SOCIETE' | 'DIRECTEUR') {
+    await this.assertSuperadmin(user);
+    const org = await this.prisma.organisation.findFirst({ where: { id: organisationId, deletedAt: null }, select: { id: true, nom: true, emailContact: true } });
+    if (!org) throw new NotFoundException('Société introuvable.');
+    const code = await this.prisma.codeActivationLicence.findFirst({
+      where: { organisationId, statut: 'EMIS', dateExpiration: { gt: new Date() } },
+      orderBy: { dateGeneration: 'desc' },
+    });
+    if (!code) throw new NotFoundException('Aucun code d’activation valide pour cette société : générez-en un d’abord (un code expire 24 h après sa génération).');
+
+    const destinataires = cible === 'SOCIETE' ? (org.emailContact?.trim() ? [org.emailContact.trim()] : []) : await this.emailsAdministrateurs(organisationId, ['ASSUREUR_DIRECTION']);
+    if (destinataires.length === 0) {
+      throw new NotFoundException(cible === 'SOCIETE' ? 'Aucune adresse e-mail n’est enregistrée pour cette société.' : 'Aucun directeur avec une adresse e-mail dans cette société.');
+    }
+    const contenu =
+      `Bonjour,
+
+Voici le code d’activation de la licence de « ${org.nom} » — ${LIBELLE_TYPE_LICENCE[code.typeLicence as TypeLicence]} :
+
+` +
+      `    ${groupes(code.code)}
+
+` +
+      `Ce code est valable jusqu’au ${dateHeureFr(code.dateExpiration)} (24 h après son émission) et ne sert qu’une fois.
+` +
+      `Connectez-vous à l’application avec votre compte de direction ou d’informatique : la fenêtre d’activation vous demandera ce code.
+
+` +
+      `Ne le transmettez à personne d’autre.`;
+    const envoi = await this.email.envoyerEmail(destinataires, `Code d’activation de votre licence — ${org.nom}`, contenu);
+    this.logger.log(`Code d'activation de ${org.nom} envoyé (${cible}) : ${envoi.envoye ? destinataires.length + ' destinataire(s)' : 'échec'}.`);
+    return {
+      envoye: envoi.envoye,
+      cible,
+      destinataires: destinataires.map(masquerEmail),
+      expireLe: code.dateExpiration,
+    };
+  }
+
+  /** Enregistre l'adresse e-mail de la société d'assurance (destinataire possible du code d'activation). */
+  async definirEmailSociete(user: AuthenticatedUser, organisationId: string, email: string) {
+    await this.assertSuperadmin(user);
+    await this.chargerOrganisation(organisationId);
+    const propre = email.trim().toLowerCase();
+    await this.prisma.organisation.update({ where: { id: organisationId }, data: { emailContact: propre } });
+    return { organisationId, emailSociete: propre };
+  }
+
   /** Activation directe par le superadmin, sans code : la trace est conservée dans l'historique des activations. */
   async activerDirectement(user: AuthenticatedUser, organisationId: string, type: TypeLicence) {
     const ctx = await this.assertSuperadmin(user);
@@ -276,11 +339,11 @@ export class LicencesService {
     return { organisation: org.nom, destinataires: destinataires.length, envoye: envoi.envoye, joursRestants: etat.joursRestants, etat: etat.etat };
   }
 
-  private async emailsAdministrateurs(organisationId: string): Promise<string[]> {
+  private async emailsAdministrateurs(organisationId: string, roles: string[] = ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_INFORMATIQUE_ADJOINT', 'ASSUREUR_DIRECTION']): Promise<string[]> {
     if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return [];
     const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
     const profils = await this.prisma.profil.findMany({
-      where: { organisationId, deletedAt: null, role: { in: ['ASSUREUR_INFORMATIQUE', 'ASSUREUR_INFORMATIQUE_ADJOINT', 'ASSUREUR_DIRECTION'] } },
+      where: { organisationId, deletedAt: null, role: { in: roles } },
       select: { id: true },
     });
     const emails = new Set<string>();

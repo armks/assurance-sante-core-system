@@ -1,10 +1,10 @@
 'use client';
 
-import { BellRing, KeyRound, Zap } from 'lucide-react';
+import { BellRing, Building2, KeyRound, Mail, UserRound, Zap } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
-import { activerDirectement, envoyerAlerteExpiration, genererCodeActivation, type ResultatLicence } from '@/app/superadmin/licences/actions';
+import { activerDirectement, definirEmailSociete, envoyerAlerteExpiration, envoyerCodeParEmail, genererCodeActivation, type ResultatLicence } from '@/app/superadmin/licences/actions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -20,6 +20,9 @@ export interface LicenceSociete {
   joursRestants: number | null;
   bientotExpiree: boolean;
   codeEnAttente: { typeLicence: string; expireLe: string } | null;
+  /** adresse e-mail enregistrée pour la société d'assurance (destinataire possible du code) */
+  emailSociete: string | null;
+  nbDirecteurs: number;
   derniereActivation: { typeLicence: string; le: string } | null;
 }
 export interface TypeLicenceOption {
@@ -42,6 +45,7 @@ function LigneSociete({ s, types }: { s: LicenceSociete; types: TypeLicenceOptio
   const [type, setType] = useState('ANNUELLE');
   const [pending, startTransition] = useTransition();
   const [retour, setRetour] = useState<ResultatLicence | null>(null);
+  const [email, setEmail] = useState(s.emailSociete ?? '');
   const etat = ETAT[s.etat];
 
   function lancer(action: () => Promise<ResultatLicence>, confirmation?: string) {
@@ -112,6 +116,48 @@ function LigneSociete({ s, types }: { s: LicenceSociete; types: TypeLicenceOptio
         <Button size="sm" variant="ghost" disabled={pending} onClick={() => lancer(() => envoyerAlerteExpiration(s.organisationId), `Envoyer l’alerte d’expiration aux administrateurs de ${s.nom} ?`)}>
           <BellRing className="size-4" aria-hidden="true" /> Alerte d’expiration
         </Button>
+      </div>
+
+      <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+        <p className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <Mail className="size-4" aria-hidden="true" /> Envoyer le code d’activation par e-mail
+          {!s.codeEnAttente && <span className="font-normal">— générez d’abord un code (valable 24 h)</span>}
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="min-w-64 flex-1 space-y-1 text-xs text-muted-foreground">
+            E-mail de la société d’assurance
+            <span className="flex gap-2">
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="contact@societe-assurance.ci"
+                autoComplete="off"
+                className="block h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                aria-label={`E-mail de ${s.nom}`}
+              />
+              <Button size="sm" variant="outline" disabled={pending || !email.trim() || email.trim().toLowerCase() === (s.emailSociete ?? '')} onClick={() => lancer(() => definirEmailSociete(s.organisationId, email))}>
+                Enregistrer
+              </Button>
+            </span>
+          </label>
+          <Button
+            size="sm"
+            disabled={pending || !s.codeEnAttente || !s.emailSociete}
+            onClick={() => lancer(() => envoyerCodeParEmail(s.organisationId, 'SOCIETE'))}
+            title={!s.codeEnAttente ? 'Aucun code valide : générez-en un' : !s.emailSociete ? 'Enregistrez d’abord l’e-mail de la société' : `Envoyer le code à ${s.emailSociete}`}
+          >
+            <Building2 className="size-4" aria-hidden="true" /> Envoyer à la société
+          </Button>
+          <Button
+            size="sm"
+            disabled={pending || !s.codeEnAttente || s.nbDirecteurs === 0}
+            onClick={() => lancer(() => envoyerCodeParEmail(s.organisationId, 'DIRECTEUR'))}
+            title={!s.codeEnAttente ? 'Aucun code valide : générez-en un' : s.nbDirecteurs === 0 ? 'Aucun directeur enregistré dans cette société' : `Envoyer le code au directeur (${s.nbDirecteurs} compte${s.nbDirecteurs > 1 ? 's' : ''})`}
+          >
+            <UserRound className="size-4" aria-hidden="true" /> Envoyer au directeur
+          </Button>
+        </div>
       </div>
 
       <div aria-live="polite" className="text-sm">

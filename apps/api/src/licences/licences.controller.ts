@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { ActiverLicenceDto, TypeLicenceDto } from './licences.dto';
+import { ActiverLicenceDto, EmailSocieteDto, EnvoyerCodeDto, TypeLicenceDto } from './licences.dto';
 import { LicencesService } from './licences.service';
 
 /** Licence de ma société : consultation (échéance, temps restant) et activation par code — informatique et direction de l'assureur. */
@@ -49,6 +49,26 @@ export class LicencesSuperadminController {
     @Body() dto: TypeLicenceDto,
   ) {
     return this.licences.genererCode(user, organisationId, dto.typeLicence);
+  }
+
+  /** Envoie le code d'activation en attente à l'adresse de la société d'assurance ou à son directeur. */
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post(':organisationId/code/envoyer')
+  envoyerCode(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Body() dto: EnvoyerCodeDto,
+  ) {
+    return this.licences.envoyerCode(user, organisationId, dto.cible);
+  }
+
+  @Patch(':organisationId/email-societe')
+  definirEmailSociete(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('organisationId', ParseUUIDPipe) organisationId: string,
+    @Body() dto: EmailSocieteDto,
+  ) {
+    return this.licences.definirEmailSociete(user, organisationId, dto.email);
   }
 
   @Post(':organisationId/activation-directe')

@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { ExportCotisationsQueryDto, ExportFinancesQueryDto, RapportCotisationsQueryDto, RapportFinancesQueryDto } from './finance.dto';
 import { FinanceReportingService } from './finance.service';
+import { ExportReleveQueryDto, RapportReleveQueryDto, ReleveReportingService } from './adherent.service';
 import { ExportDispensationsQueryDto, PharmacieReportingService, RapportDispensationsQueryDto } from './pharmacie.service';
 import { ExportFacturationQueryDto, RapportFacturationQueryDto } from './facturation.dto';
 import { FacturationReportingService } from './facturation.service';
@@ -23,6 +24,7 @@ export class ReportingController {
     private readonly facturation: FacturationReportingService,
     private readonly finance: FinanceReportingService,
     private readonly pharmacie: PharmacieReportingService,
+    private readonly releve: ReleveReportingService,
   ) {}
 
   /** Listes de choix des filtres. */
@@ -123,6 +125,26 @@ export class ReportingController {
   async exporterDispensations(@CurrentUser() user: AuthenticatedUser, @Query() dto: ExportDispensationsQueryDto) {
     const { format, ...filtres } = dto;
     const f = await this.pharmacie.exporter(user, filtres, format);
+    return new StreamableFile(f.buffer, { type: f.type, disposition: `attachment; filename="${f.nomFichier}"` });
+  }
+
+  /** Relevé personnel de l'adhérent (lui et ses bénéficiaires) : périmètre tiré du profil authentifié. */
+  @Get('releve-soins/options')
+  optionsReleve(@CurrentUser() user: AuthenticatedUser) {
+    return this.releve.options(user);
+  }
+
+  @Get('releve-soins')
+  releveSoins(@CurrentUser() user: AuthenticatedUser, @Query() filtres: RapportReleveQueryDto) {
+    return this.releve.releve(user, filtres);
+  }
+
+  @Get('releve-soins/export')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Header('Cache-Control', 'no-store')
+  async exporterReleve(@CurrentUser() user: AuthenticatedUser, @Query() dto: ExportReleveQueryDto) {
+    const { format, ...filtres } = dto;
+    const f = await this.releve.exporter(user, filtres, format);
     return new StreamableFile(f.buffer, { type: f.type, disposition: `attachment; filename="${f.nomFichier}"` });
   }
 }

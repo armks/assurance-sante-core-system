@@ -670,6 +670,8 @@ function navInformatique(racineVueEnsemble: string): NavItem[] {
 
 /** Dashboards assureur dont le profil peut éditer les rapports (lecture, tout niveau d'accès) : entrée « Rapports » ajoutée en fin de menu. */
 const DASHBOARDS_AVEC_RAPPORTS = new Set([DIRECTION, EXPLOITATION, EXPLOITATION_CONJOINTE, INFORMATIQUE, INFORMATIQUE_ADJOINT, MEDECIN_CONSEIL, PHARMACIEN_CONSEIL, CENTRE_MEDICAL]);
+/** Relevé de soins personnel de l'adhérent (lui et ses bénéficiaires). */
+const DASHBOARDS_AVEC_RELEVE = new Set([ADHERENT, ADHERENT_INDIVIDUEL]);
 /** Rapport des dispensations : assureur (réseau) et pharmacie (sa pharmacie). */
 const DASHBOARDS_AVEC_RAPPORT_DISPENSATIONS = new Set([DIRECTION, EXPLOITATION, EXPLOITATION_CONJOINTE, INFORMATIQUE, INFORMATIQUE_ADJOINT, PHARMACIEN_CONSEIL, COMPTABLE, COMPTABLE_ADJOINT, PHARMACIEN, PHARMACIE_COMPTABLE]);
 /** Rapport de cotisations : comptabilité, direction, exploitation, informatique ; rapport financier : comptabilité, direction, informatique. */
@@ -695,6 +697,9 @@ export function navPourDashboard(dashboardRoute: string | null): NavItem[] {
   }
   if (dashboardRoute && DASHBOARDS_AVEC_RAPPORT_DISPENSATIONS.has(dashboardRoute) && !base.some((i) => i.label === 'Rapport des dispensations')) {
     supplement.push({ label: 'Rapport des dispensations', href: `${dashboardRoute}/rapports-dispensations`, icon: Pill });
+  }
+  if (dashboardRoute && DASHBOARDS_AVEC_RELEVE.has(dashboardRoute) && !base.some((i) => i.label === 'Mon relevé de soins')) {
+    supplement.push({ label: 'Mon relevé de soins', href: `${dashboardRoute}/releve`, icon: FileText });
   }
   const items = supplement.length ? [...base, ...supplement] : base;
   return items.map((i) => ({ ...i, groupe: GROUPE_PAR_LABEL[i.label] }));

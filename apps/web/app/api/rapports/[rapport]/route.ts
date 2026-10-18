@@ -7,6 +7,7 @@ const EXPORTS: Record<string, string> = {
   cotisations: '/api/v1/reporting/cotisations/export',
   finances: '/api/v1/reporting/finances/export',
   dispensations: '/api/v1/reporting/dispensations/export',
+  'releve-soins': '/api/v1/reporting/releve-soins/export',
 };
 
 /**

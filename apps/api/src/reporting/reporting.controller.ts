@@ -5,6 +5,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { ExportCotisationsQueryDto, ExportFinancesQueryDto, RapportCotisationsQueryDto, RapportFinancesQueryDto } from './finance.dto';
 import { FinanceReportingService } from './finance.service';
+import { ExportDispensationsQueryDto, PharmacieReportingService, RapportDispensationsQueryDto } from './pharmacie.service';
 import { ExportFacturationQueryDto, RapportFacturationQueryDto } from './facturation.dto';
 import { FacturationReportingService } from './facturation.service';
 import { ExportRapportQueryDto, RapportActiviteQueryDto } from './reporting.dto';
@@ -21,6 +22,7 @@ export class ReportingController {
     private readonly reporting: ReportingService,
     private readonly facturation: FacturationReportingService,
     private readonly finance: FinanceReportingService,
+    private readonly pharmacie: PharmacieReportingService,
   ) {}
 
   /** Listes de choix des filtres. */
@@ -102,6 +104,25 @@ export class ReportingController {
   async exporterFinances(@CurrentUser() user: AuthenticatedUser, @Query() dto: ExportFinancesQueryDto) {
     const { format, ...filtres } = dto;
     const f = await this.finance.exporterFinances(user, filtres, format);
+    return new StreamableFile(f.buffer, { type: f.type, disposition: `attachment; filename="${f.nomFichier}"` });
+  }
+
+  @Get('dispensations/options')
+  optionsDispensations(@CurrentUser() user: AuthenticatedUser) {
+    return this.pharmacie.options(user);
+  }
+
+  @Get('dispensations')
+  dispensations(@CurrentUser() user: AuthenticatedUser, @Query() filtres: RapportDispensationsQueryDto) {
+    return this.pharmacie.rapport(user, filtres);
+  }
+
+  @Get('dispensations/export')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Header('Cache-Control', 'no-store')
+  async exporterDispensations(@CurrentUser() user: AuthenticatedUser, @Query() dto: ExportDispensationsQueryDto) {
+    const { format, ...filtres } = dto;
+    const f = await this.pharmacie.exporter(user, filtres, format);
     return new StreamableFile(f.buffer, { type: f.type, disposition: `attachment; filename="${f.nomFichier}"` });
   }
 }

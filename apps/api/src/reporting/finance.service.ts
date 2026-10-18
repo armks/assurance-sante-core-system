@@ -10,6 +10,8 @@ import { dateFr, entier, francs, pourcent, type RapportDocument } from './rappor
 
 /** Cotisations : suivi par la comptabilité, la direction, l'exploitation et l'informatique (adjoints par héritage de rôle). */
 export const ROLES_RAPPORT_COTISATIONS = ['ASSUREUR_COMPTABLE', 'ASSUREUR_DIRECTION', 'ASSUREUR_EXPLOITATION', 'ASSUREUR_INFORMATIQUE'] as const;
+/** Société cliente : ses propres cotisations uniquement (périmètre imposé côté serveur). */
+export const ROLES_SOCIETE_COTISATIONS = ['SOCIETE_ADMINISTRATION', 'SOCIETE_COMPTABLE'] as const;
 /** Finances (comptes et mouvements) : comptabilité, direction, informatique. */
 export const ROLES_RAPPORT_FINANCES = ['ASSUREUR_COMPTABLE', 'ASSUREUR_DIRECTION', 'ASSUREUR_INFORMATIQUE'] as const;
 
@@ -55,8 +57,11 @@ export class FinanceReportingService {
   private async contexte(user: AuthenticatedUser, roles: readonly string[], objet: string) {
     const { profil, permissions } = await this.identity.getMe(user);
     if (!profil.organisationId) throw new ForbiddenException("Ce compte n'est rattaché à aucune organisation.");
-    if (!(permissions?.roleChain ?? []).some((r) => roles.includes(r))) throw new ForbiddenException(`Le rapport ${objet} est réservé aux profils habilités de l’assureur.`);
-    return { organisationId: profil.organisationId, organisationNom: profil.organisationNom ?? 'Assureur', auteur: profil.pseudo ?? profil.email ?? 'utilisateur' };
+    const chaine = permissions?.roleChain ?? [];
+    const assureur = chaine.some((r) => roles.includes(r));
+    const societe = !assureur && roles === ROLES_RAPPORT_COTISATIONS && chaine.some((r) => (ROLES_SOCIETE_COTISATIONS as readonly string[]).includes(r)) && !!profil.societeId;
+    if (!assureur && !societe) throw new ForbiddenException(`Le rapport ${objet} est réservé aux profils habilités.`);
+    return { organisationId: profil.organisationId, organisationNom: profil.organisationNom ?? 'Assureur', auteur: profil.pseudo ?? profil.email ?? 'utilisateur', societeId: societe ? profil.societeId : null };
   }
 
   private horodatage = () => `${dateFr(new Date())} à ${new Date().toISOString().slice(11, 16)} UTC`;
@@ -65,21 +70,22 @@ export class FinanceReportingService {
   // ------------------------------------------------------------------ cotisations
   async optionsCotisations(user: AuthenticatedUser) {
     const ctx = await this.contexte(user, ROLES_RAPPORT_COTISATIONS, 'de cotisations');
-    const societes = await this.prisma.$queryRaw<{ id: string; nom: string }[]>`SELECT id::text, nom FROM souscripteurs WHERE organisation_id = ${ctx.organisationId}::uuid AND deleted_at IS NULL ORDER BY nom`;
-    return { societes, statuts: Object.entries(LIBELLE_STATUT_COTISATION).map(([valeur, libelle]) => ({ valeur, libelle })) };
+    const societes = await this.prisma.$queryRaw<{ id: string; nom: string }[]>`SELECT id::text, nom FROM souscripteurs WHERE organisation_id = ${ctx.organisationId}::uuid AND deleted_at IS NULL ${ctx.societeId ? Prisma.sql`AND id = ${ctx.societeId}::uuid` : Prisma.empty} ORDER BY nom`;
+    return { societes, limiteASociete: !!ctx.societeId, statuts: Object.entries(LIBELLE_STATUT_COTISATION).map(([valeur, libelle]) => ({ valeur, libelle })) };
   }
 
   async cotisations(user: AuthenticatedUser, f: RapportCotisationsQueryDto): Promise<RapportCotisations> {
     const ctx = await this.contexte(user, ROLES_RAPPORT_COTISATIONS, 'de cotisations');
-    return this.calculerCotisations(ctx.organisationId, f);
+    return this.calculerCotisations(ctx.organisationId, f, ctx.societeId);
   }
 
-  private async calculerCotisations(organisationId: string, f: RapportCotisationsQueryDto): Promise<RapportCotisations> {
+  private async calculerCotisations(organisationId: string, f: RapportCotisationsQueryDto, societeImposee: string | null = null): Promise<RapportCotisations> {
     const w: Prisma.Sql[] = [Prisma.sql`c.organisation_id = ${organisationId}::uuid`, Prisma.sql`c.deleted_at IS NULL`];
     if (f.statut) w.push(Prisma.sql`c.statut = ${f.statut}`);
     if (f.du) w.push(Prisma.sql`c.periode >= date_trunc('month', ${f.du}::date)::date`);
     if (f.au) w.push(Prisma.sql`c.periode <= ${f.au}::date`);
-    if (f.souscripteurId) w.push(Prisma.sql`COALESCE(c.societe_id, ad.souscripteur_id) = ${f.souscripteurId}::uuid`);
+    const societe = societeImposee ?? f.souscripteurId;
+    if (societe) w.push(Prisma.sql`COALESCE(c.societe_id, ad.souscripteur_id) = ${societe}::uuid`);
     const where = Prisma.join(w, ' AND ');
     const lignes = await this.prisma.$queryRaw<{ r: unknown }[]>`
       WITH c AS (
@@ -109,10 +115,11 @@ export class FinanceReportingService {
 
   async documentCotisations(user: AuthenticatedUser, f: RapportCotisationsQueryDto): Promise<RapportDocument> {
     const ctx = await this.contexte(user, ROLES_RAPPORT_COTISATIONS, 'de cotisations');
-    const r = await this.calculerCotisations(ctx.organisationId, f);
+    const r = await this.calculerCotisations(ctx.organisationId, f, ctx.societeId);
     const filtres: { libelle: string; valeur: string }[] = [{ libelle: 'Période de cotisation', valeur: f.du || f.au ? `${f.du ? dateFr(f.du) : 'début'} au ${f.au ? dateFr(f.au) : 'ce jour'}` : 'Toutes les périodes' }];
-    if (f.souscripteurId) {
-      const [s] = await this.prisma.$queryRaw<{ nom: string }[]>`SELECT nom FROM souscripteurs WHERE id = ${f.souscripteurId}::uuid AND organisation_id = ${ctx.organisationId}::uuid`;
+    const societeFiltre = ctx.societeId ?? f.souscripteurId;
+    if (societeFiltre) {
+      const [s] = await this.prisma.$queryRaw<{ nom: string }[]>`SELECT nom FROM souscripteurs WHERE id = ${societeFiltre}::uuid AND organisation_id = ${ctx.organisationId}::uuid`;
       filtres.push({ libelle: 'Société cliente', valeur: s?.nom ?? '—' });
     }
     if (f.statut) filtres.push({ libelle: 'Statut', valeur: LIBELLE_STATUT_COTISATION[f.statut] });

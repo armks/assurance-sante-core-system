@@ -11,6 +11,7 @@ import {
   HeartPulse,
   Inbox,
   KeyRound,
+  LibraryBig,
   Landmark,
   LayoutDashboard,
   LineChart,
@@ -28,6 +29,7 @@ import {
   Scale,
   Settings,
   Stethoscope,
+  UserSearch,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -128,6 +130,8 @@ const GROUPE_PAR_LABEL: Record<string, GroupeNav> = {
   Annonces: GROUPES.communication,
   'Logos partenaires': GROUPES.communication,
   Rapports: GROUPES.rapports,
+  'Tous les rapports': GROUPES.rapports,
+  'Relevé d’un adhérent': GROUPES.rapports,
   'Rapport de facturation': GROUPES.rapports,
   'Rapport de cotisations': GROUPES.rapports,
   'Rapport financier': GROUPES.rapports,
@@ -704,6 +708,11 @@ export function navPourDashboard(dashboardRoute: string | null): NavItem[] {
   }
   if (dashboardRoute && DASHBOARDS_AVEC_RELEVE.has(dashboardRoute) && !base.some((i) => i.label === 'Mon relevé de soins')) {
     supplement.push({ label: 'Mon relevé de soins', href: `${dashboardRoute}/releve`, icon: FileText });
+  }
+  // direction : le centre des rapports (tous les types de rapport de tous les utilisateurs) et le relevé d'un adhérent
+  if (dashboardRoute === DIRECTION) {
+    supplement.unshift({ label: 'Tous les rapports', href: `${DIRECTION}/tous-les-rapports`, icon: LibraryBig });
+    supplement.push({ label: 'Relevé d’un adhérent', href: `${DIRECTION}/releve-adherent`, icon: UserSearch });
   }
   if (dashboardRoute && DASHBOARDS_AVEC_LICENCE.has(dashboardRoute) && !base.some((i) => i.label === 'Licence')) {
     supplement.push({ label: 'Licence', href: `${dashboardRoute}/licence`, icon: KeyRound });

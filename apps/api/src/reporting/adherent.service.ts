@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { IsIn, IsOptional, IsUUID, Matches, MaxLength } from 'class-validator';
 import { Prisma } from '@prisma/client';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -29,6 +29,17 @@ export class RapportReleveQueryDto {
   @MaxLength(40)
   @Matches(/^[A-Z_]+$/, { message: 'categorieActe invalide' })
   categorieActe?: string;
+
+  /** Adhérent consulté : honoré uniquement pour la direction de l'assureur (un adhérent ne voit que son propre relevé). */
+  @IsOptional()
+  @IsUUID()
+  adherentId?: string;
+}
+
+export class RechercheAdherentQueryDto {
+  @IsOptional()
+  @MaxLength(60)
+  q?: string;
 }
 
 export class ExportReleveQueryDto extends RapportReleveQueryDto {
@@ -37,6 +48,8 @@ export class ExportReleveQueryDto extends RapportReleveQueryDto {
 }
 
 const ROLES_ADHERENT = ['ADHERENT_TITULAIRE', 'SOUSCRIPTEUR_INDIVIDUEL'] as const;
+/** La direction de l'assureur consulte le relevé de n'importe quel adhérent de sa société d'assurance. */
+const ROLE_DIRECTION = 'ASSUREUR_DIRECTION';
 const LIBELLE_LIEN: Record<string, string> = { TITULAIRE: 'Titulaire', CONJOINT: 'Conjoint(e)', ENFANT: 'Enfant', PERE: 'Père', MERE: 'Mère', AUTRE: 'Autre' };
 const LIBELLE_STATUT_DISPENSATION: Record<string, string> = { EN_PREPARATION: 'En préparation', EN_ATTENTE_VALIDATION_PATIENT: 'En attente de votre code', VALIDEE: 'Validée', PAYEE: 'Payée', ANNULEE: 'Annulée' };
 const LIMITE_DETAIL = 500;
@@ -63,16 +76,44 @@ export class ReleveReportingService {
     private readonly identity: IdentityService,
   ) {}
 
-  private async contexte(user: AuthenticatedUser) {
+  private async contexte(user: AuthenticatedUser, adherentDemande?: string) {
     const { profil, permissions } = await this.identity.getMe(user);
     if (!profil.organisationId) throw new ForbiddenException("Ce compte n'est rattaché à aucune organisation.");
-    const ok = (permissions?.roleChain ?? []).some((r) => (ROLES_ADHERENT as readonly string[]).includes(r));
-    if (!ok || !profil.adherentId) throw new ForbiddenException('Le relevé de soins est réservé aux adhérents.');
-    return { organisationId: profil.organisationId, adherentId: profil.adherentId, auteur: profil.pseudo ?? profil.email ?? 'adhérent' };
+    const roles = permissions?.roleChain ?? [];
+    const direction = roles.includes(ROLE_DIRECTION);
+    const adherent = roles.some((r) => (ROLES_ADHERENT as readonly string[]).includes(r));
+    if (!direction && !(adherent && profil.adherentId)) throw new ForbiddenException('Le relevé de soins est réservé aux adhérents (et à la direction de l’assureur).');
+    let adherentId: string;
+    if (direction) {
+      // la direction choisit l'adhérent, qui doit appartenir à SA société d'assurance
+      if (!adherentDemande) throw new BadRequestException('Choisissez un adhérent.');
+      const [ok] = await this.prisma.$queryRaw<{ id: string }[]>`SELECT id::text FROM adherents WHERE id = ${adherentDemande}::uuid AND organisation_id = ${profil.organisationId}::uuid AND deleted_at IS NULL`;
+      if (!ok) throw new NotFoundException('Adhérent introuvable.');
+      adherentId = ok.id;
+    } else {
+      adherentId = profil.adherentId!; // jamais issu des critères
+    }
+    return { organisationId: profil.organisationId, adherentId, direction, auteur: profil.pseudo ?? profil.email ?? 'utilisateur' };
   }
 
-  async options(user: AuthenticatedUser) {
-    const ctx = await this.contexte(user);
+  /** Recherche d'un adhérent (nom, prénom, n° d'adhérent, n° de carte) — direction seulement ; 30 résultats au plus. */
+  async rechercherAdherents(user: AuthenticatedUser, q?: string) {
+    const { profil, permissions } = await this.identity.getMe(user);
+    if (!profil.organisationId || !(permissions?.roleChain ?? []).includes(ROLE_DIRECTION)) {
+      throw new ForbiddenException('La recherche d’adhérent est réservée à la direction de l’assureur.');
+    }
+    // les jokers SQL saisis par l'utilisateur sont retirés : seul le motif construit ici filtre
+    const motif = `%${(q ?? '').trim().replace(/[%_\\]/g, '')}%`;
+    return this.prisma.$queryRaw<{ id: string; nom: string; numeroAdherent: string | null; numeroCarte: string | null; societe: string | null }[]>`
+      SELECT a.id::text, a.prenom || ' ' || a.nom AS nom, a.numero_adherent AS "numeroAdherent", a.numero_carte AS "numeroCarte", s.nom AS societe
+      FROM adherents a LEFT JOIN souscripteurs s ON s.id = a.souscripteur_id
+      WHERE a.organisation_id = ${profil.organisationId}::uuid AND a.deleted_at IS NULL
+        AND (a.nom ILIKE ${motif} OR a.prenom ILIKE ${motif} OR (a.prenom || ' ' || a.nom) ILIKE ${motif} OR a.numero_adherent ILIKE ${motif} OR a.numero_carte ILIKE ${motif})
+      ORDER BY a.nom, a.prenom LIMIT 30`;
+  }
+
+  async options(user: AuthenticatedUser, adherentDemande?: string) {
+    const ctx = await this.contexte(user, adherentDemande);
     const [moi] = await this.prisma.$queryRaw<{ id: string; nom: string }[]>`SELECT id::text, prenom || ' ' || nom AS nom FROM adherents WHERE id = ${ctx.adherentId}::uuid`;
     const beneficiaires = await this.prisma.$queryRaw<{ id: string; nom: string; lien: string }[]>`
       SELECT id::text, prenom || ' ' || nom AS nom, lien_parente AS lien FROM beneficiaires WHERE adherent_id = ${ctx.adherentId}::uuid AND deleted_at IS NULL ORDER BY nom`;
@@ -84,7 +125,7 @@ export class ReleveReportingService {
   }
 
   async releve(user: AuthenticatedUser, f: RapportReleveQueryDto): Promise<ReleveSoins> {
-    const ctx = await this.contexte(user);
+    const ctx = await this.contexte(user, f.adherentId);
     return this.calculer(ctx.adherentId, f);
   }
 
@@ -154,10 +195,10 @@ export class ReleveReportingService {
   }
 
   async document(user: AuthenticatedUser, f: RapportReleveQueryDto): Promise<RapportDocument> {
-    const ctx = await this.contexte(user);
+    const ctx = await this.contexte(user, f.adherentId);
     const [r, opt, [org]] = await Promise.all([
       this.calculer(ctx.adherentId, f),
-      this.options(user),
+      this.options(user, f.adherentId),
       this.prisma.$queryRaw<{ nom: string }[]>`SELECT nom FROM organisations WHERE id = ${ctx.organisationId}::uuid`,
     ]);
     const filtres: { libelle: string; valeur: string }[] = [{ libelle: 'Période', valeur: f.du || f.au ? `${f.du ? dateFr(f.du) : 'début'} au ${f.au ? dateFr(f.au) : 'ce jour'}` : 'Toute période' }];
@@ -167,8 +208,8 @@ export class ReleveReportingService {
     const taux = (a: number, b: number) => (b > 0 ? pourcent((a / b) * 100) : '—');
     const libCat = Object.fromEntries(opt.categories.map((c) => [c.code, c.libelle]));
     return {
-      titre: 'Relevé de mes soins',
-      sousTitre: 'Soins en établissement et médicaments : remboursé par votre assurance et reste à votre charge',
+      titre: ctx.direction ? 'Relevé de soins d’un adhérent' : 'Relevé de mes soins',
+      sousTitre: ctx.direction ? 'Soins en établissement et médicaments de l’adhérent : pris en charge par l’assurance et reste à sa charge' : 'Soins en établissement et médicaments : remboursé par votre assurance et reste à votre charge',
       organisation: org?.nom ?? 'Assureur',
       filtres,
       genereLe: `${dateFr(new Date())} à ${new Date().toISOString().slice(11, 16)} UTC`,

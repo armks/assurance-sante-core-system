@@ -5,7 +5,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
 import { ExportCotisationsQueryDto, ExportFinancesQueryDto, RapportCotisationsQueryDto, RapportFinancesQueryDto } from './finance.dto';
 import { FinanceReportingService } from './finance.service';
-import { ExportReleveQueryDto, RapportReleveQueryDto, ReleveReportingService } from './adherent.service';
+import { ExportReleveQueryDto, RapportReleveQueryDto, RechercheAdherentQueryDto, ReleveReportingService } from './adherent.service';
 import { ExportDispensationsQueryDto, PharmacieReportingService, RapportDispensationsQueryDto } from './pharmacie.service';
 import { ExportFacturationQueryDto, RapportFacturationQueryDto } from './facturation.dto';
 import { FacturationReportingService } from './facturation.service';
@@ -130,8 +130,15 @@ export class ReportingController {
 
   /** Relevé personnel de l'adhérent (lui et ses bénéficiaires) : périmètre tiré du profil authentifié. */
   @Get('releve-soins/options')
-  optionsReleve(@CurrentUser() user: AuthenticatedUser) {
-    return this.releve.options(user);
+  optionsReleve(@CurrentUser() user: AuthenticatedUser, @Query() dto: RapportReleveQueryDto) {
+    return this.releve.options(user, dto.adherentId);
+  }
+
+  /** Direction de l'assureur : recherche d'un adhérent dont consulter le relevé. */
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Get('releve-soins/adherents')
+  rechercherAdherents(@CurrentUser() user: AuthenticatedUser, @Query() dto: RechercheAdherentQueryDto) {
+    return this.releve.rechercherAdherents(user, dto.q);
   }
 
   @Get('releve-soins')

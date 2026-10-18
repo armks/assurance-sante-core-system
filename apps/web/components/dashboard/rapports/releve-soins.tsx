@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { apiFetch, messageErreur } from '@/lib/api';
 
 type Parametres = Record<string, string | string[] | undefined>;
-const CLES = ['du', 'au', 'personneId', 'categorieActe'] as const;
+const CLES = ['du', 'au', 'personneId', 'categorieActe', 'adherentId', 'q'] as const;
 const LIBELLE_LIEN: Record<string, string> = { TITULAIRE: 'Titulaire', CONJOINT: 'Conjoint(e)', ENFANT: 'Enfant', PERE: 'Père', MERE: 'Mère', AUTRE: 'Autre' };
 const LIBELLE_STATUT: Record<string, string> = { EN_PREPARATION: 'En préparation', EN_ATTENTE_VALIDATION_PATIENT: 'En attente de votre code', VALIDEE: 'Validée', PAYEE: 'Payée', ANNULEE: 'Annulée' };
 
@@ -27,15 +27,45 @@ const taux = (a: number, b: number) => (b > 0 ? `${((a / b) * 100).toFixed(1).re
  * Relevé de soins de l'adhérent : ses soins en établissement et ses médicaments (lui et ses bénéficiaires), remboursé par
  * l'assurance et reste à charge, avec critères et export PDF / Word. Périmètre strictement personnel (imposé par l'API).
  */
-export async function ReleveSoinsPage({ searchParams, racine }: { searchParams: Promise<Parametres>; racine: string }) {
+export async function ReleveSoinsPage({ searchParams, racine, choixAdherent = false }: { searchParams: Promise<Parametres>; racine: string; choixAdherent?: boolean }) {
   const sp = await searchParams;
   const f: Partial<Record<(typeof CLES)[number], string>> = {};
   for (const cle of CLES) {
     const v = Array.isArray(sp[cle]) ? sp[cle]![0] : sp[cle];
     if (v && v.trim()) f[cle] = v.trim();
   }
+  // direction : l'adhérent consulté est choisi par recherche ; un adhérent ne peut jamais désigner quelqu'un d'autre (l'API ignore le critère)
+  if (!choixAdherent) {
+    delete f.adherentId;
+    delete f.q;
+  }
+  if (choixAdherent && !f.adherentId) {
+    const res = f.q ? await apiFetch(`/api/v1/reporting/releve-soins/adherents?q=${encodeURIComponent(f.q)}`) : null;
+    const trouves = res && res.ok ? ((await res.json()) as { id: string; nom: string; numeroAdherent: string | null; numeroCarte: string | null; societe: string | null }[]) : [];
+    return (
+      <div className="space-y-6">
+        <form method="get" className="flex flex-wrap items-end gap-2 rounded-lg border bg-card p-4" aria-label="Recherche d’un adhérent">
+          <label className="min-w-64 flex-1 space-y-1 text-xs text-muted-foreground">
+            Adhérent (nom, prénom, n° d’adhérent ou n° de carte)
+            <input type="search" name="q" defaultValue={f.q ?? ''} className={CHAMP} placeholder="Ex. Konan, ADH-2026-0001…" />
+          </label>
+          <Button type="submit">Rechercher</Button>
+        </form>
+        {res && !res.ok && <p className="text-sm text-destructive">{await messageErreur(res)}</p>}
+        {f.q && res?.ok && (
+          <Tableau
+            titre={`${trouves.length} adhérent(s) trouvé(s)${trouves.length >= 30 ? ' — affinez la recherche' : ''}`}
+            colonnes={['Adhérent', 'N° adhérent', 'N° carte', 'Société', 'Relevé']}
+            lignes={trouves.map((a) => [a.nom, a.numeroAdherent ?? '—', a.numeroCarte ?? '—', a.societe ?? '—', <Link key={a.id} href={`${racine}?adherentId=${a.id}`} className="font-medium text-primary underline underline-offset-2">Ouvrir le relevé</Link>])}
+            vide="Aucun adhérent ne correspond."
+          />
+        )}
+        {!f.q && <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Recherchez un adhérent pour consulter et imprimer son relevé de soins.</p>}
+      </div>
+    );
+  }
   const q = new URLSearchParams(f as Record<string, string>).toString();
-  const [ro, rr] = await Promise.all([apiFetch('/api/v1/reporting/releve-soins/options'), apiFetch(`/api/v1/reporting/releve-soins${q ? `?${q}` : ''}`)]);
+  const [ro, rr] = await Promise.all([apiFetch(`/api/v1/reporting/releve-soins/options${f.adherentId ? `?adherentId=${f.adherentId}` : ''}`), apiFetch(`/api/v1/reporting/releve-soins${q ? `?${q}` : ''}`)]);
   if (!ro.ok || !rr.ok) return <p className="text-sm text-destructive">{await messageErreur(rr.ok ? ro : rr)}</p>;
   const options = (await ro.json()) as { personnes: { id: string; nom: string }[]; categories: { code: string; libelle: string }[] };
   const r = (await rr.json()) as Releve;
@@ -45,10 +75,19 @@ export async function ReleveSoinsPage({ searchParams, racine }: { searchParams: 
   return (
     <div className="space-y-8">
       <form method="get" className="space-y-3 rounded-lg border bg-card p-4" aria-label="Critères du relevé">
+        {choixAdherent && f.adherentId && (
+          <p className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium">Adhérent :</span> {options.personnes[0]?.nom.replace(' (titulaire)', '')}
+            <Link href={racine} className="text-xs text-primary underline underline-offset-2">
+              Changer d’adhérent
+            </Link>
+            <input type="hidden" name="adherentId" value={f.adherentId} />
+          </p>
+        )}
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="font-medium text-muted-foreground">Périodes rapides :</span>
           {periodesRapides().map((p) => (
-            <Link key={p.libelle} href={`${racine}?du=${p.du}&au=${p.au}`} className="rounded-full border px-2.5 py-1 hover:bg-accent">
+            <Link key={p.libelle} href={`${racine}?${choixAdherent && f.adherentId ? `adherentId=${f.adherentId}&` : ''}du=${p.du}&au=${p.au}`} className="rounded-full border px-2.5 py-1 hover:bg-accent">
               {p.libelle}
             </Link>
           ))}
@@ -87,9 +126,9 @@ export async function ReleveSoinsPage({ searchParams, racine }: { searchParams: 
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="submit">Appliquer les critères</Button>
-          {Object.keys(f).length > 0 && (
+          {Object.keys(f).filter((k) => k !== 'adherentId').length > 0 && (
             <Button asChild variant="ghost">
-              <Link href={racine}>Réinitialiser</Link>
+              <Link href={choixAdherent && f.adherentId ? `${racine}?adherentId=${f.adherentId}` : racine}>Réinitialiser</Link>
             </Button>
           )}
           <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -111,10 +150,10 @@ export async function ReleveSoinsPage({ searchParams, racine }: { searchParams: 
         <CarteResume libelle="Dossiers de soins" valeur={nombre(i.dossiers)} icon={Stethoscope} indice={`${nombre(i.actes)} acte(s)`} />
         <CarteResume libelle="Coût des soins" valeur={francs(i.cout)} icon={Wallet} />
         <CarteResume libelle="Pris en charge par l’assurance" valeur={francs(i.assurance)} icon={ShieldCheck} indice={taux(i.assurance, i.cout)} tonIndice="positif" />
-        <CarteResume libelle="Reste à ma charge (soins)" valeur={francs(i.resteACharge)} icon={HandCoins} />
+        <CarteResume libelle={choixAdherent ? 'Reste à sa charge (soins)' : 'Reste à ma charge (soins)'} valeur={francs(i.resteACharge)} icon={HandCoins} />
         <CarteResume libelle="Dispensations de médicaments" valeur={nombre(i.dispensations)} icon={Pill} indice={francs(i.medicamentsMontant)} />
         <CarteResume libelle="Médicaments pris en charge" valeur={francs(i.medicamentsAssurance)} icon={ShieldCheck} />
-        <CarteResume libelle="Médicaments : reste à ma charge" valeur={francs(i.medicamentsResteACharge)} icon={Coins} />
+        <CarteResume libelle={choixAdherent ? 'Médicaments : reste à sa charge' : 'Médicaments : reste à ma charge'} valeur={francs(i.medicamentsResteACharge)} icon={Coins} />
       </GrilleCartes>
 
       {i.dossiers > 0 || i.dispensations > 0 ? (
@@ -122,9 +161,9 @@ export async function ReleveSoinsPage({ searchParams, racine }: { searchParams: 
           <ReleveGraphiques donnees={{ parMois: r.parMois, parPersonne: r.parPersonne, parCategorie: r.parCategorie, libellesCategories: libCat }} />
           <Tableau titre="Par personne couverte" colonnes={['Personne', 'Lien', 'Dossiers', 'Coût', 'Assurance', 'Reste à charge']} lignes={r.parPersonne.map((p) => [p.nom, LIBELLE_LIEN[p.lien] ?? p.lien, nombre(p.dossiers), francs(p.cout), francs(p.assurance), francs(p.resteACharge)])} />
           <Tableau titre="Par mois" colonnes={['Mois', 'Dossiers', 'Coût', 'Assurance', 'Reste à charge']} lignes={r.parMois.map((m) => [m.mois, nombre(m.dossiers), francs(m.cout), francs(m.assurance), francs(m.resteACharge)])} />
-          <Tableau titre="Détail de mes soins" colonnes={['Date', 'Établissement', 'Personne', 'Actes', 'Coût', 'Assurance', 'Reste à charge']} lignes={r.soins.map((s) => [dateFr(s.date), s.etablissement, s.personne, nombre(s.actes), francs(s.cout), francs(s.assurance), francs(s.resteACharge)])} />
+          <Tableau titre={choixAdherent ? 'Détail des soins' : 'Détail de mes soins'} colonnes={['Date', 'Établissement', 'Personne', 'Actes', 'Coût', 'Assurance', 'Reste à charge']} lignes={r.soins.map((s) => [dateFr(s.date), s.etablissement, s.personne, nombre(s.actes), francs(s.cout), francs(s.assurance), francs(s.resteACharge)])} />
           {r.medicaments.length > 0 && (
-            <Tableau titre="Détail de mes médicaments" colonnes={['Date', 'Pharmacie', 'Personne', 'Statut', 'Montant', 'Assurance', 'Reste à charge']} lignes={r.medicaments.map((m) => [dateFr(m.date), m.pharmacie, m.personne, LIBELLE_STATUT[m.statut] ?? m.statut, francs(m.montant), francs(m.assurance), francs(m.resteACharge)])} />
+            <Tableau titre={choixAdherent ? 'Détail des médicaments' : 'Détail de mes médicaments'} colonnes={['Date', 'Pharmacie', 'Personne', 'Statut', 'Montant', 'Assurance', 'Reste à charge']} lignes={r.medicaments.map((m) => [dateFr(m.date), m.pharmacie, m.personne, LIBELLE_STATUT[m.statut] ?? m.statut, francs(m.montant), francs(m.assurance), francs(m.resteACharge)])} />
           )}
         </>
       ) : (

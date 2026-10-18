@@ -8,7 +8,7 @@ export type ModeCotation = (typeof MODES_COTATION)[number];
 
 /** Coefficient maximal accepté (garde-fou de saisie, numeric(8,2)). */
 export const COEFFICIENT_MAX = 99999.99;
-export const FORMAT_CODE_LETTRE_CLE = /^[A-Z]{1,4}$/;
+export const FORMAT_CODE_LETTRE_CLE = /^[A-Z]{1,6}$/;
 const FORMAT_CODE_GROUPE = /^[A-Z0-9][A-Z0-9_-]{0,39}$/;
 
 /** Cotation telle que saisie (API ou ligne d'import) : tout est facultatif et non vérifié. */

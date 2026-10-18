@@ -11,6 +11,7 @@ import { Prisma } from '@prisma/client';
 import Decimal from 'decimal.js';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { IdentityService } from '../identity/identity.service';
+import { versPage } from '../common/pagination';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriesActeService } from '../reference/categories-acte.service';
 import { FORMAT_CODE_LETTRE_CLE, LettresClesService } from '../reference/lettres-cles.service';
@@ -209,18 +210,32 @@ export class SuperadminConfigService {
 
   // --- 3. Catalogue national partagé -----------------------------
 
+  /**
+   * Catalogue national des actes. Sans `page` : liste complète (compatibilité). Avec `page` : liste PAGINÉE côté serveur, avec recherche
+   * (`q` : code, libellé ou chapitre) — indispensable depuis le chargement de la nomenclature officielle (plus de 9 000 actes).
+   */
   async listerActesNational(
     user: AuthenticatedUser,
-    filtres: { statut?: string } = {},
+    filtres: { statut?: string; q?: string; page?: number; limite?: number } = {},
   ) {
     await this.assertGestionCatalogue(user);
-    return this.prisma.referentielNationalActe.findMany({
-      where: {
-        deletedAt: null,
-        ...(filtres.statut ? { statut: filtres.statut } : {}),
-      },
-      orderBy: [{ categorie: 'asc' }, { libelle: 'asc' }],
-    });
+    const q = filtres.q?.trim();
+    const where: Prisma.ReferentielNationalActeWhereInput = {
+      deletedAt: null,
+      ...(filtres.statut ? { statut: filtres.statut } : {}),
+      ...(q
+        ? { OR: [{ code: { contains: q, mode: 'insensitive' } }, { libelle: { contains: q, mode: 'insensitive' } }, { categorie: { contains: q, mode: 'insensitive' } }] }
+        : {}),
+    };
+    const orderBy: Prisma.ReferentielNationalActeOrderByWithRelationInput[] = [{ categorie: 'asc' }, { code: 'asc' }];
+    if (!filtres.page) return this.prisma.referentielNationalActe.findMany({ where, orderBy: [{ categorie: 'asc' }, { libelle: 'asc' }] });
+    const limite = Math.min(Math.max(filtres.limite ?? 25, 1), 100);
+    const page = Math.max(filtres.page, 1);
+    const [items, total] = await Promise.all([
+      this.prisma.referentielNationalActe.findMany({ where, orderBy, skip: (page - 1) * limite, take: limite }),
+      this.prisma.referentielNationalActe.count({ where }),
+    ]);
+    return versPage(items, total, page, limite);
   }
 
   async creerActeNational(user: AuthenticatedUser, dto: CreerActeNationalDto) {
@@ -331,7 +346,7 @@ export class SuperadminConfigService {
     const { userId } = await this.assertSuperadmin(user);
     const code = dto.code.trim().toUpperCase();
     if (!FORMAT_CODE_LETTRE_CLE.test(code)) {
-      throw new BadRequestException('Le code d’une lettre-clé comporte 1 à 4 lettres majuscules (ex. B, KC, AMI).');
+      throw new BadRequestException('Le code d’une lettre-clé comporte 1 à 6 lettres majuscules (ex. B, KC, AMI, CNPSY).');
     }
     if (await this.prisma.lettreCle.findUnique({ where: { code } })) {
       throw new ConflictException(`La lettre-clé « ${code} » existe déjà.`);

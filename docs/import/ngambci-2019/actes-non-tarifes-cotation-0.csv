@@ -1,0 +1,704 @@
+﻿page;code;libelle;categorie
+16;MADA001;Électromyographie par électrode de surface, sans enregistrement vidéo;01 - Système nerveux central, périphérique et autonome
+16;MADA002;Électromyographie par électrode de surface, avec enregistrement vidéo;01 - Système nerveux central, périphérique et autonome
+17;MADA024;Mesure du réflexe nociceptif R III;01 - Système nerveux central, périphérique et autonome
+17;MADA025;Mesure des réflexes H et/ou T;01 - Système nerveux central, périphérique et autonome
+17;MADA032;Électroencéphalographie avec modélisation de sources, sur au moins 32 dérivations;01 - Système nerveux central, périphérique et autonome
+18;MADA045;Mesure des réponses cutanées sympathiques par électrode de surface;01 - Système nerveux central, périphérique et autonome
+18;MADB005;Ablation d'un capteur de pression intracrânienne;01 - Système nerveux central, périphérique et autonome
+18;MADB006;Surveillance continue de la pression intracrânienne, par 24 heures;01 - Système nerveux central, périphérique et autonome
+19;RADF008;Remnographie [IRM] fonctionnelle du cerveau pour étude des fonctions visuelles;01 - Système nerveux central, périphérique et autonome
+19;RADF009;Remnographie [IRM] fonctionnelle du cerveau pour étude des fonctions phasiques;01 - Système nerveux central, périphérique et autonome
+19;RADG001;Spectroscopie par résonance magnétique cérébrale protonique [Chemical shift imaging] [CSI];01 - Système nerveux central, périphérique et autonome
+19;RADG002;Spectroscopie par résonance magnétique cérébrale protonique localisée;01 - Système nerveux central, périphérique et autonome
+19;RADG003;Spectroscopie par résonance magnétique cérébrale du phosphore;01 - Système nerveux central, périphérique et autonome
+20;MADJ012;Enregistrement des potentiels évoqués cognitifs événementiels;01 - Système nerveux central, périphérique et autonome
+20;MADJ013;Enregistrement des potentiels évoqués nociceptifs avec mesure des amplitudes et des latences des réponses corticales, par stimulation au laser;01 - Système nerveux central, périphérique et autonome
+20;MADK001;Exploration intracrânienne, par vidéochirurgie;01 - Système nerveux central, périphérique et autonome
+23;MADN006;Test d'évaluation et de catégorisation des déficiences, incapacités et désavantages sociaux;01 - Système nerveux central, périphérique et autonome
+23;MADN007;Test d'évaluation de la qualité de vie;01 - Système nerveux central, périphérique et autonome
+23;MADQ001;Actimétrie de longue durée;01 - Système nerveux central, périphérique et autonome
+24;MATA002;Déconnexion d'une zone épileptogène, par craniotomie;01 - Système nerveux central, périphérique et autonome
+25;MATA025;Séance d'administration intraventriculaire ou intrakystique cérébrale d'agent pharmacologique anticancéreux, par un dispositif implanté;01 - Système nerveux central, périphérique et autonome
+27;MATA056;Évacuation d'une hémorragie intraventriculaire cérébrale non traumatique, par vidéochirurgie;01 - Système nerveux central, périphérique et autonome
+32;MATB032;Séance d'injection intrathécale d'agent pharmacologique anticancéreux, par voie transcutanée;01 - Système nerveux central, périphérique et autonome
+32;MATB033;Séance d'administration intrathécale d'agent pharmacologique anticancéreux, par un dispositif implanté;01 - Système nerveux central, périphérique et autonome
+34;MATB060;Contrôle et/ou réglage secondaire transcutané d'une valve de dérivation de liquide cérébrospinal à pression d'ouverture réglable;01 - Système nerveux central, périphérique et autonome
+34;MATC002;Implantation d’électrode de stimulation corticale cérébrale à visée thérapeutique, par craniotomie;01 - Système nerveux central, périphérique et autonome
+35;MATC007;Ablation d’électrode corticale cérébrale, par craniotomie;01 - Système nerveux central, périphérique et autonome
+35;MATC012;Réglage secondaire ou reprogrammation transcutané d'un générateur souscutané de stimulation du système nerveux central;01 - Système nerveux central, périphérique et autonome
+38;MATD049;Section de nerf crânien, par vidéochirurgie intracrânienne;01 - Système nerveux central, périphérique et autonome
+42;MATD107;Implantation d'un stimulateur électrique pour restauration de la motricité du membre supérieur;01 - Système nerveux central, périphérique et autonome
+42;MATD108;Ablation d'un stimulateur électrique de restauration de la motricité du membre supérieur;01 - Système nerveux central, périphérique et autonome
+42;MATD109;Changement du générateur d'un stimulateur électrique de restauration de la motricité du membre supérieur;01 - Système nerveux central, périphérique et autonome
+42;MATD110;Changement d'électrode d'un stimulateur électrique de restauration de la motricité du membre supérieur;01 - Système nerveux central, périphérique et autonome
+42;MATD115;Implantation d'électrode de stimulation du nerf phrénique par thoracotomie, avec pose d'un stimulateur externe;01 - Système nerveux central, périphérique et autonome
+42;MATD116;Ablation d'électrode de stimulation du nerf phrénique, par thoracotomie;01 - Système nerveux central, périphérique et autonome
+42;MATD117;Changement d'électrode de stimulation du nerf phrénique, par thoracotomie;01 - Système nerveux central, périphérique et autonome
+47;MATF002;Pose d'un stimulateur électrique externe à visée antalgique;01 - Système nerveux central, périphérique et autonome
+47;MATF004;Séance d'hypnose à visée antalgique;01 - Système nerveux central, périphérique et autonome
+47;MATF005;Séance de mésothérapie à visée antalgique S;01 - Système nerveux central, périphérique et autonome
+48;RBDD001;Photographies diagnostiques du segment antérieur de l'œil;02 - Œil et annexes
+48;RBDD002;Photographies diagnostiques du segment antérieur de l'œil après instillation de colorants vitaux;02 - Œil et annexes
+48;RBDD004;Photographies diagnostiques du regard dans ses différentes positions et au cours d'épreuves de duction;02 - Œil et annexes
+48;RBDD006;Rétinographie par stéréophotographie, clichés composés de la périphérie rétinienne ou cliché grand champ supérieur à 60°;02 - Œil et annexes
+49;MBDF002;Mesure de la pression [tension] intraoculaire [Tonométrie intraoculaire], sous anesthésie générale;02 - Œil et annexes
+49;MBDF006;Mesure de l'acuité visuelle potentielle par interférométrie au laser;02 - Œil et annexes
+49;MBDF007;Mesure de l'acuité visuelle, par étude de la sensibilité au contraste;02 - Œil et annexes
+49;MBDF009;Mesure de la fonction visuelle centrale et scotométrie par ophtalmoscope à balayage laser;02 - Œil et annexes
+49;MBDF016;Nystagmographie optocinétique sans étude des poursuites et des saccades;02 - Œil et annexes
+49;MBDF017;Nystagmographie optocinétique avec étude des poursuites et des saccades;02 - Œil et annexes
+50;MBDF029;Tyndallométrie oculaire [Laser cell flare meter];02 - Œil et annexes
+50;MBDG001;Endoscopie des voies lacrymales;02 - Œil et annexes
+51;MBDL001;Transillumination transsclérale de lésion du segment postérieur de l'œil, sans désinsertion conjonctivale;02 - Œil et annexes
+51;MBDL002;Transillumination transsclérale de lésion du segment postérieur de l'œil, avec désinsertion conjonctivale;02 - Œil et annexes
+53;MBTA023;Résection graisseuse unilatérale des paupières, par abord conjonctival;02 - Œil et annexes
+53;MBTA024;Résection graisseuse bilatérale des paupières, par abord conjonctival;02 - Œil et annexes
+53;MBTA025;Résection cutanée suprasourcilière unilatérale;02 - Œil et annexes
+53;MBTA026;Résection cutanée suprasourcilière bilatérale;02 - Œil et annexes
+54;MBTA036;Section du pédicule [Sevrage] d'un lambeau hétéropalpébral;02 - Œil et annexes
+54;MBTA037;Séance de réfection de l'aspect du sourcil par dermopigmentation;02 - Œil et annexes
+55;MBTA054;Fixation du sourcil au rebord supraorbitaire;02 - Œil et annexes
+58;MBTB020;Pose de pompe à larmes;02 - Œil et annexes
+60;MBTC042;Kératoplastie lamellaire avec conjonctivoplastie [Transplantation cornéoconjonctivale];02 - Œil et annexes
+60;MBTC044;Pose de kératoprothèse biocolonisable;02 - Œil et annexes
+60;MBTC045;Kératotomie relaxante pour correction de l'astigmatisme cornéen induit;02 - Œil et annexes
+60;MBTC047;Photokératectomie réfractive [de confort] avec laser excimère;02 - Œil et annexes
+60;MBTC048;Épikératophakie;02 - Œil et annexes
+60;MBTC049;Pose d'implant intracornéen [anneau] à but réfractif;02 - Œil et annexes
+60;MBTC050;Kératomileusis in situ avec laser excimère;02 - Œil et annexes
+61;MBTC051;Pose d'implant à but réfractif dans la chambre antérieure de l'œil;02 - Œil et annexes
+61;MBTC052;Irrigation continue de la cornée et/ou de la conjonctive;02 - Œil et annexes
+62;MBTC079;Sclérectomie profonde non transfixiante ou sclérokératectomie profonde, avec viscocanaliculoplastie;02 - Œil et annexes
+66;MBTC146;Renforcement scléral postérieur de l'œil par autogreffe tissulaire;02 - Œil et annexes
+66;MBTC147;Renforcement scléral postérieur de l'œil par matériau de synthèse;02 - Œil et annexes
+68;MBTC165;Prélèvement unilatéral ou bilatéral de cornée avec collerette sclérale sur un sujet décédé, avec pose de prothèse;02 - Œil et annexes
+68;MBTC166;Prélèvement unilatéral ou bilatéral de cornée avec collerette sclérale au cours d'un prélèvement multiorgane sur un sujet en état de mort encéphalique, avec pose de prothèse;02 - Œil et annexes
+68;MBTC167;Prélèvement unilatéral ou bilatéral du bulbe [globe] oculaire, au cours d'un prélèvement multiorgane sur un sujet en état de mort encéphalique;02 - Œil et annexes
+69;MBTD016;Injection unilatérale ou bilatérale de toxine botulique dans les muscles oculomoteurs;02 - Œil et annexes
+70;MBTD032;Pose d'une épithèse orbitopalpébrale;02 - Œil et annexes
+72;MCDA006;Audiométrie en hautes fréquences;03 - Oreille
+72;MCDA007;Audiométrie avec tests osmotiques;03 - Oreille
+72;MCDA008;Audiométrie automatique;03 - Oreille
+72;MCDA010;Conditionnement d'un enfant pour test audiométrique sans mesure;03 - Oreille
+72;MCDA013;Tubomanométrie auditive [Sonotubomanométrie];03 - Oreille
+72;MCDA014;Sonomanométrie;03 - Oreille
+72;MCDA017;Enregistrement des otoémissions;03 - Oreille
+72;MCDA018;Enregistrement des produits de distorsion des otoémissions;03 - Oreille
+72;MCDA019;Électrostimulation transtympanique de l'oreille interne sans anesthésie générale;03 - Oreille
+72;MCDA020;Électrostimulation transtympanique de l'oreille interne sous anesthésie générale, avec enregistrement;03 - Oreille
+72;MCDA021;Électrostimulation de l'oreille interne avec décollement du lambeau tympanoméatal;03 - Oreille
+73;MCDA024;Électrostimulation des acouphènes;03 - Oreille
+73;MCDA025;Épreuve vestibulaire bicalorique calibrée sans enregistrement [clinique];03 - Oreille
+73;MCDA029;Analyse de la posture verticale statique et/ou dynamique sur plateforme de force [Posturographie];03 - Oreille
+73;MCDA030;Statokinésimétrie avec stabilométrie;03 - Oreille
+73;MCDB001;Examen unilatéral ou bilatéral de l'oreille externe et/ou moyenne, sous microscope ou par endoscopie méatale;03 - Oreille
+73;MCDB002;Fibroendoscopie de l'oreille moyenne, par voie tubaire;03 - Oreille
+74;MCTA001;Soin instrumental unilatéral ou bilatéral d'oreille externe, sous microscope;03 - Oreille
+76;MCTA037;Pose d'une épithèse auriculaire;03 - Oreille
+78;MCTB019;Insufflation unilatérale ou bilatérale de trompe auditive;03 - Oreille
+79;MCTB038;Séance d'adaptation et de réglage secondaires d'une prothèse auditive implantée dans l'oreille moyenne;03 - Oreille
+80;MCTC009;Pose d'un implant auditif à électrodes extracochléaires;03 - Oreille
+81;MDDA006;Électrocardiographie avec implantation souscutanée d'un dispositif d'enregistrement continu;04 - Appareil circulatoire
+81;MDDA007;Surveillance continue de l'électrocardiogramme par oscilloscopie et/ou télésurveillance, par 24 heures;04 - Appareil circulatoire
+81;MDDA008;Surveillance continue de l'électrocardiogramme par oscilloscopie et/ou télésurveillance, avec surveillance continue de la pression intraartérielle et/ou de la saturation artérielle en oxygène par méthodes non effractives, par 24 heures;04 - Appareil circulatoire
+82;MEDB011;Enregistrement ambulatoire discontinu de la pression intraartérielle par méthode non effractive pendant au moins 24 heures [MAPA] [Holter tensionnel];04 - Appareil circulatoire
+82;MEDB013;Mesure de la pression intraartérielle digitale à la main et/ou au pied;04 - Appareil circulatoire
+83;MEDB016;Pose de dispositif intraartériel de surveillance de la pression intraartérielle;04 - Appareil circulatoire
+83;MEDB018;Surveillance hémodynamique continue par doppler par voie œsophagienne, par 24 heures;04 - Appareil circulatoire
+83;MEDB019;Surveillance hémodynamique continue par échocardiographie transthoracique itérative, par 24 heures;04 - Appareil circulatoire
+83;MEDB020;Surveillance continue de la pression intraartérielle et/ou de la pression intraveineuse centrale par méthodes effractives, par 24 heures;04 - Appareil circulatoire
+83;MEDB021;Surveillance continue des pressions du cœur droit avec mesure du débit cardiaque ou de la fraction d'éjection du ventricule droit, par 24 heures;04 - Appareil circulatoire
+83;MEDB022;Surveillance continue des pressions du cœur droit avec mesure du débit cardiaque ou de la fraction d'éjection du ventricule droit, avec surveillance continue de la pression intraartérielle par méthode effractive, par 24 heures;04 - Appareil circulatoire
+84;MEDC014;Échographie-doppler des artères cervicocéphaliques extracrâniennes, avec mesure de l'épaisseur de l'intima- média;04 - Appareil circulatoire
+84;MEDC021;Surveillance continue de la circulation artérielle intracrânienne par doppler transcrânien, par 24 heures;04 - Appareil circulatoire
+90;RDDG014;Tomoscintigraphie des cavités cardiaques après épreuve d'effort ou épreuve pharmacologique, avec synchronisation à l'électrocardiogramme;04 - Appareil circulatoire
+90;RDDG015;Tomoscintigraphie myocardique par émission de positons, avec tépographe [caméra TEP] dédié;04 - Appareil circulatoire
+90;MEDH003;Épreuve d'effort sur tapis roulant, avec électrocardiographie discontinue, examen doppler continu des artères des membres inférieurs et mesure de l'index de pression systolique;04 - Appareil circulatoire
+90;MEDH004;Mesure de la distance de marche sur tapis roulant ou par enregistrement électromagnétique;04 - Appareil circulatoire
+90;MEDH005;Mesure de la distance de marche sur tapis roulant ou par enregistrement électromagnétique, avec mesures de la pression systolique résiduelle de cheville et du temps de récupération [test de Strandness] par doppler continu transcutané ou pléthysmographie;04 - Appareil circulatoire
+91;MEDH006;Mesure de la compliance artérielle;04 - Appareil circulatoire
+91;MEDH007;Mesure de la pulsatilité artérielle par débitmétrie électromagnétique ou par impédance [irrigraphie];04 - Appareil circulatoire
+93;MDTA016;Cardiomyoplastie de substitution ventriculaire, par thoracotomie sans CEC;04 - Appareil circulatoire
+93;MDTA017;Cardiomyoplastie de substitution ventriculaire, par thoracotomie avec CEC;04 - Appareil circulatoire
+96;MDTA066;Implantation d'un stimulateur cardiaque définitif, avec pose d'une sonde intraatriale ou intraventriculaire droite, d'une sonde dans le sinus coronaire et d'une sonde dans une veine cardiaque gauche par voie veineuse transcutanée;04 - Appareil circulatoire
+96;MDTA069;Implantation d'un stimulateur cardiaque définitif, avec pose d'une sonde intraatriale et d'une sonde intraventriculaire droites, et d'une sonde dans le sinus coronaire par voie veineuse transcutanée;04 - Appareil circulatoire
+97;MDTA071;Implantation d'un stimulateur cardiaque définitif, avec pose d'une sonde intraatriale et d'une sonde intraventriculaire droites, d'une sonde dans le sinus coronaire, et d'une sonde dans une veine cardiaque gauche par voie veineuse transcutanée;04 - Appareil circulatoire
+97;MDTA072;Implantation d'un stimulateur cardiaque définitif, avec pose de 2 sondes intraatriales et d'une sonde intraventriculaire droites par voie veineuse transcutanée;04 - Appareil circulatoire
+97;MDTA073;Implantation d'un stimulateur cardiaque définitif, avec pose d'une sonde dans le sinus coronaire et d'une sonde dans une veine cardiaque gauche par voie veineuse transcutanée;04 - Appareil circulatoire
+97;MDTA083;Implantation d'un défibrillateur cardiaque automatique avec fonction de défibrillation atriale, avec pose d'une sonde intraatriale et d'une sonde intraventriculaire droites par voie veineuse transcutanée;04 - Appareil circulatoire
+104;MDTA184;Prélèvement du cœur, au cours d'un prélèvement multiorgane sur un sujet en état de mort encéphalique;04 - Appareil circulatoire
+104;MDTA185;Prélèvement du cœur pour préparation de greffe orificielle, au cours d'un prélèvement multiorgane sur un sujet en état de mort encéphalique;04 - Appareil circulatoire
+104;MDTA186;Prélèvement du bloc cœur-poumons, au cours d'un prélèvement multiorgane sur un sujet en état de mort encéphalique;04 - Appareil circulatoire
+104;MDTA187;Transplantation orthotopique du cœur, par thoracotomie avec CEC;04 - Appareil circulatoire
+104;MDTA188;Transplantation hétérotopique du cœur, par thoracotomie avec CEC;04 - Appareil circulatoire
+104;MDTA189;Transplantation itérative du cœur, par thoracotomie avec CEC;04 - Appareil circulatoire
+104;MDTA190;Transplantation du bloc cœur-poumons, par thoracotomie avec CEC;04 - Appareil circulatoire
+104;MDTA191;Exérèse d'un greffon de transplantation du cœur avec pose d'une assistance circulatoire mécanique biventriculaire interne, par thoracotomie avec CEC;04 - Appareil circulatoire
+105;MDTB005;Dilatation intraluminale de l'aorte thoracique sans pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+105;MDTB006;Dilatation intraluminale de l'aorte thoracique avec pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+114;METB125;Dilatation intraluminale de l'artère vertébrale extracrânienne sans pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+114;METB126;Dilatation intraluminale de l'artère vertébrale extracrânienne avec pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+114;METB127;Dilatation intraluminale de l'artère vertébrale intracrânienne ou de l'artère basilaire sans pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+114;METB128;Dilatation intraluminale de l'artère vertébrale intracrânienne ou de l'artère basilaire avec pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+115;METB138;Inversion du flux d'un anévrisme artériel intracrânien en dehors d'une période aigüe hémorragique, par voie artérielle transcutanée;04 - Appareil circulatoire
+115;METB139;Inversion du flux d'un anévrisme artériel intracrânien en période aigüe hémorragique, par voie artérielle transcutanée;04 - Appareil circulatoire
+115;METB140;Dilatation intraluminale du tronc de l'artère carotide interne intracrânienne sans pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+115;METB141;Dilatation intraluminale du tronc de l'artère carotide interne intracrânienne avec pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+115;METB142;Dilatation intraluminale de branche de l'artère carotide interne sans pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+115;METB143;Dilatation intraluminale de branche de l'artère carotide interne avec pose d'endoprothèse, par voie artérielle transcutanée;04 - Appareil circulatoire
+124;MDTB286;Prélèvement de greffe artérielle aorto-iliaque par laparotomie, sur un sujet en état de mort encéphalique;04 - Appareil circulatoire
+125;METB312;Injection intraartérielle hépatique in situ d'agent pharmacologique radio-isotopique sans embolisation de particules, par voie artérielle transcutanée;04 - Appareil circulatoire
+126;METB313;Injection intraartérielle hépatique in situ d'agent pharmacologique radio-isotopique avec embolisation de particules, par voie artérielle transcutanée;04 - Appareil circulatoire
+133;METB412;Pose d'un cathéter artériel ombilical;04 - Appareil circulatoire
+133;METB414;Prélèvement de greffe artérielle des membres, sur un sujet en état de mort encéphalique;04 - Appareil circulatoire
+134;MDTC018;Recanalisation de la veine cave supérieure sans pose d'endoprothèse, par voie veineuse transcutanée;04 - Appareil circulatoire
+136;METC038;Valvuloplastie de veine superficielle du membre inférieur, par abord direct;04 - Appareil circulatoire
+136;METC039;Valvuloplastie de veine profonde du membre inférieur, par abord direct;04 - Appareil circulatoire
+137;METC057;Occlusion de veine saphène par laser, par voie veineuse transcutanée;04 - Appareil circulatoire
+137;METC061;Ligature de veine perforante du membre inférieur, par vidéochirurgie;04 - Appareil circulatoire
+142;METC132;Pose d'un cathéter veineux ombilical;04 - Appareil circulatoire
+142;METC133;Pose d'un cathéter épicutanéocave, par voie transcutanée;04 - Appareil circulatoire
+142;METC134;Pose d'une voie d'abord vasculaire intraosseuse ou dans le sinus veineux sagittal [longitudinal] supérieur;04 - Appareil circulatoire
+143;METC144;Prélèvement de greffe veineuse des membres, sur un sujet en état de mort encéphalique;04 - Appareil circulatoire
+143;METC145;Séance de sclérose de varicosités et télangiectasies des veines, par injection intraveineuse transcutanée;04 - Appareil circulatoire
+147;METD050;Implantation souscutanée d'un site d'accès vasculaire pour circulation extracorporelle;04 - Appareil circulatoire
+147;METD051;Changement de la membrane d'un site d'accès vasculaire implanté pour circulation extracorporelle;04 - Appareil circulatoire
+156;MDTF001;Ressuscitation cardiorespiratoire avec intubation trachéale, dans un bloc médicotechnique;04 - Appareil circulatoire
+156;MDTF002;Ressuscitation cardiorespiratoire avec intubation trachéale, en dehors d'un bloc médicotechnique;04 - Appareil circulatoire
+156;METF003;Administration intraveineuse continue d'agent pharmacologique vasoactif chez le nouveau-né pour suppléance hémodynamique, par 24 heures;04 - Appareil circulatoire
+157;METF004;Injection intraveineuse continue de dobutamine ou de dopamine à débit inférieur à 8 microgrammes par kilogramme par minute [µg/kg/min], ou de dopexamine en dehors de la période néonatale, par 24 heures;04 - Appareil circulatoire
+157;METF005;Injection intraveineuse continue de dobutamine ou de dopamine à débit supérieur à 8 microgrammes par kilogramme par minute [µg/kg/min], d'adrénaline ou de noradrénaline en dehors de la période néonatale, par 24 heures;04 - Appareil circulatoire
+157;METF006;Perfusion intraveineuse de produit de remplissage à un débit supérieur à 50 millilitres par kilogramme [ml/kg] en moins de 24 heures, chez l'adulte;04 - Appareil circulatoire
+157;MDTF007;Transfusion de concentré de globules rouges d'un volume supérieur à une demimasse sanguine chez l'adulte ou à 40 millilitres par kilogramme [ml/kg] chez le nouveau-né en moins de 24 heures;04 - Appareil circulatoire
+157;METF012;Suppléance hémodynamique par dispositif de contrepulsion diastolique intraaortique, par 24 heures;04 - Appareil circulatoire
+157;METF013;Suppléance hémodynamique et ventilatoire d'un patient en état de mort encéphalique, en vue de prélèvement d'organe;04 - Appareil circulatoire
+157;METF014;Pose d'une circulation extracorporelle en urgence pour assistance circulatoire, par abord vasculaire périphérique;04 - Appareil circulatoire
+157;METF017;Circulation extracorporelle pour réchauffement d'une hypothermie accidentelle;04 - Appareil circulatoire
+157;METF019;Suppléance hémodynamique par circulation extracorporelle, par 24 heures;04 - Appareil circulatoire
+157;METF020;Pose d'une assistance circulatoire mécanique monoventriculaire externe, par thoracotomie sans CEC;04 - Appareil circulatoire
+158;METF021;Pose d'une assistance circulatoire mécanique monoventriculaire externe, par thoracotomie avec CEC;04 - Appareil circulatoire
+158;METF022;Pose d'une assistance circulatoire mécanique biventriculaire externe, par thoracotomie sans CEC;04 - Appareil circulatoire
+158;METF023;Pose d'une assistance circulatoire mécanique biventriculaire externe, par thoracotomie avec CEC;04 - Appareil circulatoire
+158;METF024;Pose d'une assistance circulatoire mécanique monoventriculaire interne, par thoracotomie sans CEC;04 - Appareil circulatoire
+158;METF025;Pose d'une assistance circulatoire mécanique monoventriculaire interne, par thoracotomie avec CEC;04 - Appareil circulatoire
+158;METF026;Pose d'une assistance circulatoire mécanique biventriculaire interne, par thoracotomie sans CEC;04 - Appareil circulatoire
+158;METF027;Pose d'une prothèse mécanique biventriculaire orthotopique, par thoracotomie avec CEC;04 - Appareil circulatoire
+158;METF028;Changement d'un système d'assistance circulatoire mécanique ventriculaire, par thoracotomie sans CEC;04 - Appareil circulatoire
+158;METF029;Changement d'un système d'assistance circulatoire mécanique ventriculaire, par thoracotomie avec CEC;04 - Appareil circulatoire
+158;METF030;Suppléance hémodynamique par assistance circulatoire mécanique ventriculaire, par 24 heures;04 - Appareil circulatoire
+158;METF031;Pose d'un dispositif interne d'assistance circulatoire, en dehors de la circulation extracorporelle [CEC] et de ventricule artificiel, par thoracotomie sans CEC;04 - Appareil circulatoire
+158;METF032;Ablation d'un dispositif d'assistance circulatoire interne ou externe, en dehors d'un dispositif de contrepulsion diastolique intraaortique, par thoracotomie sans CEC;04 - Appareil circulatoire
+158;METF033;Ablation d'un dispositif d'assistance circulatoire interne ou externe, en dehors d'un dispositif de contrepulsion diastolique intraaortique, par thoracotomie avec CEC G;04 - Appareil circulatoire
+163;MFTA014;Exérèse du thymus vestigial, par thoracoscopie;05 - Système immunitaire et système hématopoïétique
+163;MFTA015;Exérèse du thymus vestigial, par thoracotomie avec préparation par thoracoscopie;05 - Système immunitaire et système hématopoïétique
+167;MFTB007;Prélèvement de cellules souches hématopoïétiques médullaires [Prélèvement de moelle osseuse], pour thérapie cellulaire;05 - Système immunitaire et système hématopoïétique
+167;MFTB018;Administration intraveineuse simultanée de deux des produits sanguins suivants : plasma frais congelé, plaquettes, facteur antihémophilique, fibrinogène, antithrombine III pour suppléance de coagulopathie, par 24 heures;05 - Système immunitaire et système hématopoïétique
+168;MFTB026;Photochimiothérapie extracorporelle des cellules sanguines mononucléées;05 - Système immunitaire et système hématopoïétique
+168;MFTB032;Prélèvement de cellules souches hématopoïétiques sanguines par cytaphérèse, pour thérapie cellulaire;05 - Système immunitaire et système hématopoïétique
+168;MFTB033;Injection intraveineuse d'un produit de thérapie cellulaire pour autogreffe;05 - Système immunitaire et système hématopoïétique
+168;MFTB034;Injection intraveineuse d'un produit de thérapie cellulaire pour allogreffe;05 - Système immunitaire et système hématopoïétique
+170;MGDG001;Mesure de la différence de potentiel des muqueuses nasales;06 - Appareil respiratoire
+170;MGDG009;Olfactométrie;06 - Appareil respiratoire
+170;MGDG019;Enregistrement continu de la saturation sanguine en oxygène par mesure transcutanée [SpO2] [Oxymétrie de pouls], pendant au moins 6 heures;06 - Appareil respiratoire
+170;MGDG020;Mesure transcutanée de la tension partielle en oxygène [TcPO2] au repos;06 - Appareil respiratoire
+170;MGDG021;Mesure transcutanée de la tension partielle d'oxygène [TcPO2] en hyperhémie;06 - Appareil respiratoire
+171;MGDG026;Mesure de l'expiration forcée [Courbe débit-volume] avec enregistrement;06 - Appareil respiratoire
+171;MGDG027;Mesure du débit expiratoire maximal par technique de compression;06 - Appareil respiratoire
+171;MGDG032;Mesure de la pression d'occlusion à la bouche à 0,1 seconde d'inspiration [P 0,1];06 - Appareil respiratoire
+171;MGDG033;Étude des muscles ventilatoires par mesure de pression à la bouche;06 - Appareil respiratoire
+171;MGDG036;Mesure de la réponse au dioxyde de carbone [CO2] par établissement d'une courbe réponse ventilatoire/concentration de CO2;06 - Appareil respiratoire
+171;MGDG043;Pose d'un dispositif de mesure de la saturation jugulaire en oxygène, par voie veineuse transcutanée;06 - Appareil respiratoire
+171;MGDG044;Surveillance continue transcutanée de la pression partielle sanguine en oxygène [PO2] et/ou en dioxyde de carbone [PCO2] chez le nouveau-né, par 24 heures;06 - Appareil respiratoire
+171;MGDG045;Surveillance continue de la saturation jugulaire en oxygène par dispositif intraveineux, par 24 heures;06 - Appareil respiratoire
+172;MGDH001;Endoscopie de la cavité nasale, par voie nasale;06 - Appareil respiratoire
+173;MGDJ005;Prélèvement intrabronchique distal protégé sur sonde d'intubation ou sur trachéotomie, sans fibroscopie;06 - Appareil respiratoire
+177;MGTA037;Pose d'une épithèse nasale;06 - Appareil respiratoire
+177;MGTA045;Pose unilatérale ou bilatérale de prothèse de calibrage de la cavité nasale;06 - Appareil respiratoire
+177;MGTA046;Ablation unilatérale ou bilatérale de prothèse de calibrage de la cavité nasale;06 - Appareil respiratoire
+184;MGTA159;Pose de cathéter laryngé ou de cathéter trachéal, par voie transcutanée;06 - Appareil respiratoire
+184;MGTA161;Pose d'un masque laryngé ou d'un Combitube®;06 - Appareil respiratoire
+184;MGTA164;Intubation trachéale, par fibroscopie ou dispositif laryngé particulier;06 - Appareil respiratoire
+184;MGTA165;Intubation trachéale avec instillation de surfactant exogène;06 - Appareil respiratoire
+185;MGTA179;Remplacement de la trachée par prothèse, par cervicotomie ou par thoracotomie;06 - Appareil respiratoire
+186;MGTA202;Instillation de surfactant exogène chez un nouveau-né en ventilation mécanique;06 - Appareil respiratoire
+186;MGTA203;Nébulisation d'agent thérapeutique à destination bronchique [aérosol] avec surveillance de la saturation en oxygène par mesure transcutanée [SpO2] et surveillance de la fréquence cardiaque, pendant au moins 2 heures;06 - Appareil respiratoire
+190;MGTB040;Prélèvement de poumon au cours d'un prélèvement multiorgane, sur un sujet en état de mort encéphalique;06 - Appareil respiratoire
+190;MGTB041;Transplantation de lobe pulmonaire, par thoracotomie sans CEC;06 - Appareil respiratoire
+190;MGTB042;Transplantation de lobe pulmonaire, par thoracotomie avec CEC;06 - Appareil respiratoire
+190;MGTB043;Transplantation d'un poumon, par thoracotomie sans CEC;06 - Appareil respiratoire
+190;MGTB044;Transplantation d'un poumon, par thoracotomie avec CEC;06 - Appareil respiratoire
+190;MGTB045;Transplantation séquentielle des 2 poumons, par thoracotomie sans CEC;06 - Appareil respiratoire
+190;MGTB046;Transplantation séquentielle des 2 poumons, par thoracotomie avec CEC;06 - Appareil respiratoire
+190;MGTB047;Transplantation bipulmonaire, par thoracotomie avec CEC;06 - Appareil respiratoire
+191;MGTB063;Séance d'injection intrapleurale d'agent pharmacologique anticancéreux, par voie transcutanée;06 - Appareil respiratoire
+191;MGTB064;Séance d'administration intrapleurale d'agent pharmacologique anticancéreux, par un dispositif implanté;06 - Appareil respiratoire
+192;MGTC001;Réglage du débit d'oxygène par surveillance transcutanée de la saturation en oxygène, pour instauration ou adaptation d'une oxygénothérapie de débit défini chez l'enfant, par 24 heures;06 - Appareil respiratoire
+192;MGTC003;Adaptation des réglages d'une ventilation non effractive par mesures répétées des gaz du sang, par 24 heures;06 - Appareil respiratoire
+192;MGTC004;Adaptation d'une pression positive continue [PPC] ventilatoire par système de pression autoadaptable avec enregistrement de la pression au masque, par 24 heures;06 - Appareil respiratoire
+192;MGTC005;Ventilation barométrique ou volumétrique non effractive au masque facial pendant au moins 2 heures cumulées au cours des 12 heures, pour insuffisance respiratoire aigüe;06 - Appareil respiratoire
+192;MGTC006;Ventilation spontanée au masque facial, par canule nasale ou par sonde nasopharyngée, sans aide inspiratoire, avec pression expiratoire positive [VS-PEP] [Continuous positive airway pressure] [CPAP], par 24 heures;06 - Appareil respiratoire
+193;MGTC007;Ventilation spontanée sur sonde d'intubation trachéale au cours du sevrage d'une ventilation mécanique, par 24 heures;06 - Appareil respiratoire
+193;MGTC008;Ventilation spontanée sur trachéotomie au cours du sevrage d'une ventilation mécanique, par 24 heures;06 - Appareil respiratoire
+193;MGTC009;Ventilation mécanique discontinue au masque facial ou par embout buccal pour kinésithérapie, par 24 heures;06 - Appareil respiratoire
+193;MGTC010;Ventilation mécanique continue au masque facial pour suppléance ventilatoire, par 24 heures;06 - Appareil respiratoire
+193;MGTC011;Ventilation mécanique intratrachéale avec pression expiratoire positive [PEP] inférieure ou égale à 6 et FiO2 inférieure ou égale à 60%, par 24 heures;06 - Appareil respiratoire
+193;MGTC012;Ventilation mécanique intratrachéale avec pression expiratoire positive [PEP] supérieure à 6 et/ou FiO2 supérieure à 60%, par 24 heures;06 - Appareil respiratoire
+193;MGTC013;Ventilation mécanique intratrachéale avec pression expiratoire positive [PEP] supérieure à 6 et/ou FiO2 supérieure à 60%, avec technique de décubitus ventral alterné par 24 heures;06 - Appareil respiratoire
+193;MGTC014;Ventilation mécanique à poumons séparés, par 24 heures;06 - Appareil respiratoire
+193;MGTC015;Ventilation par oscillations à haute fréquence, par 24 heures;06 - Appareil respiratoire
+193;MGTC016;Épuration extracorporelle du dioxyde de carbone [CO2], par 24 heures;06 - Appareil respiratoire
+193;MGTC017;Oxygénothérapie avec surveillance continue de l'oxymétrie, en dehors de la ventilation mécanique, par 24 heures;06 - Appareil respiratoire
+193;MGTC024;Séance de réentraînement à l'exercice d'un insuffisant respiratoire chronique, sur machine;06 - Appareil respiratoire
+193;MGTC025;Séance de réentraînement à l'exercice d'un enfant asthmatique, sur machine;06 - Appareil respiratoire
+193;MGTC026;Pose d'un masque facial de ventilation nasale;06 - Appareil respiratoire
+194;MGTC027;Changement du revêtement interne d'un masque facial de ventilation nasale;06 - Appareil respiratoire
+194;MHDA001;Électromyographie du côlon sigmoïde;07 - Appareil digestif
+194;MHDA002;Électromyographie pancolique;07 - Appareil digestif
+194;MHDB003;Manométrie gastro-duodéno-jéjunale avec enregistrement de l'activité antro-pyloro-duodénale;07 - Appareil digestif
+194;MHDB004;Manométrie duodénojéjunale;07 - Appareil digestif
+194;MHDB005;Manométrie pancolique;07 - Appareil digestif
+194;MHDB006;Manométrie du côlon sigmoïde;07 - Appareil digestif
+198;MHDH001;Exploration du flux aérien bucco-naso-pharyngé par débitmétrie, pour étude de la fonction vélopalatine;07 - Appareil digestif
+198;MHDH002;Réalisation de moulage d'étude des arcades dentaires;07 - Appareil digestif
+198;MHDH005;Montage directeur sur moulage d'étude des arcades dentaires;07 - Appareil digestif
+198;MHDH006;Modélisation occlusale par la technique de la cire ajoutée sur une dent;07 - Appareil digestif
+198;DHDH007;Bilan de dysmorphose dento-maxillo-faciale avec tracé et analyse céphalométrique de profil;07 - Appareil digestif
+198;DHDH008;Bilan de dysmorphose dento-maxillo-faciale avec tracé et analyse céphalométrique tridimensionnelle, ou tracé et analyse architecturale craniofaciale;07 - Appareil digestif
+198;DHDH009;Bilan de dysmorphose dento-maxillo-faciale avec tracé et analyse céphalométrique tridimensionnelle ou analyse architecturale craniofaciale, et simulation des objectifs de traitement sur moulage et/ou sur tracé céphalométrique;07 - Appareil digestif
+198;MHDH012;Test de provocation douloureuse pour recherche d'une affection de l'œsophage;07 - Appareil digestif
+198;MHDH019;Mesure de la production respiratoire d'isotope stable;07 - Appareil digestif
+198;MHDH020;Surveillance tonométrique continue du pH intramuqueux gastrique ou colique et/ou du gradient gastroartériel ou coloartériel de la PCO2, par 24 heures;07 - Appareil digestif
+198;MHDH021;Test de continence anorectale aux liquides;07 - Appareil digestif
+199;MHDJ016;Anuscopie;07 - Appareil digestif
+203;DHDP001;Bilan parodontal;07 - Appareil digestif
+204;MHTA003;Abrasion de la muqueuse des lèvres et de la peau péribuccale avec laser;07 - Appareil digestif
+204;MHTA004;Destruction de lésion du vermillon labial avec laser CO2;07 - Appareil digestif
+205;MHTA028;Réfection de l'aspect du vermillon labial par dermopigmentation;07 - Appareil digestif
+205;MHTA033;Section du pédicule [Sevrage] d'un lambeau hétérolabial ou d'un lambeau de langue;07 - Appareil digestif
+206;DHTA034;Pose d’un dispositif unimaxillaire de contention extracoronaire par attelle composite collée, sur 1 à 6 dents;07 - Appareil digestif
+206;DHTA035;Pose d’un dispositif unimaxillaire de contention extracoronaire par attelle composite collée, sur 7 dents ou plus;07 - Appareil digestif
+206;DHTA039;Réduction de luxation d'une dent;07 - Appareil digestif
+206;DHTA040;Réduction de luxation de plusieurs dents;07 - Appareil digestif
+206;DHTA047;Autogreffe d'une dent sur arcade, dans un site naturel ou préparé chirurgicalement;07 - Appareil digestif
+208;DHTA091;Désobturation endodontique d'une incisive ou d'une canine;07 - Appareil digestif
+208;DHTA092;Désobturation endodontique d’une première prémolaire maxillaire;07 - Appareil digestif
+208;DHTA093;Désobturation endodontique d’une prémolaire autre que la première prémolaire maxillaire;07 - Appareil digestif
+208;DHTA094;Désobturation endodontique d'une molaire;07 - Appareil digestif
+211;DHTA181;Amputation et/ou séparation radiculaire ou coronoradiculaire d'une dent;07 - Appareil digestif
+211;DHTA183;Eclaircissement de dent dépulpée;07 - Appareil digestif
+211;DHTA184;Eclaircissement des dents pulpées;07 - Appareil digestif
+211;DHTA185;Pose d’un mainteneur d’espace interdentaire unitaire scellé;07 - Appareil digestif
+211;DHTA186;Pose d’un mainteneur d’espace interdentaire amovible passif;07 - Appareil digestif
+211;DHTA187;Pose d’un arc de maintien d’espace interdentaire sans dent prothétique;07 - Appareil digestif
+211;DHTA188;Pose d’un arc de maintien d’espace interdentaire avec dent prothétique;07 - Appareil digestif
+211;DHTA189;Séance d'ajustement occlusal par coronoplastie;07 - Appareil digestif
+212;DHTA190;Pose d'un appareil de posture mandibulaire [cale];07 - Appareil digestif
+212;DHTA192;Pose d'un plan de guidage des mouvements antéropostérieurs mandibulaires;07 - Appareil digestif
+212;DHTA193;Pose d'une coiffe de recouvrement d'une racine dentaire [Coping];07 - Appareil digestif
+212;DHTA196;Pose d'une infrastructure coronaire sur 1 implant;07 - Appareil digestif
+212;DHTA197;Pose d'infrastructure coronaire sur 2 implants;07 - Appareil digestif
+212;DHTA198;Pose d'infrastructure coronaire sur 3 implants;07 - Appareil digestif
+212;DHTA199;Pose d'infrastructure coronaire sur 4 implants;07 - Appareil digestif
+212;DHTA200;Pose d'infrastructure coronaire sur 5 implants ou plus;07 - Appareil digestif
+212;DHTA201;Pose d'un attachement coronoradiculaire sur une dent;07 - Appareil digestif
+212;DHTA202;Pose d'une couronne dentaire transitoire;07 - Appareil digestif
+214;DHTA248;Pose d'une facette céramique ou en équivalents minéraux sur une dent d’un secteur incisivocanin;07 - Appareil digestif
+214;DHTA249;Pose d’une prothèse dentaire plurale transitoire;07 - Appareil digestif
+216;DHTA307;Réparation de l'artifice cosmétique d'une dent prothétique par technique directe;07 - Appareil digestif
+216;DHTA308;Réparation de l'artifice cosmétique d'une dent prothétique par technique indirecte;07 - Appareil digestif
+216;DHTA309;Réfection des bords et/ou de l'intrados d'une prothèse dentaire amovible partielle;07 - Appareil digestif
+216;DHTA310;Réfection de la base d'une prothèse dentaire amovible complète;07 - Appareil digestif
+216;DHTA311;Rescellement et/ou recollage d’une ou deux couronnes ou d'un ou deux ancrages d'une prothèse dentaire fixée;07 - Appareil digestif
+216;DHTA312;Rescellement et/ou recollage de 3 couronnes ou plus ou de 3 ancrages ou plus d'une prothèse dentaire fixée;07 - Appareil digestif
+216;DHTA314;Ablation d’un ancrage coronoradiculaire;07 - Appareil digestif
+216;DHTA317;Ablation d'une prothèse dentaire implantoportée;07 - Appareil digestif
+216;DHTA318;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par un dispositif amovible sur 1 arcade;07 - Appareil digestif
+216;DHTA319;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par un dispositif amovible sur 2 arcades;07 - Appareil digestif
+216;DHTA320;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe bibague sur 1 arcade;07 - Appareil digestif
+216;DHTA321;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe bibague sur 2 arcades;07 - Appareil digestif
+216;DHTA322;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache sectoriel;07 - Appareil digestif
+216;DHTA323;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 1 arcade, sans adjonction de dispositif associé;07 - Appareil digestif
+217;DHTA324;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 1 arcade sans adjonction de dispositif associé, avec contention de l'autre arcade par dispositif amovible après traitement orthodontique;07 - Appareil digestif
+217;DHTA325;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 1 arcade sans adjonction de dispositif associé, avec contention de l'autre arcade par dispositif fixe après traitement orthodontique;07 - Appareil digestif
+217;DHTA326;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 1 arcade, avec adjonction de dispositif associé;07 - Appareil digestif
+217;DHTA327;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 1 arcade avec adjonction de dispositif associé, avec contention de l'autre arcade par dispositif amovible après traitement orthodontique;07 - Appareil digestif
+217;DHTA328;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 1 arcade avec adjonction de dispositif associé, avec contention de l'autre arcade par dispositif fixe après traitement orthodontique;07 - Appareil digestif
+217;DHTA329;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 2 arcades, sans adjonction de dispositif associé;07 - Appareil digestif
+217;DHTA330;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 2 arcades, avec adjonction d'un dispositif associé;07 - Appareil digestif
+217;DHTA331;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 2 arcades, avec adjonction de 2 dispositifs associés;07 - Appareil digestif
+217;DHTA332;Réduction d'une malocclusion et/ou d'une malposition alvéolodentaire par dispositif fixe multiattache total sur 2 arcades, avec adjonction de 3 dispositifs associés;07 - Appareil digestif
+217;DHTA333;Contention d'une arcade dentaire par dispositif amovible, après traitement orthodontique;07 - Appareil digestif
+217;DHTA334;Contention des arcades dentaires par dispositif amovible, après traitement orthodontique;07 - Appareil digestif
+217;DHTA335;Contention des arcades dentaires par dispositif amovible bimaxillaire monobloc [tooth positioner], après traitement orthodontique;07 - Appareil digestif
+217;DHTA336;Contention des arcades dentaires par dispositif amovible bimaxillaire monobloc [tooth positioner] et dispositif fixe sur 1 arcade, après traitement orthodontique;07 - Appareil digestif
+217;DHTA337;Contention des arcades dentaires par dispositif amovible bimaxillaire monobloc [tooth positioner] et dispositif fixe sur 2 arcades, après traitement orthodontique;07 - Appareil digestif
+217;DHTA338;Contention d'une arcade dentaire par dispositif fixe, après traitement orthodontique;07 - Appareil digestif
+217;DHTA339;Contention des arcades dentaires par dispositif fixe, après traitement orthodontique;07 - Appareil digestif
+217;DHTA340;Contention des arcades dentaires par dispositif fixe sur l'une et dispositif amovible sur l'autre, après traitement orthodontique;07 - Appareil digestif
+218;DHTA341;Curetage d'alvéole dentaire;07 - Appareil digestif
+218;DHTA349;Ostéoplastie soustractive de l'arcade alvéolaire sur un secteur de 1 à 3 dents;07 - Appareil digestif
+218;DHTA350;Ostéoplastie soustractive de l'arcade alvéolaire sur un secteur de 4 à 6 dents;07 - Appareil digestif
+218;DHTA351;Ostéoplastie soustractive de l'arcade alvéolaire sur un secteur de 7 dents ou plus;07 - Appareil digestif
+218;DHTA352;Exérèse d'hypertrophie gingivale ou de crête flottante localisée;07 - Appareil digestif
+218;DHTA353;Exérèse d'hypertrophie gingivale ou de crête flottante sur une arcade maxillaire ou mandibulaire complète;07 - Appareil digestif
+218;DHTA354;Allongement coronaire par gingivectomie sur une dent;07 - Appareil digestif
+218;DHTA355;Régénération parodontale;07 - Appareil digestif
+218;DHTA358;Ostéoplastie d'une alvéole dentaire avec comblement par biomatériau;07 - Appareil digestif
+218;DHTA359;Ostéoplastie d'une alvéole dentaire avec comblement par autogreffe osseuse;07 - Appareil digestif
+218;DHTA364;Surfaçage radiculaire dentaire sur un sextant;07 - Appareil digestif
+218;DHTA365;Assainissement parodontal par lambeau sur un sextant;07 - Appareil digestif
+219;DHTA367;Séance de préparation [mise en condition] tissulaire des surfaces d'appui muqueux d'une prothèse dentaire, sur une arcade;07 - Appareil digestif
+225;MHTA473;Pose de dispositif intrabuccal d'expansion tissulaire pour rehaussement de crête alvéolaire;07 - Appareil digestif
+225;MHTA476;Pose d'un appareillage antiautomorsure;07 - Appareil digestif
+226;MHTA488;Lithotritie de la glande parotide;07 - Appareil digestif
+226;MHTA489;Lithotritie de la glande submandibulaire;07 - Appareil digestif
+228;MHTA515;Uvulopharyngoplastie sans laser;07 - Appareil digestif
+228;MHTA516;Uvulopharyngoplastie sans laser avec turbinectomie;07 - Appareil digestif
+228;MHTA517;Uvulopharyngoplastie sans laser avec septoplastie;07 - Appareil digestif
+228;MHTA518;Uvulopharyngoplastie avec laser;07 - Appareil digestif
+230;MHTB010;Séance de destruction d'une hétérotopie de la muqueuse de l'œsophage inférieur, par endoscopie;07 - Appareil digestif
+230;MHTB011;Séance d'injection de toxine botulique au niveau du sphincter inférieur de l'œsophage, par endoscopie;07 - Appareil digestif
+230;MHTB013;Correction d'un reflux gastroœsophagien, par endoscopie;07 - Appareil digestif
+236;MHTB105;Pose d'un ballonnet intragastrique pour obésité morbide, par œso-gastro-duodénoscopie;07 - Appareil digestif
+236;MHTB106;Implantation souscutanée d'un stimulateur gastrique avec pose d'une sonde pariétale gastrique pour obésité morbide, par cœlioscopie;07 - Appareil digestif
+236;MHTB107;Ablation d'une sonde de stimulation pariétale gastrique pour obésité morbide, par cœlioscopie;07 - Appareil digestif
+239;MHTB154;Séance de destruction photodynamique de lésion de l'œsophage et/ou de l'estomac avec laser, par œso-gastro- duodénoscopie;07 - Appareil digestif
+242;MHTB197;Prélèvement d'intestin grêle, chez un sujet en état de mort encéphalique;07 - Appareil digestif
+242;MHTB198;Transplantation d'intestin grêle, par laparotomie;07 - Appareil digestif
+242;MHTB199;Transplantation d'intestin grêle et de foie réduit, par laparotomie;07 - Appareil digestif
+242;MHTB200;Transplantation d'intestin grêle et de foie total, par laparotomie;07 - Appareil digestif
+253;MHTB355;Implantation d'un électrostimulateur du muscle sphincter externe de l'anus ou d'un lambeau de plastie de ce muscle;07 - Appareil digestif
+253;MHTB356;Changement d'un électrostimulateur du muscle sphincter externe de l'anus ou d'un lambeau de plastie de ce muscle;07 - Appareil digestif
+258;MHTC075;Destruction de tumeur hépatique par radiofréquence, par voie transcutanée avec guidage remnographique [IRM];07 - Appareil digestif
+260;MHTC099;Prélèvement d'un greffon hépatique total, chez un sujet en état de mort encéphalique;07 - Appareil digestif
+260;MHTC100;Prélèvement d'un greffon hépatique total chez un sujet en état de mort encéphalique, avec hépatectomie de réduction;07 - Appareil digestif
+260;MHTC101;Prélèvement d'un greffon hépatique total chez un sujet en état de mort encéphalique, avec partage du foie;07 - Appareil digestif
+260;MHTC102;Prélèvement d'un greffon hépatique, chez un sujet vivant;07 - Appareil digestif
+260;MHTC103;Transplantation de foie réduit;07 - Appareil digestif
+260;MHTC104;Transplantation de foie total;07 - Appareil digestif
+261;MHTD007;Lithotritie extracorporelle du pancréas;07 - Appareil digestif
+263;MHTD038;Prélèvement d'un greffon pancréatique, chez un sujet en état de mort encéphalique;07 - Appareil digestif
+263;MHTD039;Transplantation du pancréas, par laparotomie;07 - Appareil digestif
+263;MHTD040;Transplantation du pancréas et du rein, par laparotomie;07 - Appareil digestif
+263;MHTD041;Transplantation d'îlots pancréatiques, par injection dans la veine porte par voie transcutanée avec guidage radiologique;07 - Appareil digestif
+263;MHTE002;Séance d'injection intrapéritonéale d'agent pharmacologique anticancéreux, par voie transcutanée;07 - Appareil digestif
+263;MHTE003;Séance d'administration intrapéritonéale d'agent pharmacologique anticancéreux, par un dispositif implanté;07 - Appareil digestif
+263;MHTE004;Administration intrapéritonéale d'agent pharmacologique anticancéreux avec hyperthermie [Chimiohyperthermie anticancéreuse intrapéritonéale], sous anesthésie générale;07 - Appareil digestif
+263;MHTE009;Désobstruction d'un cathéter de dialyse péritonéale;07 - Appareil digestif
+263;MHTE010;Pelage du manchon externe d'un cathéter de dialyse péritonéale;07 - Appareil digestif
+263;MHTE011;Désenfouissement de l'extrémité souscutanée d'un cathéter de dialyse péritonéale;07 - Appareil digestif
+264;MHTE018;Libération de l'extrémité distale du cathéter d'un système diffuseur implanté pour insulinothérapie intrapéritonéale, par cœlioscopie;07 - Appareil digestif
+264;MHTE020;Pose d'un ballon intrapéritonéal avant irradiation pelvienne, par laparotomie;07 - Appareil digestif
+264;MHTE021;Ablation d'un ballon intrapéritonéal, par laparotomie;07 - Appareil digestif
+264;MHTE030;Sclérose d'un kyste intraabdominal par injection d'agent pharmacologique, par voie transcutanée avec guidage échographique et/ou radiologique;07 - Appareil digestif
+264;MHTE031;Sclérose de plusieurs kystes intraabdominaux par injection d'agent pharmacologique, par voie transcutanée avec guidage échographique et/ou radiologique;07 - Appareil digestif
+265;MHTE032;Sclérose de kyste intraabdominal par injection d'agent pharmacologique, par voie transcutanée avec guidage scanographique;07 - Appareil digestif
+265;MHTE033;Sclérose de tumeur intraabdominale par injection intralésionnelle d'agent pharmacologique, par voie transcutanée avec guidage échographique et/ou radiologique;07 - Appareil digestif
+265;MHTE034;Sclérose de tumeur intraabdominale par injection intralésionnelle d'agent pharmacologique, par voie transcutanée avec guidage scanographique;07 - Appareil digestif
+266;MHTF001;Alimentation parentérale avec apport de 20 à 35 kilocalories par kilogramme par jour [kcal/kg/jour], par 24 heures;07 - Appareil digestif
+266;MHTF002;Alimentation parentérale avec apport de plus de 35 kilocalories par kilogramme par jour [kcal/kg/jour], par 24 heures;07 - Appareil digestif
+266;MHTF003;Alimentation entérale par sonde avec apport de 20 à 35 kilocalories par kilogramme par jour [kcal/kg/jour], par 24 heures;07 - Appareil digestif
+266;MHTF004;Alimentation entérale par sonde avec apport de plus de 35 kilocalories par kilogramme par jour [kcal/kg/jour], par 24 heures;07 - Appareil digestif
+266;MHTF005;Alimentation entérale et parentérale, avec apport de plus de 35 kilocalories par kilogramme par jour [kcal/kg/jour], par 24 heures R;07 - Appareil digestif
+269;MJDE001;Étude du débit plasmatique rénal, avec recueil urinaire;08 - Appareil urinaire et génital
+269;MJDE002;Épreuve de filtration glomérulaire rénale par administration de substance exogène, sans recueil urinaire;08 - Appareil urinaire et génital
+269;MJDE003;Épreuve de filtration glomérulaire rénale par administration de substance exogène, avec recueil urinaire;08 - Appareil urinaire et génital
+269;MJDE004;Épreuve de filtration glomérulaire rénale par administration de substance exogène avec étude du débit plasmatique rénal, avec recueil urinaire;08 - Appareil urinaire et génital
+269;MJDE005;Épreuve de filtration glomérulaire rénale par administration de substance exogène, sans recueil urinaire, avec épreuve de stimulation;08 - Appareil urinaire et génital
+269;MJDE006;Épreuve de filtration glomérulaire rénale par administration de substance exogène, avec recueil urinaire, avec épreuve de stimulation;08 - Appareil urinaire et génital
+269;MJDE007;Épreuve de charge calcique;08 - Appareil urinaire et génital
+269;MJDE008;Épreuve de dilution de l'urine;08 - Appareil urinaire et génital
+269;MJDE009;Épreuve de concentration de l'urine avec test à la 1-désamino-8-D-arginine-vasopressine [dDAVP];08 - Appareil urinaire et génital
+269;MJDE010;Étude de la sécrétion d'hormone antidiurétique [ADH] par perfusion de chlorure de sodium hypertonique;08 - Appareil urinaire et génital
+269;MJDE011;Étude de la capacité d'acidification de l'urine;08 - Appareil urinaire et génital
+269;MJDE012;Étude du transfert maximal [Tm] du bicarbonate et de la sécrétion distale de proton;08 - Appareil urinaire et génital
+269;MJDE013;Étude du transfert maximal [Tm] du glucose;08 - Appareil urinaire et génital
+269;MJDE014;Étude du système rénine-angiotensine-aldostérone en clinostatisme et en orthostatisme;08 - Appareil urinaire et génital
+269;MJDE015;Étude de la régulation du système rénine-angiotensine-aldostérone par administration d'agent pharmacologique non radio-isotopique ou perfusion de chlorure de sodium isotonique;08 - Appareil urinaire et génital
+270;MJDE016;Étude des transferts des électrolytes dans le tubule rénal et de leurs facteurs de régulation, sans administration de substance exogène;08 - Appareil urinaire et génital
+270;MJDE017;Étude des transferts des électrolytes dans le tubule rénal et de leurs facteurs de régulation, avec administration de substance exogène;08 - Appareil urinaire et génital
+270;MJDE018;Test à la déféroxamine;08 - Appareil urinaire et génital
+270;MJDE032;Débitmétrie mictionnelle;08 - Appareil urinaire et génital
+270;MJDE034;Mesure de la rigidité du pénis avec injection de produit vasoactif;08 - Appareil urinaire et génital
+270;MJDE035;Mesure nocturne de la tumescence et de la rigidité du pénis;08 - Appareil urinaire et génital
+270;MJDE036;Mesure pression-débit, par ponction transcutanée des corps caverneux du pénis;08 - Appareil urinaire et génital
+271;MJDE037;Évaluation de la dose de dialyse péritonéale par prélèvement unique de sang et de dialysat;08 - Appareil urinaire et génital
+271;MJDE038;Évaluation de la dose de dialyse péritonéale par prélèvements multiples de sang et de dialysat;08 - Appareil urinaire et génital
+271;MJDE039;Mesure des clairances péritonéales par recueil de dialysat sur 24 heures;08 - Appareil urinaire et génital
+271;MJDE040;Mesure de la pression intrapéritonéale par le prolongateur du cathéter de dialyse péritonéale;08 - Appareil urinaire et génital
+271;MJDF011;Péniscopie;08 - Appareil urinaire et génital
+271;MJDF016;Vaginoscopie;08 - Appareil urinaire et génital
+271;MJDF017;Vulvoscopie;08 - Appareil urinaire et génital
+278;MJTA043;Prélèvement d'un rein sur un donneur vivant, par abord direct;08 - Appareil urinaire et génital
+278;MJTA044;Prélèvement d'un rein sur un donneur vivant, par cœlioscopie ou par rétropéritonéoscopie;08 - Appareil urinaire et génital
+278;MJTA048;Transplantation du rein;08 - Appareil urinaire et génital
+298;MJTB002;Destruction de lésion de la prostate par ultrasons focalisés de haute intensité, par voie rectale;08 - Appareil urinaire et génital
+300;MJTB041;Détorsion manuelle du cordon spermatique;08 - Appareil urinaire et génital
+302;MJTB060;Réduction manuelle d'un paraphimosis;08 - Appareil urinaire et génital
+302;MJTB062;Libération d'adhérences du prépuce du pénis;08 - Appareil urinaire et génital
+302;MJTB074;Injection thérapeutique d'agent pharmacologique vasoactif dans les corps caverneux du pénis, par voie transcutanée;08 - Appareil urinaire et génital
+304;MJTB091;Élargissement du pénis;08 - Appareil urinaire et génital
+304;MJTB092;Allongement du pénis par plastie des corps caverneux;08 - Appareil urinaire et génital
+304;MJTB093;Allongement du pénis par section du ligament suspenseur;08 - Appareil urinaire et génital
+308;MJTC046;Myomectomie de l'utérus, par abord vaginal;08 - Appareil urinaire et génital
+311;MJTC107;Ablation d'un dispositif intra-utérin, par voie vaginale;08 - Appareil urinaire et génital
+314;MJTC148;Pose de dispositif intravaginal;08 - Appareil urinaire et génital
+314;MJTC149;Ablation ou changement de dispositif intravaginal;08 - Appareil urinaire et génital
+318;MJTF007;Plastie des organes génitaux externes pour transsexualisme masculin;08 - Appareil urinaire et génital
+318;MJTF008;Armature d'un néopénis;08 - Appareil urinaire et génital
+318;MJTF009;Phalloplastie par lambeau cutané libre;08 - Appareil urinaire et génital
+318;MJTF010;Phalloplastie par lambeau cutané tubulé pénien;08 - Appareil urinaire et génital
+318;MJTF011;Phalloplastie par lambeau inguinal pédiculé;08 - Appareil urinaire et génital
+319;MJDL001;Enregistrement du rythme cardiaque du fœtus d'une durée de plus de 20 minutes, en dehors du travail;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+320;MJDQ001;Amnioscopie;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+320;MJTH002;Prélèvement et examen de la glaire cervicale, avec examen de la mobilité des spermatozoïdes [Test postcoïtal de Huhner];09 - Actes concernant la procréation, la grossesse et le nouveau-né
+320;MJTH004;Prélèvement d'ovocytes sur un ou deux ovaires, par cœlioscopie;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+322;MJTJ016;Ablation de cerclage du col de l'utérus;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+322;MJTJ035;Suture immédiate de déchirure obstétricale du vagin, de la vulve et/ou du périnée [périnée simple];09 - Actes concernant la procréation, la grossesse et le nouveau-né
+322;MJTJ036;Suture immédiate de déchirure obstétricale du périnée avec lésion du muscle sphincter externe de l'anus [périnée complet];09 - Actes concernant la procréation, la grossesse et le nouveau-né
+323;MJTJ043;Tamponnement intra-utérin ou intravaginal, pour hémorragie obstétricale;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+323;MJTJ044;Évacuation d'hématome ou de thrombus du vagin, de la vulve et/ou du périnée d'origine obstétricale, par abord direct;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+323;MJTJ045;Réduction manuelle d'inversion utérine;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL001;Aspiration intratrachéale d'un nouveau-né à la naissance, en présence d'un liquide amniotique méconial;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL002;Ventilation manuelle d'un nouveau-né à la naissance, au masque facial;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL003;Ventilation manuelle d'un nouveau-né à la naissance, au masque facial, avec administration intraveineuse d'agent pharmacologique et/ou de soluté;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL004;Installation d'un nouveau-né en incubateur à la naissance, avec ventilation spontanée sans oxygénothérapie;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL005;Installation d'un nouveau-né en incubateur à la naissance, avec ventilation spontanée avec oxygénothérapie;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL006;Installation d'un nouveau-né en incubateur à la naissance, avec ventilation spontanée au masque facial avec pression expiratoire positive [VS-PEP] ou ventilation mécanique;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL007;Pose d'un sac à viscères chez un nouveau-né à la naissance;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+324;MJTL008;Administration intraveineuse d'agent pharmacologique et/ou de soluté chez le nouveau-né à la naissance C;09 - Actes concernant la procréation, la grossesse et le nouveau-né
+325;MKDC001;Mesure de la sécrétion d'insuline avec administration intraveineuse de glucose;10 - Glandes endocrines et métabolisme
+325;MKDC002;Mesure de la sensibilité à l'insuline avec administration intraveineuse de glucose et d'insuline, sans mesure de la production hépatique de glucose;10 - Glandes endocrines et métabolisme
+325;MKDC003;Mesure de la sensibilité à l'insuline avec administration intraveineuse de glucose et d'insuline, avec mesure de la production hépatique de glucose;10 - Glandes endocrines et métabolisme
+327;MKTA002;Exérèse de lésion de la loge hypophysaire, par vidéochirurgie transsphénoïdale;10 - Glandes endocrines et métabolisme
+328;MKTA022;Exploration des sites parathyroïdiens cervicaux, par cervicoscopie;10 - Glandes endocrines et métabolisme
+330;MLDA001;Enregistrement électronique des mouvements de la mandibule;11 - Appareil ostéoarticulaire et musculaire de la tête
+330;MLDB001;Photographies de la face;11 - Appareil ostéoarticulaire et musculaire de la tête
+330;MLDC008;Analyse céphalométrique craniofaciale bidimensionnelle;11 - Appareil ostéoarticulaire et musculaire de la tête
+330;MLDC009;Analyse céphalométrique craniofaciale bidimensionnelle avec simulation des objectifs thérapeutiques;11 - Appareil ostéoarticulaire et musculaire de la tête
+330;MLDC010;Analyse céphalométrique craniofaciale tridimensionnelle;11 - Appareil ostéoarticulaire et musculaire de la tête
+330;MLDC011;Analyse céphalométrique architecturale craniofaciale;11 - Appareil ostéoarticulaire et musculaire de la tête
+332;MLTA002;Craniectomie décompressive;11 - Appareil ostéoarticulaire et musculaire de la tête
+332;MLTA011;Meulage extracrânien de la voûte du crâne, par vidéochirurgie;11 - Appareil ostéoarticulaire et musculaire de la tête
+345;MLTA200;Pose de 11 implants intraosseux intrabuccaux ou plus;11 - Appareil ostéoarticulaire et musculaire de la tête
+345;MLTA214;Pose de moyen de liaison sur 11 implants préprothétiques intraosseux intrabuccaux ou plus;11 - Appareil ostéoarticulaire et musculaire de la tête
+346;MLTA232;Dégagement et activation de 11 implants intraosseux intrabuccaux ou plus;11 - Appareil ostéoarticulaire et musculaire de la tête
+347;MLTA254;Ablation de 11 implants intraosseux intrabuccaux ou plus, avec résection osseuse;11 - Appareil ostéoarticulaire et musculaire de la tête
+349;MLTC005;Séance d'injection de toxine botulique au niveau de la face;11 - Appareil ostéoarticulaire et musculaire de la tête
+349;MLTD001;Réduction d'un décalage antéropostérieur des arcades dentaires par dispositif orthopédique et/ou dispositif fonctionnel;11 - Appareil ostéoarticulaire et musculaire de la tête
+349;MLTD002;Réduction d'un décalage postéroantérieur des arcades dentaires par dispositif orthopédique et/ou dispositif fonctionnel;11 - Appareil ostéoarticulaire et musculaire de la tête
+349;MLTD003;Réduction d'un décalage transversal des arcades dentaires par dispositif orthopédique et/ou dispositif fonctionnel;11 - Appareil ostéoarticulaire et musculaire de la tête
+349;MLTD004;Réduction d'un décalage vertical des arcades dentaires par dispositif orthopédique et/ou dispositif fonctionnel;11 - Appareil ostéoarticulaire et musculaire de la tête
+349;MLTD005;Réduction d'une insuffisance transversale de l'os maxillaire par dispositif orthopédique et/ou dispositif fonctionnel;11 - Appareil ostéoarticulaire et musculaire de la tête
+349;MLTD006;Réduction d'une insuffisance transversale de la mandibule par dispositif orthopédique;11 - Appareil ostéoarticulaire et musculaire de la tête
+350;MLTD019;Pose d'un appareillage de protection dentomaxillaire;11 - Appareil ostéoarticulaire et musculaire de la tête
+350;MLTD028;Pose d'un appareillage en propulsion mandibulaire;11 - Appareil ostéoarticulaire et musculaire de la tête
+350;MLTD033;Pose d'une épithèse faciale plurirégionale A;11 - Appareil ostéoarticulaire et musculaire de la tête
+351;MADA061;Électromyographie du diaphragme par électrodes de surface, sans épreuve de stimulation du nerf phrénique;12 - Appareil ostéoarticulaire et musculaire du cou et du tronc
+351;MADA062;Électromyographie du diaphragme par électrodes de surface, avec épreuve de stimulation du nerf phrénique;12 - Appareil ostéoarticulaire et musculaire du cou et du tronc
+351;MLDG001;Mesure de la pression transdiaphragmatique par double ballonnet, par voie œsophagienne;12 - Appareil ostéoarticulaire et musculaire du cou et du tronc
+365;MLTE157;Exérèse d'un disque intervertébral, par voie transcutanée avec guidage radiologique [Nucléotomie transcutanée];12 - Appareil ostéoarticulaire et musculaire du cou et du tronc
+366;MLTE175;Remplacement d'un disque intervertébral cervical par prothèse, par cervicotomie;12 - Appareil ostéoarticulaire et musculaire du cou et du tronc
+404;RNDA002;Ostéodensitométrie du calcanéus par échographie;14 - Appareil ostéoarticulaire et musculaire du membre inférieur
+408;MNTA024;Prélèvement d'un os coxal [hémibassin], sur un sujet décédé;14 - Appareil ostéoarticulaire et musculaire du membre inférieur
+439;MNTD014;Confection d'une orthèse plantaire;14 - Appareil ostéoarticulaire et musculaire du membre inférieur
+439;MNTD015;Confection d'une orthèse pour correction d'une déformation et/ou protection des orteils;14 - Appareil ostéoarticulaire et musculaire du membre inférieur
+439;MNTD016;Traction continue cutanée du membre inférieur d'une durée inférieure à 7 jours, pour lésion non traumatique;14 - Appareil ostéoarticulaire et musculaire du membre inférieur
+439;MNTD017;Traction continue cutanée du membre inférieur d'une durée égale ou supérieure à 7 jours, pour lésion non traumatique;14 - Appareil ostéoarticulaire et musculaire du membre inférieur
+439;MNTD018;Traction continue transosseuse du membre inférieur, pour lésion non traumatique;14 - Appareil ostéoarticulaire et musculaire du membre inférieur
+441;RPDB002;Radiographie du squelette complet, chez le nouveau-né décédé;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+442;RPDD002;Ostéodensitométrie [Absorptiométrie osseuse] du corps entier par méthode biphotonique, pour affection osseuse autre que constitutionnelle;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+442;RPDD003;Ostéodensitométrie [Absorptiométrie osseuse] du corps entier par méthode biphotonique, pour affection osseuse constitutionnelle chez l'enfant;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+442;MPDE001;Analyse métrologique de la posture, de la locomotion et/ou des gestuelles chez un patient monodéficient;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+442;MPDE004;Analyse baropodométrique de la marche;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+442;MPDE007;Mesure directe de la pression tissulaire dans les loges musculaires des membres, par voie transcutanée;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+442;MPDE008;Mesure du volume du pied et/ou de la jambe par déplacement d'eau ou méthode optoélectronique;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+443;MPTA003;Injection intraosseuse de moelle;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+443;MPTA006;Prélèvement d'un os long complet, sur un sujet en état de mort encéphalique;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+443;MPTA007;Prélèvement de plusieurs os longs complets sur un membre, sur un sujet en état de mort encéphalique;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+443;MPTA008;Prélèvement de plusieurs os longs complets sur plusieurs membres, sur un sujet en état de mort encéphalique;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+443;MPTA009;Prélèvement d'un os autre qu'un os long, sur un sujet en état de mort encéphalique;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+444;MPTA032;Changement de fiche ou broche d'un fixateur externe ou d'un système externe d'allongement osseux;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+445;MPTA045;Modification d'un appareillage de contention ou d'une orthèse des membres ou de la colonne vertébrale;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+445;MPTA046;Adaptation d'une orthèse modulaire articulée d'un membre;15 - Appareil ostéoarticulaire et musculaire sans précision topographique
+447;MQDA004;Exploration photobiologique de base par recherche de la dose érythémale minimum [DEM] et phototest itératif;16 - Système tégumentaire - glande mammaire
+447;MQDA005;Photoépidermotest par batterie de tests;16 - Système tégumentaire - glande mammaire
+448;MQDA018;Trichogramme;16 - Système tégumentaire - glande mammaire
+452;MQTA039;Dermabrasion en dehors du visage;16 - Système tégumentaire - glande mammaire
+455;MQTA112;Microgreffes de peau totale sur 1 à 5 cicatrices du visage;16 - Système tégumentaire - glande mammaire
+455;MQTA113;Microgreffes de peau totale sur 6 cicatrices du visage, ou plus;16 - Système tégumentaire - glande mammaire
+456;MQTA120;Autogreffe souscutanée susfasciale de peau désépidermisée pour comblement de dépression cutanée, par abord direct;16 - Système tégumentaire - glande mammaire
+456;MQTA121;Autogreffe de mélanocytes de transfert;16 - Système tégumentaire - glande mammaire
+456;MQTA122;Autogreffe de mélanocytes de culture;16 - Système tégumentaire - glande mammaire
+457;MQTA141;Autonomisation d'un lambeau;16 - Système tégumentaire - glande mammaire
+457;MQTA142;Section du pédicule d’un lambeau à distance;16 - Système tégumentaire - glande mammaire
+458;MQTA150;Lissage [Lifting] temporal unilatéral, par abord direct;16 - Système tégumentaire - glande mammaire
+458;MQTA151;Lissage [Lifting] temporal bilatéral, par abord direct;16 - Système tégumentaire - glande mammaire
+458;MQTA152;Lissage [Lifting] du tiers supérieur de la face, par vidéochirurgie;16 - Système tégumentaire - glande mammaire
+458;MQTA153;Lissage [Lifting] du tiers supérieur de la face, par abord coronal;16 - Système tégumentaire - glande mammaire
+458;MQTA154;Lissage cervicofacial unilatéral [Hémilifting facial], par abord direct;16 - Système tégumentaire - glande mammaire
+458;MQTA155;Lissage cervicofacial unilatéral [Hémilifting facial] avec platysmaplastie, par abord direct;16 - Système tégumentaire - glande mammaire
+458;MQTA156;Lissage [Lifting] cervicofacial bilatéral, par abord direct;16 - Système tégumentaire - glande mammaire
+458;MQTA157;Lissage [Lifting] cervicofacial bilatéral avec platysmaplastie, par abord direct;16 - Système tégumentaire - glande mammaire
+458;MQTA158;Lissage [Lifting] cervical, par abord direct;16 - Système tégumentaire - glande mammaire
+458;MQTA159;Dermolipectomie abdominale en quartier d'orange;16 - Système tégumentaire - glande mammaire
+458;MQTA160;Dermolipectomie abdominale sans transposition de l'ombilic;16 - Système tégumentaire - glande mammaire
+458;MQTA161;Dermolipectomie abdominale sans transposition de l'ombilic, avec lipoaspiration de l'abdomen;16 - Système tégumentaire - glande mammaire
+459;MQTA170;Lipoaspiration en dehors des régions inframentonnière, abdominale ou infratrochantérienne ou des genoux;16 - Système tégumentaire - glande mammaire
+459;MQTA171;Lipoaspiration inframentonnière;16 - Système tégumentaire - glande mammaire
+459;MQTA173;Lipoaspiration des régions infratrochantériennes;16 - Système tégumentaire - glande mammaire
+459;MQTA174;Lipoaspiration de la face médiale des genoux;16 - Système tégumentaire - glande mammaire
+460;MQTA191;Relèvement de 1 à 5 cicatrices, par abord direct;16 - Système tégumentaire - glande mammaire
+460;MQTA192;Relèvement de 6 cicatrices ou plus, par abord direct;16 - Système tégumentaire - glande mammaire
+460;MQTA200;Confection d'un conformateur de pressothérapie d'une cicatrice vicieuse et/ou chéloïde;16 - Système tégumentaire - glande mammaire
+461;MQTB020;Évacuation de kystes acnéiques et/ou de comédons, par micro-incisions;16 - Système tégumentaire - glande mammaire
+469;MQTD027;Mastopexie unilatérale, sans pose d'implant prothétique;16 - Système tégumentaire - glande mammaire
+469;MQTD028;Mastopexie unilatérale, avec pose d'implant prothétique;16 - Système tégumentaire - glande mammaire
+469;MQTD029;Mastopexie bilatérale, sans pose d'implant prothétique;16 - Système tégumentaire - glande mammaire
+469;MQTD030;Mastopexie bilatérale, avec pose d'implant prothétique;16 - Système tégumentaire - glande mammaire
+470;MQTD045;Réduction de volume du mamelon;16 - Système tégumentaire - glande mammaire
+471;MQTD052;Plastie d'augmentation ou de réduction de la plaque aréolomamelonnaire;16 - Système tégumentaire - glande mammaire
+472;RZDA004;Radiographie au lit du malade, selon 1 ou 2 incidences;17 - Actes sans précision topographique
+472;RZDA005;Radiographie au lit du malade, selon 3 incidences ou plus;17 - Actes sans précision topographique
+475;MZDB032;Examen anatomopathologique de prélèvement biopsique de structure anatomique;17 - Actes sans précision topographique
+475;MZDB033;Examen anatomopathologique de prélèvement biopsique de muqueuse;17 - Actes sans précision topographique
+475;MZDB034;Examen anatomopathologique extemporané;17 - Actes sans précision topographique
+476;MZDB041;Examen anatomopathologique de fragment de résection de structure anatomique;17 - Actes sans précision topographique
+476;MZDB042;Examen anatomopathologique de pièce d'exérèse;17 - Actes sans précision topographique
+476;MZDB046;Examen immunohistochimique de prélèvement tissulaire;17 - Actes sans précision topographique
+476;MZDB047;Autres examens particuliers de tissu;17 - Actes sans précision topographique
+478;MZTA027;Surveillance médicalisée du transport intrahospitalier d'un patient non ventilé;17 - Actes sans précision topographique
+478;MZTA028;Surveillance médicalisée du transport intrahospitalier d'un patient ventilé;17 - Actes sans précision topographique
+480;RZTB016;Préparation à une irradiation intracrânienne en conditions stéréotaxiques en dose unique, avec pose de cadre effractif;17 - Actes sans précision topographique
+480;RZTB024;Séance d'irradiation externe par machine de puissance inférieure à 5 mégavolts [MV];17 - Actes sans précision topographique
+480;RZTB025;Séance d'irradiation externe par accélérateur linéaire de puissance égale ou supérieure à 5 mégavolts [MV], sans système de contrôle du positionnement;17 - Actes sans précision topographique
+480;RZTB026;Séance d'irradiation externe par accélérateur linéaire de puissance égale ou supérieure à 5 mégavolts [MV], équipé d'imagerie portale;17 - Actes sans précision topographique
+481;RZTB027;Séance d'irradiation externe par accélérateur linéaire de puissance égale ou supérieure à 5 mégavolts [MV], équipé d'un collimateur multilame;17 - Actes sans précision topographique
+481;RZTB028;Séance d'irradiation externe par accélérateur linéaire de puissance égale ou supérieure à 5 mégavolts [MV], équipé d'un collimateur multilame et d'imagerie portale;17 - Actes sans précision topographique
+481;RZTB029;Séance d'irradiation externe par accélérateur linéaire de puissance égale ou supérieure à 5 mégavolts [MV], équipé d'un système de repositionnement;17 - Actes sans précision topographique
+481;RZTB030;Séance d'irradiation externe par accélérateur linéaire de puissance égale ou supérieure à 5 mégavolts [MV], équipé d'un système de repositionnement guidé par imagerie [IGRT];17 - Actes sans précision topographique
+481;RZTB031;Séance d'irradiation externe par accélérateur linéaire avec modulation d'intensité, sans contrôle de la position de la cible;17 - Actes sans précision topographique
+481;RZTB032;Séance d'irradiation externe par accélérateur linéaire avec modulation d'intensité, avec contrôle de la position de la cible;17 - Actes sans précision topographique
+481;RZTB033;Séance d'irradiation externe par machine dédiée produisant des photons avec modulation d'intensité et contrôle de la position de la cible par imagerie [IGRT];17 - Actes sans précision topographique
+481;RZTB034;Séance d'irradiation externe en conditions stéréotaxiques par machine produisant des photons avec guidage par imagerie, sans synchronisation avec la respiration;17 - Actes sans précision topographique
+481;RZTB035;Séance d'irradiation externe en conditions stéréotaxiques par machine produisant des photons avec guidage par imagerie, avec synchronisation avec la respiration;17 - Actes sans précision topographique
+481;RZTB036;Séance d'irradiation externe en conditions stéréotaxiques par machine dédiée produisant des photons avec guidage par imagerie, sans synchronisation avec la respiration;17 - Actes sans précision topographique
+481;RZTB037;Séance d'irradiation externe en conditions stéréotaxiques par machine dédiée produisant des photons avec guidage par imagerie, avec synchronisation avec la respiration;17 - Actes sans précision topographique
+481;RZTB038;Irradiation externe intracrânienne en conditions stéréotaxiques avec cadre effractif, en dose unique;17 - Actes sans précision topographique
+481;RZTB039;Irradiation externe en conditions stéréotaxiques par machine produisant des photons avec guidage par imagerie, sans synchronisation avec la respiration, en dose unique;17 - Actes sans précision topographique
+481;RZTB040;Irradiation externe en conditions stéréotaxiques par machine dédiée produisant des photons avec guidage par imagerie, sans synchronisation avec la respiration, en dose unique;17 - Actes sans précision topographique
+481;RZTB041;Séance d'irradiation externe du névraxe [irradiation craniospinale];17 - Actes sans précision topographique
+481;RZTB042;Séance d'irradiation externe par protons;17 - Actes sans précision topographique
+481;RZTB043;Séance d'irradiation externe par neutrons;17 - Actes sans précision topographique
+481;RZTB044;Séance d'irradiation corporelle totale [ICT];17 - Actes sans précision topographique
+481;RZTB045;Séance d'irradiation cutanée totale;17 - Actes sans précision topographique
+482;RZTB046;Séance d'irradiation de contact endocavitaire;17 - Actes sans précision topographique
+485;MATZ001;Surveillance électroencéphalographique peropératoire sur au moins 8 dérivations, pendant moins de 4 heures;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ002;Surveillance électroencéphalographique peropératoire sur au moins 8 dérivations, pendant 4 heures ou plus;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ003;Surveillance électrocorticographique peropératoire de l'activité encéphalique spontanée et/ou provoquée;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ004;Surveillance peropératoire des potentiels évoqués moteurs, sensoriels ou somesthésiques, pendant moins de 2 heures;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ005;Surveillance peropératoire des potentiels évoqués moteurs, sensoriels ou somesthésiques pendant 2 à 4 heures;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ006;Surveillance peropératoire des potentiels évoqués moteurs, sensoriels ou somesthésiques, pendant plus de 4 heures;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ007;Endoscopie intradurale peropératoire;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ009;Prélèvement peropératoire d'autogreffe nerveuse sur un membre différent du membre opéré;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ010;Réparation de perte de substance durale de plus de 10 cm² par greffe ou substitut, au cours d'une intervention intracrânienne ou intrarachidienne;18 - Anesthésies complémentaires et gestes complémentaires
+485;MATZ011;Sédation et curarisation continues avec surveillance de la curarisation par stimulateur de nerf spinal, par 24 heures;18 - Anesthésies complémentaires et gestes complémentaires
+486;MBTZ001;Insertion d'un anneau de contention intrasacculaire, au cours d'une extraction du cristallin;18 - Anesthésies complémentaires et gestes complémentaires
+486;MBTZ002;Insertion d'un deuxième système optique intraoculaire, au cours d'une extraction du cristallin;18 - Anesthésies complémentaires et gestes complémentaires
+486;MBTZ003;Vitrectomie mécanique complémentaire, par abord antérieur;18 - Anesthésies complémentaires et gestes complémentaires
+486;MBTZ004;Tamponnement intraoculaire provisoire par utilisation peropératoire de perfluorocarbone;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ001;Échographie et/ou échographie-doppler intraartérielle coronaire, au cours d'un acte par voie vasculaire transcutanée;18 - Anesthésies complémentaires et gestes complémentaires
+486;METZ002;Échographie et/ou échographie-doppler intraartérielle aortique ou rénale, au cours d'un acte par voie vasculaire transcutanée;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ003;Échographie-doppler transthoracique du cœur et des vaisseaux intrathoraciques, au cours d'un acte thérapeutique intracavitaire cardiaque par voie vasculaire transcutanée;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ004;Échographie-doppler du cœur et des vaisseaux intrathoraciques par voie œsophagienne, au cours d'un acte thérapeutique intracavitaire cardiaque par voie vasculaire transcutanée;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ007;Vidéodensitométrie pour analyse tissulaire du myocarde, au cours d’une échographie du cœur et des vaisseaux intrathoraciques;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ008;Échographie harmonique avec injection intraveineuse transcutanée d'un produit de contraste ultrasonore pour étude de la perfusion du myocarde, au cours d'une échographie du cœur et des vaisseaux intrathoraciques;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ009;Restitution tridimensionnelle informatisée des structures cardiaques et des flux, au cours d’une échographie du cœur et des vaisseaux intrathoraciques;18 - Anesthésies complémentaires et gestes complémentaires
+486;METZ010;Restitution tridimensionnelle informatisée, au cours d’une échographie-doppler des vaisseaux périphériques;18 - Anesthésies complémentaires et gestes complémentaires
+486;METZ011;Angiographie peropératoire;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ012;Restitution tridimensionnelle informatisée de l'activité électrophysiologique cardiaque [Cartographie cardiaque tridimensionnelle], au cours d'une intervention sur le système cardionecteur;18 - Anesthésies complémentaires et gestes complémentaires
+486;MDTZ013;Épreuve pharmacodynamique de provocation de spasme coronaire, au cours d'une artériographie coronaire;18 - Anesthésies complémentaires et gestes complémentaires
+486;METZ015;Prélèvement peropératoire d'autogreffe veineuse pour pontage vasculaire;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ016;Prélèvement peropératoire d'autogreffe artérielle pour pontage vasculaire;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ017;Prolongation ou reprise d'assistance circulatoire par circulation extracorporelle au bloc opératoire à la fin d'une intervention cardiovasculaire, pendant plus d'une demiheure;18 - Anesthésies complémentaires et gestes complémentaires
+487;MDTZ018;Pose d'un dispositif de contrepulsion diastolique intraaortique, au cours d'une intervention par thoracotomie avec CEC;18 - Anesthésies complémentaires et gestes complémentaires
+487;MFTZ019;Transfusion de concentré de globules rouges d'un volume supérieur à une demimasse sanguine, au cours d'une intervention sous anesthésie générale ou locorégionale;18 - Anesthésies complémentaires et gestes complémentaires
+487;MDTZ020;Pose peropératoire d'électrode épicardique sans pose de générateur;18 - Anesthésies complémentaires et gestes complémentaires
+487;MATZ021;Perfusion peropératoire de protection du parenchyme encéphalique, au cours d'une intervention avec CEC;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ022;Réparation de plaie d'un sinus veineux de la dure-mère par suture ou angioplastie [patch], au cours d'une intervention intracrânienne;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ023;Reconstruction d'un sinus veineux de la dure-mère ou d'une artère intracrânienne par autogreffe, au cours d'une intervention intracrânienne;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ028;Suture complémentaire d'une veine de drainage sur un lambeau pédiculé;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ029;Pontage artériel ou veineux, au cours d'une réparation par lambeau libre;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ030;Pontages artériel et veineux, au cours d'une réparation par lambeau libre;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ031;Exclusion vasculaire totale, au cours d'une hépatectomie;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ032;Occlusion définitive peropératoire d'un tronc vasculaire par ballonnet ou embolisation;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ033;Résection du tronc de la veine porte, des vaisseaux mésentériques supérieurs et/ou de l'artère hépatique avec rétablissement de la continuité vasculaire, au cours d'une exérèse du foie ou du pancréas;18 - Anesthésies complémentaires et gestes complémentaires
+487;METZ034;Irradiation intravasculaire, au décours d'une dilatation de vaisseau par voie vasculaire transcutanée;18 - Anesthésies complémentaires et gestes complémentaires
+488;METZ035;Suppression d'une anastomose palliative au cours d'une correction chirurgicale secondaire de cardiopathie congénitale, avec CEC;18 - Anesthésies complémentaires et gestes complémentaires
+488;MFTZ036;Curage lymphonodal du hile du poumon et du médiastin, au cours d'une intervention pleuropulmonaire;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGDZ001;Épreuve pharmacodynamique par agent bronchodilatateur, au cours d'une épreuve fonctionnelle respiratoire;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGDZ002;Épreuve de provocation par agent bronchoconstricteur ou facteur physique, au cours d'une épreuve fonctionnelle respiratoire;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGDZ003;Mesure des volumes pulmonaires non mobilisables par dilution ou rinçage d'un gaz indicateur, au cours d'une épreuve fonctionnelle respiratoire;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGDZ004;Mesure de la capacité de transfert pulmonaire du monoxyde de carbone [TLCO] ou d'un autre gaz en apnée ou en état stable, au cours d'une épreuve fonctionnelle respiratoire;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGTZ005;Interposition ou apposition de lambeau pleural ou péricardique, au cours d'une intervention intrathoracique;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGTZ006;Interposition ou apposition d'un lambeau de muscle thoracique ou abdominal sur un organe médiastinal, au cours d'une intervention intrathoracique;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGTZ007;Interposition ou apposition de lambeau diaphragmatique ou intercostal, au cours d'une intervention intrathoracique;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGTZ008;Interposition ou apposition de grand omentum [grand épiploon], au cours d'une intervention intrathoracique;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGTZ009;Biopsie trachéale et/ou bronchique, au cours d'une endoscopie diagnostique des voies aériennes;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGTZ010;Intubation trachéale par fibroscopie ou dispositif laryngé particulier, au cours d'une anesthésie générale;18 - Anesthésies complémentaires et gestes complémentaires
+488;MHTZ011;Création d'une fistule œsotrachéale avec pose d'implant phonatoire, au cours d'une pharyngolaryngectomie;18 - Anesthésies complémentaires et gestes complémentaires
+488;MGTZ012;Administration de monoxyde d'azote [NO] inhalé, chez un patient ventilé;18 - Anesthésies complémentaires et gestes complémentaires
+488;RHDZ004;Cholangiographie et/ou pancréaticographie [wirsungographie] peropératoire;18 - Anesthésies complémentaires et gestes complémentaires
+489;MHDZ005;Endoscopie œso-gastro-duodénale peropératoire;18 - Anesthésies complémentaires et gestes complémentaires
+489;MHDZ006;Entéroscopie jéjunale et/ou iléale peropératoire;18 - Anesthésies complémentaires et gestes complémentaires
+489;MHDZ007;Coloscopie peropératoire;18 - Anesthésies complémentaires et gestes complémentaires
+489;MHDZ009;Biopsie et/ou brossage cytologique de la paroi du tube digestif ou de conduit biliopancréatique, au cours d'une endoscopie diagnostique;18 - Anesthésies complémentaires et gestes complémentaires
+489;MHDZ010;Macrobiopsie de la paroi du tube digestif, au cours d'une endoscopie diagnostique;18 - Anesthésies complémentaires et gestes complémentaires
+489;MHDZ011;Coloration et/ou tatouage de la paroi du tube digestif, au cours d'une endoscopie diagnostique;18 - Anesthésies complémentaires et gestes complémentaires
+489;MHDZ012;Prélèvement pour analyse biologique, au cours d'une endoscopie diagnostique des voies digestives;18 - Anesthésies complémentaires et gestes complémentaires
+489;MZTZ013;Exploration de la cavité abdominale par phrénotomie, au cours d'une intervention par thoracotomie;18 - Anesthésies complémentaires et gestes complémentaires
+489;MZTZ014;Exérèse de lésion d'un organe infradiaphragmatique par phrénotomie, au cours de l'exérèse de lésion intrathoracique par thoracotomie;18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ015;Contention peropératoire des arcades dentaires par arc vestibulaire continu;18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ016;Contention peropératoire des arcades dentaires par moyen autre qu'un arc vestibulaire continu;18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ017;Contention peropératoire des arcades dentaires par un arc vestibulaire continu sur l'une, par autre moyen sur l'autre;18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ018;Reconstitution coronaire provisoire pour acte endodontique sur dent délabrée;18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ019;Adjonction d'un 1er élément intermédiaire métallique à une prothèse dentaire plurale fixée [2e élément métallique intermédiaire de bridge];18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ020;Adjonction d'un 2e élément intermédiaire métallique à une prothèse dentaire plurale [3e élément métallique intermédiaire de bridge];18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ022;Adjonction d'un 1er élément intermédiaire céramométallique ou en équivalents minéraux à une prothèse dentaire plurale fixée [2e élément céramométallique ou en équivalents minéraux intermédiaire de bridge];18 - Anesthésies complémentaires et gestes complémentaires
+489;DHTZ023;Adjonction d'un 2e élément intermédiaire céramométallique ou en équivalents minéraux à une prothèse dentaire plurale fixée [3e élément céramométallique ou en équivalents minéraux intermédiaire de bridge];18 - Anesthésies complémentaires et gestes complémentaires
+490;MHTZ027;Entérostomie ou colostomie cutanée de protection, au cours d'une résection intestinale avec rétablissement de la continuité;18 - Anesthésies complémentaires et gestes complémentaires
+490;MHTZ029;Épiploplastie intraabdominale par libération de la grande courbure gastrique avec pédiculisation sur un pédicule gastroépiploïque, au cours d'une intervention par laparotomie;18 - Anesthésies complémentaires et gestes complémentaires
+490;MHTZ030;Drainage de conduit biliaire ou pancréatique par voie nasale, au cours d'une endoscopie œso-gastro-duodénale;18 - Anesthésies complémentaires et gestes complémentaires
+490;MHTZ031;Drainage transpariétal de conduit biliaire [Drainage biliaire externe], au cours d'une intervention intraabdominale;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJDZ002;Monitorage électronique des contractions de l'utérus gravide et/ou du rythme cardiaque du fœtus, par voie utérine;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJDZ003;Oxymétrie transcutanée du fœtus sur la présentation [Oxymétrie de pouls fœtal];18 - Anesthésies complémentaires et gestes complémentaires
+490;MJDZ004;Prélèvement de sang du fœtus sur la présentation;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ004;Épisiotomie;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ005;Version du fœtus par manœuvres obstétricales internes;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ006;Réduction d'une dystocie sévère des épaules;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ007;Extraction instrumentale au détroit moyen sur présentation céphalique;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ008;Extraction instrumentale au détroit inférieur sur présentation céphalique;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ009;Extraction instrumentale sur tête dernière, au cours d'un accouchement par le siège;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ010;Extraction manuelle du placenta complet;18 - Anesthésies complémentaires et gestes complémentaires
+490;MJTZ011;Révision de la cavité de l'utérus après délivrance naturelle;18 - Anesthésies complémentaires et gestes complémentaires
+490;MLTZ001;Pose d'un guide positionnel, au cours d'une ostéotomie de la mâchoire;18 - Anesthésies complémentaires et gestes complémentaires
+491;MLTZ002;Fixation sacrale ou sacro-iliaque par abord postérieur, au cours d'une arthrodèse lombale sur 6 vertèbres ou plus;18 - Anesthésies complémentaires et gestes complémentaires
+491;MLTZ003;Ligamentoplastie interépineuse de la colonne vertébrale, par abord postérieur;18 - Anesthésies complémentaires et gestes complémentaires
+491;MPTZ002;Prélèvement d'autogreffe osseuse corticale ou corticospongieuse, ou d'autogreffe périostée à distance du foyer opératoire, sur un site sans changement de position;18 - Anesthésies complémentaires et gestes complémentaires
+491;MPTZ003;Prélèvement d'autogreffe osseuse corticale ou corticospongieuse à distance du foyer opératoire, sur un site avec changement de position;18 - Anesthésies complémentaires et gestes complémentaires
+491;MPTZ004;Prélèvement d'autogreffe osseuse corticale ou corticospongieuse à distance du foyer opératoire, sur plusieurs sites sans changement de position;18 - Anesthésies complémentaires et gestes complémentaires
+491;MPTZ005;Prélèvement d'autogreffe osseuse corticale ou corticospongieuse à distance du foyer opératoire, sur plusieurs sites avec changement de position;18 - Anesthésies complémentaires et gestes complémentaires
+491;MQTZ001;Prélèvement d'autogreffe cutanée sur le cuir chevelu, pour brûlure;18 - Anesthésies complémentaires et gestes complémentaires
+491;RZDZ002;Échographie-doppler peropératoire;18 - Anesthésies complémentaires et gestes complémentaires
+491;RZDZ003;Étude de la vascularisation du parenchyme d'un organe au cours d'une échographie;18 - Anesthésies complémentaires et gestes complémentaires
+491;RZDZ009;Mise en œuvre d'une correction d'atténuation par transmission tomoscintigraphique;18 - Anesthésies complémentaires et gestes complémentaires
+491;RZDZ010;Restitution tridimensionnelle des images acquises par scanographie;18 - Anesthésies complémentaires et gestes complémentaires
+492;RZDZ011;Restitution tridimensionnelle des images acquises par remnographie [IRM];18 - Anesthésies complémentaires et gestes complémentaires
+492;MZDZ012;Prélèvement peropératoire pour examen cytologique et/ou anatomopathologique extemporané;18 - Anesthésies complémentaires et gestes complémentaires
+492;RZDZ013;Fusion numérique multimodale des images acquises par techniques d'imagerie en coupes ou imagerie fonctionnelle;18 - Anesthésies complémentaires et gestes complémentaires
+492;MZTZ015;Contrôle du centrage des champs d'irradiation externe [Contrôle balistique] par imagerie portale;18 - Anesthésies complémentaires et gestes complémentaires
+492;MZTZ016;Contrôle du centrage des champs d'irradiation externe [Contrôle balistique] au cours d'une irradiation externe guidée par imagerie [IGRT];18 - Anesthésies complémentaires et gestes complémentaires
+492;MZTZ019;Fabrication d'un applicateur personnalisé pour curiethérapie;18 - Anesthésies complémentaires et gestes complémentaires
+492;MZTZ020;Fabrication de protection plombée personnalisée pour curiethérapie;18 - Anesthésies complémentaires et gestes complémentaires
+492;RZTZ021;Irradiation externe peropératoire en dose unique;18 - Anesthésies complémentaires et gestes complémentaires

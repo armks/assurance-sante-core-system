@@ -26,6 +26,7 @@ import {
   DefinirParametreDto,
   ModifierActeNationalDto,
   ModifierLettreCleDto,
+  RechercheCatalogueQueryDto,
 } from './dto/superadmin-config.dto';
 import { SuperadminConfigService } from './superadmin-config.service';
 
@@ -75,9 +76,9 @@ export class SuperadminConfigController {
   @Get('catalogue-national/actes')
   listerActesNational(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('statut') statut?: string,
+    @Query() filtres: RechercheCatalogueQueryDto,
   ) {
-    return this.config.listerActesNational(user, { statut });
+    return this.config.listerActesNational(user, { statut: filtres.statut, q: filtres.q, page: filtres.page, limite: filtres.limite });
   }
 
   @Post('catalogue-national/actes')

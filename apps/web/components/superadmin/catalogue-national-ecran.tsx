@@ -31,7 +31,7 @@ import { ImportsCataloguePanel } from '@/components/superadmin/imports-catalogue
 import { Stethoscope, Pill } from 'lucide-react';
 import { LIBELLE_MODE_COTATION, LIBELLE_STATUT_HOMOLOGATION } from '@/lib/referentiel';
 import { Button } from '@/components/ui/button';
-import { ChampNombre } from '@/components/dashboard/patterns';
+import { ChampNombre, FiltresServeur, PaginationServeur, type PageServeur } from '@/components/dashboard/patterns';
 import { useCategoriesActe } from '@/components/categories-acte';
 
 export interface ActeNational {
@@ -64,12 +64,16 @@ export interface MedicamentNational {
 }
 
 export function CatalogueNationalEcran({
-  actes,
+  pageActes,
+  nbArchivesActes,
   medicaments,
   imports,
   lettresCles = [],
 }: {
-  actes: ActeNational[];
+  /** Actes : liste PAGINÉE côté serveur (la nomenclature officielle compte plus de 9 000 actes). */
+  pageActes: PageServeur<ActeNational>;
+  /** Nombre d'actes archivés (retirés), tous actes confondus. */
+  nbArchivesActes: number;
   medicaments: MedicamentNational[];
   imports: ImportCatalogueResume[];
   lettresCles?: LettreCleOption[];
@@ -87,11 +91,9 @@ export function CatalogueNationalEcran({
     setSelMeds(new Set());
     router.refresh();
   };
-  const actesVisibles = voirArchives ? actes : actes.filter((a) => a.statut !== 'RETIRE');
+  const actesVisibles = pageActes.items;
   const medicamentsVisibles = voirArchives ? medicaments : medicaments.filter((m) => m.statutHomologation !== 'RETIRE');
-  const nbArchives =
-    actes.filter((a) => a.statut === 'RETIRE').length +
-    medicaments.filter((m) => m.statutHomologation === 'RETIRE').length;
+  const nbArchivesMedicaments = medicaments.filter((m) => m.statutHomologation === 'RETIRE').length;
 
   const colActes: ColonneTable<ActeNational>[] = [
     { cle: 'code', entete: 'Code', triable: true, className: 'font-mono text-xs' },
@@ -168,7 +170,7 @@ export function CatalogueNationalEcran({
   return (
     <div className="space-y-8">
       <GrilleCartes>
-        <CarteResume libelle="Actes nationaux" valeur={actes.length} icon={Stethoscope} />
+        <CarteResume libelle="Actes nationaux" valeur={pageActes.total.toLocaleString('fr-FR')} icon={Stethoscope} indice={nbArchivesActes > 0 ? `dont ${nbArchivesActes} archivé(s)` : undefined} />
         <CarteResume
           libelle="Médicaments nationaux"
           valeur={medicaments.length}
@@ -176,10 +178,10 @@ export function CatalogueNationalEcran({
         />
       </GrilleCartes>
 
-      {nbArchives > 0 && (
+      {nbArchivesMedicaments > 0 && (
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <input type="checkbox" checked={voirArchives} onChange={(e) => setVoirArchives(e.target.checked)} />
-          Archivés (retirés du catalogue : {nbArchives})
+          Médicaments archivés (retirés du catalogue : {nbArchivesMedicaments})
         </label>
       )}
 
@@ -189,11 +191,21 @@ export function CatalogueNationalEcran({
         <CardHeader>
           <CardTitle className="text-base">Actes</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          <FiltresServeur
+            recherche={{ placeholder: 'Code, libellé ou chapitre…' }}
+            selects={[
+              {
+                cle: 'statut',
+                libelle: 'Statut',
+                options: Object.entries(LIBELLE_STATUT_HOMOLOGATION).map(([valeur, libelle]) => ({ valeur, libelle })),
+              },
+            ]}
+          />
           <DataTable
             donnees={actesVisibles}
             cleLigne={(a) => a.id}
-            parPage={10}
+            parPage={0}
             selection={{
               ids: selActes,
               onChange: setSelActes,
@@ -205,7 +217,6 @@ export function CatalogueNationalEcran({
                 />
               ),
             }}
-            recherche={{ placeholder: 'Code, libellé…', champs: ['code', 'libelle'] }}
             colonnes={colActes}
             actions={
               <FormulaireModal
@@ -298,6 +309,7 @@ export function CatalogueNationalEcran({
             )}
             vide="Aucun acte dans le catalogue national."
           />
+          <PaginationServeur page={pageActes.page} pages={pageActes.pages} total={pageActes.total} limite={pageActes.limite} />
         </CardContent>
       </Card>
 

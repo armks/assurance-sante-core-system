@@ -71,6 +71,8 @@ export interface LigneErreurCatalogue {
 }
 
 const TAILLE_MAX_FICHIER_OCTETS = 5 * 1024 * 1024;
+/** Lignes d'un import renvoyées dans la liste des imports (aperçu). */
+const APERCU_LIGNES_IMPORT = 200;
 const MIME_TYPES_AUTORISES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/octet-stream', // certains navigateurs/OS n'envoient pas le MIME xlsx exact
@@ -241,9 +243,16 @@ export class CatalogueImportService {
 
   async listerImportsCatalogue(user: AuthenticatedUser) {
     await this.assertSuperadmin(user);
-    return this.prisma.importCatalogueNational.findMany({
+    const imports = await this.prisma.importCatalogueNational.findMany({
       orderBy: { createdAt: 'desc' },
     });
+    // un import de la nomenclature officielle compte des milliers de lignes : l'aperçu n'en renvoie que les premières
+    // (les totaux exacts sont dans `nbLignesTotal` / `nbLignesValides` / `nbLignesErreur`)
+    return imports.map((i) => ({
+      ...i,
+      lignesValides: (i.lignesValides as unknown[]).slice(0, APERCU_LIGNES_IMPORT),
+      erreursDetail: (i.erreursDetail as unknown[]).slice(0, APERCU_LIGNES_IMPORT),
+    }));
   }
 
   /**

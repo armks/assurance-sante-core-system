@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Post,
   Query,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
@@ -22,6 +23,7 @@ import {
 } from './dto/reference.dto';
 import { CatalogueActivationService } from './catalogue-activation.service';
 import { CategoriesActeService } from './categories-acte.service';
+import { NomenclatureDocumentService } from './nomenclature-document';
 import { ReferenceService } from './reference.service';
 
 /**
@@ -37,7 +39,15 @@ export class ReferenceController {
     private readonly reference: ReferenceService,
     private readonly categoriesActe: CategoriesActeService,
     private readonly activation: CatalogueActivationService,
+    private readonly nomenclature: NomenclatureDocumentService,
   ) {}
+
+  /** Texte officiel de la nomenclature des actes (PDF) : document ministériel, consultable par tout compte authentifié. */
+  @Get('nomenclature-ngambci')
+  async nomenclatureNgambci() {
+    const d = await this.nomenclature.lire();
+    return new StreamableFile(d.buffer, { type: 'application/pdf', disposition: `inline; filename="${d.nomFichier}"` });
+  }
 
   /**
    * Référentiel unique des catégories d'acte (libellé, type de réclamation,

@@ -82,7 +82,7 @@ export function LettresClesEcran({ lettres }: { lettres: LettreCle[] }) {
         actions={
           <FormulaireModal
             titre="Nouvelle lettre-clé"
-            description="Le code comporte 1 à 4 lettres majuscules. Aucune valeur chiffrée n’est saisie ici."
+            description="Le code comporte 1 à 6 lettres majuscules. Aucune valeur chiffrée n’est saisie ici."
             declencheurLabel="Ajouter une lettre-clé"
             libelleSoumettre="Créer la lettre-clé"
             onSoumettre={async (fd) =>
@@ -94,7 +94,7 @@ export function LettresClesEcran({ lettres }: { lettres: LettreCle[] }) {
             }
             onSucces={() => succes('Lettre-clé créée.')}
           >
-            <ChampTexte name="code" label="Code" required maxLength={4} placeholder="KC" />
+            <ChampTexte name="code" label="Code" required maxLength={6} placeholder="KC" />
             <ChampTexte name="libelle" label="Libellé" required />
             <ChampNombre name="ordre" label="Ordre d’affichage" min={0} step="1" />
           </FormulaireModal>

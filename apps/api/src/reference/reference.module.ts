@@ -4,6 +4,7 @@ import { DependancesModule } from '../dependances/dependances.module';
 import { CatalogueActivationService } from './catalogue-activation.service';
 import { CategoriesActeService } from './categories-acte.service';
 import { LettresClesService } from './lettres-cles.service';
+import { NomenclatureDocumentService } from './nomenclature-document';
 import { ReferenceController } from './reference.controller';
 import { ReferenceService } from './reference.service';
 
@@ -17,7 +18,7 @@ import { ReferenceService } from './reference.service';
 @Module({
   imports: [IdentityModule, DependancesModule],
   controllers: [ReferenceController],
-  providers: [ReferenceService, CatalogueActivationService, CategoriesActeService, LettresClesService],
+  providers: [ReferenceService, CatalogueActivationService, CategoriesActeService, LettresClesService, NomenclatureDocumentService],
   exports: [ReferenceService, CatalogueActivationService, CategoriesActeService, LettresClesService],
 })
 export class ReferenceModule {}

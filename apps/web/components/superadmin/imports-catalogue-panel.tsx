@@ -113,6 +113,12 @@ function DetailImport({ imp }: { imp: ImportCatalogueResume }) {
 
   return (
     <div className="space-y-3 border-t pt-3">
+      {(imp.nbLignesValides > imp.lignesValides.length || imp.nbLignesErreur > imp.erreursDetail.length) && (
+        <p className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+          Aperçu : les {imp.lignesValides.length.toLocaleString('fr-FR')} premières lignes valides et les {imp.erreursDetail.length.toLocaleString('fr-FR')} premières erreurs sur {imp.nbLignesTotal.toLocaleString('fr-FR')} lignes
+          ({imp.nbLignesValides.toLocaleString('fr-FR')} valides, {imp.nbLignesErreur.toLocaleString('fr-FR')} en erreur).
+        </p>
+      )}
       {nouvelles.length > 0 && tableau(nouvelles, 'Nouvelles entrées')}
       {misesAJour.length > 0 && tableau(misesAJour, 'Doublons détectés — mise à jour')}
       {imp.erreursDetail.length > 0 && (

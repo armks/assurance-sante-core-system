@@ -1,3 +1,4 @@
+import { PaginationQueryDto } from '../../common/pagination';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -111,4 +112,18 @@ export class ActionMasseCatalogueDto {
   @ArrayUnique({ message: 'Un même élément ne peut figurer qu’une fois dans la sélection.' })
   @IsUUID('all', { each: true, message: 'Chaque identifiant doit être valide.' })
   ids!: string[];
+}
+
+
+/** Liste du catalogue national : statut, recherche texte et pagination serveur (facultatives ; sans `page`, liste complète). */
+export class RechercheCatalogueQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  statut?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
 }

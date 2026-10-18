@@ -107,7 +107,7 @@ describe('SuperadminConfigService', () => {
       const l = await service.creerLettreCle(USER, { code: ' ami ', libelle: 'Actes médico-infirmiers (fictif)' });
       expect(l).toMatchObject({ code: 'AMI' });
       expect(prisma.$executeRaw).toHaveBeenCalled();
-      await expect(service.creerLettreCle(USER, { code: 'K1', libelle: 'x' })).rejects.toThrow(/1 à 4 lettres majuscules/);
+      await expect(service.creerLettreCle(USER, { code: 'K1', libelle: 'x' })).rejects.toThrow(/1 à 6 lettres majuscules/);
       prisma.lettreCle.findUnique.mockResolvedValue({ code: 'B' });
       await expect(service.creerLettreCle(USER, { code: 'B', libelle: 'autre' })).rejects.toThrow(/existe déjà/);
       prisma.lettreCle.findUnique.mockResolvedValue(null);
@@ -257,6 +257,28 @@ describe('SuperadminConfigService', () => {
     it('liste les actes du catalogue national', async () => {
       prisma.referentielNationalActe.findMany.mockResolvedValue([]);
       await expect(service.listerActesNational(USER)).resolves.toEqual([]);
+    });
+
+    it('liste PAGINÉE : recherche par code, libellé ou chapitre, total et nombre de pages', async () => {
+      prisma.referentielNationalActe.findMany.mockResolvedValue([{ id: 'na1', code: 'BEDA005' }]);
+      prisma.referentielNationalActe.count = jest.fn().mockResolvedValue(9222);
+      const res = (await service.listerActesNational(USER, { q: ' hémogramme ', page: 2, limite: 100 })) as { items: unknown[]; total: number; pages: number; page: number; limite: number };
+      expect(res).toEqual({ items: [{ id: 'na1', code: 'BEDA005' }], total: 9222, page: 2, limite: 100, pages: 93 });
+      const appel = prisma.referentielNationalActe.findMany.mock.calls.at(-1)![0];
+      expect(appel.skip).toBe(100);
+      expect(appel.take).toBe(100);
+      expect(appel.where.OR).toEqual([
+        { code: { contains: 'hémogramme', mode: 'insensitive' } },
+        { libelle: { contains: 'hémogramme', mode: 'insensitive' } },
+        { categorie: { contains: 'hémogramme', mode: 'insensitive' } },
+      ]);
+    });
+
+    it('liste PAGINÉE : limite plafonnée à 100', async () => {
+      prisma.referentielNationalActe.findMany.mockResolvedValue([]);
+      prisma.referentielNationalActe.count = jest.fn().mockResolvedValue(0);
+      const res = (await service.listerActesNational(USER, { page: 1, limite: 5000 })) as { limite: number };
+      expect(res.limite).toBe(100);
     });
 
     it('crée un acte (audit au nom de l’auteur)', async () => {

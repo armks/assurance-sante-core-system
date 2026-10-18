@@ -330,9 +330,18 @@ describe('CatalogueImportService', () => {
 
     it('liste les imports pour SUPERADMIN_PRINCIPAL', async () => {
       identity.getMe.mockResolvedValue(superadmin());
-      prisma.importCatalogueNational.findMany.mockResolvedValue([{ id: 'imp-1' }]);
+      prisma.importCatalogueNational.findMany.mockResolvedValue([{ id: 'imp-1', lignesValides: [], erreursDetail: [] }]);
       const res = await service.listerImportsCatalogue(USER);
       expect(res).toHaveLength(1);
+    });
+
+    it('n’envoie que l’aperçu (200 premières lignes) d’un gros import', async () => {
+      identity.getMe.mockResolvedValue(superadmin());
+      const lignes = Array.from({ length: 9222 }, (_, i) => ({ code: `C${i}` }));
+      prisma.importCatalogueNational.findMany.mockResolvedValue([{ id: 'imp-1', nbLignesTotal: 9222, lignesValides: lignes, erreursDetail: [] }]);
+      const [imp] = (await service.listerImportsCatalogue(USER)) as { lignesValides: unknown[]; nbLignesTotal: number }[];
+      expect(imp.lignesValides).toHaveLength(200);
+      expect(imp.nbLignesTotal).toBe(9222);
     });
   });
 

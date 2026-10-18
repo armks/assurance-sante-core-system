@@ -12,6 +12,7 @@ import {
   Inbox,
   KeyRound,
   Printer,
+  CalendarCheck,
   LibraryBig,
   Landmark,
   LayoutDashboard,
@@ -131,6 +132,9 @@ const GROUPE_PAR_LABEL: Record<string, GroupeNav> = {
   Annonces: GROUPES.communication,
   'Logos partenaires': GROUPES.communication,
   'Impression des reçus': GROUPES.admin,
+  'Agenda de présence': GROUPES.soins,
+  'Rendez-vous': GROUPES.soins,
+  'Mes rendez-vous': GROUPES.soins,
   Rapports: GROUPES.rapports,
   'Tous les rapports': GROUPES.rapports,
   'Relevé d’un adhérent': GROUPES.rapports,
@@ -158,6 +162,7 @@ const COMPTABLE = '/dashboard-assureur/comptable';
 const COMPTABLE_ADJOINT = '/dashboard-assureur/comptable-adjoint';
 const MEDECIN_CONSEIL = '/dashboard-assureur/medecin-conseil';
 const MEDECIN_SOUSCRIPTEUR = '/dashboard-assureur/medecin-souscripteur';
+const SECRETAIRE = '/dashboard-assureur/secretaire';
 const PHARMACIEN_CONSEIL = '/dashboard-assureur/pharmacien-conseil';
 const CENTRE_MEDICAL = '/dashboard-centre-medical';
 const ADHERENT = '/dashboard-adherent';
@@ -187,6 +192,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       icon: Stethoscope,
     },
     { label: 'Ordonnances', href: `${ADHERENT}/ordonnances`, icon: Pill },
+    { label: 'Mes rendez-vous', href: `${ADHERENT}/rendez-vous`, icon: CalendarCheck },
     {
       label: 'Dispensations',
       href: `${ADHERENT}/dispensations`,
@@ -215,6 +221,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       icon: Stethoscope,
     },
     { label: 'Ordonnances', href: `${ADHERENT}/ordonnances`, icon: Pill },
+    { label: 'Mes rendez-vous', href: `${ADHERENT}/rendez-vous`, icon: CalendarCheck },
     {
       label: 'Dispensations',
       href: `${ADHERENT}/dispensations`,
@@ -361,7 +368,14 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     // Tarifs proposés pour les actes non tarifables (lot barème 4) : comptable et administratif
     { label: 'Tarifs proposés', href: `${CENTRE_MEDICAL}/tarifs-proposes`, icon: FileSignature },
     // imprimante des reçus de caisse (thermique ou A4) : comptable, administratif et accueil
+    // agenda de présence des médecins et propositions de rendez-vous reçues de l'assurance : accueil et médecin
+    { label: 'Agenda de présence', href: `${CENTRE_MEDICAL}/agenda`, icon: CalendarDays },
+    { label: 'Rendez-vous', href: `${CENTRE_MEDICAL}/rendez-vous`, icon: CalendarCheck },
     { label: 'Impression des reçus', href: `${CENTRE_MEDICAL}/parametres-impression`, icon: Printer },
+  ],
+  [SECRETAIRE]: [
+    { label: "Vue d'ensemble", href: SECRETAIRE, icon: LayoutDashboard },
+    { label: 'Rendez-vous', href: `${SECRETAIRE}/rendez-vous`, icon: CalendarCheck },
   ],
   [MEDECIN_CONSEIL]: [
     { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard, largeur: 'dashboard' },
@@ -523,6 +537,7 @@ function navExploitation(racineVueEnsemble: string): NavItem[] {
       href: `${racineVueEnsemble}/preautorisations`,
       icon: ClipboardList,
     },
+    { label: 'Rendez-vous', href: `${racineVueEnsemble}/rendez-vous`, icon: CalendarCheck },
     // Écran ajouté pour exercer un droit déjà existant côté API mais jusque-là
     // sans aucune interface : la clôture forcée est réservée à
     // ASSUREUR_EXPLOITATION (ROLE_CLOTURE_FORCEE, care-episode.types.ts).

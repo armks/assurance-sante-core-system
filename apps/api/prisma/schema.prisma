@@ -2565,3 +2565,29 @@ model ChatPurgeEtat {
 
   @@map("chat_purge_etat")
 }
+
+/// Rendez-vous d'un patient chez un médecin d'un établissement (prisma/sql/109) : proposé par l'assurance, confirmé / modifié par l'établissement.
+model RendezVous {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId     String    @map("organisation_id") @db.Uuid
+  etablissementId    String    @map("etablissement_id") @db.Uuid
+  medecinId          String    @map("medecin_id") @db.Uuid
+  adherentId         String    @map("adherent_id") @db.Uuid
+  beneficiaireId     String?   @map("beneficiaire_id") @db.Uuid
+  dateDebut          DateTime  @map("date_debut") @db.Timestamptz(6)
+  dateFin            DateTime  @map("date_fin") @db.Timestamptz(6)
+  motif              String?
+  statut             String    @default("PROPOSE") // PROPOSE | CONFIRME | REFUSE | ANNULE
+  proposePar         String?   @map("propose_par") @db.Uuid
+  traitePar          String?   @map("traite_par") @db.Uuid
+  traiteLe           DateTime? @map("traite_le") @db.Timestamptz(6)
+  motifRefus         String?   @map("motif_refus")
+  modifie            Boolean   @default(false)
+  ancienneDateDebut  DateTime? @map("ancienne_date_debut") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([etablissementId, dateDebut])
+  @@index([adherentId])
+  @@map("rendez_vous")
+}

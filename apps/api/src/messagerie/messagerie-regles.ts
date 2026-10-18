@@ -12,6 +12,7 @@ export type GroupeMessagerie =
   | 'COMPTABLE_PHARMACIE'
   | 'ETABLISSEMENT'
   | 'PHARMACIE'
+  | 'SECRETAIRE'
   | 'ADHERENT';
 
 /** Rôle → groupe. Les rôles absents (direction, superadmin, sociétés assurées, comptable adjoint…) n'ont pas accès à la messagerie. */
@@ -23,6 +24,7 @@ export const GROUPE_PAR_ROLE: Readonly<Record<string, GroupeMessagerie>> = {
   ASSUREUR_MEDECIN_CONSEIL: 'MEDECIN_CONSEIL',
   ASSUREUR_PHARMACIEN_CONSEIL: 'PHARMACIEN_CONSEIL',
   ASSUREUR_COMPTABLE: 'COMPTABLE_ASSURANCE',
+  ASSUREUR_SECRETAIRE: 'SECRETAIRE',
   CENTRE_MEDICAL_COMPTABLE: 'COMPTABLE_ETABLISSEMENT',
   PHARMACIE_COMPTABLE: 'COMPTABLE_PHARMACIE',
   CENTRE_MEDICAL_MEDECIN: 'ETABLISSEMENT',
@@ -59,6 +61,11 @@ const PAIRES: ReadonlyArray<readonly [GroupeMessagerie, GroupeMessagerie]> = [
   ['COMPTABLE_ASSURANCE', 'INFORMATIQUE'],
   ['ADHERENT', 'EXPLOITATION'],
   ['ADHERENT', 'INFORMATIQUE'],
+  // la secrétaire de l'assurance reçoit les demandes de rendez-vous des adhérents
+  ['ADHERENT', 'SECRETAIRE'],
+  ['SECRETAIRE', 'EXPLOITATION'],
+  ['SECRETAIRE', 'INFORMATIQUE'],
+  ['SECRETAIRE', 'SECRETAIRE'],
   ['EXPLOITATION', 'INFORMATIQUE'],
   ['EXPLOITATION', 'EXPLOITATION'],
   ['INFORMATIQUE', 'INFORMATIQUE'],

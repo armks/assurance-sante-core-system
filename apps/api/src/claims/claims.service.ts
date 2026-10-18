@@ -742,6 +742,11 @@ export class ClaimsService {
     dto: ValiderManuellementDto,
   ) {
     const ctx = await this.contexteAppelant(user);
+    // la revue manuelle est réservée au personnel de l'assureur : contrôlé AVANT de charger la réclamation, pour ne révéler ni
+    // son existence ni son statut à un adhérent, une société ou un prestataire
+    if (!ctx.roleChain.some((r) => r.startsWith('ASSUREUR_'))) {
+      throw new ForbiddenException('La revue manuelle des réclamations est réservée au personnel de l’assureur.');
+    }
     const reclamation = await this.chargerReclamation(ctx, id);
 
     if (reclamation.statut !== 'REVUE_MANUELLE') {

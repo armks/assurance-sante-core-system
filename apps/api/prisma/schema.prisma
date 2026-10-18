@@ -880,7 +880,9 @@ model Invitation {
   pharmacieId     String?   @map("pharmacie_id") @db.Uuid
   adherentId      String?   @map("adherent_id") @db.Uuid
   invitePar       String    @map("invite_par") @db.Uuid
+  /// Empreinte HMAC du jeton ; le jeton lisible est chiffré dans `tokenChiffre` (prisma/sql/104, common/codes-secrets.ts).
   token           String    @unique
+  tokenChiffre    String?   @map("token_chiffre")
   statut          String    @default("EN_ATTENTE") // EN_ATTENTE_VALIDATION_INFORMATIQUE | EN_ATTENTE | ACCEPTEE | REJETEE | EXPIREE | REVOQUEE
   mode            String    @default("CREATION_DIRECTE") // CREATION_DIRECTE | PROPOSITION
   roleValidateur  String?   @map("role_validateur")

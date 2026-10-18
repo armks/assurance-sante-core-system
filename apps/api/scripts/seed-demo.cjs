@@ -99,10 +99,17 @@ const SUPPRESSION_AVANT_COMPTES = ['mouvements_financiers', 'comptes_financiers'
 async function nettoyer() {
   await basculerTriggers('DISABLE').catch(() => {});
   try {
-    for (const t of SUPPRESSION_AVANT_COMPTES) await prisma.$executeRawUnsafe(`DELETE FROM public."${t}" WHERE id::text LIKE 'de0d%'`);
-    // comptes de test (leurs profils sont supprimés en cascade) puis établissements / pharmacies qu'ils référençaient
+    // comptes de démonstration et comptes éphémères de l'audit des droits (scripts/audit-droits.cjs --ecritures)
     const { data } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    for (const u of (data?.users || []).filter((x) => (x.email || '').includes('+demo-'))) await admin.auth.admin.deleteUser(u.id);
+    const comptes = (data?.users || []).filter((x) => /\+(demo-|aud\d)/.test(x.email || ''));
+    // 1) ces profils ne doivent plus référencer de société, adhérent, établissement ou pharmacie à supprimer
+    for (const u of comptes) {
+      await prisma.$executeRawUnsafe(`UPDATE public.profils SET adherent_id = NULL, societe_id = NULL, etablissement_id = NULL, pharmacie_id = NULL WHERE id = $1::uuid`, u.id);
+    }
+    // 2) données de démonstration (les lignes qui référencent ces comptes, ex. vérifications de factures, partent avec elles)
+    for (const t of SUPPRESSION_AVANT_COMPTES) await prisma.$executeRawUnsafe(`DELETE FROM public."${t}" WHERE id::text LIKE 'de0d%'`);
+    // 3) comptes (profils supprimés en cascade), puis établissements et pharmacies qu'ils référençaient
+    for (const u of comptes) await admin.auth.admin.deleteUser(u.id);
     for (const t of ['pharmacies', 'etablissements_sante']) await prisma.$executeRawUnsafe(`DELETE FROM public."${t}" WHERE id::text LIKE 'de0d%'`);
   } finally {
     await basculerTriggers('ENABLE');

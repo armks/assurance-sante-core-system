@@ -12,6 +12,7 @@
     "prisma:pull": "prisma db pull",
     "lint": "eslint \"src/**/*.ts\" --fix",
     "test": "jest",
+    "audit:droits": "node scripts/audit-droits.cjs",
     "test:integration": "jest --config test/integration/jest-integration.config.js --runInBand"
   },
   "dependencies": {

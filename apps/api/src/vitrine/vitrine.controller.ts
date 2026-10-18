@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { DemandeVitrineDto, InscriptionNewsletterDto } from './dto/vitrine.dto';
@@ -26,12 +27,15 @@ export class VitrineController {
     private readonly annonces: AnnoncesService,
   ) {}
 
+  // formulaire public : 5 envois par heure et par adresse (anti-spam / anti-abus)
+  @Throttle({ default: { limit: 5, ttl: 3_600_000 } })
   @Post('demandes')
   @HttpCode(201)
   envoyerDemande(@Body() dto: DemandeVitrineDto, @Req() req: Request) {
     return this.vitrine.envoyerDemande(dto, ipClient(req));
   }
 
+  @Throttle({ default: { limit: 5, ttl: 3_600_000 } })
   @Post('newsletter')
   @HttpCode(201)
   inscrireNewsletter(@Body() dto: InscriptionNewsletterDto, @Req() req: Request) {

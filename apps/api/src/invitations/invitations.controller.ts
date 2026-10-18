@@ -95,6 +95,8 @@ export class InvitationsController {
     return this.invitations.renvoyerNouvelle(user, id);
   }
 
+  // consultation publique d'un lien d'invitation : 20 essais par minute (anti-énumération de jetons)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get('token/:token')
   consulter(@Param('token') token: string) {
     return this.invitations.consulterParToken(token);

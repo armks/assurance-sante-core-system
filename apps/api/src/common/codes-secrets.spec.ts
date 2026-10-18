@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import {
   chiffrerCode,
   dechiffrerCode,
@@ -40,6 +41,13 @@ describe('codes-secrets', () => {
     expect(() => dechiffrerCode('n-importe-quoi')).toThrow();
   });
 
+  it('jeton d’invitation : casse significative (jamais passé en majuscules), aller-retour exact', () => {
+    expect(empreinteCode('AbC-dEf_9', 'token')).not.toBe(empreinteCode('abc-def_9', 'token'));
+    expect(dechiffrerCode(chiffrerCode('AbC-dEf_9', 'token'))).toBe('AbC-dEf_9');
+    // un code ordinaire reste insensible à la casse
+    expect(empreinteCode('ab12cd')).toBe(empreinteCode('AB12CD'));
+  });
+
   it('estExpire', () => {
     expect(estExpire(null)).toBe(false);
     expect(estExpire(new Date(Date.now() - 1000))).toBe(true);
@@ -47,6 +55,26 @@ describe('codes-secrets', () => {
   });
 
   describe('protegerCodes (extension Prisma)', () => {
+    it('Invitation : jeton protégé en écriture, recherché par empreinte sensible à la casse, restitué tel quel', async () => {
+      let recu: any;
+      await protegerCodes('Invitation', { data: { token: 'AbCdEf_123-xyz', email: 'a@b.c' } }, async (a) => {
+        recu = a;
+        return {};
+      });
+      expect(recu.data.token).toBe(empreinteCode('AbCdEf_123-xyz', 'token'));
+      expect(dechiffrerCode(recu.data.tokenChiffre)).toBe('AbCdEf_123-xyz');
+      expect(JSON.stringify(recu)).not.toContain('AbCdEf_123-xyz');
+      let filtre: any;
+      await protegerCodes('Invitation', { where: { token: 'AbCdEf_123-xyz', deletedAt: null } }, async (a) => {
+        filtre = a;
+        return null;
+      });
+      expect(filtre.where.token).toBe(empreinteCode('AbCdEf_123-xyz', 'token'));
+      const lu = (await protegerCodes('Invitation', {}, async () => ({ id: 1, token: recu.data.token, tokenChiffre: recu.data.tokenChiffre }))) as any;
+      expect(lu.token).toBe('AbCdEf_123-xyz');
+      expect(lu).not.toHaveProperty('tokenChiffre');
+    });
+
     it('écriture : empreinte + chiffré, jamais le code en clair', async () => {
       let recu: any;
       await protegerCodes('CodeConsultation', { data: { code: 'ab12cd', statut: 'EMIS' } }, async (a) => {
@@ -79,6 +107,20 @@ describe('codes-secrets', () => {
       expect(res.factures[0].codeFacturation).toBe('AB12CD');
       expect(res.factures[0]).not.toHaveProperty('codeFacturationChiffre');
       expect(res.code).toBe('TICKET');
+    });
+
+    it('les instances Decimal, Date et Buffer des résultats restent intactes (régression : .toFixed is not a function)', async () => {
+      const decimal = new Prisma.Decimal('1234.50');
+      const date = new Date('2026-10-18T10:00:00Z');
+      const tampon = Buffer.from('abc');
+      const res = (await protegerCodes('Reclamation', { include: { remboursement: true } }, async () => [
+        { id: 1, montantTotal: decimal, creeLe: date, piece: tampon, imbrique: { montant: decimal } },
+      ])) as any[];
+      expect(res[0].montantTotal).toBe(decimal);
+      expect(res[0].montantTotal.toFixed(2)).toBe('1234.50');
+      expect(res[0].imbrique.montant.toFixed(1)).toBe('1234.5');
+      expect(res[0].creeLe).toBe(date);
+      expect(res[0].piece).toBe(tampon);
     });
 
     it('select du code : la version chiffrée est ajoutée à la requête', async () => {

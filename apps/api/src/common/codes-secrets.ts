@@ -16,6 +16,8 @@ export const estExpire = (dateExpiration: Date | null | undefined) => !!dateExpi
 
 /** Champs protégés, par modèle Prisma. */
 export const CODES_SECRETS: Record<string, string> = {
+  /// jeton d'invitation (lien reçu par e-mail) : même protection que les codes, mais sensible à la casse
+  Invitation: 'token',
   CodeConsultation: 'code',
   CodeOrdonnance: 'code',
   CodeValidationSuperadmin: 'code',
@@ -55,18 +57,20 @@ export function secretCodesConfigure(): boolean {
 }
 
 /** Forme canonique d'un code saisi (les codes sont en majuscules et sans espace). */
-export const normaliserCode = (code: string) => code.trim().toUpperCase();
+export const normaliserCode = (code: string, champ?: string) => (champ && CHAMPS_SENSIBLES_A_LA_CASSE.has(champ) ? code.trim() : code.trim().toUpperCase());
+/** Champs dont la casse est significative (jetons base64url) : jamais passés en majuscules. */
+const CHAMPS_SENSIBLES_A_LA_CASSE: ReadonlySet<string> = new Set(['token']);
 
 /** Empreinte HMAC-SHA256 (hex, majuscules) d'un code — déterministe, irréversible sans la clé. */
-export function empreinteCode(code: string): string {
-  return createHmac('sha256', lireCles().empreinte).update(normaliserCode(code)).digest('hex').toUpperCase();
+export function empreinteCode(code: string, champ?: string): string {
+  return createHmac('sha256', lireCles().empreinte).update(normaliserCode(code, champ)).digest('hex').toUpperCase();
 }
 
 /** Chiffre un code (AES-256-GCM, IV aléatoire) → `v1.<iv>.<tag>.<texte>` en base64url. */
-export function chiffrerCode(code: string): string {
+export function chiffrerCode(code: string, champ?: string): string {
   const iv = randomBytes(12);
   const c = createCipheriv('aes-256-gcm', lireCles().chiffrement, iv);
-  const texte = Buffer.concat([c.update(normaliserCode(code), 'utf8'), c.final()]);
+  const texte = Buffer.concat([c.update(normaliserCode(code, champ), 'utf8'), c.final()]);
   return [VERSION, iv.toString('base64url'), c.getAuthTag().toString('base64url'), texte.toString('base64url')].join('.');
 }
 
@@ -80,15 +84,20 @@ export function dechiffrerCode(valeur: string): string {
 }
 
 type Objet = Record<string, unknown>;
-const estObjet = (v: unknown): v is Objet => !!v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
+/** Objet simple (littéral de résultat Prisma) : exclut Date, Decimal, Buffer… qui doivent rester des instances intactes. */
+const estObjet = (v: unknown): v is Objet => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const proto = Object.getPrototypeOf(v);
+  return proto === Object.prototype || proto === null;
+};
 
 /** Remplace un code (ou une liste / un filtre `equals`, `in`, `not`, `notIn`) par son empreinte dans un filtre `where`. */
-function empreinteFiltre(valeur: unknown): unknown {
-  if (typeof valeur === 'string') return empreinteCode(valeur);
-  if (Array.isArray(valeur)) return valeur.map((v) => (typeof v === 'string' ? empreinteCode(v) : v));
+function empreinteFiltre(valeur: unknown, champ: string): unknown {
+  if (typeof valeur === 'string') return empreinteCode(valeur, champ);
+  if (Array.isArray(valeur)) return valeur.map((v) => (typeof v === 'string' ? empreinteCode(v, champ) : v));
   if (estObjet(valeur)) {
     const r: Objet = { ...valeur };
-    for (const k of ['equals', 'not', 'in', 'notIn']) if (k in r) r[k] = empreinteFiltre(r[k]);
+    for (const k of ['equals', 'not', 'in', 'notIn']) if (k in r) r[k] = empreinteFiltre(r[k], champ);
     return r;
   }
   return valeur;
@@ -100,7 +109,7 @@ function reecrireWhere(where: unknown, champ: string): unknown {
   if (!estObjet(where)) return where;
   const r: Objet = {};
   for (const [k, v] of Object.entries(where)) {
-    r[k] = k === champ ? empreinteFiltre(v) : k === 'AND' || k === 'OR' || k === 'NOT' ? reecrireWhere(v, champ) : v;
+    r[k] = k === champ ? empreinteFiltre(v, champ) : k === 'AND' || k === 'OR' || k === 'NOT' ? reecrireWhere(v, champ) : v;
   }
   return r;
 }
@@ -111,7 +120,7 @@ function reecrireData(data: unknown, champ: string): unknown {
   if (!estObjet(data) || !(champ in data)) return data;
   const brut = data[champ];
   const valeur = estObjet(brut) && 'set' in brut ? brut.set : brut;
-  if (typeof valeur === 'string') return { ...data, [champ]: empreinteCode(valeur), [champ + SUFFIXE]: chiffrerCode(valeur) };
+  if (typeof valeur === 'string') return { ...data, [champ]: empreinteCode(valeur, champ), [champ + SUFFIXE]: chiffrerCode(valeur, champ) };
   if (valeur === null) return { ...data, [champ]: null, [champ + SUFFIXE]: null };
   return data;
 }

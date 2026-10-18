@@ -114,7 +114,7 @@ export class InvitationsService {
     const { authUserId, emailEnvoye } = await this.admin.inviterUtilisateur(
       dto.email,
       `${WEB_URL}/accepter-invitation/${token}`,
-      { invitation_token: token, role_propose: dto.rolePropose },
+      { role_propose: dto.rolePropose },
     );
 
     const inv = await this.prisma.$transaction(async (tx) => {
@@ -149,11 +149,7 @@ export class InvitationsService {
     const ctx = await this.contexteAppelant(user);
     const inv = await this.charger(id);
 
-    if (inv.statut !== 'EN_ATTENTE_VALIDATION_INFORMATIQUE') {
-      throw new ConflictException(
-        `Cette invitation n'est pas en attente de validation (statut : ${inv.statut}).`,
-      );
-    }
+    // autorisation AVANT l'état : le statut d'une invitation n'est révélé qu'à son validateur
     if (!inv.roleValidateur || !ctx.roleChain.includes(inv.roleValidateur)) {
       throw new ForbiddenException(
         `Seul le rôle « ${inv.roleValidateur ?? '—'} » peut valider cette proposition.`,
@@ -166,11 +162,16 @@ export class InvitationsService {
     ) {
       throw new ForbiddenException('Proposition hors de votre organisation.');
     }
+    if (inv.statut !== 'EN_ATTENTE_VALIDATION_INFORMATIQUE') {
+      throw new ConflictException(
+        `Cette invitation n'est pas en attente de validation (statut : ${inv.statut}).`,
+      );
+    }
 
     const { authUserId, emailEnvoye } = await this.admin.inviterUtilisateur(
       inv.email,
       `${WEB_URL}/accepter-invitation/${inv.token}`,
-      { invitation_token: inv.token, role_propose: inv.rolePropose },
+      { role_propose: inv.rolePropose },
     );
 
     const maj = await this.prisma.$transaction(async (tx) => {
@@ -197,14 +198,15 @@ export class InvitationsService {
     const ctx = await this.contexteAppelant(user);
     const inv = await this.charger(id);
 
-    if (inv.statut !== 'EN_ATTENTE_VALIDATION_INFORMATIQUE') {
-      throw new ConflictException(
-        `Cette invitation n'est pas en attente de validation (statut : ${inv.statut}).`,
-      );
-    }
+    // autorisation AVANT l'état : le statut d'une invitation n'est révélé qu'à son validateur
     if (!inv.roleValidateur || !ctx.roleChain.includes(inv.roleValidateur)) {
       throw new ForbiddenException(
         `Seul le rôle « ${inv.roleValidateur ?? '—'} » peut rejeter cette proposition.`,
+      );
+    }
+    if (inv.statut !== 'EN_ATTENTE_VALIDATION_INFORMATIQUE') {
+      throw new ConflictException(
+        `Cette invitation n'est pas en attente de validation (statut : ${inv.statut}).`,
       );
     }
     // Même contrôle que `validerProposition` : sans lui, un validateur d'une
@@ -296,7 +298,7 @@ export class InvitationsService {
     const { emailEnvoye } = await this.admin.inviterUtilisateur(
       inv.email,
       `${WEB_URL}/accepter-invitation/${inv.token}`,
-      { invitation_token: inv.token, role_propose: inv.rolePropose },
+      { role_propose: inv.rolePropose },
     );
 
     const maj = await this.prisma.$transaction(async (tx) => {
@@ -353,7 +355,7 @@ export class InvitationsService {
       ({ authUserId, emailEnvoye } = await this.admin.inviterUtilisateur(
         inv.email,
         `${WEB_URL}/accepter-invitation/${token}`,
-        { invitation_token: token, role_propose: inv.rolePropose },
+        { role_propose: inv.rolePropose },
       ));
     }
 

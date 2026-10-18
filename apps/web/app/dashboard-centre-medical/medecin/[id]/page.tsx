@@ -38,11 +38,17 @@ export default async function DossierPage({
   // indisponible (type de visite non défini, pas de convention, rôle sans droit) → pas de montant affiché.
   const acteConsultation = dossier.typeVisite ? ACTE_CONSULTATION_PAR_TYPE_VISITE[dossier.typeVisite] : undefined;
   let tarifConsultation: number | null = null;
+  // répartition du tarif de consultation entre l'assurance et l'assuré (même calcul que pour les actes)
+  let partsConsultation: { assurance: number; assure: number } | null = null;
   if (acteConsultation) {
     const resTarif = await apiFetch(
       `/api/v1/preauthorization/actes/tarif-reference?dossierId=${id}&codeActe=${acteConsultation.codeActe}&categorieActe=${acteConsultation.categorieActe}`,
     );
-    if (resTarif.ok) tarifConsultation = ((await resTarif.json()) as { tarifUnitaire: number | null }).tarifUnitaire;
+    if (resTarif.ok) {
+      const t = (await resTarif.json()) as { tarifUnitaire: number | null; partAssurance?: number | null; partAssure?: number | null };
+      tarifConsultation = t.tarifUnitaire;
+      if (t.tarifUnitaire !== null && t.partAssurance != null && t.partAssure != null) partsConsultation = { assurance: t.partAssurance, assure: t.partAssure };
+    }
   }
 
   const { profil, permissions } = etat.identity;
@@ -73,6 +79,7 @@ export default async function DossierPage({
         roleChain={permissions.roleChain}
         medecins={medecins}
         tarifConsultation={tarifConsultation}
+        partsConsultation={partsConsultation}
       />
     </div>
   );

@@ -1610,9 +1610,16 @@ export class PreauthorizationService {
     const ctx = await this.contexteAppelant(user);
     this.assertAjoutActe(ctx);
     const dossier = await this.chargerDossierPourTarif(ctx, dossierId);
-    if (!codeActe || !categorieActe) return { tarifUnitaire: null };
+    if (!codeActe || !categorieActe) return { tarifUnitaire: null, partAssurance: null, partAssure: null };
     const tarifUnitaire = await this.tarifReferenceUnitaire(dossier.contexte, dossier.produitId, { categorieActe, codeActe, quantite: 1 });
-    return { tarifUnitaire };
+    if (tarifUnitaire === null) return { tarifUnitaire: null, partAssurance: null, partAssure: null };
+    // répartition du tarif unitaire entre l'assurance et l'assuré (même calcul que l'ajout d'un acte) ; null si le calcul est indisponible
+    const { montants } = await this.simulerMontantActe(dossier.contexte, dossier.produitId, { categorieActe, codeActe, montantPrescrit: tarifUnitaire, quantite: 1 });
+    return {
+      tarifUnitaire,
+      partAssurance: montants ? Number(montants.montantSimuleAssurance) : null,
+      partAssure: montants ? Number(montants.montantSimulePatient) : null,
+    };
   }
 
   private assertAjoutActe(ctx: ContexteAppelant): void {

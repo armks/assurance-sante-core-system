@@ -38,6 +38,8 @@ interface Acte {
   categorieActe: string;
   quantite: number;
   montantPrescrit: string | null;
+  montantSimuleAssurance?: string | null;
+  montantSimulePatient?: string | null;
   statutPreautorisation: string;
   statut: string;
   dateRealisation: string | null;
@@ -135,6 +137,15 @@ export function TicketDetail({
   const montantSelectionne = dossier.actes
     .filter((a) => selection.has(a.id))
     .reduce((s, a) => s + Number(a.montantPrescrit ?? 0) * a.quantite, 0);
+  // part de l'assuré et de l'assurance : total des actes non refusés ou annulés, et de la sélection
+  const sommeParts = (liste: Acte[]) => ({
+    assure: liste.reduce((s, a) => s + Number(a.montantSimulePatient ?? 0), 0),
+    assurance: liste.reduce((s, a) => s + Number(a.montantSimuleAssurance ?? 0), 0),
+  });
+  const actesComptes = dossier.actes.filter((a) => a.statutPreautorisation !== 'REFUSEE' && a.statut !== 'ANNULE');
+  const totalComptes = actesComptes.reduce((s, a) => s + Number(a.montantPrescrit ?? 0) * a.quantite, 0);
+  const partsTotales = sommeParts(actesComptes);
+  const partsSelection = sommeParts(dossier.actes.filter((a) => selection.has(a.id)));
 
   function basculer(acteId: string) {
     setSelection((prev) => {
@@ -175,6 +186,20 @@ export function TicketDetail({
         aligneDroite: true,
         valeur: (a) => Number(a.montantPrescrit ?? 0),
         rendu: (a) => montant(a.montantPrescrit),
+      },
+      {
+        cle: 'montantSimulePatient',
+        entete: 'Part assuré',
+        aligneDroite: true,
+        valeur: (a) => Number(a.montantSimulePatient ?? 0),
+        rendu: (a) => montant(a.montantSimulePatient ?? null),
+      },
+      {
+        cle: 'montantSimuleAssurance',
+        entete: 'Part assurance',
+        aligneDroite: true,
+        valeur: (a) => Number(a.montantSimuleAssurance ?? 0),
+        rendu: (a) => <span className="font-medium text-emerald-700 dark:text-emerald-300">{montant(a.montantSimuleAssurance ?? null)}</span>,
       },
       {
         cle: 'statut',
@@ -236,6 +261,13 @@ export function TicketDetail({
           <Ligne label="Total actes prescrits">
             {montant(String(totalActes))}
           </Ligne>
+          <Ligne label="Montant final (hors refusés / annulés)">
+            <span className="font-semibold">{montant(String(totalComptes))}</span>
+          </Ligne>
+          <Ligne label="Part assuré">{montant(String(partsTotales.assure))}</Ligne>
+          <Ligne label="Part assurance">
+            <span className="font-medium text-emerald-700 dark:text-emerald-300">{montant(String(partsTotales.assurance))}</span>
+          </Ligne>
           {dossier.soldeRestantDu !== undefined && (
             <Ligne label="Solde restant dû">
               <span className={dossierSolde ? 'text-emerald-700 dark:text-emerald-400' : 'text-destructive'}>
@@ -278,7 +310,9 @@ export function TicketDetail({
               <span className="text-sm">
                 Montant sélectionné :{' '}
                 <span className="font-semibold">{montant(String(montantSelectionne))}</span>
-                {' '}({selection.size} acte{selection.size > 1 ? 's' : ''})
+                {' '}({selection.size} acte{selection.size > 1 ? 's' : ''}) — part assuré{' '}
+                <span className="font-semibold">{montant(String(partsSelection.assure))}</span>, part assurance{' '}
+                <span className="font-semibold text-emerald-700 dark:text-emerald-300">{montant(String(partsSelection.assurance))}</span>
               </span>
               <Button
                 size="sm"

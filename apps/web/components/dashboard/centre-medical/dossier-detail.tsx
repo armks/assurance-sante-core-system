@@ -149,6 +149,7 @@ export function DossierDetail({
   roleChain,
   medecins = [],
   tarifConsultation = null,
+  partsConsultation = null,
   lectureSeule = false,
   actionActe,
   pied,
@@ -162,6 +163,8 @@ export function DossierDetail({
   medecins?: MedecinCentre[];
   /** Tarif d'une consultation selon la convention de l'établissement (F), `null` si indisponible. */
   tarifConsultation?: number | null;
+  /** Répartition du tarif d'une consultation entre l'assurance et l'assuré (F, par consultation) ; `null` si le calcul est indisponible. */
+  partsConsultation?: { assurance: number; assure: number } | null;
   /** Vue du personnel de l'assurance : aucune écriture du parcours de soins (ajout, réalisation, facturation, clôture du centre). */
   lectureSeule?: boolean;
   /** Action supplémentaire par acte (ex. décision de pré-autorisation de l'assurance). */
@@ -240,6 +243,32 @@ export function DossierDetail({
         ),
     },
     {
+      cle: 'partAssureConsultation',
+      entete: 'Part assuré',
+      aligneDroite: true,
+      valeur: () => partsConsultation?.assure ?? 0,
+      rendu: (c) =>
+        c.statut !== 'ANNULEE' && partsConsultation ? (
+          <span title="Part de la consultation à la charge de l’assuré (ticket modérateur compris)">{montant(String(partsConsultation.assure))}</span>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      cle: 'partAssuranceConsultation',
+      entete: 'Part assurance',
+      aligneDroite: true,
+      valeur: () => partsConsultation?.assurance ?? 0,
+      rendu: (c) =>
+        c.statut !== 'ANNULEE' && partsConsultation ? (
+          <span className="font-medium text-emerald-700 dark:text-emerald-300" title="Part de la consultation prise en charge par l’assurance">
+            {montant(String(partsConsultation.assurance))}
+          </span>
+        ) : (
+          '—'
+        ),
+    },
+    {
       cle: 'ordonnances',
       entete: 'Ordonnances',
       aligneDroite: true,
@@ -255,6 +284,20 @@ export function DossierDetail({
 
   const ordonnances = dossier.ordonnances ?? [];
   const consultationsFacturables = dossier.consultations.filter((c) => c.statut !== 'ANNULEE').length;
+
+  // Montant final estimé du dossier : consultations (tarif de la convention) + actes non refusés ni annulés, réparti entre assuré et assurance
+  const actesComptes = dossier.actes.filter((a) => a.statutPreautorisation !== 'REFUSEE' && a.statut !== 'ANNULE');
+  const totalActes = actesComptes.reduce((s, a) => s + Number(a.montantPrescrit ?? 0) * a.quantite, 0);
+  const assureActes = actesComptes.reduce((s, a) => s + Number(a.montantSimulePatient ?? 0), 0);
+  const assuranceActes = actesComptes.reduce((s, a) => s + Number(a.montantSimuleAssurance ?? 0), 0);
+  const aConsultationsChiffrees = tarifConsultation !== null && consultationsFacturables > 0;
+  const totalConsultations = aConsultationsChiffrees ? tarifConsultation! * consultationsFacturables : 0;
+  const assureConsultations = aConsultationsChiffrees && partsConsultation ? partsConsultation.assure * consultationsFacturables : 0;
+  const assuranceConsultations = aConsultationsChiffrees && partsConsultation ? partsConsultation.assurance * consultationsFacturables : 0;
+  const totalDossier = totalConsultations + totalActes;
+  const assureDossier = assureConsultations + assureActes;
+  const assuranceDossier = assuranceConsultations + assuranceActes;
+  const aMontants = totalDossier > 0;
 
   /** La colonne « Pré-autorisation » n'apparaît que si au moins un acte en relève (sinon elle ne contient que des tirets). */
   const aPreautorisation = dossier.actes.some((a) => a.statutPreautorisation !== 'NON_REQUISE');
@@ -413,6 +456,19 @@ export function DossierDetail({
             <div className="grid">
               <Info label="Motif d’entrée">{dossier.motifConsultation ?? '—'}</Info>
             </div>
+            {aMontants && (
+              <div className="grid grid-cols-2 gap-x-4 sm:grid-cols-3" data-testid="montants-dossier">
+                <Info label="Coût estimé des soins">
+                  <span className="font-semibold" title="Consultations (tarif de la convention) et actes, hors actes refusés ou annulés">{montant(String(totalDossier))}</span>
+                </Info>
+                <Info label="Part assuré">
+                  <span className="font-semibold">{montant(String(assureDossier))}</span>
+                </Info>
+                <Info label="Part assurance">
+                  <span className="font-semibold text-emerald-700 dark:text-emerald-300">{montant(String(assuranceDossier))}</span>
+                </Info>
+              </div>
+            )}
           </dl>
         </CardContent>
       </Card>
@@ -555,6 +611,12 @@ export function DossierDetail({
             <p className="text-sm text-muted-foreground">
               Consultations selon la convention : {consultationsFacturables} × {montant(String(tarifConsultation))} ={' '}
               <strong className="text-foreground">{montant(String(tarifConsultation * consultationsFacturables))}</strong>
+              {partsConsultation && (
+                <>
+                  {' '}— dont part assuré <strong className="text-foreground">{montant(String(assureConsultations))}</strong> et part assurance{' '}
+                  <strong className="text-emerald-700 dark:text-emerald-300">{montant(String(assuranceConsultations))}</strong>
+                </>
+              )}
             </p>
           )}
           <OrdonnancesDossier
@@ -648,6 +710,23 @@ export function DossierDetail({
             )}
             vide="Aucun acte enregistré."
           />
+          {actesComptes.length > 0 && (
+            <dl className="mt-3 grid gap-2 rounded-md border bg-muted/40 p-3 text-sm sm:grid-cols-3" data-testid="montant-final-actes" aria-label="Montant final des actes">
+              <div>
+                <dt className="text-xs text-muted-foreground">Montant final des actes</dt>
+                <dd className="text-base font-semibold tabular-nums">{montant(String(totalActes))}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Part assuré</dt>
+                <dd className="text-base font-semibold tabular-nums">{montant(String(assureActes))}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-muted-foreground">Part assurance</dt>
+                <dd className="text-base font-semibold tabular-nums text-emerald-700 dark:text-emerald-300">{montant(String(assuranceActes))}</dd>
+              </div>
+              <p className="text-xs text-muted-foreground sm:col-span-3">Hors actes refusés ou annulés. Estimation : le calcul définitif est établi à la facturation.</p>
+            </dl>
+          )}
         </CardContent>
       </Card>
 

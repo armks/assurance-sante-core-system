@@ -97,7 +97,7 @@ export function ChampMedicamentBase({
             <ul
               id={`${id}-liste`}
               role="listbox"
-              className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover text-sm shadow-md"
+              className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover text-sm text-popover-foreground shadow-md"
             >
               {resultats.map((m) => (
                 <li

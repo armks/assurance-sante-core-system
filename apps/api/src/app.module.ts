@@ -1,5 +1,6 @@
 import { LicencesModule } from './licences/licences.module';
 import { ReportingModule } from './reporting/reporting.module';
+import { RecusModule } from './recus/recus.module';
 import { Cim10Module } from './cim10/cim10.module';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
@@ -59,6 +60,7 @@ import { UnderwritingModule } from './underwriting/underwriting.module';
     TarifsProposesModule,
     CareEpisodeModule,
     ReportingModule,
+    RecusModule,
     LicencesModule,
     PreauthorizationModule,
     AccueilModule,

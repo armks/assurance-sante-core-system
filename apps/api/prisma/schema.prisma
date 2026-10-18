@@ -2482,3 +2482,42 @@ model AnnonceBandeau {
   @@index([organisationId])
   @@map("annonces_bandeau")
 }
+
+/// Paramétrage de l'impression d'un établissement sanitaire OU d'une pharmacie (prisma/sql/107).
+model ParametreImpression {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId    String   @map("organisation_id") @db.Uuid
+  etablissementId   String?  @map("etablissement_id") @db.Uuid
+  pharmacieId       String?  @map("pharmacie_id") @db.Uuid
+  typeImprimante    String   @default("A4") @map("type_imprimante") // THERMIQUE_58 | THERMIQUE_80 | A4
+  enTete            String?  @map("en_tete")
+  piedPage          String?  @map("pied_page")
+  identifiantFiscal String?  @map("identifiant_fiscal")
+  afficherDetail    Boolean  @default(true) @map("afficher_detail")
+  updatedBy         String?  @map("updated_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("parametres_impression")
+}
+
+/// Reçu de caisse émis lorsque le patient règle sa facture de soins ou de médicaments (prisma/sql/107).
+model RecuCaisse {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  organisationId     String    @map("organisation_id") @db.Uuid
+  etablissementId    String?   @map("etablissement_id") @db.Uuid
+  pharmacieId        String?   @map("pharmacie_id") @db.Uuid
+  factureId          String?   @unique @map("facture_id") @db.Uuid
+  dispensationId     String?   @unique @map("dispensation_id") @db.Uuid
+  numeroSeq          Int       @unique @map("numero_seq")
+  numero             String    @unique
+  montantPaye        Decimal   @map("montant_paye") @db.Decimal(14, 2)
+  datePaiement       DateTime  @map("date_paiement") @db.Timestamptz(6)
+  emisPar            String?   @map("emis_par") @db.Uuid
+  nombreImpressions  Int       @default(0) @map("nombre_impressions")
+  derniereImpression DateTime? @map("derniere_impression") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([organisationId])
+  @@map("recus_caisse")
+}

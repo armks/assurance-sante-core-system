@@ -1,5 +1,6 @@
 'use client';
 
+import { BoutonRecu } from '@/components/documents/bouton-recu';
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -384,7 +385,8 @@ export function TicketDetail({
                   </p>
                 )}
                 {f.codeValideParPatient && (
-                  <div className="pt-2">
+                  <div className="flex flex-wrap items-center gap-2 pt-2">
+                    <BoutonRecu type="facture-soins" id={f.id} />
                     <BoutonsImpression type="facture-soins" id={f.id} />
                   </div>
                 )}

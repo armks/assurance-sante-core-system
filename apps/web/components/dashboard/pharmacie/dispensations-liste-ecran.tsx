@@ -1,5 +1,6 @@
 'use client';
 
+import { BoutonRecu } from '@/components/documents/bouton-recu';
 import { BoutonsImpression } from '@/components/documents/boutons-impression';
 import { useRouter } from 'next/navigation';
 import { Coins, HandCoins, ReceiptText, ShieldCheck } from 'lucide-react';
@@ -179,7 +180,7 @@ export function DispensationsListeEcran({
             cle: 'actions',
             entete: '',
             rendu: (d: DispensationResume) =>
-              NON_REGLEES.includes(d.statut) ? <BoutonSupprimer id={d.id} /> : d.statut === 'ANNULEE' ? <BoutonSupprimer id={d.id} definitif /> : d.statut === 'PAYEE' ? <BoutonsImpression type="facture-pharmacie" id={d.id} libelle="Imprimer" taille="xs" /> : null,
+              NON_REGLEES.includes(d.statut) ? <BoutonSupprimer id={d.id} /> : d.statut === 'ANNULEE' ? <BoutonSupprimer id={d.id} definitif /> : d.statut === 'PAYEE' ? (<span className="inline-flex flex-wrap items-center gap-1"><BoutonRecu type="dispensation" id={d.id} taille="xs" libelle="Reçu" /><BoutonsImpression type="facture-pharmacie" id={d.id} libelle="Imprimer" taille="xs" /></span>) : null,
           },
         ]
       : []),
@@ -256,7 +257,12 @@ export function DispensationsListeEcran({
                 <StatutBadge statut={ouverte.statut} libelles={LIBELLE_STATUT} />
                 <span className="text-muted-foreground">{ouverte.datePaiement ? `Payée le ${dateFr(ouverte.datePaiement)}` : "Non réglée"}</span>
               </div>
-              {ouverte.statut === 'PAYEE' && <BoutonsImpression type="facture-pharmacie" id={ouverte.id} />}
+              {ouverte.statut === 'PAYEE' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <BoutonRecu type="dispensation" id={ouverte.id} />
+                  <BoutonsImpression type="facture-pharmacie" id={ouverte.id} />
+                </div>
+              )}
             </div>
           )}
         </DialogContent>

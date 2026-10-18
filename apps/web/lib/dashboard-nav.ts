@@ -11,6 +11,7 @@ import {
   HeartPulse,
   Inbox,
   KeyRound,
+  Printer,
   LibraryBig,
   Landmark,
   LayoutDashboard,
@@ -129,6 +130,7 @@ const GROUPE_PAR_LABEL: Record<string, GroupeNav> = {
   Événements: GROUPES.communication,
   Annonces: GROUPES.communication,
   'Logos partenaires': GROUPES.communication,
+  'Impression des reçus': GROUPES.admin,
   Rapports: GROUPES.rapports,
   'Tous les rapports': GROUPES.rapports,
   'Relevé d’un adhérent': GROUPES.rapports,
@@ -242,10 +244,12 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${PHARMACIEN}/factures-mensuelles`,
       icon: CreditCard,
     },
+    { label: 'Impression des reçus', href: `${PHARMACIEN}/parametres-impression`, icon: Printer },
   ],
   [CAISSIERE]: [
     { label: "Vue d'ensemble", href: CAISSIERE, icon: LayoutDashboard },
     { label: 'Factures des prescriptions', href: `${CAISSIERE}/factures`, icon: ReceiptText },
+    { label: 'Impression des reçus', href: `${CAISSIERE}/parametres-impression`, icon: Printer },
   ],
   [PHARMACIE_COMPTABLE]: [
     {
@@ -268,6 +272,7 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
       href: `${PHARMACIE_COMPTABLE}/contestations`,
       icon: Scale,
     },
+    { label: 'Impression des reçus', href: `${PHARMACIE_COMPTABLE}/parametres-impression`, icon: Printer },
   ],
   [SOCIETE_ADMINISTRATION]: [
     {
@@ -355,6 +360,8 @@ export const NAV_PAR_DASHBOARD: Record<string, NavItem[]> = {
     },
     // Tarifs proposés pour les actes non tarifables (lot barème 4) : comptable et administratif
     { label: 'Tarifs proposés', href: `${CENTRE_MEDICAL}/tarifs-proposes`, icon: FileSignature },
+    // imprimante des reçus de caisse (thermique ou A4) : comptable, administratif et accueil
+    { label: 'Impression des reçus', href: `${CENTRE_MEDICAL}/parametres-impression`, icon: Printer },
   ],
   [MEDECIN_CONSEIL]: [
     { label: "Vue d'ensemble", href: MEDECIN_CONSEIL, icon: LayoutDashboard, largeur: 'dashboard' },

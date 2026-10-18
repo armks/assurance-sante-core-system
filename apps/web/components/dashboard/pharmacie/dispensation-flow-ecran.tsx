@@ -1,5 +1,6 @@
 'use client';
 
+import { BoutonRecu } from '@/components/documents/bouton-recu';
 import { BoutonsImpression } from '@/components/documents/boutons-impression';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
@@ -597,6 +598,7 @@ export function DispensationFlowEcran({
                   </p>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
+                  <BoutonRecu type="dispensation" id={dispensation.id} />
                   <BoutonsImpression type="facture-pharmacie" id={dispensation.id} />
                   <Button onClick={reinitialiser}>Nouvelle dispensation</Button>
                 </div>

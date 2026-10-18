@@ -1,5 +1,6 @@
 'use client';
 
+import { BoutonRecu } from '@/components/documents/bouton-recu';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 
@@ -173,7 +174,7 @@ export function MesFacturesEcran({ factures }: { factures: FactureDossierEtablis
       }}
       filtres={filtres}
       colonnes={colonnes}
-      actionLigne={(f) => (f.reglee ? <BoutonsImpression type="facture-soins" id={f.id} libelle="Imprimer" taille="xs" /> : <BoutonNouveauCode facture={f} />)}
+      actionLigne={(f) => (f.reglee ? (<span className="inline-flex flex-wrap items-center justify-end gap-1"><BoutonRecu type="facture-soins" id={f.id} taille="xs" libelle="Reçu" /><BoutonsImpression type="facture-soins" id={f.id} libelle="Imprimer" taille="xs" /></span>) : <BoutonNouveauCode facture={f} />)}
       vide="Aucune facture pour l’instant."
     />
   );

@@ -246,7 +246,7 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
     it('type de visite NON défini : aucun tarif annoncé (contexte ambulatoire / hospitalisation indéterminé), aucun appel au microservice', async () => {
       prisma.garantie.findFirst.mockResolvedValue({ id: 'gar-1' });
       prisma.dossierSoins.findFirst.mockResolvedValue({ id: 'dos-1', policeId: 'pol-1', adherentId: 'adh-1', beneficiaireId: null, etablissementId: 'etab-1', typeVisite: null, police: { produitId: 'prod-1' } });
-      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toEqual({ tarifUnitaire: null });
+      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toEqual({ tarifUnitaire: null, partAssurance: null, partAssure: null });
       prisma.$queryRaw.mockResolvedValue([LIGNE_GEN, LIGNE_SPE]);
       const res = await service.rechercherActesCatalogue(USER, 'consult', 'CONSULTATION', 'dos-1');
       expect(res.map((a: { tarifUnitaire?: number | null }) => a.tarifUnitaire)).toEqual([null, null]);
@@ -277,12 +277,12 @@ describe('PreauthorizationService — Ticket de Soins (ajout d’acte)', () => {
       adjudication.simuler.mockResolvedValueOnce({
         lignes: [{ decision: 'AUTO_ADJUDIQUE', montant_couvert: 0, plafond_restant_apres: null, codes_rejet: [], trace_tarif: { statut_tarif: 'TARIFABLE', tarif_unitaire: 15000 } }],
       } as never);
-      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toEqual({ tarifUnitaire: 15000 });
+      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toMatchObject({ tarifUnitaire: 15000 });
       adjudication.simuler.mockResolvedValueOnce({
         lignes: [{ decision: 'AUTO_ADJUDIQUE', montant_couvert: 0, plafond_restant_apres: null, codes_rejet: [], trace_tarif: { statut_tarif: 'NON_TARIFABLE', tarif_unitaire: null } }],
       } as never);
-      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toEqual({ tarifUnitaire: null });
-      expect(await service.tarifReferenceActe(USER, 'dos-1', '', 'CONSULTATION')).toEqual({ tarifUnitaire: null });
+      expect(await service.tarifReferenceActe(USER, 'dos-1', 'CONS-GEN', 'CONSULTATION')).toEqual({ tarifUnitaire: null, partAssurance: null, partAssure: null });
+      expect(await service.tarifReferenceActe(USER, 'dos-1', '', 'CONSULTATION')).toEqual({ tarifUnitaire: null, partAssurance: null, partAssure: null });
     });
 
     it('dossier d’un AUTRE établissement → 403 ; dossier inconnu → 404', async () => {

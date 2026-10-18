@@ -9,6 +9,7 @@ import {
   KeyRound,
   Library,
   Megaphone,
+  ReceiptText,
   ShieldCheck,
   SlidersHorizontal,
   Type,
@@ -38,6 +39,7 @@ const NAV: (EntreeNav & { largeur?: LargeurPage })[] = [
   // grille de cartes (pas de tableau) : largeur intermédiaire
   { label: 'Sociétés', href: '/superadmin/societes', icon: Building2, largeur: 'dashboard' },
   { label: 'Licences', href: '/superadmin/licences', icon: KeyRound, largeur: 'dashboard' },
+  { label: 'Licences générées', href: '/superadmin/licences/historique', icon: ReceiptText },
   // chiffres-clés + un tableau
   { label: 'Santé système', href: '/superadmin/sante-systeme', icon: Activity, largeur: 'dashboard' },
   { label: 'Paramètres', href: '/superadmin/parametres', icon: SlidersHorizontal },

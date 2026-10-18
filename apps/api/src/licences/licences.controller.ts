@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseEnumPipe, ParseUUIDPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { AuthenticatedUser } from '../auth/authenticated-user.interface';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SupabaseAuthGuard } from '../auth/supabase-auth.guard';
-import { ActiverLicenceDto, EmailSocieteDto, EnvoyerCodeDto, TypeLicenceDto } from './licences.dto';
+import { ActiverLicenceDto, EmailSocieteDto, EnvoyerCodeDto, HistoriqueLicencesQueryDto, PrixLicenceDto, TypeLicenceDto } from './licences.dto';
+import type { TypeLicence } from './licence-etat';
 import { LicencesService } from './licences.service';
 
 /** Licence de ma société : consultation (échéance, temps restant) et activation par code — informatique et direction de l'assureur. */
@@ -37,8 +38,30 @@ export class LicencesSuperadminController {
   }
 
   @Get('types')
-  types() {
-    return LicencesService.types();
+  types(@CurrentUser() user: AuthenticatedUser) {
+    return this.licences.types(user);
+  }
+
+  /** Historique des licences générées (avec prix), filtrable, et cumuls. */
+  @Get('historique')
+  historique(@CurrentUser() user: AuthenticatedUser, @Query() filtres: HistoriqueLicencesQueryDto) {
+    return this.licences.historique(user, filtres);
+  }
+
+  /** Grille de prix des licences. */
+  @Get('tarifs')
+  tarifs(@CurrentUser() user: AuthenticatedUser) {
+    return this.licences.tarifs(user);
+  }
+
+  /** Modifie le prix d'un type de licence (vaut pour les licences générées ensuite). */
+  @Put('tarifs/:type')
+  definirTarif(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('type', new ParseEnumPipe(['ESSAI', 'MENSUELLE', 'TRIMESTRIELLE', 'SEMESTRIELLE', 'ANNUELLE', 'BIENNALE'])) type: TypeLicence,
+    @Body() dto: PrixLicenceDto,
+  ) {
+    return this.licences.definirTarif(user, type, dto.prix);
   }
 
   @Throttle({ default: { limit: 20, ttl: 60_000 } })

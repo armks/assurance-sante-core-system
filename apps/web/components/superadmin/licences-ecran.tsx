@@ -29,6 +29,7 @@ export interface TypeLicenceOption {
   valeur: string;
   libelle: string;
   duree: string;
+  prix?: number;
 }
 
 const dateFr = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '—');
@@ -97,7 +98,7 @@ function LigneSociete({ s, types }: { s: LicenceSociete; types: TypeLicenceOptio
           <select value={type} onChange={(e) => setType(e.target.value)} className="block h-9 min-w-56 rounded-md border border-input bg-transparent px-2 text-sm" aria-label={`Type de licence pour ${s.nom}`}>
             {types.map((t) => (
               <option key={t.valeur} value={t.valeur}>
-                {t.libelle} — {t.duree}
+                {t.libelle} — {t.duree}{t.prix !== undefined ? ` — ${t.prix.toLocaleString('fr-FR')} F` : ''}
               </option>
             ))}
           </select>

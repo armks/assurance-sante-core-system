@@ -2049,6 +2049,17 @@ model LicenceOrganisation {
   @@map("licences_organisation")
 }
 
+/// tarifs_licence — grille de prix des licences par type (modifiable par le superadmin). prisma/sql/106.
+model TarifLicence {
+  typeLicence String   @id @map("type_licence")
+  prix        Decimal  @default(0) @db.Decimal(14, 2)
+  devise      String   @default("XOF")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedBy   String?  @map("updated_by") @db.Uuid
+
+  @@map("tarifs_licence")
+}
+
 /// codes_activation_licence — code temporaire (24 h) généré par le superadmin et saisi par l'administrateur de l'assureur pour
 /// activer ou renouveler sa licence. `code` = empreinte HMAC, `codeChiffre` = version lisible chiffrée. prisma/sql/105.
 model CodeActivationLicence {
@@ -2061,6 +2072,9 @@ model CodeActivationLicence {
   dateGeneration DateTime  @default(now()) @map("date_generation") @db.Timestamptz(6)
   dateExpiration DateTime  @default(dbgenerated("(now() + '24:00:00'::interval)")) @map("date_expiration") @db.Timestamptz(6)
   statut         String    @default("EMIS") // EMIS | ACTIVE | EXPIRE | ANNULE
+  /// Prix de la licence au moment de sa génération (FCFA), figé : un changement de tarif ne modifie jamais l'historique.
+  prix           Decimal   @default(0) @db.Decimal(14, 2)
+  mode           String    @default("CODE") // CODE (code d'activation saisi par l'administrateur) | DIRECTE (activée par le superadmin)
   activePar      String?   @map("active_par") @db.Uuid
   dateActivation DateTime? @map("date_activation") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -219,7 +219,8 @@ export class LicencesService {
     for (let i = 0; i < 5 && (await this.prisma.codeActivationLicence.findFirst({ where: { code }, select: { id: true } })); i += 1) code = this.codeAleatoire();
     const expire = new Date(Date.now() + VALIDITE_CODE_ACTIVATION_MS);
     const cree = await this.prisma.codeActivationLicence.create({
-      data: { organisationId, typeLicence: type, code, genererPar: ctx.userId, dateExpiration: expire },
+      // prix figé au tarif du jour : un changement de grille n'altère jamais l'historique
+      data: { organisationId, typeLicence: type, code, genererPar: ctx.userId, dateExpiration: expire, prix: await this.prixDe(type), mode: 'CODE' },
     });
 
     const destinataire = ctx.email ?? process.env.SUPERADMIN_EMAIL ?? null;
@@ -306,7 +307,7 @@ Voici le code d’activation de la licence de « ${org.nom} » — ${LIBELLE_TYP
     const licence = await this.prisma.$transaction(async (tx) => {
       await tx.codeActivationLicence.updateMany({ where: { organisationId, statut: 'EMIS' }, data: { statut: 'ANNULE' } });
       await tx.codeActivationLicence.create({
-        data: { organisationId, typeLicence: type, code: this.codeAleatoire(), genererPar: ctx.userId, dateExpiration: maintenant, statut: 'ACTIVE', activePar: ctx.userId, dateActivation: maintenant },
+        data: { organisationId, typeLicence: type, code: this.codeAleatoire(), genererPar: ctx.userId, dateExpiration: maintenant, statut: 'ACTIVE', activePar: ctx.userId, dateActivation: maintenant, prix: await this.prixDe(type), mode: 'DIRECTE' },
       });
       return this.appliquer(tx, organisationId, type);
     });
@@ -354,12 +355,86 @@ Voici le code d’activation de la licence de « ${org.nom} » — ${LIBELLE_TYP
     return [...emails];
   }
 
-  /** Types proposés au superadmin, avec leur durée. */
-  static types() {
+  // ------------------------------------------------------------------ prix et historique
+  private async prixDe(type: TypeLicence): Promise<number> {
+    const t = await this.prisma.tarifLicence.findUnique({ where: { typeLicence: type } });
+    return Number(t?.prix ?? 0);
+  }
+
+  /** Types proposés au superadmin, avec leur durée et leur prix actuel. */
+  async types(user: AuthenticatedUser) {
+    await this.assertSuperadmin(user);
+    const tarifs = await this.prisma.tarifLicence.findMany();
     return (['ESSAI', 'MENSUELLE', 'TRIMESTRIELLE', 'SEMESTRIELLE', 'ANNUELLE', 'BIENNALE'] as TypeLicence[]).map((t) => ({
       valeur: t,
       libelle: LIBELLE_TYPE_LICENCE[t],
       duree: t === 'ESSAI' ? `${ESSAI_JOURS} jours` : `${DUREE_MOIS[t]} mois`,
+      prix: Number(tarifs.find((x) => x.typeLicence === t)?.prix ?? 0),
     }));
   }
+
+  /** Grille de prix des licences (FCFA). */
+  async tarifs(user: AuthenticatedUser) {
+    return this.types(user);
+  }
+
+  /** Modifie le prix d'un type de licence : ne vaut que pour les licences générées ensuite. */
+  async definirTarif(user: AuthenticatedUser, type: TypeLicence, prix: number) {
+    const ctx = await this.assertSuperadmin(user);
+    await this.prisma.tarifLicence.upsert({
+      where: { typeLicence: type },
+      create: { typeLicence: type, prix, updatedBy: ctx.userId },
+      update: { prix, updatedBy: ctx.userId },
+    });
+    return this.types(user);
+  }
+
+  /**
+   * Historique des licences générées (codes d'activation et activations directes) avec leur prix, filtrable, et cumuls : nombre et
+   * montants par statut. « Activées » = licences réalisées ; « en attente » = codes émis encore valables ; « non réalisées » = codes
+   * expirés ou annulés.
+   */
+  async historique(user: AuthenticatedUser, f: HistoriqueFiltres) {
+    await this.assertSuperadmin(user);
+    await this.prisma.codeActivationLicence.updateMany({ where: { statut: 'EMIS', dateExpiration: { lte: new Date() } }, data: { statut: 'EXPIRE' } });
+    const w: Prisma.Sql[] = [Prisma.sql`true`];
+    if (f.organisationId) w.push(Prisma.sql`c.organisation_id = ${f.organisationId}::uuid`);
+    if (f.typeLicence) w.push(Prisma.sql`c.type_licence = ${f.typeLicence}`);
+    if (f.statut) w.push(Prisma.sql`c.statut = ${f.statut}`);
+    if (f.mode) w.push(Prisma.sql`c.mode = ${f.mode}`);
+    if (f.du) w.push(Prisma.sql`c.date_generation >= ${f.du}::date`);
+    if (f.au) w.push(Prisma.sql`c.date_generation < (${f.au}::date + 1)`);
+    const where = Prisma.join(w, ' AND ');
+    const [lignes, cumul, parType] = await Promise.all([
+      this.prisma.$queryRaw<unknown[]>`
+        SELECT c.id::text, c.organisation_id::text AS "organisationId", o.nom AS societe, c.type_licence AS "typeLicence", c.mode, c.statut,
+               c.prix::float8 AS prix, c.date_generation AS "dateGeneration", c.date_expiration AS "dateExpiration", c.date_activation AS "dateActivation",
+               a.role AS "activeParRole"
+        FROM codes_activation_licence c
+        JOIN organisations o ON o.id = c.organisation_id
+        LEFT JOIN profils a ON a.id = c.active_par
+        WHERE ${where}
+        ORDER BY c.date_generation DESC LIMIT 1000`,
+      this.prisma.$queryRaw<unknown[]>`
+        SELECT COUNT(*)::int AS "nombre", COALESCE(SUM(c.prix), 0)::float8 AS "total",
+               COUNT(*) FILTER (WHERE c.statut = 'ACTIVE')::int AS "nbActivees", COALESCE(SUM(c.prix) FILTER (WHERE c.statut = 'ACTIVE'), 0)::float8 AS "totalActivees",
+               COUNT(*) FILTER (WHERE c.statut = 'EMIS')::int AS "nbEnAttente", COALESCE(SUM(c.prix) FILTER (WHERE c.statut = 'EMIS'), 0)::float8 AS "totalEnAttente",
+               COUNT(*) FILTER (WHERE c.statut IN ('EXPIRE', 'ANNULE'))::int AS "nbNonRealisees", COALESCE(SUM(c.prix) FILTER (WHERE c.statut IN ('EXPIRE', 'ANNULE')), 0)::float8 AS "totalNonRealisees"
+        FROM codes_activation_licence c WHERE ${where}`,
+      this.prisma.$queryRaw<unknown[]>`
+        SELECT c.type_licence AS "typeLicence", COUNT(*)::int AS "nombre", COALESCE(SUM(c.prix), 0)::float8 AS "total",
+               COALESCE(SUM(c.prix) FILTER (WHERE c.statut = 'ACTIVE'), 0)::float8 AS "totalActivees"
+        FROM codes_activation_licence c WHERE ${where} GROUP BY 1 ORDER BY 3 DESC`,
+    ]);
+    return { lignes, cumul: cumul[0], parType, tronque: lignes.length >= 1000 };
+  }
+}
+
+export interface HistoriqueFiltres {
+  du?: string;
+  au?: string;
+  organisationId?: string;
+  typeLicence?: string;
+  statut?: string;
+  mode?: string;
 }

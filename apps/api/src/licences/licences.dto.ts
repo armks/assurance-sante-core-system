@@ -1,5 +1,5 @@
-import { Transform } from 'class-transformer';
-import { IsEmail, IsIn, IsString, Matches, MaxLength } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { IsEmail, IsIn, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
 import { TYPES_LICENCE, type TypeLicence } from './licence-etat';
 
 export class ActiverLicenceDto {
@@ -27,4 +27,40 @@ export class EmailSocieteDto {
   @IsEmail({}, { message: 'Adresse e-mail invalide.' })
   @MaxLength(254)
   email!: string;
+}
+
+export class HistoriqueLicencesQueryDto {
+  /** Date de génération, bornes incluses. */
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'du doit être une date AAAA-MM-JJ' })
+  du?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'au doit être une date AAAA-MM-JJ' })
+  au?: string;
+
+  @IsOptional()
+  @IsUUID()
+  organisationId?: string;
+
+  @IsOptional()
+  @IsIn(TYPES_LICENCE)
+  typeLicence?: TypeLicence;
+
+  @IsOptional()
+  @IsIn(['EMIS', 'ACTIVE', 'EXPIRE', 'ANNULE'])
+  statut?: 'EMIS' | 'ACTIVE' | 'EXPIRE' | 'ANNULE';
+
+  @IsOptional()
+  @IsIn(['CODE', 'DIRECTE'])
+  mode?: 'CODE' | 'DIRECTE';
+}
+
+export class PrixLicenceDto {
+  /** Prix en FCFA (0 pour l'essai gratuit). */
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(1_000_000_000)
+  prix!: number;
 }

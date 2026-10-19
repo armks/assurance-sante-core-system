@@ -9231,3 +9231,9 @@ Terminé.
 ## 2026-10-18 — Nouvelle couleur du menu et de la barre du haut des tableaux de bord
 - Menu latéral (bureau et panneau mobile) et barre du haut passent en dégradé bleu nuit → violet profond ; les jetons de couleur sont redéfinis pour ces seules zones (classes `.menu-couleur`, `.menu-degrade`, `.menu-degrade-h` dans `globals.css`) : liens, badges, carte utilisateur et pastilles de catégories s'y adaptent (teintes des pastilles éclaircies pour le contraste). Appliqué aux tableaux de bord de rôle et à la super-administration. Pour changer de teinte : modifier ces trois classes.
 - Vérifié : types OK. Non vérifié : rendu dans un navigateur (contrastes à valider à l'œil, clair et sombre).
+
+## 2026-10-18 — Durcissement contre la copie et l'aspiration (audit d'exposition)
+- **Constat** : API déjà munie d'en-têtes de sécurité, sans documentation publique ni carte de code ; le site web n'avait aucun en-tête de sécurité, exposait `X-Powered-By: Next.js`, et `/robots.txt` redirigeait vers la connexion.
+- **Site web** : en-têtes (anti-iframe, nosniff, HSTS, politique de référent, permissions, COOP) ; CSP volontairement MINIMALE (pas d'iframe ni d'objets embarqués) car une CSP stricte sur scripts et styles doit d'abord être validée en navigation réelle ; `X-Powered-By` retiré ; `X-Robots-Tag: noindex` sur les zones internes ; `robots.txt` (robots d'IA connus interdits partout, zones internes interdites aux autres) rendu lisible sans connexion ; limite de 120 pages/minute et par adresse pour les visiteurs SANS session (production uniquement, compteur en mémoire).
+- **API** : un corps JSON illisible renvoie « Requête invalide. » (plus le détail de l'analyseur) ; erreurs de validation inchangées.
+- Vérifié : types API et web, jest `common` 45 ; HTTP réel sur l'API. À faire par l'utilisateur : redémarrer le serveur web (la configuration n'est lue qu'au démarrage) puis contrôler en navigateur que les pages s'affichent normalement.

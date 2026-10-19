@@ -4,6 +4,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import compression from 'compression';
 import helmet from 'helmet';
+import { RequeteInvalideFilter } from './common/requete-invalide.filter';
 import { secretCodesConfigure } from './common/codes-secrets';
 import { AppModule } from './app.module';
 
@@ -75,6 +76,7 @@ async function bootstrap(): Promise<void> {
   // Toutes les routes sont préfixées /api/v1 → GET /api/v1/identity/me
   app.setGlobalPrefix('api/v1');
 
+  app.useGlobalFilters(new RequeteInvalideFilter());
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true }),
   );

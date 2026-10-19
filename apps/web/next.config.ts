@@ -9,8 +9,40 @@ const imagesStorage = baseStorage
   ? ['evenements', 'logos'].map((bucket) => new URL(`${baseStorage}/storage/v1/object/public/${bucket}/**`))
   : [];
 
+/**
+ * En-têtes de sécurité du site. La CSP est volontairement MINIMALE (anti-iframe, pas d'objets embarqués, base fixe) : une CSP
+ * stricte sur les scripts et styles casse les scripts en ligne de Next sans nonces et doit être validée en navigation réelle.
+ */
+const ENTETES_SECURITE = [
+  { key: 'Content-Security-Policy', value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'" },
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), payment=(), usb=()' },
+  { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
+  { key: 'X-DNS-Prefetch-Control', value: 'off' },
+];
+
+/** Zones internes : jamais indexées ni copiées par un robot. */
+const SOURCES_INTERNES = [
+  ...['dashboard', 'dashboard-adherent', 'dashboard-assureur', 'dashboard-centre-medical', 'dashboard-pharmacie', 'dashboard-societe', 'superadmin', 'profil'].map(
+    (zone) => `/${zone}/:chemin*`,
+  ),
+  '/login',
+  '/api/:chemin*',
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // pas d'indice sur la technologie (en-tête X-Powered-By)
+  poweredByHeader: false,
+  async headers() {
+    return [
+      { source: '/:chemin*', headers: ENTETES_SECURITE },
+      ...SOURCES_INTERNES.map((source) => ({ source, headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, noimageindex' }] })),
+    ];
+  },
   images: {
     remotePatterns: imagesStorage,
   },

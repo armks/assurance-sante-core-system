@@ -12,6 +12,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -79,6 +80,11 @@ export class ModifierLettreCleDto {
   @IsOptional() ordre?: number;
 }
 
+/** Colonnes de la liste officielle des médicaments remboursables (MUGEF-CI) : code produit, catégorie, type G/S, régime. */
+export const FORMAT_CODE_PRODUIT = /^\d{6,9}$/;
+export const FORMAT_CODE_LISTE = /^[A-Z]{1,10}$/;
+export const TYPES_MEDICAMENT = ['G', 'S'] as const;
+
 /** Médicament du catalogue national — mêmes champs que ProposerMedicamentDto + statut. */
 export class CreerMedicamentNationalDto {
   @IsString()
@@ -88,6 +94,10 @@ export class CreerMedicamentNationalDto {
 
   @IsOptional() @IsString() @MaxLength(200) nomCommercial?: string;
   @IsOptional() @IsString() @MaxLength(20) codeEan?: string;
+  @IsOptional() @Matches(FORMAT_CODE_PRODUIT, { message: 'Le code produit comporte 6 à 9 chiffres.' }) codeProduit?: string;
+  @IsOptional() @Matches(FORMAT_CODE_LISTE, { message: 'Catégorie : 1 à 10 lettres majuscules (R, EP, EPF, TPC…).' }) categorieRemboursement?: string;
+  @IsOptional() @Matches(FORMAT_CODE_LISTE, { message: 'Régime : 1 à 10 lettres majuscules (RCO, IVSPL…).' }) regimeRemboursement?: string;
+  @IsOptional() @IsIn(TYPES_MEDICAMENT) typeMedicament?: string;
   @IsOptional() @IsString() @MaxLength(120) forme?: string;
   @IsOptional() @IsString() @MaxLength(80) dosage?: string;
   @IsOptional() @IsString() @MaxLength(120) conditionnement?: string;
@@ -109,14 +119,15 @@ export class ModifierMedicamentNationalDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) denominationCommune?: string;
   @IsOptional() @IsString() @MaxLength(200) nomCommercial?: string | null;
   @IsOptional() @IsString() @MaxLength(20) codeEan?: string | null;
-  @IsOptional() @IsString() @MaxLength(60) codeProduit?: string | null;
+  @IsOptional() @Matches(FORMAT_CODE_PRODUIT, { message: 'Le code produit comporte 6 à 9 chiffres.' }) codeProduit?: string | null;
+  @IsOptional() @IsIn(TYPES_MEDICAMENT) typeMedicament?: string | null;
   @IsOptional() @IsString() @MaxLength(120) forme?: string | null;
   @IsOptional() @IsString() @MaxLength(80) dosage?: string | null;
   @IsOptional() @IsString() @MaxLength(120) conditionnement?: string | null;
   @IsOptional() @IsString() @MaxLength(200) classeTherapeutique?: string | null;
   @IsOptional() @IsBoolean() remboursable?: boolean;
-  @IsOptional() @IsIn(['R', 'EP']) categorieRemboursement?: string | null;
-  @IsOptional() @IsString() @MaxLength(120) regimeRemboursement?: string | null;
+  @IsOptional() @Matches(FORMAT_CODE_LISTE, { message: 'Catégorie : 1 à 10 lettres majuscules (R, EP, EPF, TPC…).' }) categorieRemboursement?: string | null;
+  @IsOptional() @Matches(FORMAT_CODE_LISTE, { message: 'Régime : 1 à 10 lettres majuscules (RCO, IVSPL…).' }) regimeRemboursement?: string | null;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100) tauxRemboursementStd?: number | null;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) prixReferenceXof?: number | null;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) prixMaxRemboursable?: number | null;

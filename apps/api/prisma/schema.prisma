@@ -2180,6 +2180,8 @@ model ReferentielNationalMedicament {
   categorieRemboursement String?  @map("categorie_remboursement") // R | EP (entente préalable)
   regimeRemboursement   String?   @map("regime_remboursement")
   sourceListe           String?   @map("source_liste")
+  /// G (générique) | S (spécialité) — prisma/sql/112
+  typeMedicament        String?   @map("type_medicament")
 
   @@index([statutHomologation])
   @@map("referentiel_national_medicaments")

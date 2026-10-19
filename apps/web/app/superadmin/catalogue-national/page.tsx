@@ -22,19 +22,26 @@ export default async function CatalogueNational({ searchParams }: { searchParams
   const qs = new URLSearchParams({ page: un('page') || '1', limite: '25' });
   if (un('q')) qs.set('q', un('q'));
   if (un('statut')) qs.set('statut', un('statut'));
-  const [resActes, resMed, resImports, resLettres, resArchives] = await Promise.all([
+  const qm = new URLSearchParams({ page: un('mpage') || '1', limite: '25' });
+  if (un('mq')) qm.set('q', un('mq'));
+  if (un('mstatut')) qm.set('statut', un('mstatut'));
+  const [resActes, resMed, resImports, resLettres, resArchives, resArchivesMed] = await Promise.all([
     apiFetch(`/api/v1/superadmin/catalogue-national/actes?${qs.toString()}`),
-    apiFetch('/api/v1/superadmin/catalogue-national/medicaments'),
+    apiFetch(`/api/v1/superadmin/catalogue-national/medicaments?${qm.toString()}`),
     apiFetch('/api/v1/superadmin/catalogue-national/imports'),
     apiFetch('/api/v1/superadmin/lettres-cles'),
     apiFetch('/api/v1/superadmin/catalogue-national/actes?statut=RETIRE&page=1&limite=1'),
+    apiFetch('/api/v1/superadmin/catalogue-national/medicaments?statut=RETIRE&page=1&limite=1'),
   ]);
   const lettresCles: LettreCleOption[] = resLettres.ok ? await resLettres.json() : [];
   const pageActes: PageServeur<ActeNational> = resActes.ok
     ? await resActes.json()
     : { items: [], total: 0, page: 1, limite: 25, pages: 1 };
   const nbArchivesActes: number = resArchives.ok ? ((await resArchives.json()) as PageServeur<ActeNational>).total : 0;
-  const medicaments: MedicamentNational[] = resMed.ok ? await resMed.json() : [];
+  const pageMedicaments: PageServeur<MedicamentNational> = resMed.ok
+    ? await resMed.json()
+    : { items: [], total: 0, page: 1, limite: 25, pages: 1 };
+  const nbArchivesMedicaments: number = resArchivesMed.ok ? ((await resArchivesMed.json()) as PageServeur<MedicamentNational>).total : 0;
   const imports: ImportCatalogueResume[] = resImports.ok ? await resImports.json() : [];
   const erreur = resActes.ok ? null : await messageErreur(resActes);
 
@@ -48,7 +55,7 @@ export default async function CatalogueNational({ searchParams }: { searchParams
       {erreur ? (
         <p className="text-sm text-destructive">{erreur}</p>
       ) : (
-        <CatalogueNationalEcran pageActes={pageActes} nbArchivesActes={nbArchivesActes} medicaments={medicaments} imports={imports} lettresCles={lettresCles} />
+        <CatalogueNationalEcran pageActes={pageActes} nbArchivesActes={nbArchivesActes} pageMedicaments={pageMedicaments} nbArchivesMedicaments={nbArchivesMedicaments} imports={imports} lettresCles={lettresCles} />
       )}
     </div>
   );

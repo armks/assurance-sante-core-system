@@ -217,9 +217,9 @@ export class SuperadminConfigController {
   @Get('catalogue-national/medicaments')
   listerMedicamentsNational(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('statut') statut?: string,
+    @Query() filtres: RechercheCatalogueQueryDto,
   ) {
-    return this.config.listerMedicamentsNational(user, { statut });
+    return this.config.listerMedicamentsNational(user, { statut: filtres.statut, q: filtres.q, page: filtres.page, limite: filtres.limite });
   }
 
   @Post('catalogue-national/medicaments')

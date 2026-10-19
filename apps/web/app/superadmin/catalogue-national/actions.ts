@@ -50,13 +50,9 @@ export async function modifierActeNational(
 
 export async function creerMedicamentNational(input: {
   denominationCommune: string;
-  forme?: string;
-  dosage?: string;
-  classeTherapeutique?: string;
-  usage?: string;
-}): Promise<ResultatSoumission> {
+} & Record<string, string | number | boolean | null | undefined>): Promise<ResultatSoumission> {
   const body = Object.fromEntries(
-    Object.entries(input).filter(([, v]) => v !== undefined && v !== ''),
+    Object.entries(input).filter(([, v]) => v !== undefined && v !== null && v !== ''),
   );
   const res = await apiFetch(
     '/api/v1/superadmin/catalogue-national/medicaments',

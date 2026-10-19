@@ -519,18 +519,38 @@ export class SuperadminConfigService {
     return { id, statut: 'HOMOLOGUE' };
   }
 
+  /** Liste du catalogue des médicaments : recherche (DCI, nom commercial, groupe, code produit) et pagination serveur facultatives. */
   async listerMedicamentsNational(
     user: AuthenticatedUser,
-    filtres: { statut?: string } = {},
+    filtres: { statut?: string; q?: string; page?: number; limite?: number } = {},
   ) {
     await this.assertGestionCatalogue(user);
-    return this.prisma.referentielNationalMedicament.findMany({
-      where: {
-        deletedAt: null,
-        ...(filtres.statut ? { statutHomologation: filtres.statut } : {}),
-      },
-      orderBy: [{ classeTherapeutique: 'asc' }, { denominationCommune: 'asc' }],
-    });
+    const q = filtres.q?.trim();
+    const where: Prisma.ReferentielNationalMedicamentWhereInput = {
+      deletedAt: null,
+      ...(filtres.statut ? { statutHomologation: filtres.statut } : {}),
+      ...(q
+        ? {
+            OR: [
+              { denominationCommune: { contains: q, mode: 'insensitive' } },
+              { nomCommercial: { contains: q, mode: 'insensitive' } },
+              { classeTherapeutique: { contains: q, mode: 'insensitive' } },
+              { codeProduit: { contains: q } },
+            ],
+          }
+        : {}),
+    };
+    const orderBy: Prisma.ReferentielNationalMedicamentOrderByWithRelationInput[] = [{ nomCommercial: 'asc' }, { denominationCommune: 'asc' }];
+    if (!filtres.page) {
+      return this.prisma.referentielNationalMedicament.findMany({ where, orderBy: [{ classeTherapeutique: 'asc' }, { denominationCommune: 'asc' }] });
+    }
+    const limite = Math.min(Math.max(filtres.limite ?? 25, 1), 100);
+    const page = Math.max(filtres.page, 1);
+    const [items, total] = await Promise.all([
+      this.prisma.referentielNationalMedicament.findMany({ where, orderBy, skip: (page - 1) * limite, take: limite }),
+      this.prisma.referentielNationalMedicament.count({ where }),
+    ]);
+    return versPage(items, total, page, limite);
   }
 
   async creerMedicamentNational(
@@ -538,9 +558,14 @@ export class SuperadminConfigService {
     dto: CreerMedicamentNationalDto,
   ) {
     const { userId } = await this.assertGestionCatalogue(user);
+    if (dto.codeProduit) await this.assertCodeProduitLibre(dto.codeProduit);
     return this.prisma.$transaction(async (tx) => {
       const m = await tx.referentielNationalMedicament.create({
         data: {
+          codeProduit: dto.codeProduit ?? null,
+          categorieRemboursement: dto.categorieRemboursement ?? null,
+          regimeRemboursement: dto.regimeRemboursement ?? null,
+          typeMedicament: dto.typeMedicament ?? null,
           denominationCommune: dto.denominationCommune,
           nomCommercial: dto.nomCommercial ?? null,
           codeEan: dto.codeEan ?? null,
@@ -578,6 +603,7 @@ export class SuperadminConfigService {
     const avant = await this.prisma.referentielNationalMedicament.findFirst({ where: { id, deletedAt: null } });
     if (!avant) throw new NotFoundException('Médicament national introuvable.');
     await this.dependances.assertPossible(user, 'medicamentNational', id, 'modifier');
+    if (dto.codeProduit && dto.codeProduit !== avant.codeProduit) await this.assertCodeProduitLibre(dto.codeProduit, id);
 
     const texte = (v: string | null | undefined) => (v === null ? null : v?.trim() || null);
     const data: Prisma.ReferentielNationalMedicamentUpdateInput = {};
@@ -588,7 +614,7 @@ export class SuperadminConfigService {
     for (const k of ['nomCommercial', 'codeEan', 'codeProduit', 'forme', 'dosage', 'conditionnement', 'classeTherapeutique', 'regimeRemboursement'] as const) {
       poser(k, (v) => texte(v as string | null));
     }
-    for (const k of ['remboursable', 'medicamentEssentiel', 'ordonnanceObligatoire', 'medicamentControle', 'generiqueDisponible', 'categorieRemboursement', 'usage'] as const) {
+    for (const k of ['remboursable', 'medicamentEssentiel', 'ordonnanceObligatoire', 'medicamentControle', 'generiqueDisponible', 'categorieRemboursement', 'typeMedicament', 'usage'] as const) {
       poser(k, (v) => v);
     }
     for (const k of ['tauxRemboursementStd', 'prixReferenceXof', 'prixMaxRemboursable'] as const) {
@@ -612,6 +638,15 @@ export class SuperadminConfigService {
       );
       return m;
     });
+  }
+
+  /** Le code produit identifie un médicament de la liste officielle : jamais deux fois. */
+  private async assertCodeProduitLibre(codeProduit: string, sauf?: string) {
+    const pris = await this.prisma.referentielNationalMedicament.findFirst({
+      where: { codeProduit, deletedAt: null, ...(sauf ? { id: { not: sauf } } : {}) },
+      select: { denominationCommune: true, nomCommercial: true },
+    });
+    if (pris) throw new ConflictException(`Le code produit « ${codeProduit} » existe déjà (${pris.nomCommercial ?? pris.denominationCommune}).`);
   }
 
   async supprimerMedicamentNational(user: AuthenticatedUser, id: string) {

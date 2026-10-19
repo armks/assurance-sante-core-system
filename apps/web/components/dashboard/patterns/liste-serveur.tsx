@@ -55,7 +55,10 @@ export function FiltresServeur({
   periode = false,
   libellePeriode = 'Période',
   selects = [],
+  prefixe = '',
 }: {
+  /** Préfixe des paramètres d'URL (`q`, `page`, sélecteurs) pour deux listes serveur sur une même page (ex. `m` → `mq`, `mpage`). */
+  prefixe?: string;
   recherche?: { placeholder: string };
   periode?: boolean;
   libellePeriode?: string;
@@ -63,7 +66,8 @@ export function FiltresServeur({
 }) {
   const { actuels, appliquer, enCours } = useParametres();
   const id = useId();
-  const actifs = ['q', 'du', 'au', ...selects.map((s) => s.cle)].some((k) => actuels.get(k));
+  const cle = (k: string) => prefixe + k;
+  const actifs = ['q', 'du', 'au', ...selects.map((s) => s.cle)].some((k) => actuels.get(cle(k)));
 
   return (
     <form
@@ -71,9 +75,9 @@ export function FiltresServeur({
       onSubmit={(e) => {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
-        const modifs: Record<string, string | null> = { page: null };
+        const modifs: Record<string, string | null> = { [cle('page')]: null };
         for (const k of ['q', 'du', 'au', ...selects.map((s) => s.cle)]) {
-          if (fd.has(k)) modifs[k] = String(fd.get(k) ?? '').trim() || null;
+          if (fd.has(cle(k))) modifs[cle(k)] = String(fd.get(cle(k)) ?? '').trim() || null;
         }
         appliquer(modifs);
       }}
@@ -86,9 +90,9 @@ export function FiltresServeur({
           <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             id={`${id}-q`}
-            name="q"
+            name={cle('q')}
             type="search"
-            defaultValue={actuels.get('q') ?? ''}
+            defaultValue={actuels.get(cle('q')) ?? ''}
             placeholder={recherche.placeholder}
             className="h-9 w-64 pl-8"
           />
@@ -99,20 +103,20 @@ export function FiltresServeur({
           <legend className="sr-only">{libellePeriode}</legend>
           <label className="grid gap-0.5 text-xs text-muted-foreground">
             {libellePeriode} — du
-            <input name="du" type="date" defaultValue={actuels.get('du') ?? ''} className={CLASSE_CHAMP} />
+            <input name={cle('du')} type="date" defaultValue={actuels.get(cle('du')) ?? ''} className={CLASSE_CHAMP} />
           </label>
           <label className="grid gap-0.5 text-xs text-muted-foreground">
             au
-            <input name="au" type="date" defaultValue={actuels.get('au') ?? ''} className={CLASSE_CHAMP} />
+            <input name={cle('au')} type="date" defaultValue={actuels.get(cle('au')) ?? ''} className={CLASSE_CHAMP} />
           </label>
         </fieldset>
       )}
       {selects.map((s) => (
         <select
           key={s.cle}
-          name={s.cle}
+          name={cle(s.cle)}
           aria-label={s.libelle}
-          defaultValue={actuels.get(s.cle) ?? ''}
+          defaultValue={actuels.get(cle(s.cle)) ?? ''}
           className={CLASSE_CHAMP}
         >
           <option value="">{s.libelle} : tous</option>
@@ -134,7 +138,7 @@ export function FiltresServeur({
           disabled={enCours}
           onClick={(e) => {
             e.currentTarget.form?.reset();
-            appliquer(Object.fromEntries(['q', 'du', 'au', 'page', ...selects.map((s) => s.cle)].map((k) => [k, null])));
+            appliquer(Object.fromEntries(['q', 'du', 'au', 'page', ...selects.map((s) => s.cle)].map((k) => [cle(k), null])));
           }}
         >
           <X aria-hidden="true" className="size-4" />
@@ -146,7 +150,7 @@ export function FiltresServeur({
 }
 
 /** Pied d'une liste paginée côté serveur : total FILTRÉ et navigation page à page. */
-export function PaginationServeur({ page, pages, total, limite }: Omit<PageServeur<unknown>, 'items'>) {
+export function PaginationServeur({ page, pages, total, limite, prefixe = '' }: Omit<PageServeur<unknown>, 'items'> & { prefixe?: string }) {
   const { appliquer, enCours } = useParametres();
   if (total === 0) return null;
   const debut = (page - 1) * limite + 1;
@@ -163,7 +167,7 @@ export function PaginationServeur({ page, pages, total, limite }: Omit<PageServe
             size="icon-sm"
             variant="outline"
             disabled={page <= 1 || enCours}
-            onClick={() => appliquer({ page: page - 1 > 1 ? String(page - 1) : null })}
+            onClick={() => appliquer({ [`${prefixe}page`]: page - 1 > 1 ? String(page - 1) : null })}
             aria-label="Page précédente"
           >
             <ChevronLeft aria-hidden="true" className="size-4" />
@@ -173,7 +177,7 @@ export function PaginationServeur({ page, pages, total, limite }: Omit<PageServe
             size="icon-sm"
             variant="outline"
             disabled={page >= pages || enCours}
-            onClick={() => appliquer({ page: String(page + 1) })}
+            onClick={() => appliquer({ [`${prefixe}page`]: String(page + 1) })}
             aria-label="Page suivante"
           >
             <ChevronRight aria-hidden="true" className="size-4" />

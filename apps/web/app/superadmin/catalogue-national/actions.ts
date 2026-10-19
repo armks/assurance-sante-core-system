@@ -67,6 +67,20 @@ export async function creerMedicamentNational(input: {
   return { ok: true, message: `« ${input.denominationCommune} » ajouté au catalogue.` };
 }
 
+/** Modifie un médicament du catalogue national. `null` = effacer la valeur facultative. */
+export async function modifierMedicamentNational(
+  id: string,
+  input: Record<string, string | number | boolean | null | undefined>,
+): Promise<ResultatSoumission> {
+  const res = await apiFetch(`/api/v1/superadmin/catalogue-national/medicaments/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) return { ok: false, ...(await detailErreur(res)) };
+  revalidatePath(CIBLE);
+  return { ok: true, message: 'Médicament modifié.' };
+}
+
 export async function supprimerItemNational(
   type: 'actes' | 'medicaments',
   id: string,

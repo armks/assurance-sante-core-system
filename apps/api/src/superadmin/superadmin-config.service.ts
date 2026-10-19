@@ -20,6 +20,7 @@ import {
   CreerActeNationalDto,
   CreerLettreCleDto,
   CreerMedicamentNationalDto,
+  ModifierMedicamentNationalDto,
   DefinirParametreDto,
   ModifierActeNationalDto,
   ModifierLettreCleDto,
@@ -571,6 +572,48 @@ export class SuperadminConfigService {
     });
   }
 
+  /** Modification d'un médicament du catalogue national (valeurs avant / après tracées). */
+  async modifierMedicamentNational(user: AuthenticatedUser, id: string, dto: ModifierMedicamentNationalDto) {
+    const { userId } = await this.assertGestionCatalogue(user);
+    const avant = await this.prisma.referentielNationalMedicament.findFirst({ where: { id, deletedAt: null } });
+    if (!avant) throw new NotFoundException('Médicament national introuvable.');
+    await this.dependances.assertPossible(user, 'medicamentNational', id, 'modifier');
+
+    const texte = (v: string | null | undefined) => (v === null ? null : v?.trim() || null);
+    const data: Prisma.ReferentielNationalMedicamentUpdateInput = {};
+    const poser = <K extends keyof ModifierMedicamentNationalDto>(k: K, f: (v: NonNullable<ModifierMedicamentNationalDto[K]> | null) => unknown) => {
+      if (k in dto && dto[k] !== undefined) (data as Record<string, unknown>)[k] = f(dto[k] as never);
+    };
+    if (dto.denominationCommune !== undefined) data.denominationCommune = dto.denominationCommune.trim();
+    for (const k of ['nomCommercial', 'codeEan', 'codeProduit', 'forme', 'dosage', 'conditionnement', 'classeTherapeutique', 'regimeRemboursement'] as const) {
+      poser(k, (v) => texte(v as string | null));
+    }
+    for (const k of ['remboursable', 'medicamentEssentiel', 'ordonnanceObligatoire', 'medicamentControle', 'generiqueDisponible', 'categorieRemboursement', 'usage'] as const) {
+      poser(k, (v) => v);
+    }
+    for (const k of ['tauxRemboursementStd', 'prixReferenceXof', 'prixMaxRemboursable'] as const) {
+      poser(k, (v) => this.dec(v as number | null | undefined));
+    }
+    if (Object.keys(data).length === 0) throw new BadRequestException('Aucune modification à enregistrer.');
+    const champs = Object.keys(data);
+    return this.prisma.$transaction(async (tx) => {
+      const m = await tx.referentielNationalMedicament.update({ where: { id }, data });
+      await this.audit(
+        tx,
+        userId,
+        'MODIFICATION_MEDICAMENT_CATALOGUE_NATIONAL',
+        id,
+        {
+          dci: avant.denominationCommune,
+          avant: Object.fromEntries(champs.map((c) => [c, (avant as Record<string, unknown>)[c]?.toString() ?? null])),
+          apres: Object.fromEntries(champs.map((c) => [c, (m as Record<string, unknown>)[c]?.toString() ?? null])),
+        },
+        'referentiel_national_medicaments',
+      );
+      return m;
+    });
+  }
+
   async supprimerMedicamentNational(user: AuthenticatedUser, id: string) {
     const { userId } = await this.assertGestionCatalogue(user);
     const m = await this.prisma.referentielNationalMedicament.findFirst({
@@ -688,7 +731,7 @@ export class SuperadminConfigService {
     return { userId: profil.id };
   }
 
-  private dec(v: number | undefined): string | null {
+  private dec(v: number | null | undefined): string | null {
     return v === undefined || v === null ? null : new Decimal(v).toFixed(2);
   }
 

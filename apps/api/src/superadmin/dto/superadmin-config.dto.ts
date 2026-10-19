@@ -104,6 +104,29 @@ export class CreerMedicamentNationalDto {
   @IsOptional() @IsIn(STATUTS_HOMOLOGATION) statut?: string;
 }
 
+/** Modification d'un médicament du catalogue national : `null` efface une valeur facultative. */
+export class ModifierMedicamentNationalDto {
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) denominationCommune?: string;
+  @IsOptional() @IsString() @MaxLength(200) nomCommercial?: string | null;
+  @IsOptional() @IsString() @MaxLength(20) codeEan?: string | null;
+  @IsOptional() @IsString() @MaxLength(60) codeProduit?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) forme?: string | null;
+  @IsOptional() @IsString() @MaxLength(80) dosage?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) conditionnement?: string | null;
+  @IsOptional() @IsString() @MaxLength(200) classeTherapeutique?: string | null;
+  @IsOptional() @IsBoolean() remboursable?: boolean;
+  @IsOptional() @IsIn(['R', 'EP']) categorieRemboursement?: string | null;
+  @IsOptional() @IsString() @MaxLength(120) regimeRemboursement?: string | null;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100) tauxRemboursementStd?: number | null;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) prixReferenceXof?: number | null;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) prixMaxRemboursable?: number | null;
+  @IsOptional() @IsBoolean() medicamentEssentiel?: boolean;
+  @IsOptional() @IsBoolean() generiqueDisponible?: boolean | null;
+  @IsOptional() @IsBoolean() ordonnanceObligatoire?: boolean;
+  @IsOptional() @IsBoolean() medicamentControle?: boolean;
+  @IsOptional() @IsIn(USAGES_MEDICAMENT) usage?: (typeof USAGES_MEDICAMENT)[number] | null;
+}
+
 /** Corps des actions de masse sur le catalogue national (ids distincts, plafond par requête). */
 export class ActionMasseCatalogueDto {
   @IsArray({ message: 'ids doit être une liste d’identifiants.' })

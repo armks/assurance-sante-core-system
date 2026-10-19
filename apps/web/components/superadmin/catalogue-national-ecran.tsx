@@ -8,11 +8,13 @@ import {
   changerStatutItemNational,
   creerMedicamentNational,
   modifierActeNational,
+  modifierMedicamentNational,
   supprimerItemNational,
   type ImportCatalogueResume,
   type ResultatActionMasse,
 } from '@/app/superadmin/catalogue-national/actions';
 import {
+  ChampCheckbox,
   ChampSelect,
   ConfirmationAction,
   ChampTexte,
@@ -61,6 +63,19 @@ export interface MedicamentNational {
   classeTherapeutique: string | null;
   usage: string | null;
   statutHomologation: string;
+  nomCommercial?: string | null;
+  codeEan?: string | null;
+  codeProduit?: string | null;
+  conditionnement?: string | null;
+  remboursable?: boolean;
+  categorieRemboursement?: string | null;
+  regimeRemboursement?: string | null;
+  tauxRemboursementStd?: string | null;
+  prixReferenceXof?: string | null;
+  prixMaxRemboursable?: string | null;
+  medicamentEssentiel?: boolean;
+  ordonnanceObligatoire?: boolean;
+  medicamentControle?: boolean;
 }
 
 export function CatalogueNationalEcran({
@@ -383,6 +398,74 @@ export function CatalogueNationalEcran({
             }
             actionLigne={(m) => (
               <span className="flex justify-end gap-2">
+                <FormulaireModal
+                  titre={`Modifier « ${m.denominationCommune} »`}
+                  mode="right"
+                  declencheur={<Button size="xs" variant="ghost">Modifier</Button>}
+                  libelleSoumettre="Enregistrer"
+                  onSoumettre={async (fd) => {
+                    const nb = (k: string) => (lire(fd, k) === '' ? null : Number(lire(fd, k)));
+                    return modifierMedicamentNational(m.id, {
+                      denominationCommune: lire(fd, 'denominationCommune'),
+                      nomCommercial: lire(fd, 'nomCommercial') || null,
+                      codeProduit: lire(fd, 'codeProduit') || null,
+                      codeEan: lire(fd, 'codeEan') || null,
+                      forme: lire(fd, 'forme') || null,
+                      dosage: lire(fd, 'dosage') || null,
+                      conditionnement: lire(fd, 'conditionnement') || null,
+                      classeTherapeutique: lire(fd, 'classeTherapeutique') || null,
+                      usage: lire(fd, 'usage') || null,
+                      remboursable: fd.get('remboursable') === 'on',
+                      categorieRemboursement: lire(fd, 'categorieRemboursement') || null,
+                      regimeRemboursement: lire(fd, 'regimeRemboursement') || null,
+                      tauxRemboursementStd: nb('tauxRemboursementStd'),
+                      prixReferenceXof: nb('prixReferenceXof'),
+                      prixMaxRemboursable: nb('prixMaxRemboursable'),
+                      medicamentEssentiel: fd.get('medicamentEssentiel') === 'on',
+                      ordonnanceObligatoire: fd.get('ordonnanceObligatoire') === 'on',
+                      medicamentControle: fd.get('medicamentControle') === 'on',
+                    });
+                  }}
+                  onSucces={() => router.refresh()}
+                >
+                  <ChampTexte name="denominationCommune" label="Dénomination commune (DCI)" required defaultValue={m.denominationCommune} />
+                  <ChampTexte name="nomCommercial" label="Nom commercial" defaultValue={m.nomCommercial ?? ''} />
+                  <ChampTexte name="codeProduit" label="Code produit" defaultValue={m.codeProduit ?? ''} />
+                  <ChampTexte name="codeEan" label="Code EAN" defaultValue={m.codeEan ?? ''} />
+                  <ChampTexte name="forme" label="Forme" defaultValue={m.forme ?? ''} />
+                  <ChampTexte name="dosage" label="Dosage" defaultValue={m.dosage ?? ''} />
+                  <ChampTexte name="conditionnement" label="Conditionnement" defaultValue={m.conditionnement ?? ''} />
+                  <ChampTexte name="classeTherapeutique" label="Classe thérapeutique" defaultValue={m.classeTherapeutique ?? ''} />
+                  <ChampSelect
+                    name="usage"
+                    label="Usage"
+                    placeholder="—"
+                    defaultValue={m.usage ?? ''}
+                    options={[
+                      { valeur: 'AMBULATOIRE', libelle: 'Ambulatoire' },
+                      { valeur: 'HOSPITALIER', libelle: 'Hospitalier' },
+                      { valeur: 'LES_DEUX', libelle: 'Les deux' },
+                    ]}
+                  />
+                  <ChampCheckbox name="remboursable" label="Remboursable" defaultChecked={m.remboursable ?? false} />
+                  <ChampSelect
+                    name="categorieRemboursement"
+                    label="Catégorie de remboursement"
+                    placeholder="—"
+                    defaultValue={m.categorieRemboursement ?? ''}
+                    options={[
+                      { valeur: 'R', libelle: 'R — remboursable' },
+                      { valeur: 'EP', libelle: 'EP — entente préalable' },
+                    ]}
+                  />
+                  <ChampTexte name="regimeRemboursement" label="Régime de remboursement" defaultValue={m.regimeRemboursement ?? ''} />
+                  <ChampNombre name="tauxRemboursementStd" label="Taux de remboursement (%)" min={0} max={100} step="0.01" defaultValue={m.tauxRemboursementStd ?? ''} />
+                  <ChampNombre name="prixReferenceXof" label="Prix de référence (F CFA)" min={0} step="0.01" defaultValue={m.prixReferenceXof ?? ''} />
+                  <ChampNombre name="prixMaxRemboursable" label="Prix maximum remboursable (F CFA)" min={0} step="0.01" defaultValue={m.prixMaxRemboursable ?? ''} />
+                  <ChampCheckbox name="medicamentEssentiel" label="Médicament essentiel" defaultChecked={m.medicamentEssentiel ?? false} />
+                  <ChampCheckbox name="ordonnanceObligatoire" label="Ordonnance obligatoire" defaultChecked={m.ordonnanceObligatoire ?? true} />
+                  <ChampCheckbox name="medicamentControle" label="Médicament contrôlé" defaultChecked={m.medicamentControle ?? false} />
+                </FormulaireModal>
                 {m.statutHomologation === 'PROPOSE' && (
                   <Button size="xs" variant="ghost" onClick={async () => { await homologuerItemNational('medicaments', m.id); router.refresh(); }}>
                     Homologuer

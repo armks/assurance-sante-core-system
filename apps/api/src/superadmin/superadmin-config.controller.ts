@@ -25,6 +25,7 @@ import {
   CreerMedicamentNationalDto,
   DefinirParametreDto,
   ModifierActeNationalDto,
+  ModifierMedicamentNationalDto,
   ModifierLettreCleDto,
   RechercheCatalogueQueryDto,
 } from './dto/superadmin-config.dto';
@@ -227,6 +228,16 @@ export class SuperadminConfigController {
     @Body() dto: CreerMedicamentNationalDto,
   ) {
     return this.config.creerMedicamentNational(user, dto);
+  }
+
+  /** Modification d'un médicament du catalogue national (propagée aux copies des organisations par trigger). */
+  @Patch('catalogue-national/medicaments/:id')
+  modifierMedicamentNational(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ModifierMedicamentNationalDto,
+  ) {
+    return this.config.modifierMedicamentNational(user, id, dto);
   }
 
   @Delete('catalogue-national/medicaments/:id')

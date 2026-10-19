@@ -43,12 +43,12 @@ export interface GroupeEntreeNav {
 
 /** Classes complètes (Tailwind) par couleur de catégorie : pastille d'icône, icône de lien, fond actif. */
 const COULEURS_GROUPE: Record<GroupeEntreeNav['couleur'], { pastille: string; icone: string; actif: string }> = {
-  rose: { pastille: 'bg-rose-500/15 text-rose-600 dark:text-rose-300', icone: 'text-rose-500', actif: 'bg-rose-500/10 text-foreground' },
-  indigo: { pastille: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', icone: 'text-indigo-500', actif: 'bg-indigo-500/10 text-foreground' },
-  teal: { pastille: 'bg-teal-500/15 text-teal-600 dark:text-teal-300', icone: 'text-teal-500', actif: 'bg-teal-500/10 text-foreground' },
-  emerald: { pastille: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300', icone: 'text-emerald-500', actif: 'bg-emerald-500/10 text-foreground' },
-  amber: { pastille: 'bg-amber-500/15 text-amber-600 dark:text-amber-300', icone: 'text-amber-500', actif: 'bg-amber-500/10 text-foreground' },
-  violet: { pastille: 'bg-violet-500/15 text-violet-600 dark:text-violet-300', icone: 'text-violet-500', actif: 'bg-violet-500/10 text-foreground' },
+  rose: { pastille: 'bg-rose-500/15 text-rose-300', icone: 'text-rose-400', actif: 'bg-rose-500/20 text-foreground' },
+  indigo: { pastille: 'bg-indigo-500/15 text-indigo-300', icone: 'text-indigo-400', actif: 'bg-indigo-500/20 text-foreground' },
+  teal: { pastille: 'bg-teal-500/15 text-teal-300', icone: 'text-teal-400', actif: 'bg-teal-500/20 text-foreground' },
+  emerald: { pastille: 'bg-emerald-500/15 text-emerald-300', icone: 'text-emerald-400', actif: 'bg-emerald-500/20 text-foreground' },
+  amber: { pastille: 'bg-amber-500/15 text-amber-300', icone: 'text-amber-400', actif: 'bg-amber-500/20 text-foreground' },
+  violet: { pastille: 'bg-violet-500/15 text-violet-300', icone: 'text-violet-400', actif: 'bg-violet-500/20 text-foreground' },
 };
 
 /**
@@ -265,7 +265,7 @@ export function NavMobile({
           <Menu aria-hidden="true" className="size-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent side="right" className="max-w-xs gap-0 p-0" aria-describedby={undefined}>
+      <DialogContent side="right" className="menu-couleur menu-degrade max-w-xs gap-0 p-0 text-card-foreground" aria-describedby={undefined}>
         <DialogHeader className="border-b px-4 py-4">
           <DialogTitle>Menu</DialogTitle>
         </DialogHeader>

@@ -82,6 +82,34 @@
   }
 }
 
+/* Menu latéral des tableaux de bord : bleu nuit. Les jetons sont redéfinis pour le seul menu (bureau et panneau mobile) :
+   tous les composants qui l'habitent (liens, pastilles, badges, carte utilisateur) s'y adaptent sans autre changement.
+   Pour changer la couleur du menu, modifier --card ci-dessous. */
+.menu-couleur {
+  --card: 232 47% 17%;
+  --background: 232 47% 17%;
+  --card-foreground: 230 40% 96%;
+  --foreground: 230 40% 96%;
+  --muted: 232 40% 25%;
+  --muted-foreground: 230 28% 78%;
+  --accent: 232 45% 28%;
+  --accent-foreground: 0 0% 100%;
+  --secondary: 232 40% 26%;
+  --secondary-foreground: 230 40% 96%;
+  --border: 232 35% 29%;
+  --primary: 255 90% 79%;
+  --primary-foreground: 232 47% 14%;
+  --ring: 255 90% 79%;
+  color-scheme: dark;
+}
+/* Dégradé bleu nuit → violet profond : menu latéral (vertical) et barre du haut (horizontal). */
+.menu-degrade {
+  background-image: linear-gradient(180deg, hsl(232 52% 19%) 0%, hsl(240 46% 16%) 55%, hsl(262 48% 20%) 100%);
+}
+.menu-degrade-h {
+  background-image: linear-gradient(90deg, hsl(232 52% 19%) 0%, hsl(250 50% 22%) 55%, hsl(268 52% 28%) 100%);
+}
+
 /* ---------------------------------------------------------------------------
  * Page d'accueil publique : animations (préfixe `accueil-`). Toutes neutralisées
  * sous `prefers-reduced-motion: reduce` (bloc en fin de section).

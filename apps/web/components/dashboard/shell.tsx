@@ -90,7 +90,7 @@ export function DashboardShell({
       <LienEvitement />
 
       {/* Sidebar (desktop) */}
-      <aside className="hidden flex-col border-r bg-card md:flex">
+      <aside className="menu-couleur menu-degrade hidden flex-col border-r bg-card text-card-foreground md:flex">
         <div className="border-b px-4 py-4">
           <Brand />
         </div>
@@ -106,7 +106,7 @@ export function DashboardShell({
 
       {/* Contenu */}
       <div className="flex min-h-svh min-w-0 flex-col">
-        <header className="flex items-center gap-3 border-b bg-card/80 px-4 py-3 backdrop-blur md:px-8">
+        <header className="menu-couleur menu-degrade-h flex items-center gap-3 border-b border-white/10 px-4 py-3 text-card-foreground md:px-8">
           <div className="md:hidden">
             <Brand />
           </div>

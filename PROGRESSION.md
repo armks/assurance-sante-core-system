@@ -9227,3 +9227,7 @@ Terminé.
 - **Formulaires d'ajout et de modification** (communs) : code produit, nom commercial, groupe thérapeutique, DCI, catégorie, type, prix, régime, puis « Compléments » facultatifs (forme, dosage, conditionnement, EAN, usage, taux, prix maximum, essentiel / ordonnance / contrôlé). Tableau : mêmes colonnes que le PDF.
 - **Liste paginée côté serveur** (25 par page, recherche par nom, DCI, groupe ou code, filtre de statut) — `FiltresServeur` / `PaginationServeur` reçoivent un préfixe d'URL pour deux listes sur une même page.
 - Tests : jest 465 (superadmin, référentiel, pharmacie, dépendances) ; HTTP réel (liste, recherche, création, doublon, validations, modification, audit, rôle refusé, nettoyage) ; types API et web OK. Non vérifié : les formulaires dans un navigateur. À confirmer avec la MUGEF-CI : sens de EPF, TPC, « libre », RCO, IVSPL.
+
+## 2026-10-18 — Nouvelle couleur du menu et de la barre du haut des tableaux de bord
+- Menu latéral (bureau et panneau mobile) et barre du haut passent en dégradé bleu nuit → violet profond ; les jetons de couleur sont redéfinis pour ces seules zones (classes `.menu-couleur`, `.menu-degrade`, `.menu-degrade-h` dans `globals.css`) : liens, badges, carte utilisateur et pastilles de catégories s'y adaptent (teintes des pastilles éclaircies pour le contraste). Appliqué aux tableaux de bord de rôle et à la super-administration. Pour changer de teinte : modifier ces trois classes.
+- Vérifié : types OK. Non vérifié : rendu dans un navigateur (contrastes à valider à l'œil, clair et sombre).

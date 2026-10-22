@@ -293,13 +293,13 @@ export function ReseauPanneau({
           <CarteResume libelle="Sans position GPS" valeur={nbSansPosition} icon={MapPin} indice="absents de la carte" />
         </GrilleCartes>
 
-        <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap sm:overflow-x-auto">
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Rechercher : nom, code, ville…"
             aria-label="Rechercher"
-            className="h-9 min-w-0 flex-1"
+            className="h-9 w-full min-w-0 sm:w-auto sm:min-w-40 sm:flex-1"
           />
           <select value={fStatut} onChange={(e) => setFStatut(e.target.value)} aria-label="Statut" className={`${CLASSE_FILTRE} shrink-0`}>
             <option value="">Tous les statuts</option>

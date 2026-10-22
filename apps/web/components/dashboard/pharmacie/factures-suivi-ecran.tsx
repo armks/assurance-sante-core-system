@@ -126,7 +126,7 @@ export function FacturesSuiviEcran({
     <div className="space-y-4">
       <form
         key={params.toString()}
-        className="flex flex-nowrap items-center gap-1.5 overflow-x-auto"
+        className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap sm:overflow-x-auto"
         onSubmit={(e) => {
           e.preventDefault();
           const fd = new FormData(e.currentTarget);
@@ -146,9 +146,9 @@ export function FacturesSuiviEcran({
           });
         }}
       >
-        <Input name="carte" defaultValue={actuel('carte')} placeholder="N° de carte" aria-label="N° de carte" className="h-9 min-w-0 flex-1 px-2 font-mono" />
-        <Input name="societe" defaultValue={actuel('societe')} placeholder="Société" aria-label="Société" className="h-9 min-w-0 flex-1 px-2" />
-        <Input name="formule" defaultValue={actuel('formule')} placeholder="Formule" aria-label="Formule" className="h-9 min-w-0 flex-1 px-2" />
+        <Input name="carte" defaultValue={actuel('carte')} placeholder="N° de carte" aria-label="N° de carte" className="h-9 min-w-32 flex-1 px-2 font-mono" />
+        <Input name="societe" defaultValue={actuel('societe')} placeholder="Société" aria-label="Société" className="h-9 min-w-32 flex-1 px-2" />
+        <Input name="formule" defaultValue={actuel('formule')} placeholder="Formule" aria-label="Formule" className="h-9 min-w-32 flex-1 px-2" />
         <select name="periode" aria-label="Période" defaultValue={periode} className={`${CLASSE_CHAMP} shrink-0`}>
           {PERIODES.map((p) => (
             <option key={p.valeur} value={p.valeur}>

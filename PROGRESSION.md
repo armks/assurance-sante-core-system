@@ -9252,3 +9252,9 @@ Terminé.
 - **Constat** : ouvert sur iPhone (Chrome) via le tunnel de développement, le navigateur ajoute `__gcruniqueid` aux formulaires et champs avant l'hydratation ; React affiche une erreur de console (développement uniquement, sans effet sur le fonctionnement).
 - **Contournement temporaire** : `suppressHydrationWarning` sur `ui/input.tsx`, les formulaires de contact et de newsletter et leurs champs, repérés par le marqueur `HYDRATATION-IOS`. **À RETIRER avant la version définitive** (`grep -rn HYDRATATION-IOS apps/web`).
 - Vérifié : types OK. Non vérifié : sur l'iPhone.
+
+## 2026-10-22 — Barres de filtres sur téléphone et accès au site en développement depuis le réseau local
+- **Barres de filtres** : sur téléphone, la ligne de filtres passe à la ligne (`flex-wrap`, `sm:flex-nowrap` conservé sur écran large) et le champ de recherche prend la largeur (ou `min-w-32` quand plusieurs champs se partagent la ligne) au lieu d'être écrasé sous les listes. Écrans : réseau de soins (public), réseau (tableau de bord), annonces, grilles tarifaires, supervision des dossiers, filtres famille (adhérent), suivi des factures (pharmacie).
+- **Réseau de soins** : `suppressHydrationWarning` (marqueur `HYDRATATION-IOS`, **à retirer avant la version définitive**) sur ses cinq listes déroulantes.
+- **Développement** : `next.config.ts` autorise aussi `192.168.*.*` et `10.*.*.*` (`allowedDevOrigins`) ; le CAPTCHA s'affiche alors dans Edge ouvert par l'adresse du réseau local.
+- Vérifié : types OK ; CAPTCHA confirmé par l'utilisateur dans Edge. Non vérifié : rendu des barres de filtres sur téléphone.

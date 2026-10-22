@@ -49,7 +49,7 @@ export function FiltresFamille({
   return (
     <form
       key={params.toString()}
-      className="flex flex-nowrap items-center gap-1.5 overflow-x-auto"
+      className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap sm:overflow-x-auto"
       onSubmit={(e) => {
         e.preventDefault();
         const fd = new FormData(e.currentTarget);
@@ -73,7 +73,7 @@ export function FiltresFamille({
         defaultValue={actuel('carte')}
         placeholder="N° de carte (bénéficiaire)"
         aria-label="N° de carte du bénéficiaire"
-        className="h-9 min-w-0 flex-1 px-2 font-mono"
+        className="h-9 min-w-32 flex-1 px-2 font-mono"
       />
       <datalist id={idListe}>
         {cartesFamille.map((c) => (

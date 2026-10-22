@@ -188,13 +188,13 @@ export function AnnoncesEcran({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap sm:overflow-x-auto">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Rechercher dans les messages…"
           aria-label="Rechercher une annonce"
-          className="h-9 min-w-0 flex-1"
+          className="h-9 w-full min-w-0 sm:w-auto sm:min-w-40 sm:flex-1"
         />
         <select value={fEtat} onChange={(e) => setFEtat(e.target.value)} aria-label="État" className={`${CLASSE_CHAMP} shrink-0`}>
           <option value="">Tous les états</option>

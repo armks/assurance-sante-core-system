@@ -218,7 +218,7 @@ export function ReseauSoinsRecherche({ lieux, parPage = 15 }: { lieux: LieuAnnua
           <LocateFixed aria-hidden="true" />
           {geo === 'lecture' ? 'Localisation…' : position ? 'Position trouvée' : 'Autour de moi'}
         </Button>
-        <select value={rayon} onChange={(e) => setRayon(e.target.value)} aria-label="Rayon de recherche" className={`${CLASSE_CHAMP} shrink-0`}>
+        <select suppressHydrationWarning /* HYDRATATION-IOS */ value={rayon} onChange={(e) => setRayon(e.target.value)} aria-label="Rayon de recherche" className={`${CLASSE_CHAMP} shrink-0`}>
           <option value="">Rayon : tous</option>
           {RAYONS_KM.map((km) => (
             <option key={km} value={km}>
@@ -239,8 +239,8 @@ export function ReseauSoinsRecherche({ lieux, parPage = 15 }: { lieux: LieuAnnua
         )}
       </div>
 
-      <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto">
-        <div className="relative min-w-0 flex-1">
+      <div className="flex flex-wrap items-center gap-1.5 sm:flex-nowrap sm:overflow-x-auto">
+        <div className="relative w-full min-w-0 sm:w-auto sm:min-w-40 sm:flex-1">
           <Search aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={q}
@@ -251,6 +251,7 @@ export function ReseauSoinsRecherche({ lieux, parPage = 15 }: { lieux: LieuAnnua
           />
         </div>
         <select
+          suppressHydrationWarning /* HYDRATATION-IOS */
           value={ville}
           onChange={(e) => {
             setVille(e.target.value);
@@ -267,7 +268,7 @@ export function ReseauSoinsRecherche({ lieux, parPage = 15 }: { lieux: LieuAnnua
             </option>
           ))}
         </select>
-        <select value={commune} onChange={(e) => setCommune(e.target.value)} aria-label="Commune" className={`${CLASSE_CHAMP} shrink-0`}>
+        <select suppressHydrationWarning /* HYDRATATION-IOS */ value={commune} onChange={(e) => setCommune(e.target.value)} aria-label="Commune" className={`${CLASSE_CHAMP} shrink-0`}>
           <option value="">Toutes les communes</option>
           {optCommunes.map((o) => (
             <option key={o.valeur} value={o.valeur}>
@@ -275,7 +276,7 @@ export function ReseauSoinsRecherche({ lieux, parPage = 15 }: { lieux: LieuAnnua
             </option>
           ))}
         </select>
-        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type" className={`${CLASSE_CHAMP} shrink-0`}>
+        <select suppressHydrationWarning /* HYDRATATION-IOS */ value={type} onChange={(e) => setType(e.target.value)} aria-label="Type" className={`${CLASSE_CHAMP} shrink-0`}>
           <option value="">Tous les types</option>
           {optTypes.map((o) => (
             <option key={o.valeur} value={o.valeur}>
@@ -283,7 +284,7 @@ export function ReseauSoinsRecherche({ lieux, parPage = 15 }: { lieux: LieuAnnua
             </option>
           ))}
         </select>
-        <select value={garde} onChange={(e) => setGarde(e.target.value)} aria-label="Garde" className={`${CLASSE_CHAMP} shrink-0`}>
+        <select suppressHydrationWarning /* HYDRATATION-IOS */ value={garde} onChange={(e) => setGarde(e.target.value)} aria-label="Garde" className={`${CLASSE_CHAMP} shrink-0`}>
           <option value="">Garde : tous</option>
           <option value="OUI">De garde le week-end</option>
           <option value="NON">Pas de garde</option>

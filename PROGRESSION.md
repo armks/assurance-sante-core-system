@@ -9247,3 +9247,8 @@ Terminé.
 - **Constat** : par le lien de partage (tunnel `*.devtunnels.ms`) ou `127.0.0.1`, l'image du CAPTCHA restait « Indisponible » : Next.js en développement refuse les actions serveur dont l'origine n'est pas `localhost` (« Invalid Server Actions request »).
 - **Correctif** : le CAPTCHA est chargé par un simple `GET /auth/captcha` (`app/auth/captcha/route.ts`, public) au lieu de l'action serveur ; `captcha-champ.tsx` l'appelle par `fetch`. `next.config.ts` : `allowedDevOrigins` et `serverActions.allowedOrigins` (développement uniquement) pour `127.0.0.1` et `**.devtunnels.ms`, nécessaires aux autres actions serveur (connexion) derrière le tunnel.
 - Vérifié : route en HTTP réel (200, hôte local et hôte de tunnel simulé), types OK, affichage confirmé par l'utilisateur via le tunnel. L'action `nouveauCaptcha` de `auth-actions.ts` n'est plus utilisée par le champ.
+
+## 2026-10-22 — Avertissement d'hydratation masqué sur la page d'accueil (Chrome iPhone)
+- **Constat** : ouvert sur iPhone (Chrome) via le tunnel de développement, le navigateur ajoute `__gcruniqueid` aux formulaires et champs avant l'hydratation ; React affiche une erreur de console (développement uniquement, sans effet sur le fonctionnement).
+- **Contournement temporaire** : `suppressHydrationWarning` sur `ui/input.tsx`, les formulaires de contact et de newsletter et leurs champs, repérés par le marqueur `HYDRATATION-IOS`. **À RETIRER avant la version définitive** (`grep -rn HYDRATATION-IOS apps/web`).
+- Vérifié : types OK. Non vérifié : sur l'iPhone.

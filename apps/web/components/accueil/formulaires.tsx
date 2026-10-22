@@ -148,6 +148,7 @@ function FormulaireDemande({ type, organisation }: { type: Onglet; organisation?
   return (
     <form
       ref={form}
+      suppressHydrationWarning /* HYDRATATION-IOS : à retirer avant la version définitive */
       noValidate={false}
       onSubmit={(e) => {
         e.preventDefault();
@@ -165,7 +166,7 @@ function FormulaireDemande({ type, organisation }: { type: Onglet; organisation?
       {/* Pot de miel : invisible et inaccessible aux humains, rempli par les robots. */}
       <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">
         <label htmlFor={champ('siteWeb')}>Site web</label>
-        <input id={champ('siteWeb')} name="siteWeb" type="text" tabIndex={-1} autoComplete="off" />
+        <input id={champ('siteWeb')} name="siteWeb" type="text" tabIndex={-1} autoComplete="off" suppressHydrationWarning /* HYDRATATION-IOS */ />
       </div>
 
       <Bloc id={champ('structure')} libelle={libelleStructure} className="sm:col-span-2">
@@ -177,6 +178,7 @@ function FormulaireDemande({ type, organisation }: { type: Onglet; organisation?
           <Bloc id={champ('categorie')} libelle="Type de structure">
             <select
               id={champ('categorie')}
+              suppressHydrationWarning /* HYDRATATION-IOS */
               name="categorie"
               required
               defaultValue=""
@@ -216,6 +218,7 @@ function FormulaireDemande({ type, organisation }: { type: Onglet; organisation?
       <Bloc id={champ('message')} libelle="Message" optionnel className="sm:col-span-2">
         <textarea
           id={champ('message')}
+          suppressHydrationWarning /* HYDRATATION-IOS */
           name="message"
           rows={4}
           maxLength={3000}

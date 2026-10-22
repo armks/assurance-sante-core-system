@@ -129,6 +129,7 @@ function Newsletter() {
         </p>
       ) : (
         <form
+          suppressHydrationWarning /* HYDRATATION-IOS : à retirer avant la version définitive */
           className="mt-4"
           onSubmit={(e) => {
             e.preventDefault();
@@ -139,7 +140,7 @@ function Newsletter() {
           {/* Pot de miel : invisible et inaccessible aux humains. */}
           <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">
             <label htmlFor={`${id}-site`}>Site web</label>
-            <input id={`${id}-site`} name="siteWeb" type="text" tabIndex={-1} autoComplete="off" />
+            <input id={`${id}-site`} name="siteWeb" type="text" tabIndex={-1} autoComplete="off" suppressHydrationWarning /* HYDRATATION-IOS */ />
           </div>
           <label htmlFor={`${id}-email`} className="text-sm text-white">
             Votre e-mail
@@ -147,6 +148,7 @@ function Newsletter() {
           <div className="mt-2 flex gap-2">
             <input
               id={`${id}-email`}
+              suppressHydrationWarning /* HYDRATATION-IOS */
               name="email"
               type="email"
               required

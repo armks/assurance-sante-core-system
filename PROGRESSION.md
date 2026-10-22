@@ -9242,3 +9242,8 @@ Terminé.
 - **Hydratation** : `EffetDefilement` pose classes, attribut `data-defilement-vu` et délai d'animation sur les blocs de page avant l'hydratation des zones diffusées (Suspense), d'où l'avertissement React sur `Card` (tableau de bord informatique). `suppressHydrationWarning` ajouté dans `components/ui/card.tsx` ; sans effet visible. Si l'avertissement apparaît sur un autre bloc animé non-`Card`, y ajouter la même propriété.
 - **Autorisations Claude Code** : règles `Bash(...)` contenant des `*` d'expressions régulières (interprétés comme jokers) retirées de `.claude/settings.json` et `settings.local.json` ; règles trop larges (`sed *`, `cat *`, `node *`, `python *`, `curl *`) retirées ; `deny` sur `Read(**/.env*)`.
 - Non vérifié : disparition de l'avertissement dans le navigateur.
+
+## 2026-10-22 — CAPTCHA de connexion affiché derrière un tunnel de développement
+- **Constat** : par le lien de partage (tunnel `*.devtunnels.ms`) ou `127.0.0.1`, l'image du CAPTCHA restait « Indisponible » : Next.js en développement refuse les actions serveur dont l'origine n'est pas `localhost` (« Invalid Server Actions request »).
+- **Correctif** : le CAPTCHA est chargé par un simple `GET /auth/captcha` (`app/auth/captcha/route.ts`, public) au lieu de l'action serveur ; `captcha-champ.tsx` l'appelle par `fetch`. `next.config.ts` : `allowedDevOrigins` et `serverActions.allowedOrigins` (développement uniquement) pour `127.0.0.1` et `**.devtunnels.ms`, nécessaires aux autres actions serveur (connexion) derrière le tunnel.
+- Vérifié : route en HTTP réel (200, hôte local et hôte de tunnel simulé), types OK, affichage confirmé par l'utilisateur via le tunnel. L'action `nouveauCaptcha` de `auth-actions.ts` n'est plus utilisée par le champ.

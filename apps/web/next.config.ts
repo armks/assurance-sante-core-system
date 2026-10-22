@@ -46,8 +46,12 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: imagesStorage,
   },
+  // développement : le site s'ouvre aussi via 127.0.0.1 et via le lien de partage (tunnel de développement) ; sinon les actions
+  // serveur (dont le CAPTCHA) sont refusées et le script de la page est bloqué
+  allowedDevOrigins: ['127.0.0.1', '**.devtunnels.ms'],
   experimental: {
     serverActions: {
+      allowedOrigins: process.env.NODE_ENV === 'production' ? [] : ['127.0.0.1:3000', '**.devtunnels.ms'],
       // Téléversement des images d'événements (5 Mo max côté API) + marge
       // multipart. Par défaut 1 Mo.
       bodySizeLimit: '6mb',

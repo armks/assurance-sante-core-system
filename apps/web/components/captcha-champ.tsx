@@ -3,7 +3,7 @@
 import { RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { nouveauCaptcha } from '@/app/auth-actions';
+import type { DefiCaptcha } from '@/lib/captcha';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -27,7 +27,9 @@ export function CaptchaChamp({ onChange, renouveler = 0 }: { onChange: (v: Valeu
     setChargement(true);
     setIndisponible(false);
     try {
-      const d = await nouveauCaptcha();
+      const r = await fetch('/auth/captcha', { cache: 'no-store' });
+      if (!r.ok) throw new Error(`captcha ${r.status}`);
+      const d = (await r.json()) as DefiCaptcha;
       setImage(d.image);
       setJeton(d.jeton);
       setReponse('');
